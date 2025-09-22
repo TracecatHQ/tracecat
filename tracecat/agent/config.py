@@ -6,8 +6,9 @@ from tracecat.agent.models import (
 
 # https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
-    "o4-mini": ModelConfig(
-        name="o4-mini",
+    # Maps the pydantic-ai model name to the Tracecat model config
+    "gpt-5-mini": ModelConfig(
+        name="gpt-5-mini",
         provider="openai",
         org_secret_name="agent-openai-credentials",
         secrets={
@@ -28,6 +29,14 @@ MODEL_CONFIGS = {
         org_secret_name="agent-bedrock-credentials",
         secrets={
             "required": ["bedrock"],
+        },
+    ),
+    "custom": ModelConfig(
+        name="custom",
+        provider="custom-model-provider",
+        org_secret_name="agent-custom-model-credentials",
+        secrets={
+            "required": ["custom-model-provider"],
         },
     ),
 }
@@ -78,6 +87,31 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="Region",
                 type="text",
                 description="The AWS region where you want to use Bedrock (e.g., us-east-1).",
+            ),
+        ],
+    ),
+    "custom-model-provider": ProviderCredentialConfig(
+        provider="custom-model-provider",
+        label="Custom LLM Provider",
+        fields=[
+            ProviderCredentialField(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your custom model provider API key.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="The base URL for your custom model provider.",
+            ),
+            ProviderCredentialField(
+                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+                label="Model Name",
+                type="text",
+                description="The name of the model to use from your custom model provider.",
             ),
         ],
     ),

@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
+from sqlalchemy import (
+    TIMESTAMP,
+    Column,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Interval,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -25,15 +34,13 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
-from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
+from tracecat.entities.enums import FieldType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-
-DEFAULT_SA_RELATIONSHIP_KWARGS = {
-    "lazy": "selectin",
-}
+from tracecat.workspaces.models import WorkspaceSettings
 
 
 class TimestampMixin(BaseModel):
@@ -71,6 +78,11 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
 class Membership(SQLModel, table=True):
     """Link table for users and workspaces (many to many)."""
 
+    __table_args__ = (
+        Index("ix_membership_workspace_id", "workspace_id"),
+        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
+    )
+
     user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
     workspace_id: UUID4 = Field(foreign_key="workspace.id", primary_key=True)
     role: WorkspaceRole = Field(
@@ -102,52 +114,39 @@ class Ownership(SQLModel, table=True):
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
     name: str = Field(..., index=True, nullable=False)
-    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    settings: WorkspaceSettings = Field(
+        default_factory=lambda: {"workflow_unlimited_timeout_enabled": True},
+        sa_column=Column(JSONB),
+    )
     members: list["User"] = Relationship(
         back_populates="workspaces",
         link_model=Membership,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
     workflows: list["Workflow"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     tags: list["Tag"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     folders: list["WorkflowFolder"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     integrations: list["OAuthIntegration"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
-
-    @computed_field
-    @property
-    def n_members(self) -> int:
-        return len(self.members)
+    # Custom entities owned by this workspace
+    entities: list["Entity"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
 
 class User(SQLModelBaseUserDB, table=True):
@@ -163,35 +162,40 @@ class User(SQLModelBaseUserDB, table=True):
         back_populates="user",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
     workspaces: list["Workspace"] = Relationship(
         back_populates="members",
         link_model=Membership,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     assigned_cases: list["Case"] = Relationship(
         back_populates="assignee",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     access_tokens: list["AccessToken"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     # Relationships
     chats: list["Chat"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
 
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    user: "User" = Relationship(
-        back_populates="access_tokens",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    user: "User" = Relationship(back_populates="access_tokens")
 
 
 class SAMLRequestData(SQLModel, table=True):
@@ -291,17 +295,8 @@ class WorkflowDefinition(Resource, table=True):
 
     # DSL content
     content: dict[str, Any] = Field(sa_column=Column(JSONB))
-    workflow: "Workflow" = Relationship(
-        back_populates="definitions",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
 
-
-class WorkflowTag(SQLModel, table=True):
-    """Link table for workflows and tags with optional metadata."""
-
-    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
-    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
+    workflow: "Workflow" = Relationship(back_populates="definitions")
 
 
 class WorkflowFolder(Resource, table=True):
@@ -330,10 +325,7 @@ class WorkflowFolder(Resource, table=True):
     owner: "Workspace" = Relationship(back_populates="folders")
     workflows: list["Workflow"] = Relationship(
         back_populates="folder",
-        sa_relationship_kwargs={
-            "cascade": "all, delete-orphan",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
     @property
@@ -355,26 +347,11 @@ class WorkflowFolder(Resource, table=True):
         return self.path.count("/") <= 2  # "/foldername/" has two slashes
 
 
-class Tag(Resource, table=True):
-    """A tag for organizing and filtering entities."""
+class WorkflowTag(SQLModel, table=True):
+    """Link table for workflows and tags with optional metadata."""
 
-    __table_args__ = (UniqueConstraint("name", "owner_id"),)
-
-    id: UUID4 = Field(
-        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    owner_id: OwnerID = Field(
-        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
-    )
-    name: str = Field(index=True, nullable=False)
-    color: str | None = Field(default=None)
-    # Relationships
-    owner: "Workspace" = Relationship(back_populates="tags")
-    workflows: list["Workflow"] = Relationship(
-        back_populates="tags",
-        link_model=WorkflowTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
+    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
 
 
 class Workflow(Resource, table=True):
@@ -406,11 +383,6 @@ class Workflow(Resource, table=True):
     entrypoint: str | None = Field(
         default=None,
         description="ID of the node directly connected to the trigger.",
-    )
-    static_inputs: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
-        description="Static inputs for the workflow",
     )
     expects: dict[str, Any] = Field(
         default_factory=dict,
@@ -452,37 +424,34 @@ class Workflow(Resource, table=True):
     # Relationships
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
+        # Use selectin to load actions in the same query
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     # Triggers
     webhook: "Webhook" = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
     schedules: list["Schedule"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
     tags: list["Tag"] = Relationship(
         back_populates="workflows",
         link_model=WorkflowTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 
@@ -500,9 +469,7 @@ class Webhook(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="webhook", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    workflow: Workflow | None = Relationship(back_populates="webhook")
 
     @computed_field
     @property
@@ -531,7 +498,11 @@ class Schedule(Resource, table=True):
     status: str = "online"  # "online" or "offline"
     cron: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    every: timedelta = Field(..., description="ISO 8601 duration string")
+    every: timedelta | None = Field(
+        default=None,
+        description="ISO 8601 duration string",
+        sa_column=Column(Interval(), nullable=True),
+    )
     offset: timedelta | None = Field(None, description="ISO 8601 duration string")
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
@@ -543,10 +514,7 @@ class Schedule(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="schedules",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    workflow: Workflow | None = Relationship(back_populates="schedules")
 
 
 class Action(Resource, table=True):
@@ -584,9 +552,7 @@ class Action(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    workflow: Workflow | None = Relationship(back_populates="actions")
 
     @property
     def ref(self) -> str:
@@ -622,9 +588,10 @@ class RegistryRepository(Resource, table=True):
     # Relationships
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
+        # Use selectin to load actions in the same query
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
 
@@ -743,7 +710,7 @@ class Table(Resource, table=True):
         back_populates="table",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
 
@@ -771,7 +738,7 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
     # Relationship back to the table
     table: Table = Relationship(
         back_populates="columns",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={"lazy": "selectin"},
     )
 
 
@@ -798,6 +765,21 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
         )
     )
     case: "Case" = Relationship(back_populates="fields")
+
+
+class CaseTag(SQLModel, table=True):
+    """Link table for cases and tags with optional metadata."""
+
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    tag_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
 
 
 class Case(Resource, table=True):
@@ -852,29 +834,20 @@ class Case(Resource, table=True):
         sa_relationship_kwargs={
             "cascade": "all, delete",
             "uselist": False,  # Make this a one-to-one relationship
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "selectin",
         },
     )
     comments: list["CaseComment"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     events: list["CaseEvent"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     assignee_id: uuid.UUID | None = Field(
         default=None,
@@ -883,9 +856,16 @@ class Case(Resource, table=True):
     )
     assignee: User | None = Relationship(
         back_populates="assigned_cases",
-        sa_relationship_kwargs={
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    tags: list["Tag"] = Relationship(
+        back_populates="cases",
+        link_model=CaseTag,
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    record_links: list["CaseRecord"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
 
@@ -1031,7 +1011,7 @@ class File(Resource, table=True):
     )
     content_type: str = Field(
         ...,
-        max_length=100,
+        max_length=255,
         description="MIME type of the file",
     )
     size: int = Field(
@@ -1052,10 +1032,7 @@ class File(Resource, table=True):
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="file",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
     @computed_field
@@ -1191,9 +1168,7 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     )
 
     # Relationships
-    user: User | None = Relationship(
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    user: User | None = Relationship()
     owner: Workspace = Relationship(back_populates="integrations")
 
     @property
@@ -1309,10 +1284,14 @@ class Chat(Resource, table=True):
     user: User = Relationship(back_populates="chats")
 
 
-class Prompt(Resource, table=True):
-    """A frozen chat that can be replayed on multiple cases."""
+class Runbook(Resource, table=True):
+    """A runbook that can be executed on cases."""
 
-    __tablename__: str = "prompt"
+    __tablename__: str = "runbook"
+
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_prompt_alias_owner_id"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -1320,35 +1299,250 @@ class Prompt(Resource, table=True):
         unique=True,
         index=True,
     )
-    chat_id: UUID4 = Field(
-        sa_column=Column(
-            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
-        )
-    )
     title: str = Field(
         ...,
-        description="Human-readable title for the prompt",
+        description="Human-readable title for the runbook",
         nullable=False,
     )
     content: str = Field(
         ...,
-        description="The instruction prompt/runbook string passed to the agent",
+        description="The instruction runbook string passed to the agent",
         nullable=False,
     )
     tools: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSONB),
-        description="The tools available to the agent for this prompt.",
+        description="The tools available to the agent for this runbook.",
     )
     summary: str | None = Field(
         default=None,
-        description="A summary of the prompt.",
+        description="A summary of the runbook.",
     )
+    alias: str | None = Field(default=None, description="Alias for the prompt")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Metadata including schema version, tool SHA, token count",
     )
 
+
+class Tag(Resource, table=True):
+    """A tag for organizing and filtering entities."""
+
+    __table_args__ = (
+        UniqueConstraint("name", "owner_id"),
+        UniqueConstraint("ref", "owner_id", name="uq_tag_ref_owner"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(index=True, nullable=False)
+    # ref is a slug-like identifier derived from the name, used for API lookups alongside UUID
+    ref: str = Field(index=True, nullable=False)
+    color: str | None = Field(default=None)
     # Relationships
-    chat: Chat = Relationship(sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS)
+    owner: "Workspace" = Relationship(back_populates="tags")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="tags",
+        link_model=WorkflowTag,
+    )
+    cases: list["Case"] = Relationship(
+        back_populates="tags",
+        link_model=CaseTag,
+    )
+
+
+class Entity(Resource, table=True):
+    """An entity defines a type of object that can be created and managed in the system.
+
+    Entities lifecycle:
+    - Create
+    - Deactivate
+    - Delete
+    """
+
+    __tablename__: str = "entity"
+    __table_args__ = (
+        # Keys should be unique per workspace owner
+        UniqueConstraint("owner_id", "key", name="uq_entity_owner_key"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    owner: "Workspace" = Relationship(back_populates="entities")
+    key: str = Field(..., max_length=100, nullable=False)
+    """User defined immutable identifier for the entity (alphanumeric snake_case)"""
+    display_name: str = Field(..., nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=100)
+    is_active: bool = Field(default=True, nullable=False)
+    fields: list["EntityField"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    records: list["EntityRecord"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class EntityField(Resource, table=True):
+    """The entity's fields. Defines the schema of the entity.
+
+    Fields lifecycle:
+    - Create
+    - Deactivate
+    - Delete
+    """
+
+    __tablename__: str = "entity_field"
+    __table_args__ = (
+        # Field keys are unique per entity (user-defined, immutable)
+        UniqueConstraint("entity_id", "key", name="uq_entity_field_key"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    # Relationship back to owning entity
+    entity: Entity = Relationship(back_populates="fields")
+    key: str = Field(..., max_length=255, nullable=False)
+    """Immutable identifier for the field (alphanumeric snake_case)."""
+    type: FieldType = Field(..., nullable=False)
+    """Immutable type of the field after creation"""
+    display_name: str = Field(..., max_length=255, nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    is_active: bool = Field(default=True, nullable=False)
+    default_value: Any | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    options: list["EntityFieldOption"] = Relationship(
+        back_populates="field",
+        # delete-orphan: also delete option rows when removed from this collection
+        # (in addition to deleting when the parent field is deleted)
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class EntityFieldOption(SQLModel, TimestampMixin, table=True):
+    """Minimal relation table for enum choices per field.
+
+    - Enforces unique keys per field (auto-generated from label)
+    - Keys are generated at creation time and treated as immutable
+    - Simple to extend later (ordering, colors, i18n, metadata)
+    """
+
+    __tablename__: str = "entity_field_option"
+    __table_args__ = (
+        # Enforce no duplicate keys per field
+        UniqueConstraint("field_id", "key", name="uq_field_option_key"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    field_id: UUID4 = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("entity_field.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    key: str = Field(..., max_length=255, nullable=False)
+    """Immutable identifier derived from the label (snake_case) on creation."""
+    label: str = Field(..., max_length=255, nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    field: EntityField = Relationship(back_populates="options")
+
+
+class EntityRecord(Resource, table=True):
+    """A record (aka instance) of an entity backed by JSONB data."""
+
+    __tablename__: str = "entity_record"
+    __table_args__ = (
+        # GIN index for top level fields
+        Index("idx_record_gin", "data", postgresql_using="gin"),
+        Index("idx_record_entity", "entity_id"),
+        UniqueConstraint("id", name="uq_entity_record_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    data: Any = Field(..., sa_column=Column(JSONB))
+    entity: Entity = Relationship(back_populates="records")
+
+
+class CaseRecord(Resource, table=True):
+    """Link table between cases and records."""
+
+    __tablename__: str = "case_record"
+    __table_args__ = (
+        UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
+        Index("idx_case_record_case", "case_id"),
+        Index("idx_case_record_entity", "entity_id"),
+        Index("idx_case_record_case_entity", "case_id", "entity_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+        ),
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    record_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity_record.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+
+    # Relationships
+    case: Case = Relationship(
+        back_populates="record_links",
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.case_id]",
+        },
+    )
+    entity: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.entity_id]",
+        }
+    )
+    record: EntityRecord = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.record_id]",
+        }
+    )

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import sqlalchemy as sa
+from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, func, or_, select
 
 from tracecat.db.schemas import Workflow, WorkflowDefinition, WorkflowFolder
@@ -37,7 +38,9 @@ class WorkflowFolderService(BaseService):
             raise TracecatAuthorizationError("Workspace ID is required")
         self.workspace_id = self.role.workspace_id
 
-    async def create_folder(self, name: str, parent_path: str = "/") -> WorkflowFolder:
+    async def create_folder(
+        self, name: str, parent_path: str = "/", commit: bool = True
+    ) -> WorkflowFolder:
         """Create a new workflow folder.
 
         Args:
@@ -76,7 +79,10 @@ class WorkflowFolderService(BaseService):
             owner_id=self.workspace_id,
         )
         self.session.add(folder)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(folder)
         return folder
 
@@ -510,6 +516,7 @@ class WorkflowFolderService(BaseService):
                 if order_by == "desc"
                 else col(Workflow.created_at).asc()
             )
+            .options(selectinload(Workflow.tags))  # type: ignore
         )
 
         workflow_result = await self.session.exec(workflow_statement)

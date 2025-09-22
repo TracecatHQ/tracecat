@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import ipaddress
 import itertools
 import json
@@ -22,7 +23,6 @@ from slugify import slugify
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
-from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
 from tracecat.expressions.ioc_extractors import (
     extract_asns,
@@ -40,6 +40,7 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
+from tracecat.interactions.models import InteractionContext
 from tracecat.parse import unescape_string
 
 
@@ -154,7 +155,7 @@ def str_to_b64(x: str) -> str:
 
 def b64_to_str(x: str) -> str:
     """Decode base64 string to string."""
-    return base64.b64decode(x).decode()
+    return base64.b64decode(x.encode("utf-8")).decode()
 
 
 def str_to_b64url(x: str) -> str:
@@ -164,7 +165,38 @@ def str_to_b64url(x: str) -> str:
 
 def b64url_to_str(x: str) -> str:
     """Decode URL-safe base64 string to string."""
-    return base64.urlsafe_b64decode(x).decode()
+    return base64.urlsafe_b64decode(x.encode("utf-8")).decode()
+
+
+# Hash functions
+
+
+def hash_md5(x: str | bytes) -> str:
+    """Generate MD5 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.md5(x).hexdigest()
+
+
+def hash_sha1(x: str | bytes) -> str:
+    """Generate SHA1 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha1(x).hexdigest()
+
+
+def hash_sha256(x: str | bytes) -> str:
+    """Generate SHA256 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha256(x).hexdigest()
+
+
+def hash_sha512(x: str | bytes) -> str:
+    """Generate SHA512 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha512(x).hexdigest()
 
 
 def replace(x: str, old: str, new: str) -> str:
@@ -330,6 +362,16 @@ def not_empty(x: Sequence[Any]) -> bool:
     return len(x) > 0
 
 
+def contains_any_of(a: Sequence[Any], b: Sequence[Any]) -> bool:
+    """Check if any of the elements of the first sequence exist in the second sequence."""
+    return bool(set(a) & set(b))
+
+
+def contains_none_of(a: Sequence[Any], b: Sequence[Any]) -> bool:
+    """Check if all of of the elements of the first sequence don't exist in the second sequence."""
+    return not (bool(set(a) & set(b)))
+
+
 def _custom_chain(*args) -> Any:
     """Recursively flattens nested iterables into a single generator."""
     for arg in args:
@@ -347,6 +389,26 @@ def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
 def unique(items: Sequence[Any]) -> list[Any]:
     """List of hashable items (e.g. strings, numbers) to remove duplicates from."""
     return list(set(items))
+
+
+def union(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list containing the union of elements from two sequences."""
+    return list(set(a).union(b))
+
+
+def intersection(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list containing the intersection of elements from two sequences."""
+    return list(set(a).intersection(b))
+
+
+def difference(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list of elements that are in the first sequence but not in the second."""
+    return list(set(a).difference(b))
+
+
+def symmetric_difference(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list of elements that are in either sequence but not in both."""
+    return list(set(a).symmetric_difference(b))
 
 
 def join_strings(items: Sequence[str], sep: str) -> str:
@@ -943,7 +1005,11 @@ _FUNCTION_MAPPING = {
     "compact": compact,
     "contains": is_in,  # alias for is_in
     "does_not_contain": not_in,  # alias for not_in
+    "contains_any_of": contains_any_of,
+    "contains_none_of": contains_none_of,
+    "difference": difference,
     "flatten": flatten,
+    "intersection": intersection,
     "is_empty": is_empty,
     "is_in": is_in,
     "length": len,
@@ -951,6 +1017,8 @@ _FUNCTION_MAPPING = {
     "is_not_empty": not_empty,  # alias for not_empty
     "not_in": not_in,
     "is_not_in": not_in,  # alias for not_in
+    "symmetric_difference": symmetric_difference,
+    "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
@@ -1028,6 +1096,11 @@ _FUNCTION_MAPPING = {
     "from_base64": b64_to_str,
     "to_base64url": str_to_b64url,
     "from_base64url": b64url_to_str,
+    # Hash functions
+    "hash_md5": hash_md5,
+    "hash_sha1": hash_sha1,
+    "hash_sha256": hash_sha256,
+    "hash_sha512": hash_sha512,
     # IP addresses
     "ipv4_in_subnet": ipv4_in_subnet,
     "ipv6_in_subnet": ipv6_in_subnet,

@@ -3,10 +3,10 @@
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { WorkspaceMembersTable } from "@/components/workspaces/workspace-members-table"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 
 export default function WorkspaceMembersPage() {
-  const { workspace, workspaceError, workspaceLoading } = useWorkspace()
+  const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   if (workspaceLoading) {
     return <CenteredSpinner />
   }

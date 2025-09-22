@@ -80,8 +80,8 @@ jest.mock("@/lib/api", () => ({
 }))
 
 jest.mock("@/lib/auth", () => ({}))
-jest.mock("@/providers/auth", () => ({}))
-jest.mock("@/providers/workspace", () => ({}))
+jest.mock("@/hooks/use-auth", () => ({}))
+jest.mock("@/providers/workspace-id", () => ({}))
 jest.mock("@/components/executions/nav", () => ({}))
 
 // Mock React JSX runtime to return renderable elements

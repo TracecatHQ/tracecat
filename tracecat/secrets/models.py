@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -24,6 +24,8 @@ SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
+SSHKeyTarget = Literal["registry", "store"]
+
 
 class SecretKeyValue(BaseModel):
     key: str
@@ -39,7 +41,7 @@ class SecretBase(BaseModel):
     """Base class for secrets."""
 
     @classmethod
-    def factory(cls, type: str) -> type[SecretBase]:
+    def factory(cls, type: SecretType) -> type[SecretBase]:
         if type not in _SECRET_FACTORY:
             raise ValueError(f"Invalid secret type {type!r}")
         return _SECRET_FACTORY[type]

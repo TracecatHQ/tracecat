@@ -1,38 +1,48 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
-import { CirclePlayIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
-import type { CaseReadMinimal } from "@/client"
-import {
-  PRIORITIES,
-  SEVERITIES,
-  STATUSES,
-} from "@/components/cases/case-categories"
+import type {
+  CasePriority,
+  CaseReadMinimal,
+  CaseSeverity,
+  CaseStatus,
+} from "@/client"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import { columns } from "@/components/cases/case-table-columns"
-import { PromptSelectionDialog } from "@/components/cases/runbook-selection-dialog"
-import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
-import { Button } from "@/components/ui/button"
+import { createColumns } from "@/components/cases/case-table-columns"
+import { CaseTableFilters } from "@/components/cases/case-table-filters"
+import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
+import { DataTable } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
-import { getDisplayName } from "@/lib/auth"
+import { useAuth } from "@/hooks/use-auth"
+import { useDebounce } from "@/hooks/use-debounce"
 import { useDeleteCase } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CaseTable() {
   const { user } = useAuth()
-  const { workspaceId, workspace } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
-  const [promptDialogOpen, setPromptDialogOpen] = useState(false)
-  const [selectedCasesForPrompt, setSelectedCasesForPrompt] = useState<
-    CaseReadMinimal[]
-  >([])
+  const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
+  const [clearSelectionTrigger, setClearSelectionTrigger] = useState(0)
   const router = useRouter()
+
+  // Server-side filter states
+  const [searchTerm, setSearchTerm] = useState<string>("")
+  const [statusFilter, setStatusFilter] = useState<CaseStatus | null>(null)
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority | null>(
+    null
+  )
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity | null>(
+    null
+  )
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
+  // Debounce search term for better performance
+  const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
 
   const {
     data: cases,
@@ -47,14 +57,26 @@ export default function CaseTable() {
     totalEstimate,
     startItem,
     endItem,
-  } = useCasesPagination({ workspaceId, limit: pageSize })
+    refetch,
+  } = useCasesPagination({
+    workspaceId,
+    limit: pageSize,
+    searchTerm: debouncedSearchTerm || null,
+    status: statusFilter,
+    priority: priorityFilter,
+    severity: severityFilter,
+    assigneeId: assigneeFilter === UNASSIGNED ? "unassigned" : assigneeFilter,
+  })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
   const { deleteCase } = useDeleteCase({
     workspaceId,
   })
 
-  const memoizedColumns = useMemo(() => columns, [])
+  const memoizedColumns = useMemo(
+    () => createColumns(setSelectedCase),
+    [setSelectedCase]
+  )
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
     return () =>
@@ -80,141 +102,122 @@ export default function CaseTable() {
         })
 
         // Refresh the cases list
+        await refetch()
+        setSelectedRows([])
+        setClearSelectionTrigger((value) => value + 1)
       } catch (error) {
         console.error("Failed to delete cases:", error)
+        toast({
+          variant: "destructive",
+          title: "Failed to delete cases",
+          description: "Please try again.",
+        })
       } finally {
         setIsDeleting(false)
       }
     },
-    [deleteCase, toast]
+    [deleteCase, refetch, toast]
   )
 
-  const handleSelectionChange = useCallback((rows: Row<CaseReadMinimal>[]) => {
-    setSelectedRows(rows)
-  }, [])
+  const handleBulkDelete = useCallback(async () => {
+    await handleDeleteRows(selectedRows)
+  }, [handleDeleteRows, selectedRows])
 
-  const handleRunPrompt = useCallback(() => {
-    if (selectedRows.length === 0) return
+  // Handle filter changes
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchTerm(value)
+      if (value !== searchTerm) {
+        goToFirstPage()
+      }
+    },
+    [searchTerm, goToFirstPage]
+  )
 
-    const selectedCases = selectedRows.map((row) => row.original)
-    setSelectedCasesForPrompt(selectedCases)
-    setPromptDialogOpen(true)
-  }, [selectedRows])
+  const handleStatusChange = useCallback(
+    (value: CaseStatus | null) => {
+      setStatusFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
 
-  const handlePromptSuccess = useCallback(() => {
-    setSelectedCasesForPrompt([])
-    setSelectedRows([])
+  const handlePriorityChange = useCallback(
+    (value: CasePriority | null) => {
+      setPriorityFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
 
-    toast({
-      title: "Runbook execution started",
-      description: `Executing runbook on ${selectedCasesForPrompt.length} case(s). Check individual cases for progress.`,
-    })
-  }, [selectedCasesForPrompt.length, toast])
+  const handleSeverityChange = useCallback(
+    (value: CaseSeverity | null) => {
+      setSeverityFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
 
-  const defaultToolbarProps = useMemo(() => {
-    const workspaceMembers =
-      workspace?.members.map((m) => {
-        const displayName = getDisplayName({
-          first_name: m.first_name,
-          last_name: m.last_name,
-          email: m.email,
-        })
-        return {
-          label: displayName,
-          value: displayName,
-        }
-      }) ?? []
-    const assignees = [
-      {
-        label: "Not assigned",
-        value: UNASSIGNED,
-      },
-      ...workspaceMembers,
-    ]
-
-    return {
-      filterProps: {
-        placeholder: "Filter cases by summary...",
-        column: "summary",
-      },
-      fields: [
-        {
-          column: "status",
-          title: "Status",
-          options: Object.values(STATUSES),
-        },
-        {
-          column: "priority",
-          title: "Priority",
-          options: Object.values(PRIORITIES),
-        },
-        {
-          column: "severity",
-          title: "Severity",
-          options: Object.values(SEVERITIES),
-        },
-        {
-          column: "Assignee",
-          title: "Assignee",
-          options: assignees,
-        },
-      ],
-    } as DataTableToolbarProps<CaseReadMinimal>
-  }, [workspace])
+  const handleAssigneeChange = useCallback(
+    (value: string | null) => {
+      setAssigneeFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
 
   return (
-    <TooltipProvider>
-      <div className="space-y-4">
-        <DataTable
-          data={cases || []}
-          isLoading={casesIsLoading || isDeleting}
-          error={(casesError as Error) || undefined}
-          columns={memoizedColumns}
-          onClickRow={handleClickRow}
-          getRowHref={(row) =>
-            `/workspaces/${workspaceId}/cases/${row.original.id}`
-          }
-          onDeleteRows={handleDeleteRows}
-          onSelectionChange={handleSelectionChange}
-          toolbarProps={defaultToolbarProps}
-          tableId={`${user?.id}-${workspaceId}-cases`}
-          serverSidePagination={{
-            currentPage,
-            hasNextPage,
-            hasPreviousPage,
-            pageSize,
-            totalEstimate,
-            startItem,
-            endItem,
-            onNextPage: goToNextPage,
-            onPreviousPage: goToPreviousPage,
-            onFirstPage: goToFirstPage,
-            onPageSizeChange: setPageSize,
-            isLoading: casesIsLoading || isDeleting,
-          }}
-        />
-
-        {selectedRows.length > 0 && (
-          <div className="flex justify-start">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRunPrompt}
-              className="h-8"
-            >
-              <CirclePlayIcon className="size-3.5 mr-2 text-accent-foreground" />
-              Execute runbook on {selectedRows.length} case(s)
-            </Button>
-          </div>
-        )}
-      </div>
-
-      <PromptSelectionDialog
-        open={promptDialogOpen}
-        onOpenChange={setPromptDialogOpen}
-        selectedCases={selectedCasesForPrompt}
-        onSuccess={handlePromptSuccess}
-      />
-    </TooltipProvider>
+    <DeleteCaseAlertDialog
+      selectedCase={selectedCase}
+      setSelectedCase={setSelectedCase}
+    >
+      <TooltipProvider>
+        <div className="space-y-4">
+          <CaseTableFilters
+            workspaceId={workspaceId}
+            searchTerm={searchTerm}
+            onSearchChange={handleSearchChange}
+            statusFilter={statusFilter}
+            onStatusChange={handleStatusChange}
+            priorityFilter={priorityFilter}
+            onPriorityChange={handlePriorityChange}
+            severityFilter={severityFilter}
+            onSeverityChange={handleSeverityChange}
+            assigneeFilter={assigneeFilter}
+            onAssigneeChange={handleAssigneeChange}
+            selectedCount={selectedRows.length}
+            onDeleteSelected={handleBulkDelete}
+            isDeleting={isDeleting}
+          />
+          <DataTable
+            data={cases || []}
+            isLoading={casesIsLoading || isDeleting}
+            error={(casesError as Error) || undefined}
+            columns={memoizedColumns}
+            onClickRow={handleClickRow}
+            getRowHref={(row) =>
+              `/workspaces/${workspaceId}/cases/${row.original.id}`
+            }
+            tableId={`${user?.id}-${workspaceId}-cases`}
+            onSelectionChange={setSelectedRows}
+            clearSelectionTrigger={clearSelectionTrigger}
+            serverSidePagination={{
+              currentPage,
+              hasNextPage,
+              hasPreviousPage,
+              pageSize,
+              totalEstimate,
+              startItem,
+              endItem,
+              onNextPage: goToNextPage,
+              onPreviousPage: goToPreviousPage,
+              onFirstPage: goToFirstPage,
+              onPageSizeChange: setPageSize,
+              isLoading: casesIsLoading || isDeleting,
+            }}
+          />
+        </div>
+      </TooltipProvider>
+    </DeleteCaseAlertDialog>
   )
 }

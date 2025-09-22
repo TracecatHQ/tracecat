@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.db import session_events  # noqa: F401 - ensure listeners are registered
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -90,6 +91,7 @@ def _create_async_db_engine() -> AsyncEngine:
         "max_overflow": config.TRACECAT__DB_MAX_OVERFLOW,
         "pool_recycle": config.TRACECAT__DB_POOL_RECYCLE,
         "pool_size": config.TRACECAT__DB_POOL_SIZE,
+        "pool_pre_ping": True,
         "pool_use_lifo": True,  # Better for burst workloads
     }
     uri = _get_db_uri(driver="asyncpg")

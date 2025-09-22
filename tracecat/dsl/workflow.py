@@ -112,6 +112,7 @@ class DSLWorkflow:
     def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
         self.start_to_close_timeout = args.timeout
+        """The activity execution timeout."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
@@ -320,7 +321,6 @@ class DSLWorkflow:
 
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
-            ExprContext.INPUTS: self.dsl.inputs,
             ExprContext.TRIGGER: trigger_inputs,
             ExprContext.ENV: DSLEnvironment(
                 workflow={
@@ -350,7 +350,8 @@ class DSLWorkflow:
         self.logger.info(
             "Running DSL task workflow",
             runtime_config=self.runtime_config,
-            timeout=self.start_to_close_timeout,
+            activity_timeout=self.start_to_close_timeout,
+            execution_timeout=wf_info.execution_timeout,
         )
 
         self.scheduler = DSLScheduler(
@@ -1027,8 +1028,8 @@ class DSLWorkflow:
         return await workflow.execute_activity(
             WorkflowsManagementService.get_error_handler_workflow_id,
             arg=GetErrorHandlerWorkflowIDActivityInputs(args=args, role=self.role),
-            start_to_close_timeout=args.timeout,
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     async def _prepare_error_handler_workflow(

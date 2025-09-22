@@ -1,10 +1,11 @@
 "use client"
 
 import {
-  BracesIcon,
+  BoxIcon,
   KeyRoundIcon,
   ListTodoIcon,
-  ShieldAlertIcon,
+  ShapesIcon,
+  SquareStackIcon,
   Table2Icon,
   UsersIcon,
   WorkflowIcon,
@@ -28,7 +29,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
@@ -36,20 +37,14 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const basePath = `/workspaces/${workspaceId}`
 
   const navMain = [
     {
-      title: "Workflows",
-      url: `${basePath}/workflows`,
-      icon: WorkflowIcon,
-      isActive: pathname?.startsWith(`${basePath}/workflows`),
-    },
-    {
       title: "Cases",
       url: `${basePath}/cases`,
-      icon: ShieldAlertIcon,
+      icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
@@ -57,6 +52,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/runbooks`,
       icon: ListTodoIcon,
       isActive: pathname?.startsWith(`${basePath}/runbooks`),
+    },
+    {
+      title: "Workflows",
+      url: `${basePath}/workflows`,
+      icon: WorkflowIcon,
+      isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
   ]
 
@@ -66,6 +67,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
+    },
+    {
+      title: "Records",
+      url: `${basePath}/records`,
+      icon: BoxIcon,
+      isActive: pathname?.startsWith(`${basePath}/records`),
+    },
+    {
+      title: "Entities",
+      url: `${basePath}/entities`,
+      icon: ShapesIcon,
+      isActive: pathname?.startsWith(`${basePath}/entities`),
     },
     {
       title: "Credentials",
@@ -84,12 +97,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-    },
-    {
-      title: "Custom fields",
-      url: `${basePath}/custom-fields`,
-      icon: BracesIcon,
-      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
     },
   ]
 

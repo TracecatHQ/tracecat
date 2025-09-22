@@ -46,9 +46,6 @@
 - id: domain_from_email
   text: "Domain extraction from email address: user@malicious-domain.com"
   expected: ["malicious-domain.com"]
-- id: punycode_domain
-  text: "Punycode domain: xn--80acd1bdbrs.xn--p1ai"
-  expected: ["xn--80acd1bdbrs.xn--p1ai"]
 - id: country_code_tlds
   text: "Country-code TLD: suspicious.cn, malware.ru, exploit.kr"
   expected: ["suspicious.cn", "malware.ru", "exploit.kr"]

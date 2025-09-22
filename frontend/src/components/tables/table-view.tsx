@@ -1,17 +1,17 @@
 "use client"
 
-import type { CellContext, ColumnDef } from "@tanstack/react-table"
+import type { CellContext, Column, ColumnDef } from "@tanstack/react-table"
 import { DatabaseZapIcon } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { DataTable } from "@/components/data-table"
+import { DataTable, SimpleColumnHeader } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
@@ -61,7 +61,9 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
+      <pre className="whitespace-pre-wrap text-xs font-sans">
+        {chunks.join("\n")}
+      </pre>
       <Button
         variant="ghost"
         size="sm"
@@ -79,7 +81,7 @@ export function DatabaseTable({
 }: {
   table: TableRead
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
 
   const {
@@ -103,7 +105,7 @@ export function DatabaseTable({
 
   useEffect(() => {
     if (id) {
-      document.title = `${name} | Tables`
+      document.title = `Tables | ${name}`
     }
   }, [id, name])
 
@@ -116,11 +118,17 @@ export function DatabaseTable({
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
       accessorKey: column.name,
-      header: () => (
+      header: ({
+        column: tableColumn,
+      }: {
+        column: Column<TableRowRead, unknown>
+      }) => (
         <div className="flex items-center gap-2 text-xs">
-          <span className="font-semibold text-foreground/90">
-            {column.name}
-          </span>
+          <SimpleColumnHeader
+            column={tableColumn}
+            title={column.name}
+            className="text-xs"
+          />
           <span className="lowercase text-muted-foreground">{column.type}</span>
           {column.is_index && (
             <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
@@ -153,7 +161,7 @@ export function DatabaseTable({
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (
-              <pre className="text-xs">{String(value)}</pre>
+              <pre className="text-xs font-sans">{String(value)}</pre>
             )}
           </div>
         )

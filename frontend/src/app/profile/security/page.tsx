@@ -3,7 +3,7 @@
 import { UpdatePasswordForm } from "@/components/auth/update-password-form"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function SecurityPage() {
   const { user, userIsLoading } = useAuth()

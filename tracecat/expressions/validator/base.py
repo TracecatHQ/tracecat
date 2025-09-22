@@ -118,13 +118,6 @@ class BaseExprValidator(Visitor):
             msg=f"ACTIONS expressions are not supported in {self._expr_kind}",
         )
 
-    def inputs(self, node: Tree[Token]):
-        self.add(
-            status="error",
-            type=ExprType.INPUT,
-            msg=f"INPUTS expressions are not supported in {self._expr_kind}",
-        )
-
     def trigger(self, node: Tree):
         self.add(
             status="error",
@@ -317,7 +310,7 @@ class BaseExprValidator(Visitor):
             raise ValueError("Expected a tree")
         if child.data == "literal":
             try:
-                functions.cast(child.children[0], typename)
+                functions.cast(child.children[0], str(typename))
             except ValueError as e:
                 self.add(
                     status="error",

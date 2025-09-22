@@ -11,15 +11,9 @@ import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronRightIcon,
   CircleDot,
-  FileIcon,
-  FilePlusIcon,
-  FilterIcon,
-  FunctionSquareIcon,
-  ListIcon,
   LoaderIcon,
   MessageCircle,
   RefreshCw,
-  SearchIcon,
   Undo2Icon,
 } from "lucide-react"
 import React, { useEffect } from "react"
@@ -59,6 +53,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { SYSTEM_USER } from "@/lib/auth"
 import type { ModelMessage } from "@/lib/chat"
 import {
@@ -72,25 +67,9 @@ import {
 import { useGetRegistryAction } from "@/lib/hooks"
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn, reconstructActionType } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
-
-// Add default agent tool icon mappings
-const DEFAULT_AGENT_TOOLS: Record<string, JSX.Element> = {
-  read_file: <FileIcon className="size-4" />,
-  create_file: <FilePlusIcon className="size-4" />,
-  search_files: <SearchIcon className="size-4" />,
-  list_directory: <ListIcon className="size-4" />,
-  grep_search: <SearchIcon className="size-4" />,
-  find_and_replace: <RefreshCw className="size-4" />,
-  jsonpath_find: <FilterIcon className="size-4" />,
-  jsonpath_find_and_replace: <FilterIcon className="size-4" />,
-  apply_python_lambda: <FunctionSquareIcon className="size-4" />,
-}
-
-const DEFAULT_TOOL_NAMES = new Set(Object.keys(DEFAULT_AGENT_TOOLS))
 
 export function ActionEvent({
   execution,
@@ -434,54 +413,14 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
 
   const toolName = part.tool_name
-  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
 
   // Always resolve action type so hooks are called consistently
   const actionType = reconstructActionType(toolName)
   // Call hook unconditionally; it will be disabled internally when actionType is undefined
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(isDefaultTool ? undefined : actionType)
+    useGetRegistryAction(actionType)
 
-  // Case 1 – default agent tool
-  if (isDefaultTool) {
-    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
-    return (
-      <div className="flex flex-col gap-2">
-        <Card
-          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
-          <div
-            className={cn(
-              "flex items-center gap-2 p-2",
-              isExpanded && "border-b-[0.5px]"
-            )}
-          >
-            <div className="rounded-sm border-[0.5px] p-[3px]">
-              {iconElement}
-            </div>
-            <span className="text-xs font-semibold text-foreground/80">
-              {toolName}
-            </span>
-            <Undo2Icon className="size-3" />
-            <ChevronRightIcon
-              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            />
-          </div>
-        </Card>
-        {isExpanded && (
-          <JsonViewWithControls
-            src={part.content}
-            defaultExpanded={true}
-            defaultTab="nested"
-            className="shadow-sm"
-          />
-        )}
-      </div>
-    )
-  }
-
-  // Case 2 – registry action
+  // Case 1 – registry action
   if (registryActionIsLoading) {
     return <Skeleton className="h-16 w-full" />
   }
@@ -531,7 +470,7 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
     )
   }
 
-  // Case 3 – not found
+  // Case 2 – not found
   return (
     <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
       <CircleDot className="size-3 text-muted-foreground" />
@@ -664,12 +603,11 @@ export function ToolCallPartComponent({
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
   const toolName = toolCall.tool_name
-  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
 
   // Always resolve action type so hooks are called consistently
   const actionType = reconstructActionType(toolName)
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(isDefaultTool ? undefined : actionType)
+    useGetRegistryAction(actionType)
 
   let args
   try {
@@ -681,46 +619,7 @@ export function ToolCallPartComponent({
     args = toolCall.args
   }
 
-  // Case 1 – default agent tool
-  if (isDefaultTool) {
-    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
-    return (
-      <Card
-        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center gap-2">
-          <div className="rounded-sm border-[0.5px] p-[3px]">{iconElement}</div>
-          <span className="text-xs font-semibold text-foreground/80">
-            {toolName}
-          </span>
-          <ChevronRightIcon
-            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        </div>
-        {isExpanded && (
-          <table className="mt-2 min-w-full text-xs">
-            <tbody>
-              {Object.entries(args).map(([key, value]) => (
-                <tr key={key}>
-                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
-                    {key}
-                  </td>
-                  <td className="px-2 py-1 text-left align-top text-foreground/90">
-                    {typeof value === "string"
-                      ? value
-                      : JSON.stringify(value, null, 2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    )
-  }
-
-  // Case 2 – registry action
+  // Case 1 – registry action
   if (registryActionIsLoading) {
     return (
       <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
@@ -771,7 +670,7 @@ export function ToolCallPartComponent({
                   <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
                     {key}
                   </td>
-                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                  <td className="break-all px-2 py-1 text-left align-top text-foreground/90">
                     {typeof value === "string"
                       ? value
                       : JSON.stringify(value, null, 2)}
@@ -785,7 +684,7 @@ export function ToolCallPartComponent({
     )
   }
 
-  // Case 3 – action not found
+  // Case 2 – action not found
   return (
     <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
       <CircleDot className="size-3 text-muted-foreground" />

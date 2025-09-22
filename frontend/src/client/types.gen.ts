@@ -172,12 +172,36 @@ export type status = "success" | "error"
 
 export type AgentOutput = {
   output: unknown
-  files?: {
-    [key: string]: string
-  } | null
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
-  usage?: Usage | null
+  usage: RunUsage
+  trace_id?: string | null
+}
+
+export type AgentSettingsRead = {
+  agent_default_model: string | null
+  agent_fixed_args: string | null
+  agent_case_chat_prompt: string
+  agent_case_chat_inject_content: boolean
+}
+
+export type AgentSettingsUpdate = {
+  /**
+   * The default AI model to use for agent operations.
+   */
+  agent_default_model?: string | null
+  /**
+   * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
+   */
+  agent_fixed_args?: string | null
+  /**
+   * Additional instructions for case chat agent; prepended to UI-provided instructions.
+   */
+  agent_case_chat_prompt?: string
+  /**
+   * Whether to automatically inject case content into agent prompts when a case_id is available.
+   */
+  agent_case_chat_inject_content?: boolean
 }
 
 /**
@@ -319,9 +343,21 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
+/**
+ * A URL to an audio file.
+ */
 export type AudioUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
+  identifier?: string | null
   kind?: "audio-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
 }
 
 export type AuthSettingsRead = {
@@ -355,11 +391,18 @@ export type AuthSettingsUpdate = {
   auth_session_expire_time_seconds?: number
 }
 
+/**
+ * Binary content, e.g. an audio or image file.
+ */
 export type BinaryContent = {
   data: Blob | File
   media_type:
     | "audio/wav"
     | "audio/mpeg"
+    | "audio/ogg"
+    | "audio/flac"
+    | "audio/aiff"
+    | "audio/aac"
     | "image/jpeg"
     | "image/png"
     | "image/gif"
@@ -373,6 +416,10 @@ export type BinaryContent = {
     | "text/markdown"
     | "application/vnd.ms-excel"
     | string
+  identifier: string
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "binary"
 }
 
@@ -398,7 +445,7 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
-export type Body_cases_create_attachment = {
+export type Body_case_attachments_create_attachment = {
   file: Blob | File
 }
 
@@ -415,6 +462,35 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * A tool call to a built-in tool.
+ */
+export type BuiltinToolCallPart = {
+  tool_name: string
+  args?:
+    | string
+    | {
+        [key: string]: unknown
+      }
+    | null
+  tool_call_id?: string
+  provider_name?: string | null
+  part_kind?: "builtin-tool-call"
+}
+
+/**
+ * A tool return message from a built-in tool.
+ */
+export type BuiltinToolReturnPart = {
+  tool_name: string
+  content: unknown
+  tool_call_id: string
+  metadata?: unknown
+  timestamp?: string
+  provider_name?: string | null
+  part_kind?: "builtin-tool-return"
 }
 
 /**
@@ -613,6 +689,7 @@ export type CaseRead = {
   payload: {
     [key: string]: unknown
   } | null
+  tags?: Array<TagRead>
 }
 
 export type CaseReadMinimal = {
@@ -625,6 +702,124 @@ export type CaseReadMinimal = {
   priority: CasePriority
   severity: CaseSeverity
   assignee?: UserRead | null
+  tags?: Array<TagRead>
+}
+
+/**
+ * Model for creating a new entity record and linking it to a case.
+ */
+export type CaseRecordCreate = {
+  /**
+   * Key of the entity type
+   */
+  entity_key: string
+  /**
+   * Entity record data
+   */
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Response model for unlinking a case record.
+ */
+export type CaseRecordDeleteResponse = {
+  /**
+   * Action (unlink or delete)
+   */
+  action: "unlink" | "delete"
+  /**
+   * Case ID
+   */
+  case_id: string
+  /**
+   * Record ID
+   */
+  record_id: string
+  /**
+   * Case record ID
+   */
+  case_record_id: string
+}
+
+/**
+ * Action (unlink or delete)
+ */
+export type action = "unlink" | "delete"
+
+/**
+ * Model for linking an existing entity record to a case.
+ */
+export type CaseRecordLink = {
+  /**
+   * ID of the existing entity record to link
+   */
+  entity_record_id: string
+}
+
+/**
+ * Response model for listing case records.
+ */
+export type CaseRecordListResponse = {
+  /**
+   * List of case records
+   */
+  items?: Array<CaseRecordRead>
+  /**
+   * Total number of records
+   */
+  total: number
+}
+
+/**
+ * Model for reading a case record with full details.
+ */
+export type CaseRecordRead = {
+  /**
+   * Case record link ID
+   */
+  id: string
+  /**
+   * Case ID
+   */
+  case_id: string
+  /**
+   * Entity type ID
+   */
+  entity_id: string
+  /**
+   * Entity record ID
+   */
+  record_id: string
+  /**
+   * Entity type key
+   */
+  entity_key: string
+  /**
+   * Entity display name
+   */
+  entity_display_name: string
+  /**
+   * Entity record data
+   */
+  data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Model for updating a case record's entity data.
+ */
+export type CaseRecordUpdate = {
+  /**
+   * Updated entity record data
+   */
+  data: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -661,6 +856,23 @@ export type CaseStatus =
   | "resolved"
   | "closed"
   | "other"
+
+export type CaseTagCreate = {
+  /**
+   * Tag ID (UUID) or ref
+   */
+  tag_id: string
+}
+
+/**
+ * Tag data.
+ */
+export type CaseTagRead = {
+  id: string
+  name: string
+  ref: string
+  color: string | null
+}
 
 export type CaseUpdate = {
   summary?: string | null
@@ -702,7 +914,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "runbook"
 
 /**
  * Model for chat metadata with a single message.
@@ -782,6 +994,10 @@ export type ChatRequest = {
   context?: {
     [key: string]: unknown
   } | null
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
 }
 
 /**
@@ -925,6 +1141,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_RecordRead_ = {
+  items: Array<RecordRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -988,7 +1228,7 @@ export type DSLConfig_Input = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -1009,7 +1249,7 @@ export type DSLConfig_Output = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -1045,12 +1285,6 @@ export type DSLInput = {
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
-   * Static input parameters
-   */
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
    * The action ref or value to return.
    */
   returns?: unknown | null
@@ -1071,7 +1305,7 @@ export type DSLRunArgs = {
    */
   runtime_config?: DSLConfig_Output
   /**
-   * The maximum time to wait for the workflow to complete.
+   * Platform activity start-to-close timeout.
    */
   timeout?: string
   /**
@@ -1091,9 +1325,21 @@ export type DSLValidationResult = {
   ref?: string | null
 }
 
+/**
+ * The URL of the document.
+ */
 export type DocumentUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
+  identifier?: string | null
   kind?: "document-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
 }
 
 export type EditorActionRead = {
@@ -1128,6 +1374,87 @@ export type EditorParamRead = {
   optional: boolean
 }
 
+export type EntityCreate = {
+  /**
+   * Immutable entity key (snake_case)
+   */
+  key: string
+  display_name: string
+  description?: string | null
+  icon?: string | null
+}
+
+export type EntityFieldCreate = {
+  /**
+   * Immutable field key (snake_case)
+   */
+  key: string
+  type: FieldType
+  display_name: string
+  description?: string | null
+  /**
+   * Default value for the field
+   */
+  default_value?: unknown | null
+  options?: Array<EntityFieldOptionCreate> | null
+}
+
+export type EntityFieldOptionCreate = {
+  key?: string | null
+  label: string
+}
+
+export type EntityFieldOptionRead = {
+  id: string
+  field_id: string
+  key: string
+  label: string
+  description?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type EntityFieldRead = {
+  id: string
+  entity_id: string
+  key: string
+  type: FieldType
+  display_name: string
+  description?: string | null
+  is_active: boolean
+  default_value?: unknown | null
+  created_at: string
+  updated_at: string
+  options?: Array<EntityFieldOptionRead>
+}
+
+export type EntityFieldUpdate = {
+  display_name?: string | null
+  description?: string | null
+  /**
+   * Default value for the field
+   */
+  default_value?: unknown | null
+  options?: Array<EntityFieldOptionCreate> | null
+}
+
+export type EntityRead = {
+  id: string
+  key: string
+  display_name: string
+  description?: string | null
+  icon?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type EntityUpdate = {
+  display_name?: string | null
+  description?: string | null
+  icon?: string | null
+}
+
 export type ErrorDetails = {
   type: string
   loc: Array<number | string>
@@ -1136,6 +1463,7 @@ export type ErrorDetails = {
   ctx?: {
     [key: string]: unknown
   }
+  url?: string
 }
 
 export type ErrorModel = {
@@ -1189,7 +1517,6 @@ export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
   | "FN"
-  | "INPUTS"
   | "ENV"
   | "TRIGGER"
   | "var"
@@ -1236,6 +1563,18 @@ export type ExpressionValidationResponse = {
 }
 
 /**
+ * Feature flag enum.
+ */
+export type FeatureFlag = "git-sync"
+
+/**
+ * Response model for feature flags.
+ */
+export type FeatureFlagsRead = {
+  enabled_features: Array<FeatureFlag>
+}
+
+/**
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
@@ -1260,6 +1599,20 @@ export type FieldDiff = {
   old: unknown
   new: unknown
 }
+
+/**
+ * Supported field types for entities.
+ */
+export type FieldType =
+  | "INTEGER"
+  | "NUMBER"
+  | "TEXT"
+  | "BOOL"
+  | "JSON"
+  | "DATETIME"
+  | "DATE"
+  | "SELECT"
+  | "MULTI_SELECT"
 
 export type Float = {
   component_id?: "float"
@@ -1286,6 +1639,110 @@ export type GetWorkflowDefinitionActivityInputs = {
   task?: ActionStatement | null
 }
 
+/**
+ * Git commit information for repository management.
+ */
+export type GitCommitInfo = {
+  /**
+   * The commit SHA hash
+   */
+  sha: string
+  /**
+   * The commit message
+   */
+  message: string
+  /**
+   * The commit author name
+   */
+  author: string
+  /**
+   * The commit author email
+   */
+  author_email: string
+  /**
+   * The commit date in ISO format
+   */
+  date: string
+  /**
+   * List of tags associated with this commit
+   */
+  tags?: Array<string>
+}
+
+/**
+ * Request to register or update GitHub App credentials.
+ */
+export type GitHubAppCredentialsRequest = {
+  /**
+   * GitHub App ID
+   */
+  app_id: string
+  /**
+   * GitHub App private key in PEM format
+   */
+  private_key: string
+  /**
+   * GitHub App webhook secret
+   */
+  webhook_secret?: string | null
+  /**
+   * GitHub App client ID
+   */
+  client_id?: string | null
+}
+
+/**
+ * Status of GitHub App credentials.
+ */
+export type GitHubAppCredentialsStatus = {
+  exists: boolean
+  app_id?: string | null
+  has_webhook_secret?: boolean
+  has_client_id?: boolean
+  created_at?: string | null
+}
+
+/**
+ * GitHub App manifest for creating enterprise apps.
+ */
+export type GitHubAppManifest = {
+  name: string
+  url: string
+  hook_attributes: GitHubWebhookAttributes
+  redirect_url: string
+  callback_urls: Array<string>
+  setup_url: string
+  description: string
+  public: boolean
+  default_permissions: GitHubAppPermissions
+  default_events: Array<string>
+}
+
+/**
+ * GitHub App manifest response.
+ */
+export type GitHubAppManifestResponse = {
+  manifest: GitHubAppManifest
+  instructions: Array<string>
+}
+
+/**
+ * Type definition for GitHub App default permissions.
+ */
+export type GitHubAppPermissions = {
+  contents: string
+  metadata: string
+  pull_requests: string
+}
+
+/**
+ * Type definition for GitHub webhook attributes.
+ */
+export type GitHubWebhookAttributes = {
+  url: string
+  active: boolean
+}
+
 export type GitSettingsRead = {
   git_allowed_domains: Array<string>
   git_repo_url?: string | null
@@ -1305,9 +1762,21 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+/**
+ * A URL to an image.
+ */
 export type ImageUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
+  identifier?: string | null
   kind?: "image-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
 }
 
 export type Integer = {
@@ -1552,6 +2021,9 @@ export type ModelCredentialUpdate = {
   }
 }
 
+/**
+ * A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.
+ */
 export type ModelRequest = {
   parts: Array<
     SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
@@ -1560,12 +2032,26 @@ export type ModelRequest = {
   kind?: "request"
 }
 
+/**
+ * A response from a model, e.g. a message from the model to the Pydantic AI app.
+ */
 export type ModelResponse = {
-  parts: Array<TextPart | ToolCallPart>
-  usage?: Usage
+  parts: Array<
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+  >
+  usage?: RequestUsage
   model_name?: string | null
   timestamp?: string
   kind?: "response"
+  provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
+  provider_response_id?: string | null
 }
 
 export type ModelSecretConfig = {
@@ -1652,114 +2138,6 @@ export type PriorityChangedEventRead = {
 }
 
 /**
- * Request model for creating a prompt from a chat.
- */
-export type PromptCreate = {
-  /**
-   * ID of the chat to freeze into a prompt
-   */
-  chat_id: string
-}
-
-/**
- * Model for prompt details.
- */
-export type PromptRead = {
-  /**
-   * Unique prompt identifier
-   */
-  id: string
-  /**
-   * ID of the source chat
-   */
-  chat_id: string
-  /**
-   * Human-readable title for the prompt
-   */
-  title: string
-  /**
-   * The instruction prompt/runbook string
-   */
-  content: string
-  /**
-   * The tools available to the agent for this prompt
-   */
-  tools: Array<string>
-  /**
-   * When the prompt was created
-   */
-  created_at: string
-  /**
-   * Metadata including schema version, tool SHA, token count
-   */
-  meta?: {
-    [key: string]: unknown
-  }
-  /**
-   * A summary of the prompt.
-   */
-  summary?: string | null
-}
-
-/**
- * Request model for running a prompt on an entity.
- */
-export type PromptRunEntity = {
-  /**
-   * ID of the entity to run the prompt on
-   */
-  entity_id: string
-  /**
-   * Type of the entity to run the prompt on
-   */
-  entity_type: ChatEntity
-}
-
-/**
- * Request model for running a prompt on cases.
- */
-export type PromptRunRequest = {
-  /**
-   * Entities to run the prompt on
-   */
-  entities: Array<PromptRunEntity>
-}
-
-/**
- * Response model for prompt execution.
- */
-export type PromptRunResponse = {
-  /**
-   * Mapping of case_id to SSE stream URL
-   */
-  stream_urls: {
-    [key: string]: string
-  }
-}
-
-/**
- * Request model for updating prompt properties.
- */
-export type PromptUpdate = {
-  /**
-   * New title for the prompt
-   */
-  title?: string | null
-  /**
-   * New content for the prompt
-   */
-  content?: string | null
-  /**
-   * New tools for the prompt
-   */
-  tools?: Array<string> | null
-  /**
-   * New summary for the prompt
-   */
-  summary?: string | null
-}
-
-/**
  * Model for provider credential configuration.
  */
 export type ProviderCredentialConfig = {
@@ -1797,6 +2175,10 @@ export type ProviderCredentialField = {
    * Help text describing this credential
    */
   description: string
+  /**
+   * Whether this field is required
+   */
+  required?: boolean
 }
 
 /**
@@ -1858,7 +2240,7 @@ export type ProviderRead = {
   grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
-  schema?: ProviderSchema
+  config_schema: ProviderSchema
   integration_status: IntegrationStatus
   redirect_uri?: string | null
 }
@@ -1892,8 +2274,77 @@ export type ProviderScopes = {
   default: Array<string>
 }
 
+export type PullDiagnostic = {
+  workflow_path: string
+  workflow_title: string | null
+  error_type:
+    | "conflict"
+    | "validation"
+    | "dependency"
+    | "parse"
+    | "github"
+    | "system"
+    | "transaction"
+  message: string
+  details: {
+    [key: string]: unknown
+  }
+}
+
+export type error_type =
+  | "conflict"
+  | "validation"
+  | "dependency"
+  | "parse"
+  | "github"
+  | "system"
+  | "transaction"
+
+export type PullResult = {
+  success: boolean
+  commit_sha: string
+  workflows_found: number
+  workflows_imported: number
+  diagnostics: Array<PullDiagnostic>
+  message: string
+}
+
 export type ReceiveInteractionResponse = {
   message: string
+}
+
+/**
+ * Create payload for an entity record.
+ *
+ * Data is a free-form JSON object whose keys correspond to entity field keys.
+ * Values are validated and coerced by the service using the entity's schema.
+ */
+export type RecordCreate = {
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+export type RecordRead = {
+  id: string
+  entity_id: string
+  data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Partial update for a record's data map.
+ *
+ * Any keys provided will be merged into the existing record data after
+ * validation/coercion. Keys not present remain unchanged.
+ */
+export type RecordUpdate = {
+  data?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -2234,6 +2685,16 @@ export type RegistryRepositoryReadMinimal = {
   commit_sha: string | null
 }
 
+/**
+ * Parameters for syncing a repository to a specific commit.
+ */
+export type RegistryRepositorySync = {
+  /**
+   * The specific commit SHA to sync to. If None, syncs to HEAD.
+   */
+  target_commit_sha?: string | null
+}
+
 export type RegistryRepositoryUpdate = {
   last_synced_at?: string | null
   /**
@@ -2283,6 +2744,19 @@ export type ReopenedEventRead = {
   created_at: string
 }
 
+export type RequestUsage = {
+  input_tokens?: number
+  cache_write_tokens?: number
+  cache_read_tokens?: number
+  output_tokens?: number
+  input_audio_tokens?: number
+  cache_audio_read_tokens?: number
+  output_audio_tokens?: number
+  details?: {
+    [key: string]: number
+  }
+}
+
 /**
  * Configuration for a response interaction.
  */
@@ -2294,6 +2768,20 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
+/**
+ * A message back to a model asking it to try again.
+ *
+ * This can be sent for a number of reasons:
+ *
+ * * Pydantic validation of tool arguments failed, here content is derived from a Pydantic
+ * [`ValidationError`][pydantic_core.ValidationError]
+ * * a tool raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
+ * * no tool was found for the tool name
+ * * the model returned plain text when a structured response was expected
+ * * Pydantic validation of a structured response failed, here content is derived from a Pydantic
+ * [`ValidationError`][pydantic_core.ValidationError]
+ * * an output validator raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
+ */
 export type RetryPromptPart = {
   content: Array<ErrorDetails> | string
   tool_name?: string | null
@@ -2380,6 +2868,151 @@ export type RunContext = {
   environment: string
 }
 
+export type RunUsage = {
+  input_tokens?: number
+  cache_write_tokens?: number
+  cache_read_tokens?: number
+  output_tokens?: number
+  input_audio_tokens?: number
+  cache_audio_read_tokens?: number
+  output_audio_tokens?: number
+  details?: {
+    [key: string]: number
+  }
+  requests?: number
+  tool_calls?: number
+}
+
+export type RunbookAlias_Input = string
+
+export type RunbookAlias_Output = string
+
+/**
+ * Request model for creating a runbook.
+ */
+export type RunbookCreate = {
+  /**
+   * ID of the chat to freeze into a runbook
+   */
+  chat_id?: string | null
+  /**
+   * Optional metadata to include with the runbook (e.g., case information)
+   */
+  meta?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias_Input | null
+}
+
+/**
+ * Request model for running a runbook on an entity.
+ */
+export type RunbookExecuteEntity = {
+  /**
+   * ID of the entity to run the runbook on
+   */
+  entity_id: string
+  /**
+   * Type of the entity to run the runbook on
+   */
+  entity_type: ChatEntity
+}
+
+/**
+ * Request model for running a runbook on cases.
+ */
+export type RunbookExecuteRequest = {
+  /**
+   * Entities to run the runbook on
+   */
+  entities: Array<RunbookExecuteEntity>
+}
+
+/**
+ * Response model for runbook execution.
+ */
+export type RunbookExecuteResponse = {
+  /**
+   * Mapping of chat_id to SSE stream URL
+   */
+  stream_urls: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Model for runbook details.
+ */
+export type RunbookRead = {
+  /**
+   * Unique runbook identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the runbook
+   */
+  title: string
+  /**
+   * The instruction runbook string
+   */
+  content: string
+  /**
+   * The tools available to the agent for this runbook
+   */
+  tools: Array<string>
+  /**
+   * When the runbook was created
+   */
+  created_at: string
+  /**
+   * When the runbook was last updated
+   */
+  updated_at: string
+  /**
+   * Metadata including schema version, tool SHA, token count
+   */
+  meta?: {
+    [key: string]: unknown
+  }
+  /**
+   * A summary of the runbook.
+   */
+  summary?: string | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias_Output | null
+}
+
+/**
+ * Request model for updating runbook properties.
+ */
+export type RunbookUpdate = {
+  /**
+   * New title for the runbook
+   */
+  title?: string | null
+  /**
+   * New content for the runbook
+   */
+  content?: string | null
+  /**
+   * New tools for the runbook
+   */
+  tools?: Array<string> | null
+  /**
+   * New summary for the runbook
+   */
+  summary?: string | null
+  /**
+   * New alias for the runbook (must be unique within workspace)
+   */
+  alias?: RunbookAlias_Input | null
+}
+
 export type SAMLDatabaseLoginResponse = {
   redirect_url: string
 }
@@ -2416,7 +3049,7 @@ export type Schedule = {
   /**
    * ISO 8601 duration string
    */
-  every: string
+  every?: string | null
   /**
    * ISO 8601 duration string
    */
@@ -2445,7 +3078,7 @@ export type ScheduleCreate = {
   /**
    * ISO 8601 duration string
    */
-  every: string
+  every?: string | null
   /**
    * ISO 8601 duration string
    */
@@ -2552,7 +3185,7 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key"
+export type SecretType = "custom" | "ssh-key" | "github-app"
 
 /**
  * Update a secret.
@@ -2673,6 +3306,11 @@ export type SyntaxToken = {
   end: number
 }
 
+/**
+ * A system prompt, generally written by the application developer.
+ *
+ * This gives the model context and guidance on how to respond.
+ */
 export type SystemPromptPart = {
   content: string
   timestamp?: string
@@ -2782,6 +3420,7 @@ export type TableRowInsertBatch = {
   rows: Array<{
     [key: string]: unknown
   }>
+  upsert?: boolean
 }
 
 /**
@@ -2832,6 +3471,10 @@ export type TagInput = {
 export type TagRead = {
   id: string
   name: string
+  /**
+   * Slug-like identifier derived from name, used for API lookups
+   */
+  ref: string
   /**
    * Hex color code
    */
@@ -3005,9 +3648,22 @@ export type TextArea = {
   placeholder?: string
 }
 
+/**
+ * A plain text response from a model.
+ */
 export type TextPart = {
   content: string
   part_kind?: "text"
+}
+
+/**
+ * A thinking response from a model.
+ */
+export type ThinkingPart = {
+  content: string
+  id?: string | null
+  signature?: string | null
+  part_kind?: "thinking"
 }
 
 export type Toggle = {
@@ -3016,21 +3672,29 @@ export type Toggle = {
   component_id?: "toggle"
 }
 
+/**
+ * A tool call from a model.
+ */
 export type ToolCallPart = {
   tool_name: string
-  args:
+  args?:
     | string
     | {
         [key: string]: unknown
       }
+    | null
   tool_call_id?: string
   part_kind?: "tool-call"
 }
 
+/**
+ * A tool return message, this encodes the result of running a tool.
+ */
 export type ToolReturnPart = {
   tool_name: string
   content: unknown
   tool_call_id: string
+  metadata?: unknown
   timestamp?: string
   part_kind?: "tool-return"
 }
@@ -3072,16 +3736,6 @@ export type UpdatedEventRead = {
   created_at: string
 }
 
-export type Usage = {
-  requests?: number
-  request_tokens?: number | null
-  response_tokens?: number | null
-  total_tokens?: number | null
-  details?: {
-    [key: string]: number
-  } | null
-}
-
 export type UserCreate = {
   email: string
   password: string
@@ -3092,6 +3746,12 @@ export type UserCreate = {
   last_name?: string | null
 }
 
+/**
+ * A user prompt, generally written by the end user.
+ *
+ * Content comes from the `user_prompt` parameter of [`Agent.run`][pydantic_ai.agent.AbstractAgent.run],
+ * [`Agent.run_sync`][pydantic_ai.agent.AbstractAgent.run_sync], and [`Agent.run_stream`][pydantic_ai.agent.AbstractAgent.run_stream].
+ */
 export type UserPromptPart = {
   content:
     | string
@@ -3151,9 +3811,21 @@ export type ValidationResult =
   | TemplateActionExprValidationResult
   | ActionValidationResult
 
+/**
+ * A URL to a video.
+ */
 export type VideoUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
+  identifier?: string | null
   kind?: "video-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
 }
 
 export type WaitStrategy = "wait" | "detach"
@@ -3268,6 +3940,10 @@ export type WorkflowDirectoryItem = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   type: "workflow"
+}
+
+export type WorkflowDslPublish = {
+  message?: string | null
 }
 
 /**
@@ -3549,9 +4225,6 @@ export type WorkflowRead = {
   webhook: WebhookRead
   schedules: Array<Schedule>
   entrypoint: string | null
-  static_inputs: {
-    [key: string]: unknown
-  }
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -3580,6 +4253,20 @@ export type WorkflowReadMinimal = {
   folder_id?: string | null
 }
 
+/**
+ * Request model for pulling workflows from a Git repository.
+ */
+export type WorkflowSyncPullRequest = {
+  /**
+   * Specific commit SHA to pull from
+   */
+  commit_sha: string
+  /**
+   * Validate only, don't perform actual import
+   */
+  dry_run?: boolean
+}
+
 export type WorkflowTagCreate = {
   tag_id: string
 }
@@ -3600,9 +4287,6 @@ export type WorkflowUpdate = {
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
-  static_inputs?: {
-    [key: string]: unknown
-  } | null
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -3614,9 +4298,7 @@ export type WorkflowUpdate = {
 
 export type WorkspaceCreate = {
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
   owner_id?: string
 }
 
@@ -3647,27 +4329,61 @@ export type WorkspaceMembershipUpdate = {
 export type WorkspaceRead = {
   id: string
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsRead | null
   owner_id: string
-  n_members: number
-  members: Array<WorkspaceMember>
 }
 
 export type WorkspaceReadMinimal = {
   id: string
   name: string
-  n_members: number
 }
 
 export type WorkspaceRole = "editor" | "admin"
 
+export type WorkspaceSettingsRead = {
+  git_repo_url?: string | null
+  workflow_unlimited_timeout_enabled?: boolean | null
+  workflow_default_timeout_seconds?: number | null
+  allowed_attachment_extensions?: Array<string> | null
+  allowed_attachment_mime_types?: Array<string> | null
+  validate_attachment_magic_number?: boolean | null
+  /**
+   * Returns workspace-specific extensions if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_extensions: Array<string>
+  /**
+   * Returns workspace-specific MIME types if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_mime_types: Array<string>
+}
+
+export type WorkspaceSettingsUpdate = {
+  git_repo_url?: string | null
+  /**
+   * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
+   */
+  workflow_unlimited_timeout_enabled?: boolean | null
+  /**
+   * Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.
+   */
+  workflow_default_timeout_seconds?: number | null
+  /**
+   * Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.
+   */
+  allowed_attachment_extensions?: Array<string> | null
+  /**
+   * Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.
+   */
+  allowed_attachment_mime_types?: Array<string> | null
+  /**
+   * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
+   */
+  validate_attachment_magic_number?: boolean | null
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
 }
 
 export type Yaml = {
@@ -3683,7 +4399,7 @@ export type login = {
   client_secret?: string | null
 }
 
-export type PublicIncomingWebhookData = {
+export type PublicIncomingWebhookPostData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -3701,9 +4417,9 @@ export type PublicIncomingWebhookData = {
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = unknown
+export type PublicIncomingWebhookPostResponse = unknown
 
-export type PublicIncomingWebhook1Data = {
+export type PublicIncomingWebhookGetData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -3721,7 +4437,7 @@ export type PublicIncomingWebhook1Data = {
   workflowId: string
 }
 
-export type PublicIncomingWebhook1Response = unknown
+export type PublicIncomingWebhookGetResponse = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -3772,6 +4488,12 @@ export type WorkspacesDeleteWorkspaceData = {
 }
 
 export type WorkspacesDeleteWorkspaceResponse = void
+
+export type WorkspacesListWorkspaceMembersData = {
+  workspaceId: string
+}
+
+export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
 
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
@@ -3873,6 +4595,13 @@ export type WorkflowsExportWorkflowData = {
 }
 
 export type WorkflowsExportWorkflowResponse = unknown
+
+export type WorkflowsListWorkflowDefinitionsData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowDefinitionsResponse = Array<WorkflowDefinition>
 
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
@@ -4030,6 +4759,35 @@ export type WorkflowsRemoveTagData = {
 
 export type WorkflowsRemoveTagResponse = void
 
+export type WorkflowsPublishWorkflowData = {
+  requestBody: WorkflowDslPublish
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsPublishWorkflowResponse = void
+
+export type WorkflowsListWorkflowCommitsData = {
+  /**
+   * Branch name to fetch commits from
+   */
+  branch?: string
+  /**
+   * Maximum number of commits to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsPullWorkflowsData = {
+  requestBody: WorkflowSyncPullRequest
+  workspaceId: string
+}
+
+export type WorkflowsPullWorkflowsResponse = PullResult
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -4131,6 +4889,166 @@ export type SchedulesSearchSchedulesData = {
 
 export type SchedulesSearchSchedulesResponse = Array<Schedule>
 
+export type EntitiesListEntitiesData = {
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntitiesResponse = Array<EntityRead>
+
+export type EntitiesCreateEntityData = {
+  requestBody: EntityCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityResponse = unknown
+
+export type EntitiesGetEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityResponse = EntityRead
+
+export type EntitiesUpdateEntityData = {
+  entityId: string
+  requestBody: EntityUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityResponse = void
+
+export type EntitiesDeleteEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityResponse = void
+
+export type EntitiesDeactivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateEntityResponse = void
+
+export type EntitiesActivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesActivateEntityResponse = void
+
+export type EntitiesCreateFieldData = {
+  entityId: string
+  requestBody: EntityFieldCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateFieldResponse = unknown
+
+export type EntitiesListFieldsData = {
+  entityId: string
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListFieldsResponse = Array<EntityFieldRead>
+
+export type EntitiesUpdateFieldData = {
+  entityId: string
+  fieldId: string
+  requestBody: EntityFieldUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateFieldResponse = void
+
+export type EntitiesGetFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesGetFieldResponse = EntityFieldRead
+
+export type EntitiesDeleteFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteFieldResponse = void
+
+export type EntitiesDeactivateFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateFieldResponse = void
+
+export type EntitiesActivateFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesActivateFieldResponse = void
+
+export type EntitiesListEntityRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId: string
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntityRecordsResponse =
+  CursorPaginatedResponse_RecordRead_
+
+export type EntitiesCreateEntityRecordData = {
+  entityId: string
+  requestBody: RecordCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityRecordResponse = unknown
+
+export type EntitiesGetEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityRecordResponse = RecordRead
+
+export type EntitiesUpdateEntityRecordData = {
+  entityId: string
+  recordId: string
+  requestBody: RecordUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityRecordResponse = void
+
+export type EntitiesDeleteEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityRecordResponse = void
+
 export type TagsListTagsData = {
   workspaceId: string
 }
@@ -4165,6 +5083,32 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
+
+export type RecordsListRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
+
+export type RecordsGetRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type RecordsGetRecordResponse = RecordRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -4276,6 +5220,7 @@ export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
+  requestBody?: RegistryRepositorySync | null
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
@@ -4310,6 +5255,15 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
+
+export type RegistryRepositoriesListRepositoryCommitsData = {
+  branch?: string
+  limit?: number
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryCommitsResponse =
+  Array<GitCommitInfo>
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -4378,6 +5332,14 @@ export type SettingsUpdateAppSettingsData = {
 }
 
 export type SettingsUpdateAppSettingsResponse = void
+
+export type SettingsGetAgentSettingsResponse = AgentSettingsRead
+
+export type SettingsUpdateAgentSettingsData = {
+  requestBody: AgentSettingsUpdate
+}
+
+export type SettingsUpdateAgentSettingsResponse = void
 
 export type OrganizationSecretsListOrgSecretsData = {
   /**
@@ -4526,6 +5488,10 @@ export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
   /**
+   * Filter by assignee ID or 'unassigned'
+   */
+  assigneeId?: string | null
+  /**
    * Cursor for pagination
    */
   cursor?: string | null
@@ -4534,9 +5500,29 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
+   * Filter by case priority
+   */
+  priority?: CasePriority | null
+  /**
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Text to search for in case summary and description
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: CaseSeverity | null
+  /**
+   * Filter by case status
+   */
+  status?: CaseStatus | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4584,6 +5570,10 @@ export type CasesSearchCasesData = {
    * Filter by case status
    */
   status?: CaseStatus | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4650,50 +5640,6 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
-export type CasesListAttachmentsData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
-
-export type CasesCreateAttachmentData = {
-  caseId: string
-  formData: Body_cases_create_attachment
-  workspaceId: string
-}
-
-export type CasesCreateAttachmentResponse = CaseAttachmentRead
-
-export type CasesDownloadAttachmentData = {
-  attachmentId: string
-  caseId: string
-  /**
-   * If true, allows inline preview for safe image types
-   */
-  preview?: boolean
-  workspaceId: string
-}
-
-export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
-
-export type CasesDeleteAttachmentData = {
-  attachmentId: string
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesDeleteAttachmentResponse = void
-
-export type CasesGetStorageUsageData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesGetStorageUsageResponse = {
-  [key: string]: number
-}
-
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -4721,6 +5667,121 @@ export type CasesDeleteFieldData = {
 }
 
 export type CasesDeleteFieldResponse = void
+
+export type CasesListTagsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListTagsResponse = Array<CaseTagRead>
+
+export type CasesAddTagData = {
+  caseId: string
+  requestBody: CaseTagCreate
+  workspaceId: string
+}
+
+export type CasesAddTagResponse = CaseTagRead
+
+export type CasesRemoveTagData = {
+  caseId: string
+  tagIdentifier: string
+  workspaceId: string
+}
+
+export type CasesRemoveTagResponse = void
+
+export type CaseAttachmentsListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseAttachmentsListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CaseAttachmentsCreateAttachmentData = {
+  caseId: string
+  formData: Body_case_attachments_create_attachment
+  workspaceId: string
+}
+
+export type CaseAttachmentsCreateAttachmentResponse = CaseAttachmentRead
+
+export type CaseAttachmentsDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
+  workspaceId: string
+}
+
+export type CaseAttachmentsDownloadAttachmentResponse =
+  CaseAttachmentDownloadResponse
+
+export type CaseAttachmentsDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseAttachmentsDeleteAttachmentResponse = void
+
+export type CaseRecordsListCaseRecordsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseRecordsListCaseRecordsResponse = CaseRecordListResponse
+
+export type CaseRecordsCreateCaseRecordData = {
+  caseId: string
+  requestBody: CaseRecordCreate
+  workspaceId: string
+}
+
+export type CaseRecordsCreateCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsGetCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsGetCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsUpdateCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  requestBody: CaseRecordUpdate
+  workspaceId: string
+}
+
+export type CaseRecordsUpdateCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsDeleteCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsDeleteCaseRecordResponse = CaseRecordDeleteResponse
+
+export type CaseRecordsLinkEntityRecordData = {
+  caseId: string
+  requestBody: CaseRecordLink
+  workspaceId: string
+}
+
+export type CaseRecordsLinkEntityRecordResponse = CaseRecordRead
+
+export type CaseRecordsUnlinkCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsUnlinkCaseRecordResponse = CaseRecordDeleteResponse
 
 export type ChatCreateChatData = {
   requestBody: ChatCreate
@@ -4777,60 +5838,68 @@ export type ChatStreamChatEventsData = {
 
 export type ChatStreamChatEventsResponse = unknown
 
-export type PromptCreatePromptData = {
-  requestBody: PromptCreate
+export type RunbookCreateRunbookData = {
+  requestBody: RunbookCreate
   workspaceId: string
 }
 
-export type PromptCreatePromptResponse = PromptRead
+export type RunbookCreateRunbookResponse = RunbookRead
 
-export type PromptListPromptsData = {
+export type RunbookListRunbooksData = {
   /**
-   * Maximum number of prompts to return
+   * Maximum number of runbooks to return
    */
   limit?: number
+  /**
+   * Sort order: 'asc' or 'desc'
+   */
+  order?: string
+  /**
+   * Field to sort by: 'created_at' or 'updated_at'
+   */
+  sortBy?: string
   workspaceId: string
 }
 
-export type PromptListPromptsResponse = Array<PromptRead>
+export type RunbookListRunbooksResponse = Array<RunbookRead>
 
-export type PromptGetPromptData = {
-  promptId: string
+export type RunbookGetRunbookData = {
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptGetPromptResponse = PromptRead
+export type RunbookGetRunbookResponse = RunbookRead
 
-export type PromptUpdatePromptData = {
-  promptId: string
-  requestBody: PromptUpdate
+export type RunbookUpdateRunbookData = {
+  requestBody: RunbookUpdate
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptUpdatePromptResponse = PromptRead
+export type RunbookUpdateRunbookResponse = RunbookRead
 
-export type PromptDeletePromptData = {
-  promptId: string
+export type RunbookDeleteRunbookData = {
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptDeletePromptResponse = void
+export type RunbookDeleteRunbookResponse = void
 
-export type PromptRunPromptData = {
-  promptId: string
-  requestBody: PromptRunRequest
+export type RunbookExecuteRunbookData = {
+  requestBody: RunbookExecuteRequest
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptRunPromptResponse = PromptRunResponse
+export type RunbookExecuteRunbookResponse = RunbookExecuteResponse
 
-export type PromptStreamPromptExecutionData = {
+export type RunbookStreamRunbookExecutionData = {
   caseId: string
-  promptId: string
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptStreamPromptExecutionResponse = unknown
+export type RunbookStreamRunbookExecutionResponse = unknown
 
 export type FoldersGetDirectoryData = {
   /**
@@ -4973,6 +6042,40 @@ export type ProvidersGetProviderData = {
 
 export type ProvidersGetProviderResponse = ProviderRead
 
+export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
+
+export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
+
+export type VcsGithubAppInstallCallbackData = {
+  /**
+   * Temporary code from GitHub manifest flow
+   */
+  code: string
+}
+
+export type VcsGithubAppInstallCallbackResponse = unknown
+
+export type VcsGithubWebhookData = {
+  requestBody: {
+    [key: string]: unknown
+  }
+}
+
+export type VcsGithubWebhookResponse = {
+  [key: string]: string
+}
+
+export type VcsSaveGithubAppCredentialsData = {
+  requestBody: GitHubAppCredentialsRequest
+}
+
+export type VcsSaveGithubAppCredentialsResponse = {
+  [key: string]: string
+}
+
+export type VcsGetGithubAppCredentialsStatusResponse =
+  GitHubAppCredentialsStatus
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -5067,8 +6170,8 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
-      req: PublicIncomingWebhookData
+    post: {
+      req: PublicIncomingWebhookPostData
       res: {
         /**
          * Successful Response
@@ -5080,8 +6183,8 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
-      req: PublicIncomingWebhook1Data
+    get: {
+      req: PublicIncomingWebhookGetData
       res: {
         /**
          * Successful Response
@@ -5196,6 +6299,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/members": {
+    get: {
+      req: WorkspacesListWorkspaceMembersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMember>
         /**
          * Validation Error
          */
@@ -5364,6 +6482,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/definitions": {
+    get: {
+      req: WorkflowsListWorkflowDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowDefinition>
         /**
          * Validation Error
          */
@@ -5655,6 +6788,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/publish": {
+    post: {
+      req: WorkflowsPublishWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/commits": {
+    get: {
+      req: WorkflowsListWorkflowCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/pull": {
+    post: {
+      req: WorkflowsPullWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -5825,6 +7003,273 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/entities": {
+    get: {
+      req: EntitiesListEntitiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}": {
+    get: {
+      req: EntitiesGetEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/deactivate": {
+    patch: {
+      req: EntitiesDeactivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/activate": {
+    patch: {
+      req: EntitiesActivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields": {
+    post: {
+      req: EntitiesCreateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityFieldRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}": {
+    patch: {
+      req: EntitiesUpdateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesGetFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityFieldRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}/deactivate": {
+    patch: {
+      req: EntitiesDeactivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}/activate": {
+    patch: {
+      req: EntitiesActivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/records": {
+    get: {
+      req: EntitiesListEntityRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/records/{record_id}": {
+    get: {
+      req: EntitiesGetEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/tags": {
     get: {
       req: TagsListTagsData
@@ -5887,6 +7332,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records": {
+    get: {
+      req: RecordsListRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records/{record_id}": {
+    get: {
+      req: RecordsGetRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
         /**
          * Validation Error
          */
@@ -6257,6 +7732,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/registry/repos/{repository_id}/commits": {
+    get: {
+      req: RegistryRepositoriesListRepositoryCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/registry/actions": {
     get: {
       res: {
@@ -6424,6 +7914,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAppSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentSettingsData
       res: {
         /**
          * Successful Response
@@ -6860,79 +8373,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments": {
-    get: {
-      req: CasesListAttachmentsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<CaseAttachmentRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: CasesCreateAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: CaseAttachmentRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/attachments/{attachment_id}": {
-    get: {
-      req: CasesDownloadAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseAttachmentDownloadResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: CasesDeleteAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/storage-usage": {
-    get: {
-      req: CasesGetStorageUsageData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: number
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/case-fields": {
     get: {
       req: CasesListFieldsData
@@ -6982,6 +8422,204 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags": {
+    get: {
+      req: CasesListTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesAddTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags/{tag_identifier}": {
+    delete: {
+      req: CasesRemoveTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CaseAttachmentsListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseAttachmentsCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CaseAttachmentsDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAttachmentDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseAttachmentsDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records": {
+    get: {
+      req: CaseRecordsListCaseRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseRecordsCreateCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/{case_record_id}": {
+    get: {
+      req: CaseRecordsGetCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseRecordsUpdateCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseRecordsDeleteCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordDeleteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/link": {
+    patch: {
+      req: CaseRecordsLinkEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/{case_record_id}/unlink": {
+    patch: {
+      req: CaseRecordsUnlinkCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordDeleteResponse
         /**
          * Validation Error
          */
@@ -7073,14 +8711,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/": {
+  "/runbooks": {
     post: {
-      req: PromptCreatePromptData
+      req: RunbookCreateRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -7088,12 +8726,12 @@ export type $OpenApiTs = {
       }
     }
     get: {
-      req: PromptListPromptsData
+      req: RunbookListRunbooksData
       res: {
         /**
          * Successful Response
          */
-        200: Array<PromptRead>
+        200: Array<RunbookRead>
         /**
          * Validation Error
          */
@@ -7101,14 +8739,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}": {
+  "/runbooks/{runbook_id}": {
     get: {
-      req: PromptGetPromptData
+      req: RunbookGetRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -7116,12 +8754,12 @@ export type $OpenApiTs = {
       }
     }
     patch: {
-      req: PromptUpdatePromptData
+      req: RunbookUpdateRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -7129,7 +8767,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: PromptDeletePromptData
+      req: RunbookDeleteRunbookData
       res: {
         /**
          * Successful Response
@@ -7142,14 +8780,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}/run": {
+  "/runbooks/{runbook_id}/execute": {
     post: {
-      req: PromptRunPromptData
+      req: RunbookExecuteRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRunResponse
+        200: RunbookExecuteResponse
         /**
          * Validation Error
          */
@@ -7157,9 +8795,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}/case/{case_id}/stream": {
+  "/runbooks/{runbook_id}/case/{case_id}/stream": {
     get: {
-      req: PromptStreamPromptExecutionData
+      req: RunbookStreamRunbookExecutionData
       res: {
         /**
          * Successful Response
@@ -7414,6 +9052,85 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/feature-flags": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FeatureFlagsRead
+      }
+    }
+  }
+  "/organization/vcs/github/manifest": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppManifestResponse
+      }
+    }
+  }
+  "/organization/vcs/github/install": {
+    get: {
+      req: VcsGithubAppInstallCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/webhook": {
+    post: {
+      req: VcsGithubWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials": {
+    post: {
+      req: VcsSaveGithubAppCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppCredentialsStatus
       }
     }
   }

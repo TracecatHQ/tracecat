@@ -1,3 +1,0 @@
-detection_id:
-  type: str
-  description: Unique identifier of the detection to suppress.

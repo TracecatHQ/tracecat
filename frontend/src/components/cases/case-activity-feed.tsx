@@ -30,7 +30,7 @@ import {
 import { SYSTEM_USER, User } from "@/lib/auth"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import { useAppInfo, useCaseEvents } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 import { InlineDotSeparator } from "../separator"
 
@@ -119,7 +119,7 @@ function ActivityFeedEvent({
 }
 
 function WorkflowExecutionInfo({ wfExecId }: { wfExecId: string }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { appInfo } = useAppInfo()
   const baseUrl = appInfo?.public_app_url
   const { wf, exec } = executionId(wfExecId)

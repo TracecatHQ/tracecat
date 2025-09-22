@@ -1,7 +1,6 @@
 services:
   caddy:
     image: caddy:2.8.4-alpine
-    container_name: caddy
     restart: unless-stopped
     ports:
       - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
@@ -15,10 +14,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: api
     restart: unless-stopped
     ports:
-      - 8000:8000
+      - ${API_PORT:-8000}:8000
     environment:
       # App
       LOG_LEVEL: ${LOG_LEVEL}
@@ -41,6 +39,7 @@ services:
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       # Temporal
@@ -67,7 +66,7 @@ services:
 
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -92,6 +91,7 @@ services:
       TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -102,14 +102,19 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
     depends_on:
       - api
       - temporal
+      - redis
 
   executor:
     build:
@@ -117,10 +122,10 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     ports:
-      - 8265:8265
+      - ${EXECUTOR_DASHBOARD_PORT:-8265}:8265
       # NOTE: Unit tests in `test_workflows.py` need
       # to connect to the executor directly
-      - 8001:8000
+      - ${EXECUTOR_API_PORT:-8001}:8000
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -130,6 +135,8 @@ services:
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
       # Registry
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
       # Local registry
@@ -139,9 +146,11 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # TMP
+      HEALTHCHECK_TMP_THRESHOLD: ${HEALTHCHECK_TMP_THRESHOLD}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [
@@ -155,6 +164,12 @@ services:
         "8000",
         "--reload",
       ]
+    healthcheck:
+      test: ["CMD-SHELL", "check_tmp.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     depends_on:
       - temporal
       - redis
@@ -176,7 +191,7 @@ services:
       - ./frontend/node_modules:/app/node_modules
     restart: unless-stopped
     ports:
-      - 3000:3000
+      - ${UI_PORT:-3000}:3000
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
@@ -191,10 +206,9 @@ services:
 
   postgres_db:
     image: postgres:16
-    container_name: postgres_db
     restart: unless-stopped
     ports:
-      - 5432:5432
+      - ${PG_PORT:-5432}:5432
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
@@ -204,7 +218,6 @@ services:
 
   temporal_postgres_db:
     image: postgres:13
-    container_name: temporal_postgres_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
@@ -214,10 +227,9 @@ services:
 
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION:-1.27.1}
-    container_name: temporal
     restart: unless-stopped
     ports:
-      - 7233:7233
+      - ${TEMPORAL_PORT:-7233}:7233
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -231,10 +243,9 @@ services:
     attach: false
 
   temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: temporal_ui
+    image: temporalio/ui:${TEMPORAL__UI_VERSION:-latest}
     ports:
-      - 8081:8080
+      - ${TEMPORAL_UI_PORT:-8081}:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:8080
@@ -244,11 +255,10 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2025-05-24T17-08-30Z
-    container_name: minio
     restart: unless-stopped
     ports:
-      - 9000:9000
-      - 9001:9001
+      - ${MINIO_PORT:-9000}:9000
+      - ${MINIO_CONSOLE_PORT:-9001}:9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -264,10 +274,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: redis
     restart: unless-stopped
     ports:
-      - 6379:6379
+      - ${REDIS_PORT_HOST:-6379}:6379
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes

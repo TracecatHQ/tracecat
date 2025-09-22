@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Get contents
+  description: Get full page contents, summaries, and metadata for a list of URLs.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/get-contents
+  namespace: tools.exa
+  name: get_contents
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    urls:
+      type: list[str]
+      description: The URLs to get the contents for.
+  steps:
+    - ref: get_contents
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/contents
+        method: POST
+        headers:
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          urls: ${{ inputs.urls }}
+  returns: ${{ steps.get_contents.result.data }}

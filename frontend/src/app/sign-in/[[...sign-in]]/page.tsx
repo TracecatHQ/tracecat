@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { SignIn } from "@/components/auth/sign-in"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function Page() {
   const { user, userIsLoading } = useAuth()

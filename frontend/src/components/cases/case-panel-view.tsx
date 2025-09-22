@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  BoxIcon,
   Braces,
   MessageSquare,
   MoreHorizontal,
@@ -32,28 +33,45 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CasePropertyRow } from "@/components/cases/case-property-row"
+import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
+import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useGetCase, useUpdateCase } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useToast } from "@/components/ui/use-toast"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
+import {
+  useAddCaseTag,
+  useGetCase,
+  useRemoveCaseTag,
+  useTags,
+  useUpdateCase,
+} from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
+type CasePanelTab =
+  | "comments"
+  | "activity"
+  | "attachments"
+  | "records"
+  | "payload"
 
 interface CasePanelContentProps {
   caseId: string
 }
 
 export function CasePanelView({ caseId }: CasePanelContentProps) {
-  const { workspaceId, workspace } = useWorkspace()
+  const workspaceId = useWorkspaceId()
+  const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -65,13 +83,17 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     workspaceId,
     caseId,
   })
+  const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
+  const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
+  const { tags } = useTags(workspaceId)
+  const { toast } = useToast()
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
 
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
     searchParams &&
-    ["comments", "activity", "attachments", "payload"].includes(
+    ["comments", "activity", "attachments", "records", "payload"].includes(
       searchParams.get("tab") || ""
     )
       ? (searchParams.get("tab") ?? "comments")
@@ -145,6 +167,25 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
+  const handleTagToggle = async (tagId: string, hasTag: boolean) => {
+    try {
+      if (hasTag) {
+        // Remove tag
+        await removeCaseTag(tagId)
+      } else {
+        // Add tag
+        await addCaseTag({ tag_id: tagId })
+      }
+    } catch (error) {
+      console.error("Failed to modify tag:", error)
+      toast({
+        title: "Error",
+        description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} case. Please try again.`,
+        variant: "destructive",
+      })
+    }
+  }
+
   const customFields = caseData.fields.filter((field) => !field.reserved)
 
   return (
@@ -167,7 +208,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     value={
                       <AssigneeSelect
                         assignee={caseData.assignee}
-                        workspaceMembers={workspace?.members ?? []}
+                        workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                       />
                     }
@@ -205,6 +246,63 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       />
                     }
                   />
+
+                  {/* Tags */}
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs">Tags</span>
+                      {tags && tags.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 w-5 p-0"
+                            >
+                              <MoreHorizontal className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="text-xs">
+                            {tags.map((tag) => {
+                              const hasTag = caseData.tags?.some(
+                                (t) => t.id === tag.id
+                              )
+                              return (
+                                <DropdownMenuCheckboxItem
+                                  key={tag.id}
+                                  className="text-xs"
+                                  checked={hasTag}
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await handleTagToggle(tag.id, !!hasTag)
+                                  }}
+                                >
+                                  <div
+                                    className="mr-2 flex size-2 rounded-full"
+                                    style={{
+                                      backgroundColor: tag.color || undefined,
+                                    }}
+                                  />
+                                  <span>{tag.name}</span>
+                                </DropdownMenuCheckboxItem>
+                              )
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {caseData.tags?.length ? (
+                        caseData.tags.map((tag) => (
+                          <TagBadge key={tag.id} tag={tag} />
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No tags
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Custom fields */}
                   <div className="pt-2">
@@ -318,6 +416,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </TabsTrigger>
                   <TabsTrigger
                     className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="records"
+                  >
+                    <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
+                    Records
+                  </TabsTrigger>
+                  <TabsTrigger
+                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="payload"
                   >
                     <Braces className="mr-1.5 h-3.5 w-3.5" />
@@ -335,6 +440,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
                 <TabsContent value="attachments" className="mt-4">
                   <CaseAttachmentsSection
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                  />
+                </TabsContent>
+
+                <TabsContent value="records" className="mt-4">
+                  <CaseRecordsSection
                     caseId={caseId}
                     workspaceId={workspaceId}
                   />

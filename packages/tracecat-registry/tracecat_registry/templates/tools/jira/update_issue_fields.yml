@@ -17,15 +17,12 @@ definition:
       type: list[dict[str, Any]]
       description: >-
         List of fields to update in the issue.
-        Each field is an object with the following keys:
-        - `key`: The Jira custom field ID.
-        - `value`: The field value.
 
-        For example:
+        For example usage:
         ```
         [
-          {"key": "customfield_10000", "value": "New value"},
-          {"key": "customfield_10001", "value": "Another value"}
+          {"customfield_10000": "New value"},
+          {"customfield_10001": ["Another value"]}
         ]
         ```
     base_url:

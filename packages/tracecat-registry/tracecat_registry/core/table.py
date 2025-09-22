@@ -1,14 +1,23 @@
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
+import orjson
+from pydantic_core import to_jsonable_python
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.models import (
+    TableColumnCreate,
+    TableColumnRead,
+    TableCreate,
+    TableRead,
+    TableRowInsert,
+)
 from tracecat.tables.service import TablesService
 from tracecat_registry import registry
+from tracecat.expressions.functions import tabulate
 
 
 @registry.register(
@@ -292,3 +301,72 @@ async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
     return [table.model_dump() for table in tables]
+
+
+@registry.register(
+    default_title="Get table metadata",
+    description="Get a table's metadata by name. This includes the columns and whether they are indexed.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def get_table_metadata(
+    name: Annotated[str, Doc("The name of the table to get.")],
+) -> dict[str, Any]:
+    async with TablesService.with_session() as service:
+        table = await service.get_table_by_name(name)
+
+        # Get unique index info or default to empty dict if not present
+        index_columns = await service.get_index(table)
+
+        # Convert to response model (includes is_index field)
+        res = TableRead(
+            id=table.id,
+            name=table.name,
+            columns=[
+                TableColumnRead(
+                    id=column.id,
+                    name=column.name,
+                    type=SqlType(column.type),
+                    nullable=column.nullable,
+                    default=column.default,
+                    is_index=column.name in index_columns,
+                )
+                for column in table.columns
+            ],
+        )
+    return res.model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Download table data",
+    description="Download a table's data by name as list of dicts, JSON string, NDJSON string, CSV or Markdown.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def download_table(
+    name: Annotated[str, Doc("The name of the table to download.")],
+    format: Annotated[
+        Literal["json", "ndjson", "csv", "markdown"] | None,
+        Doc("The format to download the table data in."),
+    ] = None,
+    limit: Annotated[int, Doc("The maximum number of rows to download.")] = 1000,
+) -> list[dict[str, Any]] | str:
+    if limit > 1000:
+        raise ValueError("Cannot return more than 1000 rows")
+
+    async with TablesService.with_session() as service:
+        table = await service.get_table_by_name(name)
+        rows = await service.list_rows(table=table, limit=limit)
+
+        # Convert rows to JSON-safe format (handles UUID and other non-serializable types)
+        json_safe_rows = to_jsonable_python(rows, fallback=str)
+
+        if format is None:
+            return json_safe_rows
+        elif format == "json":
+            return orjson.dumps(json_safe_rows).decode()
+        elif format == "ndjson":
+            return "\n".join([orjson.dumps(row).decode() for row in json_safe_rows])
+        elif format in ["csv", "markdown"]:
+            return tabulate(json_safe_rows, format)
+        return tabulate(json_safe_rows, format)

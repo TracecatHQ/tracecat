@@ -1,30 +1,10 @@
-from typing import Any
+# Shim for EE connectors - requires EE installation
+try:
+    from tracecat_ee.interactions.connectors import parse_slack_interaction_input
+except ImportError as exc:
+    raise ImportError(
+        "Tracecat Enterprise features are not installed. "
+        "Install with extras: `pip install 'tracecat[ee]'`."
+    ) from exc
 
-from tracecat.ee.interactions.models import InteractionInput
-
-
-def parse_slack_interaction_input(payload: dict[str, Any]) -> InteractionInput:
-    """Extract event payload from various Slack payloads"""
-    match payload:
-        case {
-            "message": {
-                "metadata": {
-                    "event_type": "interaction_created",
-                    "event_payload": {
-                        "interaction": {
-                            "interaction_id": interaction_id,
-                            "execution_id": execution_id,
-                            "action_ref": action_ref,
-                        }
-                    },
-                }
-            },
-        }:
-            return InteractionInput(
-                interaction_id=interaction_id,
-                execution_id=execution_id,
-                action_ref=action_ref,
-                data=payload,
-            )
-        case _:
-            raise ValueError("Invalid Slack payload")
+__all__ = ["parse_slack_interaction_input"]

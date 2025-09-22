@@ -21,7 +21,7 @@ from tenacity import (
     wait_fixed,
 )
 import yaml
-from tracecat.expressions.common import build_safe_lambda
+from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from tracecat.logger import logger
 from typing_extensions import Doc
 
@@ -589,7 +589,8 @@ async def http_request(
                     data=form_data,
                     files=httpx_files_param,
                 )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                response.raise_for_status()
         except httpx.HTTPStatusError as e:
             error_message = _http_status_error_to_message(e)
             logger.error(
@@ -634,7 +635,7 @@ async def http_poll(
     poll_retry_codes: Annotated[
         int | list[int] | None,
         Doc(
-            "Status codes on which the action will retry. If not specified, `poll_condition` must be provided."
+            "Status codes on which the action will retry. Ignored if `poll_condition` is provided. If neither are specified, an error will be raised."
         ),
     ] = None,
     poll_interval: Annotated[
@@ -652,7 +653,7 @@ async def http_poll(
     poll_condition: Annotated[
         str | None,
         Doc(
-            "User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided."
+            "Python lambda function when evaluated to True, stops polling. The function receives a dict with `headers`, `data`, and `status_code` fields."
         ),
     ] = None,
 ) -> HTTPResponse:
@@ -666,8 +667,10 @@ async def http_poll(
 
     predicate = build_safe_lambda(poll_condition) if poll_condition else None
 
-    if not retry_codes and not predicate:
-        raise ValueError("At least one of retry_codes or predicate must be specified")
+    if not poll_condition and not retry_codes:
+        raise ValueError(
+            "At least one of poll_condition or poll_retry_codes must be specified"
+        )
 
     # Retry based on HTTP status codes
     def retry_status_code(response: httpx.Response) -> bool:
@@ -685,17 +688,27 @@ async def http_poll(
             data=data,
             status_code=response.status_code,
         )
-        return predicate(args)
+        # Invert the result: retry when condition is NOT met (poll until condition is true)
+        return not predicate(args)
+
+    # Use poll_condition if defined, otherwise use retry_codes
+    if poll_condition:
+        retry_condition = retry_if_result(user_defined_predicate)
+    else:
+        retry_condition = retry_if_result(retry_status_code)
 
     @retry(
         stop=stop_after_attempt(poll_max_attempts)
         if poll_max_attempts > 0
         else stop_never,
-        wait=wait_fixed(poll_interval) if poll_interval else wait_exponential(),
-        retry=(
-            retry_if_result(retry_status_code) | retry_if_result(user_defined_predicate)
+        wait=wait_fixed(poll_interval)
+        if poll_interval is not None
+        else wait_exponential(
+            multiplier=2,
+            min=1,
+            max=60,
         ),
-        # Stop retrying immediately on critical errors (e.g., timeouts)
+        retry=retry_condition,
         reraise=True,
     )
     async def call() -> httpx.Response:
@@ -733,3 +746,111 @@ async def http_poll(
 
     result = await call()
     return httpx_to_response(result)
+
+
+@registry.register(
+    namespace="core",
+    description="Paginate through a HTTP response",
+    default_title="HTTP paginate",
+)
+async def http_paginate(
+    *,
+    # Common
+    url: Url,
+    method: Method,
+    headers: Headers = None,
+    params: Params = None,
+    payload: Payload = None,
+    form_data: FormData = None,
+    auth: Auth = None,
+    timeout: Timeout = 10.0,
+    follow_redirects: FollowRedirects = False,
+    max_redirects: MaxRedirects = 20,
+    verify_ssl: VerifySSL = True,
+    # Pagination
+    stop_condition: Annotated[
+        str,
+        Doc(
+            "Python lambda function that determines when pagination should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    next_request: Annotated[
+        str,
+        Doc(
+            "Python lambda function that returns the next request as a JSON of `url`, `method`, `headers`, `params`, `payload`, `form_data` to paginate to. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    items_jsonpath: Annotated[
+        str | None,
+        Doc("JSONPath expression that evaluates to the items to paginate through."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of items to paginate through. Defaults to 1000."),
+    ] = 1000,
+) -> list[Any]:
+    """Paginate through a HTTP response.
+
+    Returns a list of items when `items_jsonpath` is provided (flattened across pages),
+    respecting the `limit` as item-level count. When `items_jsonpath` is None,
+    returns a list of `HTTPResponse` objects (one per page), and `limit` applies per-page.
+    """
+
+    stop_condition_fn = build_safe_lambda(stop_condition)
+    next_request_fn = build_safe_lambda(next_request)
+    results: list[Any] = []
+    # Short-circuit when no items are requested
+    if limit == 0:
+        return results
+    while len(results) < limit:
+        response = await http_request(
+            url=url,
+            method=method,
+            headers=headers,
+            params=params,
+            payload=payload,
+            form_data=form_data,
+            files=None,
+            auth=auth,
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            max_redirects=max_redirects,
+            verify_ssl=verify_ssl,
+        )
+        if items_jsonpath is not None:
+            data = response["data"]
+            # Apply jsonpath to either dict or list root. If not a dict/list, this will raise
+            # a TracecatExpressionError, surfacing misuse clearly to users.
+            if isinstance(data, dict):
+                items_value = eval_jsonpath(items_jsonpath, data)
+            else:
+                items_value = data
+
+            # Normalize the jsonpath result to a list of items
+            if items_value is None:
+                page_items: list[Any] = []
+            elif isinstance(items_value, list):
+                page_items = items_value
+            else:
+                page_items = [items_value]
+
+            # Enforce item-level limit by extending up to remaining slots
+            remaining = max(0, limit - len(results))
+            if remaining > 0:
+                results.extend(page_items[:remaining])
+        else:
+            # When no items_jsonpath is provided, append the full page response
+            results.append(response)
+
+        # Stop if reached limit or stop condition met
+        if len(results) >= limit or stop_condition_fn(response):
+            break
+        request = next_request_fn(response)
+        url = request.get("url", url)
+        method = request.get("method", method)
+        headers = request.get("headers", headers)
+        params = request.get("params", params)
+        payload = request.get("payload", payload)
+        form_data = request.get("form_data", form_data)
+
+    return results

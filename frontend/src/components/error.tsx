@@ -48,7 +48,7 @@ function refineError(error: ErrorProps): CustomError {
 function GoHome() {
   const router = useRouter()
   return (
-    <Button variant="outline" onClick={() => router.replace("/workspaces")}>
+    <Button variant="outline" onClick={() => router.replace("/")}>
       Return to the home page
     </Button>
   )

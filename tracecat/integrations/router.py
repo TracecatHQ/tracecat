@@ -2,7 +2,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import SecretStr
 from sqlmodel import select
 
 from tracecat import config
@@ -123,23 +125,58 @@ async def oauth_callback(
     # The grant type is AC
     key = ProviderKey(id=provider_impl.id, grant_type=provider_impl.grant_type)
     integration = await svc.get_integration(provider_key=key)
-    if integration is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
 
-    # This requires that the provider is configured
-    provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=provider_impl.scopes.default
+    provider_config = (
+        svc.get_provider_config(
+            integration=integration, default_scopes=provider_impl.scopes.default
+        )
+        if integration
+        else None
     )
-    if provider_config is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
 
-    provider = provider_impl.from_config(provider_config)
+    try:
+        if provider_impl.metadata.requires_config:
+            if integration is None or provider_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Provider is not configured for this workspace",
+                )
+            provider = await provider_impl.instantiate(config=provider_config)
+        else:
+            provider = await provider_impl.instantiate(config=provider_config)
+            if (integration is None or provider_config is None) and provider.client_id:
+                await svc.store_provider_config(
+                    provider_key=key,
+                    client_id=provider.client_id,
+                    client_secret=SecretStr(provider.client_secret)
+                    if provider.client_secret
+                    else None,
+                    requested_scopes=provider.requested_scopes,
+                )
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
+
+        logger.error(
+            "Failed to instantiate OAuth provider",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Provider configuration or credentials are not available",
+        ) from exc
     token_result = await provider.exchange_code_for_token(code, str(state))
 
     # Store integration tokens for this user
@@ -255,23 +292,69 @@ async def connect_provider(
             detail="Workspace and user ID is required",
         )
     svc = IntegrationService(session, role=role)
+    provider_impl = provider_info.impl
     integration = await svc.get_integration(provider_key=provider_info.key)
-    if integration is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
+    provider_config = (
+        svc.get_provider_config(
+            integration=integration, default_scopes=provider_impl.scopes.default
         )
-
-    # This requires that the provider is configured
-    provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=provider_info.impl.scopes.default
+        if integration
+        else None
     )
-    if provider_config is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
+
+    try:
+        if provider_impl.metadata.requires_config:
+            if integration is None or provider_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Provider is not configured for this workspace",
+                )
+            provider = await provider_impl.instantiate(config=provider_config)
+        else:
+            provider = await provider_impl.instantiate(config=provider_config)
+            if (integration is None or provider_config is None) and provider.client_id:
+                await svc.store_provider_config(
+                    provider_key=provider_info.key,
+                    client_id=provider.client_id,
+                    client_secret=SecretStr(provider.client_secret)
+                    if provider.client_secret
+                    else None,
+                    requested_scopes=provider.requested_scopes,
+                )
+                # Refresh integration context with stored credentials for subsequent operations
+                integration = await svc.get_integration(provider_key=provider_info.key)
+                provider_config = (
+                    svc.get_provider_config(
+                        integration=integration,
+                        default_scopes=provider_impl.scopes.default,
+                    )
+                    if integration
+                    else None
+                )
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
+
+        logger.error(
+            "Failed to instantiate OAuth provider",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
         )
-    provider = provider_info.impl.from_config(provider_config)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Provider configuration or credentials are not available",
+        ) from exc
 
     # Clean up expired state entries before creating a new one
     stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
@@ -384,7 +467,7 @@ async def test_connection(
 
     try:
         # Create provider instance and attempt to get token
-        provider = impl.from_config(provider_config)
+        provider = await impl.instantiate(config=provider_config)
         token_response = await provider.get_client_credentials_token()
 
         # Store the token if successful
@@ -500,7 +583,7 @@ async def get_provider(
         grant_type=provider_info.key.grant_type,
         metadata=provider_info.impl.metadata,
         scopes=provider_info.impl.scopes,
-        schema=ProviderSchema(json_schema=provider_info.impl.schema() or {}),
+        config_schema=ProviderSchema(json_schema=provider_info.impl.schema() or {}),
         integration_status=integration.status
         if integration
         else IntegrationStatus.NOT_CONFIGURED,

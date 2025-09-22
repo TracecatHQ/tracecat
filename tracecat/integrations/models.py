@@ -245,7 +245,7 @@ class ProviderConfig(BaseModel):
     """Data class for integration client credentials."""
 
     client_id: str
-    client_secret: SecretStr
+    client_secret: SecretStr | None = None
     provider_config: dict[str, Any]
     scopes: list[str] | None = None
 
@@ -264,7 +264,7 @@ class ProviderRead(BaseModel):
     grant_type: OAuthGrantType
     metadata: ProviderMetadata
     scopes: ProviderScopes
-    schema: ProviderSchema
+    config_schema: ProviderSchema
     integration_status: IntegrationStatus
     # Only applicable to AuthorizationCodeOAuthProvider
     redirect_uri: str | None = None

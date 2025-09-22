@@ -4,9 +4,10 @@ from typing import Annotated, Any, Literal
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from typing_extensions import Doc
-from tracecat.redis.client import get_redis_client
 import hashlib
 import json
+import os
+import redis.asyncio as redis
 
 from tracecat_registry import ActionIsInterfaceError, registry
 
@@ -113,61 +114,78 @@ def not_in(
 async def _deduplicate_redis(
     seen: dict[tuple[Any, ...], dict[str, Any]], expire_seconds: int
 ) -> list[dict[str, Any]]:
-    # Get Redis client
+    # Create Redis client directly to avoid event loop issues with Ray
+
     try:
-        redis_client = await get_redis_client()
+        # Get Redis URL from environment
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+        # Create a new Redis client in the current event loop
+        redis_client = redis.from_url(
+            redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            max_connections=10,
+        )
         redis_available = True
-    except Exception:
-        raise ConnectionError("Unable to connect to key-value store for deduplication")
+    except Exception as e:
+        raise ConnectionError(
+            f"Unable to connect to key-value store for deduplication: {e}"
+        )
 
     result: list[dict[str, Any]] = []
 
-    # AWS ElastiCache usually adds ~0.3-1 ms RTT per command. Reduce round-trips
-    # with a pipeline when we have more than a few items.
-    if redis_available and len(seen) > 10:
-        # Use async pipeline (transaction=False keeps commands independent)
-        pipe = redis_client.client.pipeline(transaction=False)
-        redis_keys: list[str] = []
+    try:
+        # AWS ElastiCache usually adds ~0.3-1 ms RTT per command. Reduce round-trips
+        # with a pipeline when we have more than a few items.
+        if redis_available and len(seen) > 10:
+            # Use async pipeline (transaction=False keeps commands independent)
+            pipe = redis_client.pipeline(transaction=False)
+            redis_keys: list[str] = []
 
-        for key in seen.keys():
-            key_str = json.dumps(key, sort_keys=True, default=str)
-            redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
-            redis_keys.append(redis_key)
-            pipe.set(redis_key, "1", ex=expire_seconds, nx=True)
-
-        try:
-            exec_results = await pipe.execute()
-        except Exception as e:
-            raise ConnectionError(f"Key-value store pipeline failed: {e}")
-
-        # Determine which items are new globally based on pipeline results.
-        for (key, item), was_set in zip(seen.items(), exec_results):
-            if was_set:
-                result.append(item)
-    else:
-        # Sequential path (small batches pay negligible RTT penalty)
-        for key, item in seen.items():
-            is_new_globally = True
-
-            if redis_available:
+            for key in seen.keys():
                 key_str = json.dumps(key, sort_keys=True, default=str)
                 redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+                redis_keys.append(redis_key)
+                pipe.set(redis_key, "1", ex=expire_seconds, nx=True)
 
-                try:
-                    was_set = await redis_client.client.set(
-                        redis_key,
-                        "1",
-                        ex=expire_seconds,
-                        nx=True,
-                    )
-                    is_new_globally = bool(was_set)
-                except Exception as e:
-                    raise ConnectionError(
-                        f"Unable to connect to key-value store for deduplication: {e}"
-                    )
+            try:
+                exec_results = await pipe.execute()
+            except Exception as e:
+                raise ConnectionError(f"Key-value store pipeline failed: {e}")
 
-            if is_new_globally:
-                result.append(item)
+            # Determine which items are new globally based on pipeline results.
+            for (key, item), was_set in zip(seen.items(), exec_results):
+                if was_set:
+                    result.append(item)
+        else:
+            # Sequential path (small batches pay negligible RTT penalty)
+            for key, item in seen.items():
+                is_new_globally = True
+
+                if redis_available:
+                    key_str = json.dumps(key, sort_keys=True, default=str)
+                    redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+
+                    try:
+                        was_set = await redis_client.set(
+                            redis_key,
+                            "1",
+                            ex=expire_seconds,
+                            nx=True,
+                        )
+                        is_new_globally = bool(was_set)
+                    except Exception as e:
+                        raise ConnectionError(
+                            f"Unable to connect to key-value store for deduplication: {e}"
+                        )
+
+                if is_new_globally:
+                    result.append(item)
+    finally:
+        # Clean up Redis connection
+        if redis_available:
+            await redis_client.aclose()
+
     return result
 
 

@@ -36,6 +36,11 @@ class ChatRequest(BaseModel):
     context: dict[str, Any] | None = Field(
         default=None, description="Optional context data for the agent"
     )
+    base_url: str | None = Field(
+        default=None,
+        description="Optional base URL for the model provider",
+        max_length=500,
+    )
 
 
 class ChatResponse(BaseModel):

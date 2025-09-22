@@ -2,7 +2,7 @@
 
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function ProfileSettingsPage() {
   const { user, userIsLoading } = useAuth()

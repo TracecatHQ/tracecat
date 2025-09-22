@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -11,15 +12,20 @@ import ray
 import uvloop
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
-from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecretType
 from tracecat_registry._internal.models import RegistryOAuthSecret
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
-from tracecat.db.engine import get_async_engine
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    with_session,
+)
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -35,7 +41,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.git import prepare_git_url
+from tracecat.git.utils import safe_prepare_git_url
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -59,6 +65,57 @@ from tracecat.types.exceptions import (
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+_git_context_lock = asyncio.Lock()
+_git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
+
+
+async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
+    """Cache git URL and SSH command for 60 seconds to avoid repeated DB sessions.
+
+    Returns:
+        Tuple of (git_url, ssh_command) or (None, None) if not configured
+    """
+    cache_key = str(role.workspace_id)
+
+    # Check cache first
+    if cached := _git_context_cache.get(cache_key):
+        expire_time, git_url, ssh_cmd = cached
+        if time.time() < expire_time:
+            logger.debug("Using cached git context", workspace_id=role.workspace_id)
+            return git_url, ssh_cmd
+
+    # Load once under lock
+    async with _git_context_lock:
+        # Double-check after acquiring lock
+        if cached := _git_context_cache.get(cache_key):
+            expire_time, git_url, ssh_cmd = cached
+            if time.time() < expire_time:
+                return git_url, ssh_cmd
+
+        # Actually fetch from database
+        logger.debug(
+            "Fetching git context from database", workspace_id=role.workspace_id
+        )
+        async with (
+            get_async_session_context_manager() as session,
+            with_session(session=session),
+        ):
+            git_url = await safe_prepare_git_url(session=session, role=role)
+            ssh_cmd = None
+            if git_url:
+                ssh_cmd = await get_ssh_command(
+                    git_url=git_url, session=session, role=role
+                )
+
+        # Cache for 60 seconds
+        _git_context_cache[cache_key] = (time.time() + 60, git_url, ssh_cmd)
+        logger.debug(
+            "Cached git context",
+            workspace_id=role.workspace_id,
+            has_git_url=bool(git_url),
+        )
+        return git_url, ssh_cmd
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
@@ -408,9 +465,12 @@ async def run_action_on_ray_cluster(
     # Add git URL to pip dependencies if SHA is present
     pip_deps = []
     if ctx.git_url and ctx.git_url.ref:
-        url = ctx.git_url.to_url()
-        pip_deps.append(url)
-        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        try:
+            url = ctx.git_url.to_url()
+            pip_deps.append(url)
+            logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        except Exception as e:
+            logger.error("Error adding git URL to runtime env", error=e)
 
     # If we have a local registry, we need to add it to the runtime env
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -467,10 +527,7 @@ async def run_action_on_ray_cluster(
     return exec_result
 
 
-async def dispatch_action_on_cluster(
-    input: RunActionInput,
-    session: AsyncSession,
-) -> Any:
+async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
     """Schedule actions on the ray cluster.
 
     This function handles dispatching actions to be executed on a Ray cluster. It supports
@@ -488,15 +545,16 @@ async def dispatch_action_on_cluster(
         TracecatException: If there are errors evaluating for_each expressions or during execution
         ExecutorErrorWrapper: If there are errors from the executor itself
     """
-    git_url = await prepare_git_url()
 
     role = ctx_role.get()
-
     ctx = DispatchActionContext(role=role)
+
+    # Use cached git context to avoid opening DB sessions unnecessarily
+    git_url, ssh_cmd = await get_git_context_cached(role=role)
     if git_url:
-        sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
-        ctx.ssh_command = sh_cmd
         ctx.git_url = git_url
+        ctx.ssh_command = ssh_cmd
+
     return await _dispatch_action(input=input, ctx=ctx)
 
 

@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import {
   BotIcon,
   ChevronLeftIcon,
@@ -17,7 +16,6 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { workspacesListWorkspaces } from "@/client"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
@@ -32,17 +30,17 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useWorkspaceManager } from "@/lib/hooks"
 
 export function OrganizationSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const { isFeatureEnabled } = useFeatureFlag()
 
   // Fetch workspaces for the sidebar
-  const { data: workspaces } = useQuery({
-    queryKey: ["workspaces"],
-    queryFn: async () => await workspacesListWorkspaces(),
-  })
+  const { workspaces } = useWorkspaceManager()
 
   const navSettings = [
     {
@@ -81,6 +79,16 @@ export function OrganizationSidebar({
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
     },
+    ...(isFeatureEnabled("git-sync")
+      ? [
+          {
+            title: "Workflow sync",
+            url: "/organization/vcs",
+            icon: GitBranchIcon,
+            isActive: pathname?.includes("/organization/vcs"),
+          },
+        ]
+      : []),
   ]
 
   const navSecrets = [

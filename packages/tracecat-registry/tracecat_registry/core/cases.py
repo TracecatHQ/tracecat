@@ -8,11 +8,13 @@ from typing_extensions import Doc
 
 from tracecat.auth.models import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.attachments import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
     CaseAttachmentRead,
+)
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.models import (
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
@@ -28,6 +30,7 @@ from tracecat.cases.models import (
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
+from tracecat.tags.models import TagRead
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -96,6 +99,10 @@ async def create_case(
         dict[str, Any] | None,
         Doc("Payload for the case."),
     ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("List of tag identifiers (IDs or refs) to add to the case."),
+    ] = None,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.create_case(
@@ -109,7 +116,16 @@ async def create_case(
                 payload=payload,
             )
         )
-    return case.model_dump()
+
+        # Add tags if provided
+        if tags:
+            for tag in tags:
+                await service.tags.add_case_tag(case.id, tag)
+
+            # Refresh case to include tags
+            await service.session.refresh(case)
+
+    return case.model_dump(mode="json")
 
 
 @registry.register(
@@ -151,13 +167,19 @@ async def update_case(
         dict[str, Any] | None,
         Doc("Updated payload for the case."),
     ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc(
+            "List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
-        params = {}
+        params: dict[str, Any] = {}
         if summary is not None:
             params["summary"] = summary
         if description is not None:
@@ -176,7 +198,24 @@ async def update_case(
         if payload is not None:
             params["payload"] = payload
         updated_case = await service.update_case(case, CaseUpdate(**params))
-    return updated_case.model_dump()
+
+        # Update tags if provided (replace all existing tags)
+        if tags is not None:
+            # Get current tags
+            existing_tags = await service.tags.list_tags_for_case(case.id)
+
+            # Remove all existing tags
+            for existing_tag in existing_tags:
+                await service.tags.remove_case_tag(case.id, existing_tag.ref)
+
+            # Add new tags
+            for tag in tags:
+                await service.tags.add_case_tag(case.id, tag)
+
+            # Refresh case to include updated tags
+            await service.session.refresh(updated_case)
+
+    return updated_case.model_dump(mode="json")
 
 
 @registry.register(
@@ -212,7 +251,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return comment.model_dump()
+    return comment.model_dump(mode="json")
 
 
 @registry.register(
@@ -240,7 +279,7 @@ async def update_comment(
         if not comment:
             raise ValueError(f"Comment with ID {comment_id} not found")
 
-        params = {}
+        params: dict[str, Any] = {}
         if content is not None:
             params["content"] = content
         if parent_id is not None:
@@ -248,7 +287,7 @@ async def update_comment(
         updated_comment = await service.update_comment(
             comment, CaseCommentUpdate(**params)
         )
-    return updated_comment.model_dump()
+    return updated_comment.model_dump(mode="json")
 
 
 @registry.register(
@@ -562,7 +601,7 @@ async def assign_user(
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
-    return updated_case.model_dump()
+    return updated_case.model_dump(mode="json")
 
 
 @registry.register(
@@ -593,7 +632,57 @@ async def assign_user_by_email(
 
         # Update the case with the user's ID
         updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
-    return updated_case.model_dump()
+    return updated_case.model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Add tag to case",
+    display_group="Cases",
+    description="Add a tag to a case by tag ID or ref.",
+    namespace="core.cases",
+)
+async def add_case_tag(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to add a tag to."),
+    ],
+    tag: Annotated[
+        str,
+        Doc("The tag identifier (ID or ref) to add to the case."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        tag_obj = await service.tags.add_case_tag(case.id, tag)
+
+    return TagRead.model_validate(tag_obj, from_attributes=True).model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Remove tag from case",
+    display_group="Cases",
+    description="Remove a tag from a case by tag ID or ref.",
+    namespace="core.cases",
+)
+async def remove_case_tag(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to remove a tag from."),
+    ],
+    tag: Annotated[
+        str,
+        Doc("The tag identifier (ID or ref) to remove from the case."),
+    ],
+) -> None:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        await service.tags.remove_case_tag(case.id, tag)
 
 
 @registry.register(

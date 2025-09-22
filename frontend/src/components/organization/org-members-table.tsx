@@ -44,9 +44,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useOrgMembers } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export function OrgMembersTable() {
   const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(

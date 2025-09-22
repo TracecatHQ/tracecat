@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useCreateCase } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createCaseSchema = z.object({
   summary: z
@@ -62,7 +62,7 @@ export function CreateCaseDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const { createCase, createCaseIsPending } = useCreateCase(workspaceId)
 
@@ -156,7 +156,7 @@ export function CreateCaseDialog({
                   <FormControl>
                     <Textarea
                       placeholder="Detailed description of the case..."
-                      className="min-h-[100px]"
+                      className="min-h-[100px] text-xs"
                       {...field}
                       value={field.value ?? ""}
                     />

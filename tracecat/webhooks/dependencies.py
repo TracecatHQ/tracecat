@@ -95,8 +95,8 @@ async def validate_workflow_definition(
             )
 
         # If we are here, all checks have passed
-        validated_defn = WorkflowDefinition.model_validate(defn)
-        return validated_defn
+        # XXX: This doesn't load the `workflow` relationship
+        return defn
 
 
 def parse_content_type(content_type: str) -> tuple[str, dict[str, str]]:
@@ -205,3 +205,4 @@ PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]
 ValidWorkflowDefinitionDep = Annotated[
     WorkflowDefinition, Depends(validate_workflow_definition)
 ]
+"""Returns WorkflowDefinition that is not loaded with the `workflow` relationship"""

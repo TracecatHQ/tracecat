@@ -119,7 +119,7 @@ import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -267,7 +267,7 @@ function ActionPanelContent({
   workflowId: string
 }) {
   const { appSettings } = useOrgAppSettings()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -1292,124 +1292,6 @@ function ActionPanelContent({
                       </ControlFlowField>
                       {/* Other options */}
 
-                      <ControlFlowField
-                        label="Start delay"
-                        description="Define a delay before the action starts."
-                        tooltip={<StartDelayTooltip />}
-                      >
-                        <FormField
-                          name="start_delay"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseFloat(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="0.0"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Max attempts */}
-                      <ControlFlowField
-                        label="Max attempts"
-                        description="Define the maximum number of retry attempts for the action."
-                        tooltip={<MaxAttemptsTooltip />}
-                      >
-                        <FormField
-                          name="max_attempts"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="1"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Timeout */}
-                      <ControlFlowField
-                        label="Timeout"
-                        description="Define the timeout in seconds for the action."
-                        tooltip={<TimeoutTooltip />}
-                      >
-                        <FormField
-                          name="timeout"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="300"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Retry until */}
-                      <ControlFlowField
-                        label="Retry until"
-                        description="Define a conditional expression that determines when to stop retrying."
-                        tooltip={<RetryUntilTooltip />}
-                      >
-                        <FormField
-                          name="retry_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
                       {/* Join strategy */}
                       <ControlFlowField
                         label="Join strategy"
@@ -1452,29 +1334,6 @@ function ActionPanelContent({
                         />
                       </ControlFlowField>
 
-                      {/* Wait until */}
-                      <ControlFlowField
-                        label="Wait until"
-                        description="Define a conditional expression that determines when the action can proceed."
-                        tooltip={<WaitUntilTooltip />}
-                      >
-                        <FormField
-                          name="wait_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
                       {/* Environment */}
                       <ControlFlowField
                         label="Environment"
@@ -1491,6 +1350,147 @@ function ActionPanelContent({
                                   value={field.value || ""}
                                   onChange={field.onChange}
                                   placeholder="Type @ to begin an expression..."
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Start delay"
+                        description="Define a delay before the action starts."
+                        tooltip={<StartDelayTooltip />}
+                      >
+                        <FormField
+                          name="start_delay"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseFloat(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="0.0"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Timeout */}
+                      <ControlFlowField
+                        label="Timeout"
+                        description="Define the timeout in seconds for the action."
+                        tooltip={<TimeoutTooltip />}
+                      >
+                        <FormField
+                          name="timeout"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="300"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Max attempts */}
+                      <ControlFlowField
+                        label="Max attempts"
+                        description="Define the maximum number of retry attempts for the action."
+                        tooltip={<MaxAttemptsTooltip />}
+                      >
+                        <FormField
+                          name="max_attempts"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="1"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Retry until */}
+                      <ControlFlowField
+                        label="Retry until"
+                        description="Define a conditional expression that determines when to stop retrying."
+                        tooltip={<RetryUntilTooltip />}
+                      >
+                        <FormField
+                          name="retry_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Wait until */}
+                      <ControlFlowField
+                        label="Wait until"
+                        description="Define a conditional expression that determines when the action can proceed."
+                        tooltip={<WaitUntilTooltip />}
+                      >
+                        <FormField
+                          name="wait_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
                                 />
                               </FormControl>
                             </FormItem>
@@ -1691,7 +1691,7 @@ function RegistryActionSecrets({
 }: {
   secrets: NonNullable<RegistryActionRead["secrets"]>
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const customSecrets = secrets.filter(
     (secret): secret is RegistrySecret => secret.type === "custom"
   )

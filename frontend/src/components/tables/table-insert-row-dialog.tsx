@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Checkbox } from "@radix-ui/react-checkbox"
 import { PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
@@ -27,42 +26,43 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
   const columnValidations: Record<string, z.ZodType> = {}
 
   table.columns.forEach((column) => {
-    // Add validation based on SQL type
-    switch (column.type.toLowerCase()) {
-      case "text":
-      case "varchar":
-      case "char":
+    // Add validation based on SQL type - only handle the 5 supported types
+    switch (column.type.toUpperCase()) {
+      case "TEXT":
         columnValidations[column.name] = z
           .string()
           .min(1, `${column.name} is required`)
         break
-      case "integer":
-      case "bigint":
-      case "smallint":
-      case "decimal":
-      case "numeric":
-      case "real":
-      case "double precision":
+      case "INTEGER":
+        columnValidations[column.name] = z
+          .number()
+          .int(`${column.name} must be an integer`)
+        break
+      case "NUMERIC":
         columnValidations[column.name] = z
           .number()
           .min(-Infinity, `${column.name} must be a number`)
         break
-      case "boolean":
-        columnValidations[column.name] = z.boolean()
+      case "BOOLEAN":
+        // Accept string inputs and transform to boolean
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .transform((val) => {
+            const lower = val.toLowerCase().trim()
+            if (lower === "true" || lower === "1") return true
+            if (lower === "false" || lower === "0") return false
+            throw new Error(`Invalid boolean value. Use true, false, 1, or 0`)
+          })
         break
-      case "date":
-      case "timestamp":
-        columnValidations[column.name] = z.date()
-        break
-      case "json":
-      case "jsonb":
+      case "JSONB":
         columnValidations[column.name] = z
           .string()
           .refine(
@@ -79,6 +79,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
           .transform((val) => JSON.parse(val))
         break
       default:
+        // Default to text for any unknown types
         columnValidations[column.name] = z
           .string()
           .min(1, `${column.name} is required`)
@@ -99,7 +100,7 @@ export function TableInsertRowDialog({
 }) {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { table } = useGetTable({ tableId: tableId || "", workspaceId })
   const { insertRow, insertRowIsPending } = useInsertRow()
 
@@ -191,32 +192,50 @@ function DynamicInput({
   column: TableColumnRead
   field: ControllerRenderProps<DynamicFormData, string>
 }) {
-  switch (column.type.toLowerCase()) {
-    case "boolean":
+  switch (column.type.toUpperCase()) {
+    case "BOOLEAN":
       return (
-        <Checkbox
-          checked={field.value as boolean}
-          onCheckedChange={field.onChange}
+        <Input
+          type="text"
+          placeholder="true, false, 1, or 0"
+          value={field.value as string}
+          onChange={(e) => field.onChange(e.target.value)}
         />
       )
-    case "integer":
-    case "bigint":
-    case "smallint":
-    case "decimal":
-    case "numeric":
-    case "real":
-    case "double precision":
+    case "INTEGER":
       return (
         <Input
           type="number"
+          placeholder="Enter an integer"
           value={field.value as number}
           onChange={(e) => field.onChange(Number(e.target.value))}
         />
       )
+    case "NUMERIC":
+      return (
+        <Input
+          type="number"
+          step="any"
+          placeholder="Enter a number"
+          value={field.value as number}
+          onChange={(e) => field.onChange(Number(e.target.value))}
+        />
+      )
+    case "JSONB":
+      return (
+        <Input
+          type="text"
+          placeholder='{"key": "value"}'
+          value={field.value as string}
+          onChange={(e) => field.onChange(e.target.value)}
+        />
+      )
+    case "TEXT":
     default:
       return (
         <Input
           type="text"
+          placeholder="Enter text"
           value={field.value as string}
           onChange={(e) => field.onChange(e.target.value)}
         />

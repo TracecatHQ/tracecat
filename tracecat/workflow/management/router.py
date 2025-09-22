@@ -263,7 +263,6 @@ async def get_workflow(
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         object=workflow.object,
-        static_inputs=workflow.static_inputs,
         config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
@@ -484,10 +483,10 @@ async def export_workflow(
         )
 
 
-# ----- Workflow Definitions ----- #
+# ----- Workflow Definitione ----- #
 
 
-@router.get("/{workflow_id}/definition", tags=["workflows"])
+@router.get("/{workflow_id}/definitions", tags=["workflows"])
 async def list_workflow_definitions(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

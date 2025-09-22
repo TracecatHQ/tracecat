@@ -18,11 +18,12 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar"
 import UserAvatar from "@/components/user-avatar"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export function SidebarUserNav() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
+  const { logout } = useAuthActions()
   const { clearLastWorkspaceId } = useWorkspaceManager()
 
   const handleLogout = async () => {

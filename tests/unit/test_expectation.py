@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 import lark
@@ -275,6 +276,7 @@ def test_validate_schema_with_enum(status, priority):
 
     # Test with provided priority
     model_instance: Any = model(status=status, priority=priority)
+    assert isinstance(model_instance.status, Enum)
     assert model_instance.status.__class__.__name__ == "EnumStatus"
     assert model_instance.priority.__class__.__name__ == "EnumPriority"
 

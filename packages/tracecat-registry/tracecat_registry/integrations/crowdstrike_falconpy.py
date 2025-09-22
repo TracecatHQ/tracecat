@@ -44,7 +44,7 @@ async def call_command(
         str | None,
         Field(..., description="Multi-tenant customer ID"),
     ] = None,
-) -> dict[str, Any]:
+) -> Any:
     params = params or {}
     falcon = APIHarnessV2(
         client_id=secrets.get("CROWDSTRIKE_CLIENT_ID"),

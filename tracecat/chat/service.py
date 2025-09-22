@@ -2,9 +2,17 @@ import uuid
 from collections.abc import Sequence
 
 import orjson
+import yaml
 from sqlmodel import col, select
-from tracecat_registry.integrations.agents.builder import ModelMessageTA
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
+from tracecat.cases.service import CasesService
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Chat
@@ -12,6 +20,8 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
+from tracecat.settings.service import get_setting_cached
+from tracecat.types.auth import Role
 
 
 class ChatService(BaseWorkspaceService):
@@ -129,10 +139,10 @@ class ChatService(BaseWorkspaceService):
             parsed_messages: list[ChatMessage] = []
             for id, fields in messages:
                 try:
-                    data = orjson.loads(fields["d"])
+                    data = orjson.loads(fields[DATA_KEY])
 
                     # Skip end-of-stream markers
-                    if data.get("__end__") == 1:
+                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
                         continue
 
                     validated_msg = ModelMessageTA.validate_python(data)
@@ -156,3 +166,32 @@ class ChatService(BaseWorkspaceService):
                 error=str(e),
             )
             return []
+
+
+async def inject_case_content(
+    *, session: AsyncSession, role: Role, case_id: uuid.UUID
+) -> str | None:
+    if await get_setting_cached(
+        "agent_case_chat_inject_content",
+        session=session,
+        default=False,
+    ):
+        case_svc = CasesService(session, role)
+        if case := await case_svc.get_case(case_id):
+            # Add indication that this is the current case
+            # Prepare case data for YAML dump, including tags if they exist
+            case_data = case.model_dump(mode="json")
+            if case.tags:
+                case_data["tags"] = [tag.name for tag in case.tags]
+
+            case_content = (
+                f"This is the current case you are working on:\n\n"
+                "<case_context>\n"
+                f"```yaml\n"
+                f"{yaml.dump(case_data, indent=2)}\n"
+                "```\n"
+                "</case_context>\n"
+            )
+
+            return case_content
+    return None

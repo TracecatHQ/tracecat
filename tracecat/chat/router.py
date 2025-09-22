@@ -5,12 +5,21 @@ import uuid
 from typing import Annotated
 
 import orjson
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import ModelMessageTA, run_agent
+from pydantic_ai import Tool
 
-from tracecat.agent.service import AgentManagementService
-from tracecat.auth.credentials import RoleACL
+from tracecat.agent.executor.base import BaseAgentExecutor
+from tracecat.agent.executor.deps import WorkspaceUser, get_executor
+from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
+from tracecat.agent.tools import build_agent_tools
+from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -20,22 +29,14 @@ from tracecat.chat.models import (
     ChatUpdate,
     ChatWithMessages,
 )
-from tracecat.chat.service import ChatService
+from tracecat.chat.service import ChatService, inject_case_content
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
-from tracecat.types.auth import Role
+from tracecat.runbook.service import inject_runbook_content
+from tracecat.settings.service import get_setting_cached
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.post("/")
@@ -141,6 +142,7 @@ async def start_chat_turn(
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
+    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
 ) -> ChatResponse:
     """Start a new chat turn with an AI agent.
 
@@ -158,19 +160,110 @@ async def start_chat_turn(
         )
 
     try:
-        # Fire-and-forget execution using the agent function directly
-        agent_svc = AgentManagementService(session, role)
-        async with agent_svc.with_model_config() as model_config:
-            coro = run_agent(
-                instructions=request.instructions,
-                user_prompt=request.message,
-                fixed_arguments=request.context,
-                model_name=model_config.name,
-                model_provider=model_config.provider,
-                actions=chat.tools,
-                stream_id=str(chat_id),
-            )
-            _ = asyncio.create_task(coro)
+        # Fetch org-level case chat prompt and merge with UI instructions
+        org_prompt = await get_setting_cached(
+            "agent_case_chat_prompt", session=session, default=""
+        )
+        if not isinstance(org_prompt, str):
+            # This should never happen, but just in case
+            raise ValueError("Agent case chat prompt is not a string")
+        instructions: list[str] = []
+        if org_prompt.strip():
+            instructions.append(org_prompt)
+
+        # Check if case content injection is enabled and this is a case chat
+
+        if chat.entity_type == ChatEntity.CASE:
+            if case_instructions := await inject_case_content(
+                session=session, role=role, case_id=chat.entity_id
+            ):
+                instructions.append(case_instructions)
+        elif chat.entity_type == ChatEntity.RUNBOOK:
+            all_tools = await build_agent_tools()
+
+            def format_tool(tool: Tool) -> str:
+                return f'<Tool id="{tool.name}">{tool.description}</Tool>'
+
+            main_instructions = f"""
+            You are an expert runbook editing agent.
+
+            You will be given a user request to edit the runbook.
+
+            <Task>
+            Your task is to interpret the users intent and edit the runbook as requested by the user.
+            </Task>
+
+            <EditingRules>
+            - You must ask clarifying questions to the user if you are not sure about the user's intent.
+            - If you've determined you have to update the Runbook instructions, you should update the runbook `summary` using markdown.
+            - You must not edit the runbook `content` as this will be interpreted by another AI agent that actually executes the runbook steps.
+            - You *MUST* follow the <SummaryInstructions> and <Sections> structure exactly.
+            </EditingRules>
+
+            <SummaryInstructions>
+            - Output ONLY the runbook as Markdown; no extra prose before/after
+            - Do NOT wrap the entire runbook in a single code block
+            - Use Markdown headings and lists; use fenced blocks only for actual code/commands
+            - Sections (in order): Objective, Tools, Steps
+            - Note that there is no trigger section. Do not include or ask about this.
+
+            <Sections>
+            <Objective>
+            - Generalized purpose; no case-specific identifiers or private values
+            </Objective>
+
+            <Tools>
+            - Use ONLY the provided tools for this chat (Tracecat tool IDs)
+            - This is the list of all available Tracecat tools:
+            <AllAvailableTools>
+            {"\n".join(format_tool(tool) for tool in all_tools.tools)}
+            </AllAvailableTools>
+            </Tools>
+
+            <Steps>
+            - Concise, actionable, generalized instructions
+            - If a step clearly requires a tool call, include the tool ID in the step
+            - Infer parameters from intent/structure; do not copy example inputs/outputs verbatim
+            </Steps>
+            </Sections>
+            </SummaryInstructions>
+
+            <GeneralizationRules>
+            - Do NOT hardcode case-specific IDs/values; use placeholders or JSONPath
+            - IoCs (emails, IPs, hostnames, domains, URLs, hashes, usernames) MAY appear ONLY as “example” values in Trigger or Steps
+            </GeneralizationRules>
+            """
+            instructions.append(main_instructions)
+            if runbook_instructions := await inject_runbook_content(
+                session=session, role=role, runbook_id=chat.entity_id
+            ):
+                instructions.append(runbook_instructions)
+        if request.instructions:
+            instructions.append(request.instructions)
+        merged_instructions = "\n".join(instructions) if instructions else None
+        logger.debug(
+            "Merged instructions",
+            merged_instructions=merged_instructions,
+            org_prompt=org_prompt,
+            request_instructions=request.instructions,
+            tools=chat.tools,
+        )
+
+        model_info = ModelInfo(
+            name=request.model_name,
+            provider=request.model_provider,
+            base_url=request.base_url,
+        )
+
+        args = RunAgentArgs(
+            role=role,
+            user_prompt=request.message,
+            tool_filters=ToolFilters(actions=chat.tools),
+            session_id=str(chat_id),
+            instructions=merged_instructions,
+            model_info=model_info,
+        )
+        await executor.start(args)
 
         stream_url = f"/api/chat/{chat_id}/stream"
 
@@ -234,10 +327,10 @@ async def stream_chat_events(
                         for _stream_name, messages in result:
                             for message_id, fields in messages:
                                 try:
-                                    data = orjson.loads(fields["d"])
+                                    data = orjson.loads(fields[DATA_KEY])
 
                                     # Check for end-of-stream marker
-                                    if data.get("__end__") == 1:
+                                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
                                         yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
                                     else:
                                         # Send the message

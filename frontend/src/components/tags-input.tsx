@@ -218,7 +218,7 @@ export function MultiTagCommandInput({
                 variant="secondary"
                 className="gap-1 pr-1 text-xs"
               >
-                {tag.value}
+                {tag.text}
                 {!disabled && (
                   <button
                     type="button"

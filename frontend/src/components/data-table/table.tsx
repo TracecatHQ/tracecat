@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { cn } from "@/lib/utils"
 
 import type { DataTableToolbarProps } from "./toolbar"
@@ -61,9 +61,10 @@ interface DataTableProps<TData, TValue> {
   initialSortingState?: SortingState
   initialColumnVisibility?: VisibilityState
   tableId?: string
-  onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  onDeleteRows?: (selectedRows: Row<TData>[]) => Promise<void> | void
   onSelectionChange?: (selectedRows: Row<TData>[]) => void
   serverSidePagination?: ServerSidePaginationProps
+  clearSelectionTrigger?: number
 }
 
 export function DataTable<TData, TValue>({
@@ -84,6 +85,7 @@ export function DataTable<TData, TValue>({
   onDeleteRows,
   onSelectionChange,
   serverSidePagination,
+  clearSelectionTrigger,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -160,6 +162,11 @@ export function DataTable<TData, TValue>({
       onSelectionChange(selectedRows)
     }
   }, [rowSelection, onSelectionChange, table])
+
+  React.useEffect(() => {
+    if (clearSelectionTrigger === undefined) return
+    setRowSelection({})
+  }, [clearSelectionTrigger])
 
   // Handle initial sync when data is first loaded
   const [hasData, setHasData] = React.useState(false)

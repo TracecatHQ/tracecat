@@ -79,7 +79,14 @@ class RegistryActionsService(BaseService):
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""
-        namespace, name = action_name.rsplit(".", maxsplit=1)
+        try:
+            namespace, name = action_name.rsplit(".", maxsplit=1)
+        except ValueError:
+            raise RegistryError(
+                f"Action {action_name} is not a valid action name",
+                detail={"action_name": action_name},
+            ) from None
+
         statement = select(RegistryAction).where(
             RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             RegistryAction.namespace == namespace,
@@ -172,7 +179,10 @@ class RegistryActionsService(BaseService):
         return action
 
     async def sync_actions_from_repository(
-        self, db_repo: RegistryRepository, pull_remote: bool = True
+        self,
+        db_repo: RegistryRepository,
+        pull_remote: bool = True,
+        target_commit_sha: str | None = None,
     ) -> str | None:
         """Sync actions from a repository.
 
@@ -183,9 +193,16 @@ class RegistryActionsService(BaseService):
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
         # Load the repository
-        # After we sync the repository with its remote
-        # None here means we're pulling the remote repository from HEAD
-        sha = None if pull_remote else db_repo.commit_sha
+        # Determine which commit SHA to use:
+        # 1. If target_commit_sha is provided, use it
+        # 2. If pull_remote is False, use the stored commit SHA
+        # 3. Otherwise use None (HEAD)
+        if target_commit_sha is not None:
+            sha = target_commit_sha
+        elif not pull_remote:
+            sha = db_repo.commit_sha
+        else:
+            sha = None
         commit_sha = await repo.load_from_origin(commit_sha=sha)
 
         # TODO: Move this into it's own function and service it from the registry repository router
@@ -460,7 +477,8 @@ async def validate_action_template(
     for expr in extract_expressions(defn.returns):
         expr.validate(validator, loc=("returns",))
     expr_errs = set(validator.errors())
-    log.warning("Expression validation errors", errors=expr_errs)
+    if expr_errs:
+        log.warning("Expression validation errors", errors=expr_errs)
     val_errs.extend(
         RegistryActionValidationErrorInfo.from_validation_result(
             e, is_template=action.is_template

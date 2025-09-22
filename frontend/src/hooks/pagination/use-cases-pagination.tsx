@@ -1,6 +1,12 @@
 "use client"
 
-import type { CaseReadMinimal, CasesListCasesData } from "@/client"
+import type {
+  CasePriority,
+  CaseReadMinimal,
+  CaseSeverity,
+  CaseStatus,
+  CasesListCasesData,
+} from "@/client"
 import { casesListCases } from "@/client"
 import {
   type CursorPaginationResponse,
@@ -11,17 +17,37 @@ import {
 export interface UseCasesPaginationParams {
   workspaceId: string
   limit?: number
+  searchTerm?: string | null
+  status?: CaseStatus | null
+  priority?: CasePriority | null
+  severity?: CaseSeverity | null
+  assigneeId?: string | null
+  tags?: string[] | null
 }
 
 export function useCasesPagination({
   workspaceId,
   limit,
+  searchTerm,
+  status,
+  priority,
+  severity,
+  assigneeId,
+  tags,
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedCasesListCases = async (
     params: CasesListCasesData
   ): Promise<CursorPaginationResponse<CaseReadMinimal>> => {
-    const response = await casesListCases(params)
+    const response = await casesListCases({
+      ...params,
+      searchTerm,
+      status,
+      priority,
+      severity,
+      assigneeId,
+      tags,
+    })
     return {
       items: response.items,
       next_cursor: response.next_cursor,
@@ -35,7 +61,17 @@ export function useCasesPagination({
   return useCursorPagination<CaseReadMinimal, CasesListCasesData>({
     workspaceId,
     limit,
-    queryKey: ["cases", "paginated", workspaceId],
+    queryKey: [
+      "cases",
+      "paginated",
+      workspaceId,
+      searchTerm ?? null,
+      status ?? null,
+      priority ?? null,
+      severity ?? null,
+      assigneeId ?? null,
+      tags ? [...tags].sort().join(",") : null,
+    ],
     queryFn: adaptedCasesListCases,
   })
 }

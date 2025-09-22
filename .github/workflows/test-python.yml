@@ -7,6 +7,8 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
+      - packages/tracecat-ee/**
+      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -19,6 +21,8 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
+      - packages/tracecat-ee/**
+      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -52,7 +56,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@v6
@@ -78,7 +82,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -90,18 +94,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install system dependencies
-        run: |
-          # Install ripgrep for grep integration tests
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          kubectl version --client
-
       - name: Run environment setup script
         run: |
           echo "y
@@ -111,8 +103,27 @@ jobs:
 
       - name: Start core Docker services
         env:
+          COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+        run: |
+          docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+
+          # Wait for services to become healthy
+          echo "Waiting for services to become healthy..."
+          timeout 300 bash -c '
+            while true; do
+              if docker compose -f docker-compose.dev.yml ps --format json | jq -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
+                echo "Waiting for services to be healthy..."
+                sleep 5
+              else
+                echo "All services are healthy"
+                break
+              fi
+            done
+          '
+
+          # Show final service status
+          docker compose -f docker-compose.dev.yml ps
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -134,6 +145,8 @@ jobs:
         test_group:
           - unit
           - registry
+          - regression
+          # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@v4
         with:
@@ -142,7 +155,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -192,18 +205,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install system dependencies
-        run: |
-          # Install ripgrep for grep integration tests
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          kubectl version --client
-
       - name: Install kind
         run: |
           curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
@@ -239,4 +240,9 @@ jobs:
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
-        run: uv run pytest tests/${{ matrix.test_group }} -ra
+        run: |
+          if [ "${{ matrix.test_group }}" = "ee" ]; then
+            uv run pytest packages/tracecat-ee/tests/ -ra
+          else
+            uv run pytest tests/${{ matrix.test_group }} -ra
+          fi

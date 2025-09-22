@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List landing pages
+  description: List landing pages from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/landing-pages#get-landing-pages
+  namespace: tools.gophish
+  name: list_landing_pages
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+  steps:
+    - ref: list_landing_pages
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/pages/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.list_landing_pages.result.data }}

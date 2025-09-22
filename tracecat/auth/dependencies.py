@@ -9,7 +9,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.service import get_setting, get_setting_override
-from tracecat.types.auth import Role
+from tracecat.types.auth import AccessLevel, Role
 
 WorkspaceUserRole = Annotated[
     Role,
@@ -27,6 +27,16 @@ ServiceRole = Annotated[
 
 Sets the `ctx_role` context variable.
 """
+
+OrgAdminUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+]
 
 
 async def verify_auth_type(auth_type: AuthType) -> None:

@@ -53,9 +53,20 @@ export function AgentCredentialsDialog({
       return z.object({})
     }
 
-    const schemaFields: Record<string, z.ZodString> = {}
+    const schemaFields: Record<
+      string,
+      z.ZodString | z.ZodOptional<z.ZodString>
+    > = {}
     for (const field of providerConfig.fields) {
-      schemaFields[field.key] = z.string().min(1, `${field.label} is required`)
+      // If required is explicitly false or undefined, make the field optional
+      if (field.required === false) {
+        schemaFields[field.key] = z.string().optional()
+      } else {
+        // Default to required (when required is true or undefined)
+        schemaFields[field.key] = z
+          .string()
+          .min(1, `${field.label} is required`)
+      }
     }
     return z.object(schemaFields)
   }
@@ -160,7 +171,12 @@ export function AgentCredentialsDialog({
                 name={field.key}
                 render={({ field: formField }) => (
                   <FormItem>
-                    <FormLabel>{field.label}</FormLabel>
+                    <FormLabel>
+                      {field.label}
+                      {field.required !== false && (
+                        <span className="text-red-500 ml-1">*</span>
+                      )}
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type={field.type}

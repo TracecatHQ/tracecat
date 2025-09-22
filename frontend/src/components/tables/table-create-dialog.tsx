@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select"
 import { useCreateTable } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createTableSchema = z.object({
   name: z
@@ -63,7 +63,7 @@ export function CreateTableDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { createTable, createTableIsPending } = useCreateTable()
 
   const form = useForm<CreateTableSchema>({

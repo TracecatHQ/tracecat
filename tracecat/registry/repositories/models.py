@@ -1,8 +1,8 @@
-import re
 from datetime import datetime
 
 from pydantic import UUID4, BaseModel, Field, field_validator
 
+from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.registry.actions.models import (
     RegistryActionRead,
     RegistryActionValidationErrorInfo,
@@ -61,16 +61,11 @@ class RegistryRepositoryCreate(BaseModel):
         # Aside from the default origins, we only support git+ssh URLs
         if not v.startswith("git+ssh://"):
             raise TracecatValidationError("Only git+ssh URLs are currently supported")
-        if not re.match(
-            r"^git\+ssh://git@"  # Protocol and user prefix
-            r"[-a-zA-Z0-9.]+"  # Hostname
-            r"/[-a-zA-Z0-9._]+/"  # Organization/user
-            r"[-a-zA-Z0-9._]+\.git$",  # Repository name
-            v,
-        ):
+
+        # Delegate to shared regex to ensure consistency across validators
+        if not GIT_SSH_URL_REGEX.match(v):
             raise TracecatValidationError(
-                "Invalid or unsafe git SSH URL format. Expected format: "
-                "git+ssh://git@host/org/repo.git"
+                "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
             )
         return v
 
@@ -88,6 +83,52 @@ class RegistryRepositoryUpdate(BaseModel):
         description="The origin of the repository",
         min_length=1,
         max_length=255,
+    )
+
+
+class GitCommitInfo(BaseModel):
+    """Git commit information for repository management."""
+
+    sha: str = Field(
+        ...,
+        description="The commit SHA hash",
+        min_length=40,
+        max_length=40,
+    )
+    message: str = Field(
+        ...,
+        description="The commit message",
+        max_length=1000,
+    )
+    author: str = Field(
+        ...,
+        description="The commit author name",
+        max_length=255,
+    )
+    author_email: str = Field(
+        ...,
+        description="The commit author email",
+        max_length=255,
+    )
+    date: str = Field(
+        ...,
+        description="The commit date in ISO format",
+        max_length=50,
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="List of tags associated with this commit",
+    )
+
+
+class RegistryRepositorySync(BaseModel):
+    """Parameters for syncing a repository to a specific commit."""
+
+    target_commit_sha: str | None = Field(
+        default=None,
+        description="The specific commit SHA to sync to. If None, syncs to HEAD.",
+        min_length=40,
+        max_length=40,
     )
 
 

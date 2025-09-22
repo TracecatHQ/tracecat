@@ -4,19 +4,27 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
+    download_table,
     insert_row,
     insert_rows,
+    list_tables,
     lookup,
     lookup_many,
     search_records,
     update_row,
 )
 
+from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Workspace
 from tracecat.tables.enums import SqlType
+from tracecat.tables.service import TablesService
+from tracecat.types.auth import Role
 
 
 @pytest.fixture
@@ -557,6 +565,446 @@ class TestCoreInsertRows:
 
         # Verify the result
         assert result == 3
+
+
+@pytest.mark.anyio
+class TestCoreDownloadTable:
+    """Test cases for the download_table UDF."""
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_no_format(self, mock_with_session, mock_table):
+        """Test downloading table data without format (returns list of dicts)."""
+        # Create mock rows with UUID objects (simulating asyncpg UUID type)
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+                "created_at": datetime.now(UTC),
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+                "created_at": datetime.now(UTC),
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function
+        result = await download_table(name="test_table", limit=100)
+
+        # Assert service methods were called correctly
+        mock_service.get_table_by_name.assert_called_once_with("test_table")
+        mock_service.list_rows.assert_called_once_with(table=mock_table, limit=100)
+
+        # Verify the result is a list of dicts with UUIDs converted to strings
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert result[0]["name"] == "Alice"
+        assert result[1]["id"] == "223e4567-e89b-12d3-a456-426655440001"
+        assert result[1]["name"] == "Bob"
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_json_format(self, mock_with_session, mock_table):
+        """Test downloading table data in JSON format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with JSON format
+        result = await download_table(name="test_table", format="json", limit=100)
+
+        # Verify the result is a JSON string
+        assert isinstance(result, str)
+
+        # Parse the JSON to verify it's valid and contains the expected data
+        parsed = orjson.loads(result)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        assert parsed[0]["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert parsed[0]["name"] == "Alice"
+        assert parsed[0]["age"] == 25
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_ndjson_format(self, mock_with_session, mock_table):
+        """Test downloading table data in NDJSON format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with NDJSON format
+        result = await download_table(name="test_table", format="ndjson", limit=100)
+
+        # Verify the result is an NDJSON string
+        assert isinstance(result, str)
+        lines = result.split("\n")
+        assert len(lines) == 2
+
+        # Parse each line to verify it's valid JSON
+        parsed_line1 = orjson.loads(lines[0])
+        assert parsed_line1["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert parsed_line1["name"] == "Alice"
+
+        parsed_line2 = orjson.loads(lines[1])
+        assert parsed_line2["id"] == "223e4567-e89b-12d3-a456-426655440001"
+        assert parsed_line2["name"] == "Bob"
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_csv_format(self, mock_with_session, mock_table):
+        """Test downloading table data in CSV format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with CSV format
+        result = await download_table(name="test_table", format="csv", limit=100)
+
+        # Verify the result is a CSV string
+        assert isinstance(result, str)
+        # CSV should contain headers and data rows
+        assert "id" in result
+        assert "name" in result
+        assert "age" in result
+        assert "Alice" in result
+        assert "Bob" in result
+        # UUIDs should be converted to strings in the CSV
+        assert "123e4567-e89b-12d3-a456-426655440000" in result
+        assert "223e4567-e89b-12d3-a456-426655440001" in result
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_markdown_format(self, mock_with_session, mock_table):
+        """Test downloading table data in Markdown format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with Markdown format
+        result = await download_table(name="test_table", format="markdown", limit=100)
+
+        # Verify the result is a Markdown table string
+        assert isinstance(result, str)
+        # Markdown tables use pipes
+        assert "|" in result
+        # Check for content
+        assert "id" in result
+        assert "name" in result
+        assert "age" in result
+        assert "Alice" in result
+        assert "123e4567-e89b-12d3-a456-426655440000" in result
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_limit_validation(self, mock_with_session):
+        """Test that download_table raises ValueError when limit exceeds 1000."""
+        # Call download_table with limit exceeding maximum
+        with pytest.raises(
+            ValueError,
+            match="Cannot return more than 1000 rows",
+        ):
+            await download_table(
+                name="test_table",
+                limit=1001,
+            )
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_with_complex_types(
+        self, mock_with_session, mock_table
+    ):
+        """Test downloading table data with complex types that need serialization."""
+        # Create mock rows with various complex types
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "metadata": {"key": "value", "nested": {"data": 123}},
+                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "tags": ["tag1", "tag2"],
+                "nullable_field": None,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with JSON format to verify serialization
+        result = await download_table(name="test_table", format="json", limit=100)
+
+        # Parse the JSON to verify all types were properly serialized
+        parsed = orjson.loads(result)
+        assert len(parsed) == 1
+        row = parsed[0]
+
+        # UUID should be converted to string
+        assert row["id"] == "123e4567-e89b-12d3-a456-426655440000"
+
+        # Complex nested objects should be preserved
+        assert row["metadata"] == {"key": "value", "nested": {"data": 123}}
+
+        # Arrays should be preserved
+        assert row["tags"] == ["tag1", "tag2"]
+
+        # Datetime should be converted to ISO format string
+        assert isinstance(row["created_at"], str)
+        assert "2024-01-01" in row["created_at"]
+
+        # None should be preserved as null in JSON
+        assert row["nullable_field"] is None
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_empty_table(self, mock_with_session, mock_table):
+        """Test downloading an empty table."""
+        # Set up the mock service context manager with empty rows
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = []
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test with no format (list)
+        result = await download_table(name="empty_table")
+        assert result == []
+
+        # Test with JSON format
+        result = await download_table(name="empty_table", format="json")
+        assert result == "[]"
+
+        # Test with NDJSON format
+        result = await download_table(name="empty_table", format="ndjson")
+        assert result == ""
+
+
+@pytest.mark.anyio
+class TestCoreTableIntegration:
+    """Integration tests for core.table UDFs using real database."""
+
+    pytestmark = pytest.mark.usefixtures("db")
+
+    async def test_create_table_with_columns_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test that create_table UDF actually creates columns in the database.
+
+        This integration test ensures the bug is caught where create_table
+        was not creating columns despite them being specified.
+        """
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Define columns for the table
+            columns = [
+                {"name": "username", "type": "TEXT", "nullable": False},
+                {"name": "email", "type": "TEXT", "nullable": True},
+                {"name": "age", "type": "INTEGER", "nullable": True, "default": 0},
+                {"name": "metadata", "type": "JSONB", "nullable": True},
+            ]
+
+            # Create table using the UDF (not the service directly)
+            result = await create_table(name="integration_test_table", columns=columns)
+
+            # Verify the table was created
+            assert result["name"] == "integration_test_table"
+            assert "id" in result
+
+            # Now verify the columns were actually created in the database
+            # Use TablesService.with_session() to access the same committed data
+            async with TablesService.with_session(role=svc_admin_role) as service:
+                tables = await service.list_tables()
+
+                # Find our table
+                test_table = None
+                for table in tables:
+                    if table.name == "integration_test_table":
+                        test_table = table
+                        break
+
+                assert test_table is not None, "Table was not found in database"
+
+                # Get the table with columns
+                table_with_columns = await service.get_table(test_table.id)
+
+                # Verify all columns were created
+                assert len(table_with_columns.columns) == 4
+
+                # Check each column
+                column_names = {col.name for col in table_with_columns.columns}
+                assert "username" in column_names
+                assert "email" in column_names
+                assert "age" in column_names
+                assert "metadata" in column_names
+
+                # Verify column properties
+                for col in table_with_columns.columns:
+                    if col.name == "username":
+                        assert col.type == SqlType.TEXT.value
+                        assert col.nullable is False
+                    elif col.name == "email":
+                        assert col.type == SqlType.TEXT.value
+                        assert col.nullable is True
+                    elif col.name == "age":
+                        assert col.type == SqlType.INTEGER.value
+                        assert col.nullable is True
+                        assert (
+                            col.default == "0"
+                        )  # Default values are stored as strings
+                    elif col.name == "metadata":
+                        assert col.type == SqlType.JSONB.value
+                        assert col.nullable is True
+
+            # Test that we can insert data into the table with the created columns
+            inserted_row = await insert_row(
+                table="integration_test_table",
+                row_data={
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "age": 25,
+                    "metadata": {"key": "value"},
+                },
+            )
+
+            assert inserted_row["username"] == "testuser"
+            assert inserted_row["email"] == "test@example.com"
+            assert inserted_row["age"] == 25
+            assert inserted_row["metadata"] == {"key": "value"}
+        finally:
+            ctx_role.reset(token)
+
+    async def test_create_table_without_columns_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test creating a table without predefined columns."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Create table without columns
+            result = await create_table(name="empty_table")
+
+            # Verify the table was created
+            assert result["name"] == "empty_table"
+            assert "id" in result
+
+            # Verify in database using the same session type as the UDF
+            async with TablesService.with_session(role=svc_admin_role) as service:
+                tables = await service.list_tables()
+
+                table_names = {table.name for table in tables}
+                assert "empty_table" in table_names
+        finally:
+            ctx_role.reset(token)
+
+    async def test_list_tables_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test listing tables after creation."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Create multiple tables
+            await create_table(
+                name="list_test_1", columns=[{"name": "col1", "type": "TEXT"}]
+            )
+            await create_table(
+                name="list_test_2", columns=[{"name": "col2", "type": "INTEGER"}]
+            )
+
+            # List all tables
+            tables = await list_tables()
+
+            # Check that our tables are in the list
+            table_names = {table["name"] for table in tables}
+            assert "list_test_1" in table_names
+            assert "list_test_2" in table_names
+        finally:
+            ctx_role.reset(token)
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_insert_rows_with_upsert(self, mock_with_session, mock_table):

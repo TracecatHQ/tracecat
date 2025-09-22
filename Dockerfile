@@ -1,6 +1,5 @@
-FROM ghcr.io/astral-sh/uv:0.8.4-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.8.6-python3.12-bookworm-slim
 
-ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 # Enable bytecode compilation
@@ -56,13 +55,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --no-editable
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages/tracecat-registry /app/packages/tracecat-registry
+COPY --chown=apiuser:apiuser ./packages/tracecat-ee /app/packages/tracecat-ee
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
 COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
@@ -71,13 +71,14 @@ COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
-# Copy the entrypoint script
+# Copy the entrypoint script and health check script
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
+RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
 
-# Install the project
+# Install the project with EE features
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev 
+    uv sync --locked --no-dev --no-editable
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
@@ -91,6 +92,9 @@ RUN mkdir -p /home/apiuser/.local/bin && \
 # This ensures apiuser can access all necessary files and directories
 RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
 
+# Ensure apiuser owns everything in /app
+RUN chown -R apiuser:apiuser /app/.venv
+
 # Verify permissions are correctly set before switching users
 RUN ls -la /home/apiuser/ && \
     ls -la /home/apiuser/.cache/ && \
@@ -103,7 +107,6 @@ USER apiuser
 
 # Verify apiuser can access required directories and binaries
 RUN deno --version && \
-    rg --version && \
     python3 -c "import os; print(f'DENO_DIR accessible: {os.access(os.environ[\"DENO_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'UV_CACHE_DIR accessible: {os.access(os.environ[\"UV_CACHE_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os, tempfile; f=tempfile.NamedTemporaryFile(dir=os.environ['UV_CACHE_DIR'], delete=True); print(f'UV_CACHE_DIR write test: SUCCESS - {f.name}')" && \

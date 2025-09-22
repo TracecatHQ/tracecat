@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useFolders } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const renameFolderSchema = z.object({
   name: z
@@ -54,8 +54,10 @@ export function FolderRenameDialog({
   selectedFolder: FolderDirectoryItem | null
   setSelectedFolder: (selectedFolder: FolderDirectoryItem | null) => void
 }) {
-  const { workspaceId } = useWorkspace()
-  const { updateFolder, updateFolderIsPending } = useFolders(workspaceId)
+  const workspaceId = useWorkspaceId()
+  const { updateFolder, updateFolderIsPending } = useFolders(workspaceId, {
+    enabled: open,
+  })
 
   const form = useForm<RenameFolderSchema>({
     resolver: zodResolver(renameFolderSchema),

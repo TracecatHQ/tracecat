@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
@@ -27,9 +27,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 // Move type definition outside the function for reuse
 type EmailLoginValidationError = {
@@ -56,9 +56,11 @@ function isEmailLoginValidationError(
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
-  if (user) {
-    router.push("/workspaces")
-  }
+  useEffect(() => {
+    if (user) {
+      router.push("/workspaces")
+    }
+  }, [user, router])
 
   return (
     <div
@@ -101,7 +103,7 @@ type BasicLoginForm = z.infer<typeof basicRegistrationSchema>
 
 export function BasicRegistrationForm() {
   const [isLoading, setIsLoading] = useState(false)
-  const { register, login } = useAuth()
+  const { register, login } = useAuthActions()
   const form = useForm<BasicLoginForm>({
     resolver: zodResolver(basicRegistrationSchema),
     defaultValues: {

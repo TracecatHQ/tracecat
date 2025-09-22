@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -11,6 +11,7 @@ import {
   type AgentGetProvidersStatusResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
+  type AgentSettingsRead,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
@@ -35,10 +36,22 @@ import {
   type CaseFieldRead,
   type CaseRead,
   type CaseReadMinimal,
+  type CaseRecordCreate,
+  type CaseRecordRead,
+  type CaseRecordsListCaseRecordsData,
   type CasesGetCaseData,
   type CasesListCasesData,
   type CasesListCommentsData,
+  type CasesListTagsData,
+  type CaseTagCreate,
+  type CaseTagRead,
   type CaseUpdate,
+  caseRecordsCreateCaseRecord,
+  caseRecordsDeleteCaseRecord,
+  caseRecordsListCaseRecords,
+  caseRecordsUnlinkCaseRecord,
+  caseRecordsUpdateCaseRecord,
+  casesAddTag,
   casesCreateCase,
   casesCreateComment,
   casesDeleteCase,
@@ -48,6 +61,8 @@ import {
   casesListComments,
   casesListEventsWithUsers,
   casesListFields,
+  casesListTags,
+  casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
   type FolderDirectoryItem,
@@ -57,6 +72,7 @@ import {
   foldersListFolders,
   foldersMoveFolder,
   foldersUpdateFolder,
+  type GitCommitInfo,
   type GitSettingsRead,
   type IntegrationRead,
   type IntegrationReadMinimal,
@@ -105,6 +121,7 @@ import {
   registryActionsUpdateRegistryAction,
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
+  registryRepositoriesListRepositoryCommits,
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   type SAMLSettingsRead,
@@ -116,6 +133,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuthSettingsData,
   type SettingsUpdateGitSettingsData,
@@ -129,11 +147,13 @@ import {
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
+  settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
+  settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuthSettings,
   settingsUpdateGitSettings,
@@ -178,6 +198,13 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VcsGetGithubAppCredentialsStatusResponse,
+  type VcsGetGithubAppManifestResponse,
+  type VcsSaveGithubAppCredentialsData,
+  type VcsSaveGithubAppCredentialsResponse,
+  vcsGetGithubAppCredentialsStatus,
+  vcsGetGithubAppManifest,
+  vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -191,6 +218,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceUpdate,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
@@ -204,13 +232,15 @@ import {
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
+  workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useGetRunbook } from "@/hooks/use-runbook"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface AppInfo {
   version: string
@@ -240,75 +270,6 @@ export function useAppInfo() {
     },
   })
   return { appInfo, appInfoIsLoading, appInfoError }
-}
-
-export function useLocalStorage<T>(
-  key: string,
-  defaultValue: T
-): [T, (value: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    if (typeof window === "undefined") {
-      return defaultValue
-    }
-    const storedValue = localStorage.getItem(key)
-    return storedValue ? JSON.parse(storedValue) : defaultValue
-  })
-
-  // Listen for changes from other tabs or components
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === key) {
-        if (e.newValue === null) {
-          // Storage was removed, reset to default value
-          setValue(defaultValue)
-        } else if (e.newValue) {
-          try {
-            setValue(JSON.parse(e.newValue))
-          } catch (error) {
-            console.error("Failed to parse localStorage value:", error)
-          }
-        }
-      }
-    }
-
-    // Custom event for same-tab updates
-    const handleCustomStorageChange = ((e: CustomEvent) => {
-      if (e.detail.key === key && e.detail.value !== undefined) {
-        setValue(e.detail.value)
-      }
-    }) as EventListener
-
-    window.addEventListener("storage", handleStorageChange)
-    window.addEventListener("localStorage-update", handleCustomStorageChange)
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      window.removeEventListener(
-        "localStorage-update",
-        handleCustomStorageChange
-      )
-    }
-  }, [key])
-
-  const setValueAndBroadcast = useCallback(
-    (newValue: T) => {
-      // Update localStorage first
-      localStorage.setItem(key, JSON.stringify(newValue))
-
-      // Update local state
-      setValue(newValue)
-
-      // Dispatch custom event for other same-tab instances
-      window.dispatchEvent(
-        new CustomEvent("localStorage-update", {
-          detail: { key, value: newValue },
-        })
-      )
-    },
-    [key]
-  )
-
-  return [value, setValueAndBroadcast]
 }
 
 export function useAction(
@@ -415,7 +376,7 @@ interface WorkflowFilter {
 
 export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   // List all workflows
   const {
@@ -575,6 +536,7 @@ export function useWorkspaceManager() {
   } = useQuery({
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
   // Create workspace
@@ -670,7 +632,7 @@ export function useWorkflowExecutions(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
@@ -697,7 +659,7 @@ export function useWorkflowExecution(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -721,7 +683,7 @@ export function useWorkflowExecution(
 
 export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   // if execution ID contains non-url-safe characters, decode it
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -749,7 +711,6 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
       // Adjust polling based on workflow status
       switch (query.state.data?.status) {
         case "RUNNING":
-          console.log("Running, polling every 1000ms")
           return 1000
         default:
           return false
@@ -768,7 +729,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
 
 export function useCreateManualWorkflowExecution(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const {
     mutateAsync: createExecution,
@@ -833,7 +794,7 @@ export function useLastExecution({
   workflowId?: string | null
   triggerTypes: TriggerType[]
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
@@ -863,7 +824,7 @@ export function useLastExecution({
 
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   // Fetch schedules
   const {
     data: schedules,
@@ -952,20 +913,20 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets() {
+export function useWorkspaceSecrets(workspaceId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
   const {
     data: secrets,
     isLoading: secretsIsLoading,
     error: secretsError,
   } = useQuery<SecretReadMinimal[], ApiError>({
-    queryKey: ["workspace-secrets"],
+    queryKey: ["workspace-secrets", workspaceId],
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
         type: ["custom"],
       }),
+    enabled: !!workspaceId,
   })
 
   // Create secret
@@ -980,7 +941,9 @@ export function useWorkspaceSecrets() {
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1024,7 +987,9 @@ export function useWorkspaceSecrets() {
         title: "Updated secret",
         description: "Secret updated successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1048,7 +1013,9 @@ export function useWorkspaceSecrets() {
     mutationFn: async (secret: SecretReadMinimal) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
@@ -1457,10 +1424,6 @@ export function useRegistryRepositories() {
       queryClient.invalidateQueries({
         queryKey: ["registry_actions"],
       })
-      toast({
-        title: "Synced registry repositories",
-        description: "Registry repositories synced successfully.",
-      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1549,6 +1512,45 @@ export function useRegistryRepositories() {
     deleteRepo,
     deleteRepoIsPending,
     deleteRepoError,
+  }
+}
+
+export function useRepositoryCommits(
+  repositoryId: string | null,
+  options?: {
+    branch?: string
+    limit?: number
+    enabled?: boolean
+  }
+) {
+  const {
+    data: commits,
+    isLoading: commitsIsLoading,
+    error: commitsError,
+  } = useQuery<GitCommitInfo[]>({
+    queryKey: [
+      "repository_commits",
+      repositoryId,
+      options?.branch ?? "main",
+      options?.limit ?? 50,
+    ],
+    queryFn: async () => {
+      if (!repositoryId) {
+        throw new Error("Repository ID is required")
+      }
+      return await registryRepositoriesListRepositoryCommits({
+        repositoryId,
+        branch: options?.branch || "main",
+        limit: options?.limit || 50,
+      })
+    },
+    enabled: options?.enabled !== false && !!repositoryId,
+  })
+
+  return {
+    commits,
+    commitsIsLoading,
+    commitsError,
   }
 }
 
@@ -1673,7 +1675,10 @@ export function useSessions() {
   }
 }
 
-export function useTags(workspaceId: string) {
+export function useTags(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List tags
@@ -1684,6 +1689,7 @@ export function useTags(workspaceId: string) {
   } = useQuery<TagRead[]>({
     queryKey: ["tags", workspaceId],
     queryFn: async () => await tagsListTags({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Create tag
@@ -1848,7 +1854,7 @@ export function useOrgGitSettings() {
           console.error("Failed to update Git settings", error)
           toast({
             title: "Failed to update Git settings",
-            description: `An error occurred while updating the Git settings: ${error.body.detail}`,
+            description: `An error occurred while updating the Git settings: ${typeof error.body.detail === "object" ? JSON.stringify(error.body.detail) : error.body.detail}`,
           })
       }
     },
@@ -1863,6 +1869,126 @@ export function useOrgGitSettings() {
     updateGitSettings,
     updateGitSettingsIsPending,
     updateGitSettingsError,
+  }
+}
+
+export function useGitHubAppManifest() {
+  // Get GitHub App manifest
+  const {
+    data: manifest,
+    isLoading: manifestIsLoading,
+    error: manifestError,
+  } = useQuery<VcsGetGithubAppManifestResponse>({
+    queryKey: ["github-app-manifest"],
+    queryFn: async () => await vcsGetGithubAppManifest(),
+  })
+
+  return {
+    manifest,
+    manifestIsLoading,
+    manifestError,
+  }
+}
+
+export function useGitHubAppCredentialsStatus() {
+  // Get GitHub App credentials status
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
+    queryKey: ["github-app-credentials-status"],
+    queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  // Save GitHub App credentials mutation
+  const saveCredentials = useMutation<
+    VcsSaveGithubAppCredentialsResponse,
+    ApiError,
+    VcsSaveGithubAppCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGithubAppCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch credentials status
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
+  }
+}
+
+export function useOrgAgentSettings() {
+  const queryClient = useQueryClient()
+  // Get Agent settings
+  const {
+    data: agentSettings,
+    isLoading: agentSettingsIsLoading,
+    error: agentSettingsError,
+  } = useQuery<AgentSettingsRead>({
+    queryKey: ["org-agent-settings"],
+    queryFn: async () => await settingsGetAgentSettings(),
+  })
+
+  // Update Agent settings
+  const {
+    mutateAsync: updateAgentSettings,
+    isPending: updateAgentSettingsIsPending,
+    error: updateAgentSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAgentSettingsData) =>
+      await settingsUpdateAgentSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-agent-settings"] })
+      toast({
+        title: "Updated agent settings",
+        description: "Agent settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update agent settings", error)
+          toast({
+            title: "Failed to update agent settings",
+            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    agentSettings,
+    agentSettingsIsLoading,
+    agentSettingsError,
+    // Update
+    updateAgentSettings,
+    updateAgentSettingsIsPending,
+    updateAgentSettingsError,
   }
 }
 
@@ -2599,8 +2725,13 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     casesError,
   }
 }
-
-export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
+interface UseGetCaseOptions {
+  enabled?: boolean
+}
+export function useGetCase(
+  { caseId, workspaceId }: CasesGetCaseData,
+  options?: UseGetCaseOptions
+) {
   const {
     data: caseData,
     isLoading: caseDataIsLoading,
@@ -2608,6 +2739,7 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
   } = useQuery<CaseRead, TracecatApiError>({
     queryKey: ["case", caseId],
     queryFn: async () => await casesGetCase({ caseId, workspaceId }),
+    enabled: options?.enabled,
   })
 
   return {
@@ -2616,6 +2748,232 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
     caseDataError,
   }
 }
+
+export function useCaseRecords({
+  caseId,
+  workspaceId,
+}: CaseRecordsListCaseRecordsData) {
+  const {
+    data: records,
+    isLoading: recordsIsLoading,
+    error: recordsError,
+  } = useQuery<CaseRecordRead[], TracecatApiError>({
+    queryKey: ["case-records", caseId, workspaceId],
+    queryFn: async () => {
+      const response = await caseRecordsListCaseRecords({ caseId, workspaceId })
+      return response.items || []
+    },
+  })
+
+  return {
+    records,
+    recordsIsLoading,
+    recordsError,
+  }
+}
+
+export function useCreateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createCaseRecord,
+    isPending: createCaseRecordIsPending,
+    error: createCaseRecordError,
+  } = useMutation<CaseRecordRead, TracecatApiError, CaseRecordCreate>({
+    mutationFn: async (params: CaseRecordCreate) => {
+      return await caseRecordsCreateCaseRecord({
+        caseId,
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record created",
+        description: "The record has been successfully linked to this case.",
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to create record",
+        description:
+          error.message || "An error occurred while creating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createCaseRecord,
+    createCaseRecordIsPending,
+    createCaseRecordError,
+  }
+}
+
+export function useUpdateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateCaseRecord,
+    isPending: updateCaseRecordIsPending,
+    error: updateCaseRecordError,
+  } = useMutation({
+    mutationFn: async ({
+      caseRecordId,
+      data,
+    }: {
+      caseRecordId: string
+      data: Record<string, unknown>
+    }) => {
+      return await caseRecordsUpdateCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+        requestBody: { data },
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record updated",
+        description: "The record has been successfully updated.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to update record",
+        description:
+          error.message || "An error occurred while updating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    updateCaseRecord,
+    updateCaseRecordIsPending,
+    updateCaseRecordError,
+  }
+}
+
+export function useDeleteCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteCaseRecord,
+    isPending: deleteCaseRecordIsPending,
+    error: deleteCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsDeleteCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record removed",
+        description: "The record has been removed from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to remove record",
+        description:
+          error.message || "An error occurred while removing the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    deleteCaseRecord,
+    deleteCaseRecordIsPending,
+    deleteCaseRecordError,
+  }
+}
+
+export function useUnlinkCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: unlinkCaseRecord,
+    isPending: unlinkCaseRecordIsPending,
+    error: unlinkCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsUnlinkCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record unlinked",
+        description: "The record has been unlinked from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to unlink record",
+        description:
+          error.message || "An error occurred while unlinking the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    unlinkCaseRecord,
+    unlinkCaseRecordIsPending,
+    unlinkCaseRecordError,
+  }
+}
+
+export { useGetRunbook }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()
@@ -2629,8 +2987,10 @@ export function useCreateCase(workspaceId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cases"] })
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
       toast({
         title: "Case created",
@@ -2672,8 +3032,10 @@ export function useUpdateCase({
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
@@ -2721,8 +3083,10 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2913,7 +3277,10 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useFolders(workspaceId: string) {
+export function useFolders(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List folders
@@ -2924,6 +3291,7 @@ export function useFolders(workspaceId: string) {
   } = useQuery<WorkflowFolderRead[]>({
     queryKey: ["folders", workspaceId],
     queryFn: async () => await foldersListFolders({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Get folder by parent path
@@ -2939,7 +3307,7 @@ export function useFolders(workspaceId: string) {
         workspaceId,
         parentPath: "/",
       }),
-    enabled: !!workspaceId,
+    enabled: options.enabled && !!workspaceId,
   })
 
   // Create folder
@@ -3192,6 +3560,81 @@ export function useCaseEvents({
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
+  }
+}
+
+export function useCaseTags({ caseId, workspaceId }: CasesListTagsData) {
+  const {
+    data: caseTags,
+    isLoading: caseTagsIsLoading,
+    error: caseTagsError,
+  } = useQuery<CaseTagRead[], TracecatApiError>({
+    queryKey: ["case-tags", caseId, workspaceId],
+    queryFn: async () => await casesListTags({ caseId, workspaceId }),
+  })
+
+  return {
+    caseTags,
+    caseTagsIsLoading,
+    caseTagsError,
+  }
+}
+
+export function useAddCaseTag({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: addCaseTag,
+    isPending: addCaseTagIsPending,
+    error: addCaseTagError,
+  } = useMutation({
+    mutationFn: async (params: CaseTagCreate) =>
+      await casesAddTag({ caseId, workspaceId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tags", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+    },
+  })
+  return {
+    addCaseTag,
+    addCaseTagIsPending,
+    addCaseTagError,
+  }
+}
+
+export function useRemoveCaseTag({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: removeCaseTag,
+    isPending: removeCaseTagIsPending,
+    error: removeCaseTagError,
+  } = useMutation({
+    mutationFn: async (tagIdentifier: string) =>
+      await casesRemoveTag({ caseId, workspaceId, tagIdentifier }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tags", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+    },
+  })
+  return {
+    removeCaseTag,
+    removeCaseTagIsPending,
+    removeCaseTagError,
   }
 }
 
@@ -3774,5 +4217,70 @@ export function useDragDivider({
         cursor: orientation === "vertical" ? "col-resize" : "row-resize",
       },
     },
+  }
+}
+
+export function useWorkspaceSettings(
+  workspaceId: string,
+  onWorkspaceDeleted?: () => void
+) {
+  const queryClient = useQueryClient()
+
+  // Update workspace
+  const { mutateAsync: updateWorkspace, isPending: isUpdating } = useMutation({
+    mutationFn: async (params: WorkspaceUpdate) => {
+      return await workspacesUpdateWorkspace({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace updated",
+        description: "Workspace settings updated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update workspace", error)
+      toast({
+        title: "Error updating workspace",
+        description: "Failed to update the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Delete workspace
+  const { mutateAsync: deleteWorkspace, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      return await workspacesDeleteWorkspace({
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace deleted",
+        description: "The workspace has been deleted successfully.",
+      })
+      onWorkspaceDeleted?.()
+    },
+    onError: (error) => {
+      console.error("Failed to delete workspace", error)
+      toast({
+        title: "Error deleting workspace",
+        description: "Failed to delete the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    updateWorkspace,
+    isUpdating,
+    deleteWorkspace,
+    isDeleting,
   }
 }

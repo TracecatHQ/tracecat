@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
   switch (schemaProperty.type) {
@@ -91,13 +91,13 @@ export function ProviderConfigForm({
   onSuccess,
   additionalButtons,
 }: ProviderConfigFormProps) {
-  const schema = provider.schema?.json_schema || {}
+  const schema = provider.config_schema?.json_schema || {}
   const {
     metadata: { id },
     scopes: { default: defaultScopes },
     grant_type: grantType,
   } = provider
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     integration,
     integrationIsLoading,

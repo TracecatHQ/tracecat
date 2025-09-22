@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.agents.builder import AgentOutput
 
+from tracecat.agent.runtime import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.db.dependencies import AsyncDBSession
@@ -109,7 +109,7 @@ async def get_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow execution not found",
         )
-    logger.info("Getting workflow execution events", execution_id=execution.id)
+    logger.debug("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
     interactions = await _list_interactions(session, execution.id)
     return WorkflowExecutionRead(

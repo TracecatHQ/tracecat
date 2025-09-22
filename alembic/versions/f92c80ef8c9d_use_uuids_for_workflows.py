@@ -53,14 +53,14 @@ HAS_ONDELETE_CONSTRAINT = {
 def upgrade() -> None:
     connection = op.get_bind()
 
-    logger.info("Dropping all foreign key constraints")
+    logger.debug("Dropping all foreign key constraints")
     # First, drop all foreign key constraints
     tables = ["action", "schedule", "webhook", "workflowdefinition", "workflowtag"]
     for table in tables:
         fk_name = f"{table}_workflow_id_fkey"
         op.drop_constraint(fk_name, table, type_="foreignkey")
 
-    logger.info("Converting workflow IDs from hex to UUID format")
+    logger.debug("Converting workflow IDs from hex to UUID format")
     # Create a custom cast function for the conversion
     connection.execute(
         sa.text("""
@@ -80,7 +80,7 @@ def upgrade() -> None:
 
     # Convert related tables
     for table in tables:
-        logger.info(f"Converting {table} workflow_id to UUID")
+        logger.debug(f"Converting {table} workflow_id to UUID")
         op.execute(
             f"ALTER TABLE {table} ALTER COLUMN workflow_id TYPE UUID USING hex_to_uuid(workflow_id)"
         )
@@ -102,13 +102,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     connection = op.get_bind()
 
-    logger.info("Dropping all foreign key constraints")
+    logger.debug("Dropping all foreign key constraints")
     tables = ["action", "schedule", "webhook", "workflowdefinition", "workflowtag"]
     for table in tables:
         fk_name = f"{table}_workflow_id_fkey"
         op.drop_constraint(fk_name, table, type_="foreignkey")
 
-    logger.info("Converting workflow IDs from UUID back to hex format")
+    logger.debug("Converting workflow IDs from UUID back to hex format")
     # Create a custom cast function for the conversion
     connection.execute(
         sa.text("""
@@ -127,7 +127,7 @@ def downgrade() -> None:
 
     # Convert related tables
     for table in tables:
-        logger.info(f"Converting {table} workflow_id back to hex format")
+        logger.debug(f"Converting {table} workflow_id back to hex format")
         op.execute(
             f"ALTER TABLE {table} ALTER COLUMN workflow_id TYPE VARCHAR USING uuid_to_hex(workflow_id)"
         )
