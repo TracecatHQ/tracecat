@@ -1,12 +1,16 @@
 import json
 import textwrap
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
-from pydantic_ai.tools import Tool
+
+if TYPE_CHECKING:
+    from pydantic_ai.tools import Tool
+else:  # pragma: no cover - avoid schema evaluation on import
+    Tool = Any
 
 
 class ToolCallPrompt(BaseModel):

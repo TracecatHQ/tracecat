@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -89,7 +90,13 @@ class RunbookService(BaseWorkspaceService):
         self.session.add(runbook)
         await self.session.commit()
         await self.session.refresh(runbook)
-        return runbook
+
+        # Re-fetch with relationships loaded
+        loaded_runbook = await self.get_runbook_by_id(runbook.id)
+        if not loaded_runbook:
+            # This should never happen since we just created it
+            raise ValueError(f"Failed to load newly created runbook {runbook.id}")
+        return loaded_runbook
 
     async def _create_runbook_from_case(
         self, chat_id: uuid.UUID, alias: str | None = None
@@ -146,18 +153,26 @@ class RunbookService(BaseWorkspaceService):
 
     async def get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
         """Get a runbook by ID."""
-        stmt = select(Runbook).where(
-            Runbook.id == runbook_id,
-            Runbook.owner_id == self.workspace_id,
+        stmt = (
+            select(Runbook)
+            .where(
+                Runbook.id == runbook_id,
+                Runbook.owner_id == self.workspace_id,
+            )
+            .options(selectinload(Runbook.related_cases))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         return result.first()
 
     async def get_runbook_by_alias(self, alias: str) -> Runbook | None:
         """Get a runbook by alias."""
-        stmt = select(Runbook).where(
-            Runbook.alias == alias,
-            Runbook.owner_id == self.workspace_id,
+        stmt = (
+            select(Runbook)
+            .where(
+                Runbook.alias == alias,
+                Runbook.owner_id == self.workspace_id,
+            )
+            .options(selectinload(Runbook.related_cases))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         return result.first()
@@ -183,6 +198,7 @@ class RunbookService(BaseWorkspaceService):
         stmt = (
             select(Runbook)
             .where(Runbook.owner_id == self.workspace_id)
+            .options(selectinload(Runbook.related_cases))  # type: ignore[arg-type]
             .order_by(sort_column)
             .limit(limit)
         )
@@ -198,7 +214,13 @@ class RunbookService(BaseWorkspaceService):
         self.session.add(runbook)
         await self.session.commit()
         await self.session.refresh(runbook)
-        return runbook
+
+        # Re-fetch with relationships loaded
+        loaded_runbook = await self.get_runbook_by_id(runbook.id)
+        if not loaded_runbook:
+            # This should never happen since we just updated it
+            raise ValueError(f"Failed to load updated runbook {runbook.id}")
+        return loaded_runbook
 
     async def delete_runbook(self, runbook: Runbook) -> None:
         """Delete a runbook."""

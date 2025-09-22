@@ -17,23 +17,19 @@ from pydantic_ai.messages import (
 from tracecat.chat.models import ChatMessage
 from tracecat.db.schemas import Case, Runbook
 
-NEW_RUNBOOK_INSTRUCTIONS = textwrap.dedent("""
-<Objective>
-What is the objective of this runbook?
-</Objective>
+NEW_RUNBOOK_INSTRUCTIONS = textwrap.dedent(
+    """\
+    # Objective
+    Describe the goal of this runbook.
 
-<Steps>
-  <Step>
-  What is the step to be executed?
-  </Step>
-</Steps>
+    ## Steps
+    1. Describe the first action the agent should perform.
+    2. Add additional steps as needed.
 
-<Tools>
-  <Tool>
-  What is the tool to be used?
-  </Tool>
-</Tools>
-""")
+    ## Tools
+    - List the tools required and how to use them.
+    """
+)
 
 
 RUNBOOK_REQUIREMENTS = textwrap.dedent("""
