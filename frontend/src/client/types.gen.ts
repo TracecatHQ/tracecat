@@ -174,7 +174,7 @@ export type AgentOutput = {
   output: unknown
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
-  usage?: RunUsage | null
+  usage: RunUsage
   trace_id?: string | null
 }
 
@@ -3049,7 +3049,7 @@ export type Schedule = {
   /**
    * ISO 8601 duration string
    */
-  every: string
+  every?: string | null
   /**
    * ISO 8601 duration string
    */
@@ -3078,7 +3078,7 @@ export type ScheduleCreate = {
   /**
    * ISO 8601 duration string
    */
-  every: string
+  every?: string | null
   /**
    * ISO 8601 duration string
    */

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 import temporalio.client
 from temporalio.common import TypedSearchAttributes
@@ -28,7 +29,8 @@ async def create_schedule(
     schedule_id: ScheduleID,
     role: Role,
     *,
-    every: timedelta,
+    cron: str | None = None,
+    every: timedelta | None = None,
     offset: timedelta | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
@@ -47,6 +49,20 @@ async def create_schedule(
 
     workflow_schedule_id = f"{workflow_id.short()}/{schedule_id}"
 
+    if (cron is None or not cron.strip()) and every is None:
+        raise ValueError("Either cron or every must be provided for a schedule")
+
+    spec_kwargs: dict[str, Any] = {
+        "start_at": start_at,
+        "end_at": end_at,
+    }
+    if cron and cron.strip():
+        spec_kwargs["cron_expressions"] = [cron]
+    elif every is not None:
+        spec_kwargs["intervals"] = [
+            temporalio.client.ScheduleIntervalSpec(every=every, offset=offset)
+        ]
+
     return await client.create_schedule(
         id=schedule_id,
         schedule=temporalio.client.Schedule(
@@ -61,13 +77,7 @@ async def create_schedule(
                 typed_search_attributes=SEARCH_ATTRS,
                 **schedule_kwargs,
             ),
-            spec=temporalio.client.ScheduleSpec(
-                intervals=[
-                    temporalio.client.ScheduleIntervalSpec(every=every, offset=offset)
-                ],
-                start_at=start_at,
-                end_at=end_at,
-            ),
+            spec=temporalio.client.ScheduleSpec(**spec_kwargs),
             policy=temporalio.client.SchedulePolicy(
                 # Allow overlapping workflows to run in parallel
                 overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
@@ -116,10 +126,32 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
                 "Only ScheduleActionStartWorkflow is supported for now."
             )
         # We only support one interval per schedule for now
-        if "every" in set_fields:
-            spec.intervals[0].every = set_fields["every"]
-        if "offset" in set_fields:
-            spec.intervals[0].offset = set_fields["offset"]
+        cron_enabled = False
+        if "cron" in set_fields:
+            cron = set_fields["cron"]
+            if cron:
+                spec.cron_expressions = [cron]
+                # Prefer cron schedules over intervals when explicitly provided
+                spec.intervals = []
+                cron_enabled = True
+            else:
+                spec.cron_expressions = []
+
+        # Determine interval configuration if requested
+        if not cron_enabled and ("every" in set_fields or "offset" in set_fields):
+            current_interval = spec.intervals[0] if spec.intervals else None
+            every = set_fields.get("every", getattr(current_interval, "every", None))
+            offset = set_fields.get("offset", getattr(current_interval, "offset", None))
+
+            if every is None:
+                spec.intervals = []
+            else:
+                spec.intervals = [
+                    temporalio.client.ScheduleIntervalSpec(every=every, offset=offset)
+                ]
+                # Clear cron expressions when switching to interval-based scheduling
+                # to prevent double-triggering
+                spec.cron_expressions = []
         if "start_at" in set_fields:
             spec.start_at = set_fields["start_at"]
         if "end_at" in set_fields:

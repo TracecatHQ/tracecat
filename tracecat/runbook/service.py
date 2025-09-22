@@ -19,8 +19,8 @@ from pydantic_ai.messages import (
 )
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.pydantic_ai import build_agent, get_model
 
+from tracecat.agent.runtime import build_agent
 from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse
@@ -213,9 +213,9 @@ Here are the <Steps> to execute:
         # Generate title
         svc = AgentManagementService(self.session, self.role)
         async with svc.with_model_config() as model_config:
-            model = get_model(model_config.name, model_config.provider)
-            agent = build_agent(
-                model=model,
+            agent = await build_agent(
+                model_name=model_config.name,
+                model_provider=model_config.provider,
                 instructions=instructions,
             )
             response = await agent.run(user_prompt)
@@ -516,9 +516,9 @@ Here are the <Steps> to execute:
         """)
         svc = AgentManagementService(self.session, self.role)
         async with svc.with_model_config() as model_config:
-            model = get_model(model_config.name, model_config.provider)
-            agent = build_agent(
-                model=model,
+            agent = await build_agent(
+                model_name=model_config.name,
+                model_provider=model_config.provider,
                 instructions=instructions,
             )
             user_prompt = f"""

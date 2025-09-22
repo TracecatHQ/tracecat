@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
@@ -81,7 +81,7 @@ class RemoteWorkflowSchedule(BaseModel):
     cron: str | None = None
     """Cron expression for the schedule, if applicable."""
 
-    every: timedelta
+    every: timedelta | None = None
     """Interval in seconds for the schedule (ISO 8601 duration string in DB, float seconds here for remote)."""
 
     offset: timedelta | None = None
@@ -95,6 +95,14 @@ class RemoteWorkflowSchedule(BaseModel):
 
     timeout: float | None = None
     """Maximum number of seconds to wait for the workflow to complete."""
+
+    @model_validator(mode="after")
+    def validate_spec(self) -> "RemoteWorkflowSchedule":
+        if self.cron is None and self.every is None:
+            raise ValueError(
+                "Either cron or every must be provided for a remote schedule"
+            )
+        return self
 
 
 class RemoteWorkflowDefinition(BaseModel):
