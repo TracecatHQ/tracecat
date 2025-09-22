@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.service import AgentManagementService
 from tracecat.cases.service import CasesService
+from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Case, Chat, Runbook
@@ -47,7 +48,7 @@ class RunbookService(BaseWorkspaceService):
         return chat
 
     async def _get_chat_messages(self, chat: Chat) -> list[ChatMessage]:
-        """Get a chat by ID."""
+        """Return the persisted messages for the given chat."""
         messages = await self.chats.get_chat_messages(chat)
         if not messages or len(messages) == 0:
             raise TracecatNotFoundError(f"Chat {chat.id} has no messages")
@@ -63,13 +64,28 @@ class RunbookService(BaseWorkspaceService):
     async def create_runbook(self, params: RunbookCreate):
         """Create a runbook from a case or from scratch."""
 
-        if self.case_id and params.chat_id:
-            return await self._create_runbook_from_case(
-                chat_id=params.chat_id,
-                alias=params.alias,
-            )
-        else:
+        if params.chat_id is None:
             return await self._create_runbook(alias=params.alias)
+
+        chat = await self._get_chat(params.chat_id)
+
+        if self.case_id is not None:
+            case_id = self.case_id
+        elif chat.entity_type == ChatEntity.CASE:
+            case_id = chat.entity_id
+        else:
+            raise ValueError(
+                "chat_id refers to a chat that is not linked to a case; provide case_id"
+            )
+
+        case = await self._get_case(case_id)
+        messages = await self._get_chat_messages(chat)
+        return await self._create_runbook_from_case(
+            case=case,
+            chat=chat,
+            messages=messages,
+            alias=params.alias,
+        )
 
     async def _create_runbook(
         self,
@@ -99,15 +115,15 @@ class RunbookService(BaseWorkspaceService):
         return loaded_runbook
 
     async def _create_runbook_from_case(
-        self, chat_id: uuid.UUID, alias: str | None = None
+        self,
+        *,
+        case: Case,
+        chat: Chat,
+        messages: list[ChatMessage],
+        alias: str | None = None,
     ):
-        """Create a runbook from a case."""
-        if self.case_id is None:
-            raise ValueError("Case ID is required to create a runbook from a case")
+        """Create a runbook using chat history tied to a case."""
 
-        case = await self._get_case(self.case_id)
-        chat = await self._get_chat(chat_id)
-        messages = await self._get_chat_messages(chat)
         tools = chat.tools
 
         # Generate runbook from chat via LLM agent
@@ -230,7 +246,7 @@ class RunbookService(BaseWorkspaceService):
     async def execute_runbook(
         self, runbook: Runbook, case_ids: list[uuid.UUID]
     ) -> RunbookExecuteResponse:
-        """Execute a runbook for a case. Returns a stream URL."""
+        """Execute a runbook across multiple cases and return per-case stream URLs."""
         stream_urls = {}
         for case_id in case_ids:
             case = await self._get_case(case_id)

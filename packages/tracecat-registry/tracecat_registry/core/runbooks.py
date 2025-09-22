@@ -3,11 +3,7 @@ from typing import Annotated, Any, Literal
 from typing_extensions import Doc
 import uuid
 
-from tracecat.runbook.models import (
-    RunbookRead,
-    RunbookUpdate,
-    RunbookExecuteResponse,
-)
+from tracecat.runbook.models import RunbookRead, RunbookUpdate
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
 
@@ -125,13 +121,14 @@ async def execute_runbook(
         str, Doc("The runbook ID (UUID) or alias to execute.")
     ],
     case_ids: Annotated[list[str], Doc("The case IDs to execute the runbook on.")],
-) -> RunbookExecuteResponse:
+) -> dict[str, Any]:
     async with RunbookService.with_session() as svc:
         runbook = await svc.get_runbook(runbook_id_or_alias)
         if not runbook:
             raise ValueError(
                 f"Runbook with ID or alias {runbook_id_or_alias} not found"
             )
-        return await svc.execute_runbook(
+        response = await svc.execute_runbook(
             runbook, case_ids=[uuid.UUID(case_id) for case_id in case_ids]
         )
+        return response.model_dump(mode="json")

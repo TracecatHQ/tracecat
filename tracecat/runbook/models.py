@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import UUID4, BaseModel, Field, StringConstraints
+from pydantic import UUID4, BaseModel, Field, StringConstraints, field_validator
 
 type RunbookAlias = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
@@ -45,6 +46,34 @@ class RunbookRead(BaseModel):
         description="Alias for the runbook",
     )
 
+    @field_validator("related_cases", mode="before")
+    @classmethod
+    def _coerce_related_cases(
+        cls, value: Any
+    ) -> list[UUID4] | None:  # pragma: no cover - simple data coercion
+        if value is None:
+            return None
+
+        coerced: list[uuid.UUID] = []
+        for item in value:
+            if isinstance(item, uuid.UUID):
+                coerced.append(item)
+                continue
+
+            if isinstance(item, str):
+                coerced.append(uuid.UUID(item))
+                continue
+
+            item_id = getattr(item, "id", None)
+            if item_id is None:
+                raise TypeError(
+                    "related_cases must be UUIDs, UUID strings, or objects with an 'id' attribute"
+                )
+
+            coerced.append(uuid.UUID(str(item_id)))
+
+        return coerced
+
 
 class RunbookUpdate(BaseModel):
     """Request model for updating runbook properties."""
@@ -78,7 +107,7 @@ class RunbookUpdate(BaseModel):
 
 
 class RunbookExecuteRequest(BaseModel):
-    """Request model for executing a runbook on a case."""
+    """Request model for executing a runbook on cases."""
 
     case_ids: list[UUID4] = Field(
         ..., description="IDs of the cases to execute the runbook on"
@@ -86,7 +115,7 @@ class RunbookExecuteRequest(BaseModel):
 
 
 class RunbookExecuteResponse(BaseModel):
-    """Response model for executing a runbook on a case."""
+    """Response model for executing a runbook on cases."""
 
     stream_urls: dict[str, str] = Field(
         ..., description="Mapping of case ID to stream URL"

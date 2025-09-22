@@ -215,7 +215,7 @@ class CaseToRunbookTitlePrompts(BaseModel):
         return textwrap.dedent(f"""
             {_reduce_case_to_text(self.case)}
 
-            {_reduce_messages_to_text(self.messages, n=4)}
+            {_reduce_messages_to_text(self.messages, n=self.n_messages)}
         """)
 
 
@@ -298,6 +298,8 @@ class ExecuteRunbookPrompts(BaseModel):
         """Build the user prompt for executing a runbook."""
         return textwrap.dedent(f"""
             {self.instructions}
+
+            {_reduce_runbook_to_text(self.runbook)}
 
             {_reduce_case_to_text(self.case)}
         """)

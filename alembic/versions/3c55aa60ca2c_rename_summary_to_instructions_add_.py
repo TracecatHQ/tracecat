@@ -50,10 +50,13 @@ def upgrade() -> None:
         nullable=False,
     )
 
-    # Fix the unique constraint name
+    # Ensure the alias constraint matches the current naming convention
     op.drop_constraint("uq_runbook_alias_owner_id", "runbook", type_="unique")
     op.create_unique_constraint(
-        "uq_prompt_alias_owner_id", "runbook", ["alias", "owner_id"]
+        "uq_runbook_alias_owner_id",
+        "runbook",
+        ["alias", "owner_id"],
+        postgresql_nulls_not_distinct=False,
     )
 
     # Drop unused columns
@@ -91,11 +94,11 @@ def downgrade() -> None:
         "instructions",
         new_column_name="summary",
         existing_type=sa.VARCHAR(),
-        nullable=True,
+        nullable=False,
     )
 
-    # Restore the original unique constraint name
-    op.drop_constraint("uq_prompt_alias_owner_id", "runbook", type_="unique")
+    # Restore the constraint using the same naming/options as pre-upgrade state
+    op.drop_constraint("uq_runbook_alias_owner_id", "runbook", type_="unique")
     op.create_unique_constraint(
         "uq_runbook_alias_owner_id",
         "runbook",

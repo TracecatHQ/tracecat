@@ -30,6 +30,24 @@ from tracecat.runbook.service import RunbookService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
+
+def _is_constraint_violation(error: IntegrityError, constraint_name: str) -> bool:
+    """Return True when the integrity error matches the named DB constraint."""
+
+    orig = getattr(error, "orig", None)
+    diag = getattr(orig, "diag", None)
+    diag_constraint = getattr(diag, "constraint_name", None)
+
+    if diag_constraint == constraint_name:
+        return True
+
+    # Fallback to string inspection when the driver doesn't expose diag data.
+    if orig and constraint_name in str(orig):
+        return True
+
+    return constraint_name in str(error)
+
+
 router = APIRouter(prefix="/runbooks", tags=["runbook"])
 
 WorkspaceUser = Annotated[
@@ -57,9 +75,14 @@ async def create_runbook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_prompt_alias_owner_id" in str(e):
+        if _is_constraint_violation(e, "uq_prompt_alias_owner_id"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
@@ -136,7 +159,7 @@ async def update_runbook(
         runbook = await svc.update_runbook(runbook, params)
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_prompt_alias_owner_id" in str(e):
+        if _is_constraint_violation(e, "uq_prompt_alias_owner_id"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
