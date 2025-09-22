@@ -3,7 +3,7 @@ definition:
   title: Remove user from group
   description: Remove a user from a specific group in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#remove-user-from-group
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/unassignUserFromGroup
   namespace: tools.okta
   name: remove_from_group
   secrets:

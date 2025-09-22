@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Modify sending profile
+  description: Modify a sending profile in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/sending-profiles#modify-sending-profile
+  namespace: tools.gophish
+  name: modify_sending_profile
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    sending_profile_id:
+      type: int
+      description: The ID of the sending profile to modify.
+      required: true
+    payload:
+      type: dict[str, Any]
+      description: The body of the sending profile to modify. Look at the Gophish API documentation for the expected body.
+      required: true
+  steps:
+    - ref: modify_sending_profile
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/smtp/${{ inputs.sending_profile_id }}
+        method: PUT
+        payload: ${{ inputs.payload }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.modify_sending_profile.result.data }}

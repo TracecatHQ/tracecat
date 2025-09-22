@@ -3,7 +3,7 @@ definition:
   title: Get groups assigned to user
   description: List all groups that a user is a member of.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#get-user-groups
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserResources/#tag/UserResources/operation/listUserGroups
   namespace: tools.okta
   name: get_groups_assigned_to_user
   secrets:
