@@ -26,7 +26,7 @@ import "./editor.css"
 
 import { type BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
 import { Trash2Icon } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
@@ -50,6 +50,9 @@ export function CaseDescriptionEditor({
   className,
   onBlur,
 }: CaseDescriptionEditorProps) {
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasLoaded, setHasLoaded] = useState(false)
+
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
     animations: false,
@@ -67,10 +70,34 @@ export function CaseDescriptionEditor({
   }
 
   useEffect(() => {
-    if (initialContent) {
-      loadInitialContent(editor, initialContent)
+    let isActive = true
+    if (initialContent !== undefined && !hasLoaded && !isLoading) {
+      setIsLoading(true)
+      ;(async () => {
+        try {
+          await loadInitialContent(editor, initialContent)
+          if (!isActive) {
+            return
+          }
+          setHasLoaded(true)
+        } catch (error) {
+          console.error("Failed to load initial content:", error)
+        } finally {
+          if (isActive) {
+            setIsLoading(false)
+          }
+        }
+      })()
     }
-  }, [initialContent, editor])
+    return () => {
+      isActive = false
+    }
+  }, [initialContent, editor, hasLoaded, isLoading])
+
+  // Reset hasLoaded when content changes significantly
+  useEffect(() => {
+    setHasLoaded(false)
+  }, [initialContent])
 
   // Renders the editor instance using a React component.
   return (
@@ -128,6 +155,9 @@ export function CaseCommentViewer({
   content: string
   className?: string
 }) {
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasLoaded, setHasLoaded] = useState(false)
+
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
     animations: false,
@@ -135,10 +165,34 @@ export function CaseCommentViewer({
   })
 
   useEffect(() => {
-    if (content) {
-      loadInitialContent(editor, content)
+    let isActive = true
+    if (content !== undefined && !hasLoaded && !isLoading) {
+      setIsLoading(true)
+      ;(async () => {
+        try {
+          await loadInitialContent(editor, content)
+          if (!isActive) {
+            return
+          }
+          setHasLoaded(true)
+        } catch (error) {
+          console.error("Failed to load initial content:", error)
+        } finally {
+          if (isActive) {
+            setIsLoading(false)
+          }
+        }
+      })()
     }
-  }, [content, editor])
+    return () => {
+      isActive = false
+    }
+  }, [content, editor, hasLoaded, isLoading])
+
+  // Reset hasLoaded when content changes
+  useEffect(() => {
+    setHasLoaded(false)
+  }, [content])
 
   // Renders the editor instance using a React component.
   return (

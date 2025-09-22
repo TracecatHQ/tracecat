@@ -176,7 +176,7 @@ export function ChatInterface({
             ? `You are a helpful AI assistant helping with runbook editing.
         The current runbook ID is: ${entityId}
         ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
-        You can use the update_prompt tool to edit the runbook's title, content, or summary.
+        You can use the update_prompt tool to edit the runbook's title or instructions.
         Be concise but thorough in your responses.`
             : `You are a helpful AI assistant helping with ${entityType} management.
         The current ${entityType} ID is: ${entityId}
