@@ -319,6 +319,7 @@ async def run_agent(
                                 denorm_tool_name = event.part.tool_name.replace(
                                     "__", "."
                                 )
+                                tool_fixed_args = {}
                                 if fixed_arguments:
                                     tool_fixed_args = fixed_arguments.get(
                                         denorm_tool_name
