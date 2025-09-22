@@ -130,7 +130,8 @@ just gen-functions
 - Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
 - Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
 - Always avoid use of `type: ignore` when writing python code
-- You must *NEVER* put import statements in function bodies. If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+- You must *NEVER* put import statements in function bodies.
+- If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
 
 ### Frontend Standards
 - Use kebab-case for file names
