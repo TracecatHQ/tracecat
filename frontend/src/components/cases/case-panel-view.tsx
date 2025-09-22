@@ -321,7 +321,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         <DropdownMenuContent align="end" className="text-xs">
                           <DropdownMenuItem asChild>
                             <Link
-                              href={`/workspaces/${workspaceId}/custom-fields`}
+                              href={`/workspaces/${workspaceId}/cases/custom-fields`}
                             >
                               Manage fields
                             </Link>
