@@ -1,4 +1,3 @@
-import json
 import textwrap
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -19,6 +18,9 @@ class ToolCallPrompt(BaseModel):
     tools: list[Tool]
     fixed_arguments: dict[str, dict[str, Any]] | None = None
 
+    def _serialize_tool_names(self, tools: list[Tool]) -> str:
+        return "\n".join(f"- {tool.name}: {tool.description}" for tool in tools)
+
     @property
     def prompt(self) -> str:
         """Build the prompt for the tool call agent."""
@@ -34,7 +36,7 @@ class ToolCallPrompt(BaseModel):
         if self.tools:
             tools_text = textwrap.dedent(f"""
             <ToolsAvailable>
-            {yaml.dump(self.tools, indent=2)}
+            {self._serialize_tool_names(self.tools)}
             </ToolsAvailable>
             """)
 
@@ -58,18 +60,12 @@ class ToolCallPrompt(BaseModel):
             - Parameter selection workflow: read docstring → identify required vs optional → map to available data → call the tool
             </ToolCalling>
 
-            <ToolsAvailable>
             {tools_text}
-            </ToolsAvailable>
 
             <ToolCallingOverride>
             - You might see a tool call being overridden in the message history. Do not panic, this is normal behavior - just carry on with your task.
             - Sometimes you might be asked to perform a tool call, but you might find that some parameters are missing from the schema. If so, you might find that it's a fixed argument that the USER has passed in. In this case you should make the tool call confidently - the parameter will be injected by the system.
             </ToolCallingOverride>
-
-            <Tools>
-            {json.dumps(self.tools, indent=2)}
-            </Tools>
 
             {fixed_arguments_text}
 
