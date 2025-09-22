@@ -24,6 +24,7 @@ from tracecat.runbook.prompts import NEW_RUNBOOK_INSTRUCTIONS
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.utils import is_uuid
 
 
 class RunbookService(BaseWorkspaceService):
@@ -152,17 +153,9 @@ class RunbookService(BaseWorkspaceService):
         )
         return runbook
 
-    def _is_uuid(self, value: str) -> bool:
-        """Check if a string is a valid UUID."""
-        try:
-            uuid.UUID(value)
-            return True
-        except ValueError:
-            return False
-
     async def get_runbook(self, runbook_id_or_alias: str) -> Runbook | None:
         """Get a runbook by ID or alias."""
-        if self._is_uuid(runbook_id_or_alias):
+        if is_uuid(runbook_id_or_alias):
             return await self.get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
         else:
             return await self.get_runbook_by_alias(runbook_id_or_alias)
