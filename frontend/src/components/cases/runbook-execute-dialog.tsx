@@ -31,7 +31,7 @@ export function RunbookExecuteDialog({
   onOpenChange,
   runbook,
   workspaceId,
-  entityType,
+  entityType: _entityType,
   entityId,
 }: RunbookExecuteDialogProps) {
   const [isExecuting, setIsExecuting] = useState(false)
@@ -44,12 +44,7 @@ export function RunbookExecuteDialog({
     setIsExecuting(true)
     try {
       const request: RunbookExecuteRequest = {
-        entities: [
-          {
-            entity_id: entityId,
-            entity_type: entityType,
-          },
-        ],
+        case_ids: [entityId],
       }
 
       await runRunbook({
@@ -91,11 +86,11 @@ export function RunbookExecuteDialog({
 
   if (!runbook) return null
 
-  const source = runbook.meta?.case_slug
-    ? `Created from ${runbook.meta.case_slug}`
-    : runbook.meta?.chat_id
-      ? `Created from chat ${runbook.meta.chat_id}`
-      : `Created directly`
+  const relatedCasesCount = runbook.related_cases?.length ?? 0
+  const relatedCasesSummary =
+    relatedCasesCount > 0
+      ? `Linked to ${relatedCasesCount} case${relatedCasesCount === 1 ? "" : "s"}`
+      : "No related cases linked yet"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,15 +109,15 @@ export function RunbookExecuteDialog({
               </span>
             </div>
             <span>•</span>
-            <span>{source}</span>
+            <span>{relatedCasesSummary}</span>
           </div>
         </DialogHeader>
 
         <div className="space-y-4">
-          {runbook.summary && (
+          {runbook.instructions && (
             <div className="min-h-[400px] max-h-[500px] overflow-y-auto">
               <CaseCommentViewer
-                content={runbook.summary}
+                content={runbook.instructions}
                 className="text-sm"
               />
             </div>
