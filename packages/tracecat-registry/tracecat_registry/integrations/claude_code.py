@@ -1,4 +1,4 @@
-"""OpenAI Codex integration.
+"""Claude Code integration.
 
 Sandbox options:
 - [x] Modal sandbox
@@ -9,23 +9,12 @@ https://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28#download-a-
 """
 
 import modal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
-
-
-openai_codex_secret = RegistrySecret(
-    name="openai_codex",
-    keys=["OPENAI_API_KEY"],
-)
-"""OpenAI Codex API key.
-
-- name: `openai_codex`
-- keys:
-    - `OPENAI_API_KEY`
-"""
+from tracecat_registry.core.agent import anthropic_secret, bedrock_secret
 
 
 modal_secret = RegistrySecret(
@@ -41,26 +30,27 @@ modal_secret = RegistrySecret(
 """
 
 
-SANDBOX_APP_NAME = "tracecat-openai-codex"
-SANDBOX_NAME = "openai-codex"
+SANDBOX_APP_NAME = "tracecat-claude-code"
+SANDBOX_NAME = "claude-code"
 
 
 def _get_sandbox(timeout: int, block_network: bool) -> modal.Sandbox:
-    """Create (or look up) the Modal app and sandbox image for OpenAI Codex."""
+    """Create (or look up) the Modal app and sandbox image for Claude Code."""
 
-    openai_api_key = secrets.get("OPENAI_API_KEY")
-    openai_secret = modal.Secret.from_dict({"OPENAI_API_KEY": openai_api_key})
+    anthropic_api_key = secrets.get("ANTHROPIC_API_KEY")
+    anthropic_secret = modal.Secret.from_dict({"ANTHROPIC_API_KEY": anthropic_api_key})
+
     image = (
         modal.Image.debian_slim()
         .apt_install("nodejs", "pnpm")
-        .run_commands("pnpm install -g openai@0.39.0")
+        .run_commands("pnpm install -g @anthropic-ai/claude-code@1.0.117")
     )
 
     app = modal.App.lookup(SANDBOX_APP_NAME, create_if_missing=True)
     sandbox = modal.Sandbox.create(
         app=app,
         image=image,
-        secrets=[openai_secret],
+        secrets=[anthropic_secret],
         timeout=timeout,
         block_network=block_network,
     )
@@ -68,14 +58,14 @@ def _get_sandbox(timeout: int, block_network: bool) -> modal.Sandbox:
 
 
 @registry.register(
-    default_title="OpenAI codex",
-    description="OpenAI codex CLI",
-    display_group="OpenAI",
-    doc_url="https://developers.openai.com/codex/cli/",
-    namespace="ai.openai_codex",
-    secrets=[openai_codex_secret, modal_secret],
+    default_title="Claude Code",
+    description="Claude Code CLI",
+    display_group="Anthropic",
+    doc_url="https://docs.claude.com/en/docs/claude-code/sdk/sdk-headless",
+    namespace="ai.claude_code",
+    secrets=[anthropic_secret, bedrock_secret, modal_secret],
 )
-def codex(
+def claude_code(
     prompt: Annotated[
         str,
         Field(
@@ -92,6 +82,13 @@ def codex(
             description="If provided, downloads the specified Git repository into the sandbox. E.g. 'owner/repo'",
         ),
     ],
+    permission_mode: Annotated[
+        Literal["acceptEdits", "bypassPermissions", "default", "plan"],
+        Field(
+            ...,
+            description="Claude Code permission mode.",
+        ),
+    ] = "default",
     timeout: Annotated[
         int,
         Field(
@@ -107,14 +104,19 @@ def codex(
         ),
     ] = False,
 ) -> str:
-    """Run a user-provided command inside a pre-configured Modal sandbox."""
+    """Run a user-provided command inside a pre-configured Modal sandbox with Claude Code CLI."""
 
     sandbox = _get_sandbox(timeout=timeout, block_network=block_network)
+
+    # If a GitHub repo is provided, download it into the sandbox
+    # Execute the command with Claude Code CLI
     output = sandbox.exec(
-        "codex",
-        "exec",
+        "claude",
+        "-p",
+        f"--permission-mode={permission_mode}",
         prompt,
     )
+
     returncode = output.returncode
     if returncode != 0:
         stdout = output.stdout.read()
@@ -124,4 +126,5 @@ def codex(
             f"stdout: {stdout}\n"
             f"stderr: {stderr}"
         )
+
     return output.stdout.read()
