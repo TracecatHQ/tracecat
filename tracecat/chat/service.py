@@ -276,7 +276,7 @@ class ChatService(BaseWorkspaceService):
                 DBChatMessage.chat_id == chat_id,
                 DBChatMessage.owner_id == self.workspace_id,
             )
-            .order_by(col(DBChatMessage.created_at).desc())
+            .order_by(col(DBChatMessage.created_at).asc())
         )
 
         result = await self.session.exec(stmt)
