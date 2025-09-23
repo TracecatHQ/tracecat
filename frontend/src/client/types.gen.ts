@@ -465,6 +465,14 @@ export type Body_workflows_create_workflow = {
 }
 
 /**
+ * An event indicating the start to a call to a built-in tool.
+ */
+export type BuiltinToolCallEvent = {
+  part: BuiltinToolCallPart
+  event_kind?: "builtin_tool_call"
+}
+
+/**
  * A tool call to a built-in tool.
  */
 export type BuiltinToolCallPart = {
@@ -478,6 +486,14 @@ export type BuiltinToolCallPart = {
   tool_call_id?: string
   provider_name?: string | null
   part_kind?: "builtin-tool-call"
+}
+
+/**
+ * An event indicating the result of a built-in tool call.
+ */
+export type BuiltinToolResultEvent = {
+  result: BuiltinToolReturnPart
+  event_kind?: "builtin_tool_result"
 }
 
 /**
@@ -931,7 +947,7 @@ export type ChatMessage = {
 }
 
 /**
- * Model for chat metadata without messages.
+ * Model for chat metadata with message history.
  */
 export type ChatRead = {
   /**
@@ -966,6 +982,56 @@ export type ChatRead = {
    * When the chat was last updated
    */
   updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<ChatMessage>
+}
+
+/**
+ * Model for chat metadata without messages.
+ */
+export type ChatReadMinimal = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
 }
 
 /**
@@ -1026,48 +1092,6 @@ export type ChatUpdate = {
    * Chat title
    */
   title?: string | null
-}
-
-/**
- * Model for chat metadata with message history.
- */
-export type ChatWithMessages = {
-  /**
-   * Unique chat identifier
-   */
-  id: string
-  /**
-   * Human-readable title for the chat
-   */
-  title: string
-  /**
-   * ID of the user who owns the chat
-   */
-  user_id: string
-  /**
-   * Type of entity this chat is associated with
-   */
-  entity_type: string
-  /**
-   * ID of the associated entity
-   */
-  entity_id: string
-  /**
-   * Tools available to the agent
-   */
-  tools: Array<string>
-  /**
-   * When the chat was created
-   */
-  created_at: string
-  /**
-   * When the chat was last updated
-   */
-  updated_at: string
-  /**
-   * Chat messages from Redis stream
-   */
-  messages?: Array<ChatMessage>
 }
 
 /**
@@ -1614,6 +1638,12 @@ export type FieldType =
   | "SELECT"
   | "MULTI_SELECT"
 
+export type FinalResultEvent = {
+  tool_name: string | null
+  tool_call_id: string | null
+  event_kind?: "final_result"
+}
+
 export type Float = {
   component_id?: "float"
   min_val?: number | null
@@ -1630,6 +1660,22 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+}
+
+/**
+ * An event indicating the start to a call to a function tool.
+ */
+export type FunctionToolCallEvent = {
+  part: ToolCallPart
+  event_kind?: "function_tool_call"
+}
+
+/**
+ * An event indicating the result of a function tool call.
+ */
+export type FunctionToolResultEvent = {
+  result: ToolReturnPart | RetryPromptPart
+  event_kind?: "function_tool_result"
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -2102,6 +2148,23 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+export type PartDeltaEvent = {
+  index: number
+  delta: TextPartDelta | ThinkingPartDelta | ToolCallPartDelta
+  event_kind?: "part_delta"
+}
+
+export type PartStartEvent = {
+  index: number
+  part:
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+  event_kind?: "part_start"
 }
 
 /**
@@ -3639,6 +3702,14 @@ export type TextPart = {
 }
 
 /**
+ * A partial update (delta) for a `TextPart` to append new text content.
+ */
+export type TextPartDelta = {
+  content_delta: string
+  part_delta_kind?: "text"
+}
+
+/**
  * A thinking response from a model.
  */
 export type ThinkingPart = {
@@ -3647,6 +3718,13 @@ export type ThinkingPart = {
   signature?: string | null
   provider_name?: string | null
   part_kind?: "thinking"
+}
+
+export type ThinkingPartDelta = {
+  content_delta?: string | null
+  signature_delta?: string | null
+  provider_name?: string | null
+  part_delta_kind?: "thinking"
 }
 
 export type Toggle = {
@@ -3668,6 +3746,18 @@ export type ToolCallPart = {
     | null
   tool_call_id?: string
   part_kind?: "tool-call"
+}
+
+export type ToolCallPartDelta = {
+  tool_name_delta?: string | null
+  args_delta?:
+    | string
+    | {
+        [key: string]: unknown
+      }
+    | null
+  tool_call_id?: string | null
+  part_delta_kind?: "tool_call"
 }
 
 /**
@@ -5771,7 +5861,7 @@ export type ChatCreateChatData = {
   workspaceId: string
 }
 
-export type ChatCreateChatResponse = ChatRead
+export type ChatCreateChatResponse = ChatReadMinimal
 
 export type ChatListChatsData = {
   /**
@@ -5789,14 +5879,14 @@ export type ChatListChatsData = {
   workspaceId: string
 }
 
-export type ChatListChatsResponse = Array<ChatRead>
+export type ChatListChatsResponse = Array<ChatReadMinimal>
 
 export type ChatGetChatData = {
   chatId: string
   workspaceId: string
 }
 
-export type ChatGetChatResponse = ChatWithMessages
+export type ChatGetChatResponse = ChatRead
 
 export type ChatUpdateChatData = {
   chatId: string
@@ -5804,7 +5894,7 @@ export type ChatUpdateChatData = {
   workspaceId: string
 }
 
-export type ChatUpdateChatResponse = ChatRead
+export type ChatUpdateChatResponse = ChatReadMinimal
 
 export type ChatStartChatTurnData = {
   chatId: string
@@ -5819,7 +5909,15 @@ export type ChatStreamChatEventsData = {
   workspaceId: string
 }
 
-export type ChatStreamChatEventsResponse = unknown
+export type ChatStreamChatEventsResponse = Array<
+  | PartStartEvent
+  | PartDeltaEvent
+  | FinalResultEvent
+  | FunctionToolCallEvent
+  | FunctionToolResultEvent
+  | BuiltinToolCallEvent
+  | BuiltinToolResultEvent
+>
 
 export type RunbookCreateRunbookData = {
   requestBody: RunbookCreate
@@ -8610,14 +8708,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/chat/": {
+  "/chat": {
     post: {
       req: ChatCreateChatData
       res: {
         /**
          * Successful Response
          */
-        200: ChatRead
+        200: ChatReadMinimal
         /**
          * Validation Error
          */
@@ -8630,7 +8728,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ChatRead>
+        200: Array<ChatReadMinimal>
         /**
          * Validation Error
          */
@@ -8645,7 +8743,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: ChatWithMessages
+        200: ChatRead
         /**
          * Validation Error
          */
@@ -8658,7 +8756,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: ChatRead
+        200: ChatReadMinimal
         /**
          * Validation Error
          */
@@ -8686,7 +8784,15 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: Array<
+          | PartStartEvent
+          | PartDeltaEvent
+          | FinalResultEvent
+          | FunctionToolCallEvent
+          | FunctionToolResultEvent
+          | BuiltinToolCallEvent
+          | BuiltinToolResultEvent
+        >
         /**
          * Validation Error
          */

@@ -1,16 +1,15 @@
 """Chat API router for real-time AI agent interactions."""
 
-import asyncio
 import uuid
 from typing import Annotated
 
-import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic_ai.messages import AgentStreamEvent
 
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.stream import AgentStream
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -21,11 +20,6 @@ from tracecat.chat.models import (
     ChatUpdate,
 )
 from tracecat.chat.service import ChatService
-from tracecat.chat.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -108,6 +102,7 @@ async def get_chat(
         tools=chat.tools,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
+        last_stream_id=chat.last_stream_id,
         messages=[ChatMessage.from_db(message) for message in chat.messages],
     )
     logger.info("Chat read", chat_id=chat.id, messages=len(chat.messages))
@@ -181,7 +176,7 @@ async def start_chat_turn(
         ) from e
 
 
-@router.get("/{chat_id}/stream")
+@router.get("/{chat_id}/stream", response_model=list[AgentStreamEvent])
 async def stream_chat_events(
     role: WorkspaceUser,
     request: Request,
@@ -194,79 +189,28 @@ async def stream_chat_events(
     Last-Event-ID header.
     """
     stream_key = f"agent-stream:{chat_id}"
-    last_id = request.headers.get("Last-Event-ID", "0-0")
+
+    async with ChatService.with_session(role=role) as chat_svc:
+        chat = await chat_svc.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
+            )
+        last_stream_id = chat.last_stream_id
+
+    start_id = last_stream_id or request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(
         "Starting chat stream",
         stream_key=stream_key,
-        last_id=last_id,
+        last_id=start_id,
         chat_id=chat_id,
     )
 
-    async def event_generator():
-        try:
-            redis_client = await get_redis_client()
-
-            # Send initial connection event
-            yield f"id: {last_id}\nevent: connected\ndata: {{}}\n\n"
-
-            current_id = last_id
-
-            while not await request.is_disconnected():
-                try:
-                    # Read from Redis stream with blocking
-                    result = await redis_client.xread(
-                        streams={stream_key: current_id},
-                        count=10,
-                        block=1000,  # Block for 1 second
-                    )
-
-                    if result:
-                        for _stream_name, messages in result:
-                            for message_id, fields in messages:
-                                try:
-                                    data = orjson.loads(fields[DATA_KEY])
-
-                                    # Check for end-of-stream marker
-                                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
-                                        yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
-                                    else:
-                                        # Send the message
-                                        # Validate the message is a valid ModelMessage
-                                        # perf: delete this
-                                        validated_msg = ModelMessageTA.validate_python(
-                                            data
-                                        )
-                                        data_json = orjson.dumps(validated_msg).decode()
-                                        yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
-
-                                    # Ensure in all cases we advance the current ID
-                                    current_id = message_id
-
-                                except Exception as e:
-                                    logger.warning(
-                                        "Failed to process stream message",
-                                        error=str(e),
-                                        message_id=message_id,
-                                    )
-                                    continue
-
-                    # Send heartbeat to keep connection alive
-                    await asyncio.sleep(0.1)
-
-                except Exception as e:
-                    logger.error("Error reading from Redis stream", error=str(e))
-                    yield 'event: error\ndata: {"error": "Stream read error"}\n\n'
-                    await asyncio.sleep(1)
-
-        except Exception as e:
-            logger.error("Fatal error in stream generator", error=str(e))
-            yield 'event: error\ndata: {"error": "Fatal stream error"}\n\n'
-        finally:
-            logger.info("Chat stream ended", stream_key=stream_key)
-
+    stream = AgentStream(await get_redis_client(), chat_id)
     return StreamingResponse(
-        event_generator(),
+        stream.sse(request, last_id=start_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

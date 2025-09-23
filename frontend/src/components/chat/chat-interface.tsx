@@ -69,7 +69,7 @@ export function ChatInterface({
     enabled: runbooksEnabled && entityType === "runbook",
   })
 
-  const { sendMessage, isResponding, messages } = useChat({
+  const { sendMessage, isResponding, messages, streamingText } = useChat({
     chatId: selectedChatId,
     workspaceId,
   })
@@ -316,6 +316,7 @@ export function ChatInterface({
         entityType={entityType}
         entityId={entityId}
         workspaceId={workspaceId}
+        streamingText={streamingText}
       />
 
       {/* Chat Input */}

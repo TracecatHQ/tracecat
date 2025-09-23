@@ -87,6 +87,10 @@ class ChatReadMinimal(BaseModel):
     tools: list[str] = Field(..., description="Tools available to the agent")
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
+    last_stream_id: str | None = Field(
+        default=None,
+        description="Last processed Redis stream ID for this chat",
+    )
 
 
 class ChatRead(ChatReadMinimal):

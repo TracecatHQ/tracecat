@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   type ApiError,
   type ChatCreate,
   type ChatEntity,
   type ChatRead,
+  type ChatReadMinimal,
   type ChatRequest,
+  type ChatResponse,
   type ChatUpdate,
-  type ChatWithMessages,
   chatCreateChat,
   chatGetChat,
   chatListChats,
@@ -15,7 +16,104 @@ import {
   chatUpdateChat,
 } from "@/client"
 import { getBaseUrl } from "@/lib/api"
-import { isModelMessage, type ModelMessage } from "@/lib/chat"
+import { isModelMessage, isStreamEvent, type ModelMessage } from "@/lib/chat"
+
+const serializeMessageForComparison = (message: ModelMessage) => {
+  const normalized = {
+    kind: message.kind,
+    parts: message.parts.map((part) => {
+      if (typeof part !== "object" || part === null) {
+        return part
+      }
+
+      const { part_kind } = part as { part_kind?: string }
+
+      switch (part_kind) {
+        case "text":
+          return {
+            part_kind: "text",
+            content:
+              "content" in part
+                ? ((part as { content?: string }).content ?? "")
+                : "",
+          }
+        case "user-prompt":
+          return {
+            part_kind: "user-prompt",
+            content:
+              "content" in part
+                ? ((part as { content?: string | string[] }).content ?? "")
+                : "",
+          }
+        default:
+          return part
+      }
+    }),
+  }
+
+  return JSON.stringify(normalized)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const deepMergeRecords = (
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+) => {
+  const result: Record<string, unknown> = { ...target }
+  for (const [key, value] of Object.entries(source)) {
+    if (isRecord(value) && isRecord(result[key])) {
+      result[key] = deepMergeRecords(
+        result[key] as Record<string, unknown>,
+        value
+      )
+      continue
+    }
+    result[key] = value
+  }
+  return result
+}
+
+const reconcileToolCallDelta = (current: string, incoming: unknown) => {
+  if (incoming === undefined || incoming === null) {
+    return current
+  }
+
+  if (typeof incoming === "string") {
+    return current + incoming
+  }
+
+  if (isRecord(incoming)) {
+    let parsedCurrent: Record<string, unknown> | null = null
+    if (current.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(current)
+        if (isRecord(parsed)) {
+          parsedCurrent = parsed
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to parse existing tool call buffer as JSON, replacing with latest args",
+          error
+        )
+      }
+    }
+
+    const merged = deepMergeRecords(parsedCurrent ?? {}, incoming)
+    return JSON.stringify(merged)
+  }
+
+  try {
+    return current + JSON.stringify(incoming)
+  } catch (error) {
+    console.warn(
+      "Failed to stringify incoming tool call delta, falling back to string conversion",
+      error
+    )
+    return current + String(incoming)
+  }
+}
 
 // Hook for creating a new chat
 export function useCreateChat(workspaceId: string) {
@@ -76,13 +174,80 @@ export function useChat({
   chatId?: string
   workspaceId: string
 }) {
-  const [messages, setMessages] = useState<ModelMessage[]>([])
+  const queryClient = useQueryClient()
+  const [streamMessages, setStreamMessages] = useState<ModelMessage[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [isResponding, setIsResponding] = useState(false)
   const [eventSource, setEventSource] = useState<EventSource | null>(null)
+  const [streamingText, setStreamingText] = useState<string>("")
+  const textRef = useRef<string>("")
+  const toolCallRef = useRef<string>("")
+  const rafHandle = useRef<number | null>(null)
+  const historyReadyRef = useRef(false)
+
+  useEffect(() => {
+    setStreamMessages([])
+    textRef.current = ""
+    toolCallRef.current = ""
+    setStreamingText("")
+    historyReadyRef.current = false
+  }, [chatId])
+
+  const { data: chatHistory, isSuccess: historySuccess } = useQuery<
+    ChatRead,
+    ApiError
+  >({
+    queryKey: ["chat", chatId, workspaceId],
+    queryFn: () => {
+      if (!chatId) {
+        throw new Error("No chat ID available")
+      }
+      return chatGetChat({ chatId, workspaceId })
+    },
+    enabled: !!chatId && !!workspaceId,
+  })
+
+  const historyMessages = useMemo(() => {
+    if (!chatHistory?.messages) {
+      return []
+    }
+    return chatHistory.messages.map((entry) => entry.message)
+  }, [chatHistory])
+
+  useEffect(() => {
+    if (!historySuccess || historyMessages.length === 0) {
+      return
+    }
+
+    setStreamMessages((current) => {
+      if (current.length === 0) {
+        return current
+      }
+
+      const persisted = new Set(
+        historyMessages.map((message) => serializeMessageForComparison(message))
+      )
+
+      return current.filter(
+        (message) => !persisted.has(serializeMessageForComparison(message))
+      )
+    })
+  }, [historySuccess, historyMessages])
+
+  const messages = useMemo(() => {
+    if (streamMessages.length === 0) {
+      return historyMessages
+    }
+
+    return [...historyMessages, ...streamMessages]
+  }, [historyMessages, streamMessages])
 
   // Start chat turn mutation
-  const mutation = useMutation({
+  const { mutateAsync: sendMessage } = useMutation<
+    ChatResponse,
+    ApiError,
+    ChatRequest
+  >({
     mutationFn: async (request: ChatRequest) => {
       if (!chatId) {
         throw new Error("No chat ID available")
@@ -96,6 +261,13 @@ export function useChat({
 
       return response
     },
+    onMutate: () => {
+      textRef.current = ""
+      toolCallRef.current = ""
+      setStreamingText("")
+      // We don't have to optimistically set the user message here because it will be streamed immediately
+      setIsResponding(true)
+    },
     onSuccess: () => {
       setIsResponding(true)
     },
@@ -106,15 +278,19 @@ export function useChat({
 
   // Stream connection effect
   useEffect(() => {
-    if (!chatId || !workspaceId) return
-
-    // Clear previous stream data when conversation changes
-    setMessages([])
-
-    // Close existing connection
-    if (eventSource) {
-      eventSource.close()
+    if (!chatId || !workspaceId || !historySuccess) {
+      return
     }
+
+    if (historyReadyRef.current) {
+      return
+    }
+    historyReadyRef.current = true
+
+    setStreamMessages([])
+    textRef.current = ""
+    toolCallRef.current = ""
+    setStreamingText("")
 
     // Build the stream URL with workspace_id query parameter
     const url = new URL(`/api/chat/${chatId}/stream`, getBaseUrl())
@@ -128,23 +304,175 @@ export function useChat({
       setIsConnected(true)
     }
 
-    newEventSource.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const data = JSON.parse(event.data)
+    newEventSource.addEventListener(
+      "message",
+      (event: MessageEvent<string>) => {
+        try {
+          const data = JSON.parse(event.data)
 
-        // Validate that the data is a model message using the type guard
-        if (!isModelMessage(data)) {
-          console.warn("Received invalid message format:", data)
+          // Validate that the data is a model message using the type guard
+          if (!isModelMessage(data)) {
+            console.warn(
+              "Received invalid message format for message event:",
+              data
+            )
+            return
+          }
+
+          setStreamMessages((prev) => {
+            // perf - can we use the redis stream id instead?
+            const next = [...prev]
+            const incomingKey = serializeMessageForComparison(data)
+            const existingIndex = next.findIndex(
+              (message) =>
+                serializeMessageForComparison(message) === incomingKey
+            )
+
+            if (existingIndex !== -1) {
+              next[existingIndex] = data
+              return next
+            }
+
+            next.push(data)
+            return next
+          })
+
+          // Clear draft when we receive a full assistant message
+          if (data.parts.some((part) => part.part_kind === "text")) {
+            textRef.current = ""
+            toolCallRef.current = ""
+            setStreamingText("")
+          }
+        } catch (error) {
+          console.error("Failed to parse stream data:", error)
+        }
+      }
+    )
+
+    newEventSource.addEventListener("delta", (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data)
+        if (!isStreamEvent(payload)) {
+          console.warn(
+            "Received invalid delta message format for delta event:",
+            payload
+          )
           return
         }
+        console.log("Received delta event:", payload)
+        switch (payload.event_kind) {
+          case "part_start": {
+            const part = payload.part
+            switch (part.part_kind) {
+              case "text":
+                textRef.current += part.content || ""
+                break
+              case "tool-call":
+                console.log("Handling tool call part start:", part)
+                toolCallRef.current = reconcileToolCallDelta(
+                  toolCallRef.current,
+                  part.args
+                )
+                break
+              default:
+                console.log("Skip part start:", part)
+                break
+            }
+            break
+          }
+          case "part_delta": {
+            const delta = payload.delta
+            switch (delta.part_delta_kind) {
+              case "text":
+                textRef.current += delta.content_delta || ""
+                break
+              case "tool_call":
+                console.log("Handling tool call part delta:", delta)
+                toolCallRef.current = reconcileToolCallDelta(
+                  toolCallRef.current,
+                  delta.args_delta
+                )
+                break
+              default:
+                console.log("Skip part delta:", delta)
+                break
+            }
+            break
+          }
+          case "function_tool_call":
+            console.log("Handling function tool call:", payload.part)
+            break
+          case "function_tool_result":
+            console.log("Handling function tool result:", payload.result)
+            switch (payload.result.part_kind) {
+              case "tool-return":
+                // do we need to refetch the chat history here?
+                toolCallRef.current = reconcileToolCallDelta(
+                  toolCallRef.current,
+                  payload.result.content
+                )
+                break
+              case "retry-prompt":
+                toolCallRef.current = reconcileToolCallDelta(
+                  toolCallRef.current,
+                  payload.result.content
+                )
+                break
+              default:
+                console.log("Handling function tool result:", payload.result)
+                break
+            }
+            break
+          case "builtin_tool_call":
+            console.log("Handling builtin tool call:", payload.part)
+            break
+          case "final_result":
+            console.log("Handling final result:", payload)
+            // This eagerly sets the response message when the final result is received
+            // so that there isn't a delay before the response message is displayed
+            // when we refetch the chat history
+            if (textRef.current.trim().length > 0) {
+              const responseMessage: ModelMessage = {
+                kind: "response",
+                parts: [
+                  {
+                    part_kind: "text",
+                    content: textRef.current,
+                  },
+                ],
+              }
+              console.log("Setting response message:", responseMessage)
+              setStreamMessages((prev) => [...prev, responseMessage])
+            }
+            textRef.current = ""
+            toolCallRef.current = ""
+            setStreamingText("")
+            if (chatId) {
+              queryClient.invalidateQueries({
+                queryKey: ["chat", chatId, workspaceId],
+              })
+            }
+            break
 
-        setMessages((prev) => {
-          return [...prev, data]
-        })
+          default:
+            console.warn(
+              "Received invalid delta message format for delta event:",
+              payload
+            )
+            break
+        }
+
+        // Use requestAnimationFrame to batch UI updates
+        if (rafHandle.current === null) {
+          rafHandle.current = requestAnimationFrame(() => {
+            setStreamingText(textRef.current)
+            rafHandle.current = null
+          })
+        }
       } catch (error) {
-        console.error("Failed to parse stream data:", error)
+        console.error("Failed to parse delta data:", error)
       }
-    }
+    })
 
     newEventSource.addEventListener("connected", () => {
       setIsConnected(true)
@@ -153,6 +481,11 @@ export function useChat({
     newEventSource.addEventListener("end", () => {
       setIsConnected(false)
       setIsResponding(false)
+      if (chatId) {
+        queryClient.invalidateQueries({
+          queryKey: ["chat", chatId, workspaceId],
+        })
+      }
     })
 
     newEventSource.addEventListener("error", () => {
@@ -172,16 +505,27 @@ export function useChat({
 
     return () => {
       newEventSource.close()
+      setEventSource(null)
       setIsConnected(false)
       setIsResponding(false)
+      // Cancel any pending requestAnimationFrame
+      if (rafHandle.current !== null) {
+        cancelAnimationFrame(rafHandle.current)
+        rafHandle.current = null
+      }
     }
-  }, [chatId, workspaceId])
+  }, [chatId, workspaceId, historySuccess])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (eventSource) {
         eventSource.close()
+      }
+      // Cancel any pending requestAnimationFrame on unmount
+      if (rafHandle.current !== null) {
+        cancelAnimationFrame(rafHandle.current)
+        rafHandle.current = null
       }
     }
   }, [])
@@ -190,9 +534,10 @@ export function useChat({
 
   return {
     messages,
-    sendMessage: mutation.mutateAsync,
+    sendMessage,
     isResponding,
     isConnected,
+    streamingText: streamingText,
   }
 }
 
@@ -208,7 +553,7 @@ export function useGetChat({
     data: chat,
     isLoading,
     error,
-  } = useQuery<ChatWithMessages, ApiError>({
+  } = useQuery<ChatRead, ApiError>({
     queryKey: ["chat", chatId, workspaceId],
     queryFn: () => chatGetChat({ chatId, workspaceId }),
     enabled: !!chatId && !!workspaceId,
@@ -222,7 +567,7 @@ export function useUpdateChat(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const mutation = useMutation<
-    ChatRead,
+    ChatReadMinimal,
     ApiError,
     { chatId: string; update: ChatUpdate }
   >({
@@ -232,7 +577,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
-    onSuccess: (data, variables) => {
+    onSuccess: (_, variables) => {
       // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],

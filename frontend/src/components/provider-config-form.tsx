@@ -41,6 +41,7 @@ import {
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import { isMCPProvider } from "@/lib/providers"
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
   switch (schemaProperty.type) {
@@ -98,6 +99,7 @@ export function ProviderConfigForm({
     grant_type: grantType,
   } = provider
   const workspaceId = useWorkspaceId()
+  const _isMCP = isMCPProvider(provider)
   const {
     integration,
     integrationIsLoading,

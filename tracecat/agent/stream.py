@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 import aiohttp
 import orjson
+from fastapi import Request
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -16,11 +17,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import RunContext
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.runtime import ModelMessageTA
+from tracecat.chat import tokens
+
 # Late import to avoid circular dependency
 from tracecat.chat.service import ChatService
-from tracecat.chat.tokens import (
-    DATA_KEY,
-)
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient
 
@@ -55,10 +56,107 @@ class AgentStream:
         """Stream a message to a Redis stream."""
         await self.client.xadd(
             self._stream_key,
-            {DATA_KEY: orjson.dumps(event, default=to_jsonable_python).decode()},
+            {tokens.DATA_KEY: orjson.dumps(event, default=to_jsonable_python).decode()},
             maxlen=10000,
             approximate=True,
         )
+
+    async def done(self) -> None:
+        logger.debug("Adding end-of-stream marker", stream_key=self._stream_key)
+        await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
+
+    async def _set_last_stream_id(self, last_stream_id: str) -> None:
+        async with ChatService.with_session() as chat_svc:
+            if chat := await chat_svc.get_chat(self.session_id):
+                chat.last_stream_id = last_stream_id
+                await chat_svc.update_chat(chat)
+                logger.info(
+                    "Updated chat with last stream id",
+                    chat_id=chat.id,
+                    last_stream_id=last_stream_id,
+                )
+            else:
+                logger.warning("Chat not found", session_id=self.session_id)
+
+    async def sse(self, request: Request, last_id: str) -> AsyncIterable[str]:
+        try:
+            # Send initial connection event
+            yield f"id: {last_id}\nevent: connected\ndata: {{}}\n\n"
+
+            current_id = last_id
+
+            while not await request.is_disconnected():
+                try:
+                    # Read from Redis stream with blocking
+                    if result := await self.client.xread(
+                        streams={self._stream_key: current_id},
+                        count=10,
+                        block=1000,  # Block for 1 second
+                    ):
+                        for _stream_name, messages in result:
+                            for message_id, fields in messages:
+                                try:
+                                    data = orjson.loads(fields[tokens.DATA_KEY])
+                                    logger.debug("Stream message", data=data)
+                                    if not isinstance(data, dict):
+                                        raise ValueError(
+                                            f"Invalid stream message, expected dict but got {type(data)}"
+                                        )
+
+                                    # Check for end-of-stream marker
+                                    match data:
+                                        case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
+                                            logger.debug("End-of-stream marker")
+                                            yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
+                                        case {"event_kind": event_kind}:
+                                            logger.debug(
+                                                "Stream event", event_kind=event_kind
+                                            )
+                                            event = AgentStreamEventTA.validate_python(
+                                                data
+                                            )
+                                            data_json = orjson.dumps(event).decode()
+                                            yield f"id: {message_id}\nevent: delta\ndata: {data_json}\n\n"
+                                        case {"kind": kind}:
+                                            logger.debug("Model message", kind=kind)
+                                            message = ModelMessageTA.validate_python(
+                                                data
+                                            )
+                                            data_json = orjson.dumps(message).decode()
+                                            yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
+                                        case _:
+                                            raise ValueError(
+                                                f"Invalid stream message, expected dict but got {type(data)}"
+                                            )
+
+                                    # Ensure in all cases we advance the current ID
+                                    current_id = message_id
+
+                                except Exception as e:
+                                    logger.warning(
+                                        "Failed to process stream message",
+                                        error=str(e),
+                                        message_id=message_id,
+                                    )
+                                    continue
+                            # Store this every len(messages) messages
+                            await self._set_last_stream_id(current_id)
+
+                    # Send heartbeat to keep connection alive
+                    await asyncio.sleep(0.1)
+
+                except Exception as e:
+                    logger.error("Error reading from Redis stream", error=str(e))
+                    yield 'event: error\ndata: {"error": "Stream read error"}\n\n'
+                    await asyncio.sleep(1)
+
+        except Exception as e:
+            logger.error("Fatal error in stream generator", error=str(e))
+            yield 'event: error\ndata: {"error": "Fatal stream error"}\n\n'
+        finally:
+            logger.info("Chat stream ended", stream_key=self._stream_key)
+            await self._set_last_stream_id(current_id)
+            yield "event: end\ndata: {{}}\n\n"
 
 
 class HttpStreamWriter(StreamWriter):
@@ -153,7 +251,7 @@ class BroadcastStreamWriter(StreamWriter):
 
 
 async def event_stream_handler[StreamableDepsT: HasStreamWriter](
-    run_context: RunContext[StreamableDepsT], events: AsyncIterable[AgentStreamEvent]
+    ctx: RunContext[StreamableDepsT], events: AsyncIterable[AgentStreamEvent]
 ) -> None:
     """
     Event stream handler for TemporalAgent.
@@ -170,8 +268,7 @@ async def event_stream_handler[StreamableDepsT: HasStreamWriter](
     """
     if not hasattr(events, "__aiter__"):
         raise TypeError("events must be an AsyncIterable")
-    logger.info("Run context", run_context=run_context)
-    stream_writer = run_context.deps.stream_writer
+    stream_writer = ctx.deps.stream_writer
     try:
         await stream_writer.write(events)
     except Exception as e:
@@ -185,7 +282,9 @@ class PersistentStreamWriter(StreamWriter):
         self.chat_id = chat_id
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
-        await self.stream.append(events)
+        async for event in events:
+            await self.stream.append(event)
+        await self.stream.done()
 
     async def store(self, messages: list[ModelMessage]) -> None:
         async with ChatService.with_session() as chat_svc:

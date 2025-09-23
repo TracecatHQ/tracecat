@@ -5099,7 +5099,7 @@ export const caseRecordsUnlinkCaseRecord = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatCreateChat = (
@@ -5107,7 +5107,7 @@ export const chatCreateChat = (
 ): CancelablePromise<ChatCreateChatResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/chat/",
+    url: "/chat",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -5127,7 +5127,7 @@ export const chatCreateChat = (
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
  * @param data.limit Maximum number of chats to return
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatListChats = (
@@ -5135,7 +5135,7 @@ export const chatListChats = (
 ): CancelablePromise<ChatListChatsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/chat/",
+    url: "/chat",
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
@@ -5154,7 +5154,7 @@ export const chatListChats = (
  * @param data The data for the request.
  * @param data.chatId
  * @param data.workspaceId
- * @returns ChatWithMessages Successful Response
+ * @returns ChatRead Successful Response
  * @throws ApiError
  */
 export const chatGetChat = (
@@ -5182,7 +5182,7 @@ export const chatGetChat = (
  * @param data.chatId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatUpdateChat = (

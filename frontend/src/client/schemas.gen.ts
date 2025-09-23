@@ -1525,6 +1525,24 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $BuiltinToolCallEvent = {
+  properties: {
+    part: {
+      $ref: "#/components/schemas/BuiltinToolCallPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "builtin_tool_call",
+      title: "Event Kind",
+      default: "builtin_tool_call",
+    },
+  },
+  type: "object",
+  required: ["part"],
+  title: "BuiltinToolCallEvent",
+  description: "An event indicating the start to a call to a built-in tool.",
+} as const
+
 export const $BuiltinToolCallPart = {
   properties: {
     tool_name: {
@@ -1572,6 +1590,24 @@ export const $BuiltinToolCallPart = {
   required: ["tool_name"],
   title: "BuiltinToolCallPart",
   description: "A tool call to a built-in tool.",
+} as const
+
+export const $BuiltinToolResultEvent = {
+  properties: {
+    result: {
+      $ref: "#/components/schemas/BuiltinToolReturnPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "builtin_tool_result",
+      title: "Event Kind",
+      default: "builtin_tool_result",
+    },
+  },
+  type: "object",
+  required: ["result"],
+  title: "BuiltinToolResultEvent",
+  description: "An event indicating the result of a built-in tool call.",
 } as const
 
 export const $BuiltinToolReturnPart = {
@@ -2853,6 +2889,26 @@ export const $ChatRead = {
       title: "Updated At",
       description: "When the chat was last updated",
     },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
+    },
+    messages: {
+      items: {
+        $ref: "#/components/schemas/ChatMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
+    },
   },
   type: "object",
   required: [
@@ -2866,6 +2922,84 @@ export const $ChatRead = {
     "updated_at",
   ],
   title: "ChatRead",
+  description: "Model for chat metadata with message history.",
+} as const
+
+export const $ChatReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatReadMinimal",
   description: "Model for chat metadata without messages.",
 } as const
 
@@ -2996,80 +3130,6 @@ export const $ChatUpdate = {
   type: "object",
   title: "ChatUpdate",
   description: "Request model for updating chat properties.",
-} as const
-
-export const $ChatWithMessages = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-      description: "Unique chat identifier",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Human-readable title for the chat",
-    },
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-      description: "ID of the user who owns the chat",
-    },
-    entity_type: {
-      type: "string",
-      title: "Entity Type",
-      description: "Type of entity this chat is associated with",
-    },
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the associated entity",
-    },
-    tools: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Tools",
-      description: "Tools available to the agent",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "When the chat was created",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "When the chat was last updated",
-    },
-    messages: {
-      items: {
-        $ref: "#/components/schemas/ChatMessage",
-      },
-      type: "array",
-      title: "Messages",
-      description: "Chat messages from Redis stream",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "title",
-    "user_id",
-    "entity_type",
-    "entity_id",
-    "tools",
-    "created_at",
-    "updated_at",
-  ],
-  title: "ChatWithMessages",
-  description: "Model for chat metadata with message history.",
 } as const
 
 export const $ClosedEventRead = {
@@ -4821,6 +4881,42 @@ export const $FieldType = {
   description: "Supported field types for entities.",
 } as const
 
+export const $FinalResultEvent = {
+  properties: {
+    tool_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name",
+    },
+    tool_call_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Id",
+    },
+    event_kind: {
+      type: "string",
+      const: "final_result",
+      title: "Event Kind",
+      default: "final_result",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "tool_call_id"],
+  title: "FinalResultEvent",
+} as const
+
 export const $Float = {
   properties: {
     component_id: {
@@ -4913,6 +5009,50 @@ export const $FolderDirectoryItem = {
     "num_items",
   ],
   title: "FolderDirectoryItem",
+} as const
+
+export const $FunctionToolCallEvent = {
+  properties: {
+    part: {
+      $ref: "#/components/schemas/ToolCallPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "function_tool_call",
+      title: "Event Kind",
+      default: "function_tool_call",
+    },
+  },
+  type: "object",
+  required: ["part"],
+  title: "FunctionToolCallEvent",
+  description: "An event indicating the start to a call to a function tool.",
+} as const
+
+export const $FunctionToolResultEvent = {
+  properties: {
+    result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ToolReturnPart",
+        },
+        {
+          $ref: "#/components/schemas/RetryPromptPart",
+        },
+      ],
+      title: "Result",
+    },
+    event_kind: {
+      type: "string",
+      const: "function_tool_result",
+      title: "Event Kind",
+      default: "function_tool_result",
+    },
+  },
+  type: "object",
+  required: ["result"],
+  title: "FunctionToolResultEvent",
+  description: "An event indicating the result of a function tool call.",
 } as const
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -6288,6 +6428,94 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $PartDeltaEvent = {
+  properties: {
+    index: {
+      type: "integer",
+      title: "Index",
+    },
+    delta: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/TextPartDelta",
+        },
+        {
+          $ref: "#/components/schemas/ThinkingPartDelta",
+        },
+        {
+          $ref: "#/components/schemas/ToolCallPartDelta",
+        },
+      ],
+      title: "Delta",
+      discriminator: {
+        propertyName: "part_delta_kind",
+        mapping: {
+          text: "#/components/schemas/TextPartDelta",
+          thinking: "#/components/schemas/ThinkingPartDelta",
+          tool_call: "#/components/schemas/ToolCallPartDelta",
+        },
+      },
+    },
+    event_kind: {
+      type: "string",
+      const: "part_delta",
+      title: "Event Kind",
+      default: "part_delta",
+    },
+  },
+  type: "object",
+  required: ["index", "delta"],
+  title: "PartDeltaEvent",
+} as const
+
+export const $PartStartEvent = {
+  properties: {
+    index: {
+      type: "integer",
+      title: "Index",
+    },
+    part: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/TextPart",
+        },
+        {
+          $ref: "#/components/schemas/ToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolReturnPart",
+        },
+        {
+          $ref: "#/components/schemas/ThinkingPart",
+        },
+      ],
+      title: "Part",
+      discriminator: {
+        propertyName: "part_kind",
+        mapping: {
+          "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
+          "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+          text: "#/components/schemas/TextPart",
+          thinking: "#/components/schemas/ThinkingPart",
+          "tool-call": "#/components/schemas/ToolCallPart",
+        },
+      },
+    },
+    event_kind: {
+      type: "string",
+      const: "part_start",
+      title: "Event Kind",
+      default: "part_start",
+    },
+  },
+  type: "object",
+  required: ["index", "part"],
+  title: "PartStartEvent",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -10508,6 +10736,26 @@ export const $TextPart = {
   description: "A plain text response from a model.",
 } as const
 
+export const $TextPartDelta = {
+  properties: {
+    content_delta: {
+      type: "string",
+      title: "Content Delta",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "text",
+      title: "Part Delta Kind",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["content_delta"],
+  title: "TextPartDelta",
+  description:
+    "A partial update (delta) for a `TextPart` to append new text content.",
+} as const
+
 export const $ThinkingPart = {
   properties: {
     content: {
@@ -10558,6 +10806,52 @@ export const $ThinkingPart = {
   required: ["content"],
   title: "ThinkingPart",
   description: "A thinking response from a model.",
+} as const
+
+export const $ThinkingPartDelta = {
+  properties: {
+    content_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Delta",
+    },
+    signature_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signature Delta",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "thinking",
+      title: "Part Delta Kind",
+      default: "thinking",
+    },
+  },
+  type: "object",
+  title: "ThinkingPartDelta",
 } as const
 
 export const $Toggle = {
@@ -10619,6 +10913,56 @@ export const $ToolCallPart = {
   required: ["tool_name"],
   title: "ToolCallPart",
   description: "A tool call from a model.",
+} as const
+
+export const $ToolCallPartDelta = {
+  properties: {
+    tool_name_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name Delta",
+    },
+    args_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Args Delta",
+    },
+    tool_call_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Id",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "tool_call",
+      title: "Part Delta Kind",
+      default: "tool_call",
+    },
+  },
+  type: "object",
+  title: "ToolCallPartDelta",
 } as const
 
 export const $ToolReturnPart = {

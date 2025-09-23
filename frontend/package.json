@@ -91,6 +91,7 @@
     "react-resizable-panels": "^1.0.10",
     "react18-json-view": "0.2.9-canary.11",
     "sharp": "^0.33.5",
+    "streamdown": "^1.3.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^10.0.0",
