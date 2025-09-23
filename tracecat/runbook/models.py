@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import UUID4, BaseModel, Field, StringConstraints
-
-from tracecat.chat.enums import ChatEntity
 
 type RunbookAlias = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
@@ -18,10 +16,6 @@ class RunbookCreate(BaseModel):
     chat_id: UUID4 | None = Field(
         default=None,
         description="ID of the chat to freeze into a runbook",
-    )
-    meta: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional metadata to include with the runbook (e.g., case information)",
     )
     alias: RunbookAlias | None = Field(
         default=None,
@@ -36,20 +30,20 @@ class RunbookRead(BaseModel):
 
     id: UUID4 = Field(..., description="Unique runbook identifier")
     title: str = Field(..., description="Human-readable title for the runbook")
-    content: str = Field(..., description="The instruction runbook string")
     tools: list[str] = Field(
         ...,
         description="The tools available to the agent for this runbook",
     )
     created_at: datetime = Field(..., description="When the runbook was created")
     updated_at: datetime = Field(..., description="When the runbook was last updated")
-    meta: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Metadata including schema version, tool SHA, token count",
+    instructions: str = Field(
+        ...,
+        description="The instructions for the runbook",
+        min_length=1,
+        max_length=10000,
     )
-    summary: str | None = Field(
-        default=None,
-        description="A summary of the runbook.",
+    related_cases: list[UUID4] | None = Field(
+        ..., description="The cases that the runbook is related to"
     )
     alias: RunbookAlias | None = Field(
         default=None,
@@ -66,21 +60,19 @@ class RunbookUpdate(BaseModel):
         min_length=1,
         max_length=200,
     )
-    content: str | None = Field(
-        default=None,
-        description="New content for the runbook",
-        min_length=1,
-        max_length=10000,
-    )
     tools: list[str] | None = Field(
         default=None,
         description="New tools for the runbook",
     )
-    summary: str | None = Field(
+    instructions: str | None = Field(
         default=None,
-        description="New summary for the runbook",
-        min_length=0,
+        description="New instructions for the runbook",
+        min_length=1,
         max_length=10000,
+    )
+    related_cases: list[UUID4] | None = Field(
+        default=None,
+        description="New related cases for the runbook",
     )
     alias: RunbookAlias | None = Field(
         default=None,
@@ -91,25 +83,16 @@ class RunbookUpdate(BaseModel):
 
 
 class RunbookExecuteRequest(BaseModel):
-    """Request model for running a runbook on cases."""
+    """Request model for executing a runbook on cases."""
 
-    entities: list[RunbookExecuteEntity] = Field(
-        ..., description="Entities to run the runbook on"
-    )
-
-
-class RunbookExecuteEntity(BaseModel):
-    """Request model for running a runbook on an entity."""
-
-    entity_id: UUID4 = Field(..., description="ID of the entity to run the runbook on")
-    entity_type: ChatEntity = Field(
-        ..., description="Type of the entity to run the runbook on"
+    case_ids: list[UUID4] = Field(
+        ..., description="IDs of the cases to execute the runbook on"
     )
 
 
 class RunbookExecuteResponse(BaseModel):
-    """Response model for runbook execution."""
+    """Response model for executing a runbook on cases."""
 
     stream_urls: dict[str, str] = Field(
-        ..., description="Mapping of chat_id to SSE stream URL"
+        ..., description="Mapping of case ID to stream URL"
     )

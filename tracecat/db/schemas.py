@@ -782,6 +782,21 @@ class CaseTag(SQLModel, table=True):
     )
 
 
+class RunbookCaseLink(SQLModel, table=True):
+    """Link table for runbooks and cases."""
+
+    runbook_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("runbook.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+
+
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -862,6 +877,10 @@ class Case(Resource, table=True):
         back_populates="cases",
         link_model=CaseTag,
         sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    runbooks: list["Runbook"] = Relationship(
+        back_populates="related_cases",
+        link_model=RunbookCaseLink,
     )
     record_links: list["CaseRecord"] = Relationship(
         back_populates="case",
@@ -1299,14 +1318,14 @@ class Runbook(Resource, table=True):
         unique=True,
         index=True,
     )
+    version: int = Field(
+        default=1,
+        description="Version of the runbook",
+        nullable=False,
+    )
     title: str = Field(
         ...,
         description="Human-readable title for the runbook",
-        nullable=False,
-    )
-    content: str = Field(
-        ...,
-        description="The instruction runbook string passed to the agent",
         nullable=False,
     )
     tools: list[str] = Field(
@@ -1314,15 +1333,15 @@ class Runbook(Resource, table=True):
         sa_column=Column(JSONB),
         description="The tools available to the agent for this runbook.",
     )
-    summary: str | None = Field(
-        default=None,
-        description="A summary of the runbook.",
+    instructions: str = Field(
+        ...,
+        description="The instructions for the runbook",
+        nullable=False,
     )
     alias: str | None = Field(default=None, description="Alias for the prompt")
-    meta: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
-        description="Metadata including schema version, tool SHA, token count",
+    related_cases: list["Case"] = Relationship(
+        back_populates="runbooks",
+        link_model=RunbookCaseLink,
     )
 
 

@@ -111,7 +111,7 @@ export default function UserNav() {
               </DropdownMenuItem>
             </Link>
             <Link
-              href={`${workspaceUrl}/custom-fields`}
+              href={`${workspaceUrl}/cases/custom-fields`}
               className="my-2 w-full"
             >
               <DropdownMenuItem className="text-xs hover:cursor-pointer">

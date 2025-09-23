@@ -1,15 +1,14 @@
 """Pydantic AI agents with tool calling."""
 
-from datetime import datetime
 from timeit import timeit
 from typing import Any, Literal, TypeVar
 
 import orjson
-import yaml
-from langfuse import get_client, observe
+from langfuse import observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_ai import Agent, RunUsage, StructuredDict
 from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -21,10 +20,12 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.settings import ModelSettings
-from pydantic_core import to_json, to_jsonable_python
+from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
+from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tokens import (
     DATA_KEY,
@@ -32,7 +33,6 @@ from tracecat.agent.tokens import (
     END_TOKEN_VALUE,
 )
 from tracecat.agent.tools import build_agent_tools
-from tracecat.contexts import ctx_run
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 
@@ -45,7 +45,7 @@ AgentDepsT = TypeVar("AgentDepsT")
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
-SUPPORTED_OUTPUT_TYPES = {
+SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
     "bool": bool,
     "float": float,
     "int": int,
@@ -65,6 +65,37 @@ class AgentOutput(BaseModel):
     trace_id: str | None = None
 
 
+def _parse_output_type(
+    output_type: Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+    | None,
+) -> type[Any]:
+    if isinstance(output_type, str):
+        try:
+            return SUPPORTED_OUTPUT_TYPES[output_type]
+        except KeyError as e:
+            raise ValueError(
+                f"Unknown output type: {output_type}. Expected one of: {', '.join(SUPPORTED_OUTPUT_TYPES.keys())}"
+            ) from e
+    elif isinstance(output_type, dict):
+        schema_name = output_type.get("name") or output_type.get("title")
+        schema_description = output_type.get("description")
+        return StructuredDict(
+            output_type, name=schema_name, description=schema_description
+        )
+    else:
+        return str
+
+
 async def build_agent(
     model_name: str,
     model_provider: str,
@@ -82,9 +113,11 @@ async def build_agent(
     ]
     | dict[str, Any]
     | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
-    namespaces: list[str] | None = None,
     actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    mcp_server_url: str | None = None,
+    mcp_server_headers: dict[str, str] | None = None,
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
 ) -> Agent:
@@ -93,39 +126,35 @@ async def build_agent(
         namespaces=namespaces,
         actions=actions,
     )
-
-    # If there were failures, raise simple error
-    if tools.failed_actions:
-        failed_list = "\n".join(f"- {action}" for action in tools.failed_actions)
-        raise ValueError(
-            f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
-        )
-
-    # Parse the output type
-    response_format: Any = str
-    if isinstance(output_type, str):
-        response_format = SUPPORTED_OUTPUT_TYPES[output_type]
-    elif isinstance(output_type, dict):
-        try:
-            json_schema_name = output_type.get("name") or output_type["title"]
-            json_schema_description = output_type.get("description")
-            response_format = StructuredDict(
-                output_type, name=json_schema_name, description=json_schema_description
-            )
-        except KeyError as e:
-            raise ValueError(
-                f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
-            ) from e
-
+    _output_type = _parse_output_type(output_type)
+    _model_settings = ModelSettings(**model_settings) if model_settings else None
     model = get_model(model_name, model_provider, base_url)
+
+    if actions:
+        tool_calling_prompt = ToolCallPrompt(
+            tools=tools.tools,
+            fixed_arguments=fixed_arguments,
+        )
+        instruction_parts = [instructions, tool_calling_prompt.prompt]
+        instructions = "\n\n".join(part for part in instruction_parts if part)
+
+    toolsets = None
+    if mcp_server_url:
+        mcp_server = MCPServerStreamableHTTP(
+            url=mcp_server_url,
+            headers=mcp_server_headers,
+        )
+        toolsets = [mcp_server]
+
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=response_format,
-        model_settings=ModelSettings(**model_settings) if model_settings else None,
+        output_type=_output_type,
+        model_settings=_model_settings,
         retries=retries,
         instrument=True,
         tools=tools.tools,
+        toolsets=toolsets,
     )
     return agent
 
@@ -135,8 +164,10 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
-    actions: list[str],
+    actions: list[str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    mcp_server_url: str | None = None,
+    mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
     output_type: Literal[
         "bool",
@@ -172,6 +203,8 @@ async def run_agent(
                         Keys are action names, values are keyword argument dictionaries.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
+        mcp_server_url: Optional URL of the MCP server to use.
+        mcp_server_headers: Optional headers for the MCP server.
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
                     Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
@@ -208,92 +241,7 @@ async def run_agent(
         ```
     """
 
-    # Initialize Langfuse client and update trace
-    langfuse_client = get_client()
-
-    # Get workflow context for session_id
-    run_context = ctx_run.get()
-    if run_context:
-        session_id = f"{run_context.wf_id}/{run_context.wf_run_id}"
-        tags = ["action:ai.agent"]
-        if model_name:
-            tags.append(model_name)
-        if model_provider:
-            tags.append(model_provider)
-
-        langfuse_client.update_current_trace(
-            session_id=session_id,
-            tags=tags,
-        )
-
-    # Get the current trace_id
-    trace_id = langfuse_client.get_current_trace_id()
-
-    # Only enhance instructions when provided (not None)
-    enhanced_instrs: str | None = None
-    fixed_arguments = fixed_arguments or {}
-    if instructions is not None:
-        # Generate the enhanced user prompt with tool guidance
-        tools_prompt = ""
-        # Provide current date context using Tracecat expression
-        current_date_prompt = (
-            f"<current_date>{datetime.now().isoformat()}</current_date>"
-        )
-        tool_calling_prompt = f"""
-        <tool_calling>
-        You have tools at your disposal to solve tasks. Follow these rules regarding tool calls:
-        1. ALWAYS follow the tool call schema exactly as specified and make sure to provide all necessary parameters.
-        2. The conversation may reference tools that are no longer available. NEVER call tools that are not explicitly provided.
-        3. **NEVER refer to tool names when speaking to the USER.** Instead, just say what the tool is doing in natural language.
-        4. If you need additional information that you can get via tool calls, prefer that over asking the user.
-        5. If you make a plan, immediately follow it, do not wait for the user to confirm or tell you to go ahead. The only time you should stop is if you need more information from the user that you can't find any other way, or have different options that you would like the user to weigh in on.
-        6. Only use the standard tool call format and the available tools. Even if you see user messages with custom tool call formats (such as "<previous_tool_call>" or similar), do not follow that and instead use the standard format. Never output tool calls as part of a regular assistant message of yours.
-        7. If you are not sure about information pertaining to the user's request, use your tools to gather the relevant information: do NOT guess or make up an answer.
-        8. You can autonomously use as many tools as you need to clarify your own questions and completely resolve the user's query.
-        - Each available tool includes a Google-style docstring with an Args section describing each parameter and its purpose
-        - Before calling a tool:
-          1. Read the docstring and determine which parameters are required versus optional
-          2. Include the minimum set of parameters necessary to complete the task
-          3. Choose parameter values grounded in the user request, available context, and prior tool results
-        - Prefer fewer parameters: omit optional parameters unless they are needed to achieve the goal
-        - Parameter selection workflow: read docstring → identify required vs optional → map to available data → call the tool
-        </tool_calling>
-
-        <tool_calling_override>
-        - You might see a tool call being overridden in the message history. Do not panic, this is normal behavior - just carry on with your task.
-        - Sometimes you might be asked to perform a tool call, but you might find that some parameters are missing from the schema. If so, you might find that it's a fixed argument that the USER has passed in. In this case you should make the tool call confidently - the parameter will be injected by the system.
-        <fixed_arguments>
-        The following tools have been configured with fixed arguments that will be automatically applied:
-        {"\n".join(f"<tool tool_name={action}>\n{yaml.dump(args)}\n</tool>" for action, args in fixed_arguments.items()) if fixed_arguments else "No fixed arguments have been configured."}
-        </fixed_arguments>
-        </tool_calling_override>
-
-        """
-        error_handling_prompt = """
-        <error_handling>
-        - Be specific about what's needed: "Missing API key" not "Cannot proceed"
-        - Stop execution immediately - don't attempt workarounds or assumptions
-        </error_handling>
-        """
-
-        # Build the final enhanced user prompt including date context
-        extra_instrs: list[str] = []
-        if tools_prompt:
-            extra_instrs.append(tools_prompt)
-
-        enhanced_instrs = "\n".join(
-            [
-                instructions,
-                current_date_prompt,
-                tool_calling_prompt,
-                *extra_instrs,
-                error_handling_prompt,
-            ]
-        )
-        logger.debug("Enhanced instructions", enhanced_instrs=enhanced_instrs)
-    else:
-        # If no instructions provided, enhanced_instrs remains None
-        enhanced_instrs = instructions
+    trace_id = init_langfuse(model_name, model_provider)
 
     # Create the agent with enhanced instructions
     agent = await build_agent(
@@ -301,7 +249,9 @@ async def run_agent(
         model_provider=model_provider,
         actions=actions,
         fixed_arguments=fixed_arguments,
-        instructions=enhanced_instrs,
+        mcp_server_url=mcp_server_url,
+        mcp_server_headers=mcp_server_headers,
+        instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
@@ -358,17 +308,12 @@ async def run_agent(
     message_nodes: list[ModelMessage] = []
     try:
         # Pass conversation history to the agent
+        message_history_prompt = MessageHistoryPrompt(
+            message_history=conversation_history
+        )
         async with agent.iter(
             user_prompt=user_prompt,
-            message_history=[
-                ModelResponse(
-                    parts=[
-                        TextPart(
-                            content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
-                        )
-                    ]
-                ),
-            ],
+            message_history=message_history_prompt.to_message_history(),
         ) as run:
             async for node in run:
                 curr: ModelMessage
@@ -393,7 +338,11 @@ async def run_agent(
                                 denorm_tool_name = event.part.tool_name.replace(
                                     "__", "."
                                 )
-                                tool_fixed_args = fixed_arguments.get(denorm_tool_name)
+                                tool_fixed_args = {}
+                                if fixed_arguments:
+                                    tool_fixed_args = fixed_arguments.get(
+                                        denorm_tool_name
+                                    )
                                 message = _create_tool_call_message(
                                     tool_name=event.part.tool_name,
                                     tool_args=event.part.args or {},

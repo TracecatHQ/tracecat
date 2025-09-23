@@ -138,12 +138,26 @@ function TablesActions() {
 }
 
 function CasesActions() {
-  const [view, setView] = useLocalStorage("cases-view", CasesViewMode.Cases)
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
+
+  const view = pathname?.includes("/cases/custom-fields")
+    ? CasesViewMode.CustomFields
+    : CasesViewMode.Cases
+
+  const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
+  const customFieldsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/custom-fields`
+    : undefined
 
   return (
     <>
-      <CasesViewToggle view={view} onViewChange={setView} />
+      <CasesViewToggle
+        view={view}
+        casesHref={casesHref}
+        customFieldsHref={customFieldsHref}
+      />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
       ) : (
@@ -250,9 +264,7 @@ function RunbooksActions() {
   const handleCreateRunbook = async () => {
     try {
       // Create a runbook without chat_id - backend will auto-generate title and content
-      const runbook = await createRunbook({
-        meta: { created_directly: true },
-      })
+      const runbook = await createRunbook({})
 
       // Navigate to the new runbook
       router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
@@ -551,6 +563,13 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
+    if (pagePath === "/cases/custom-fields") {
+      return {
+        title: "Cases",
+        actions: <CasesActions />,
+      }
+    }
+
     // Check if this is a case detail page
     const caseMatch = pagePath.match(/^\/cases\/([^/]+)$/)
     if (caseMatch) {

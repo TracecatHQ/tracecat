@@ -58,7 +58,7 @@ export function RunbookDropdown({
     runbooks?.filter(
       (runbook) =>
         runbook.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        runbook.content.toLowerCase().includes(searchTerm.toLowerCase())
+        runbook.instructions.toLowerCase().includes(searchTerm.toLowerCase())
     ) || []
 
   const handleSelectRunbook = (runbook: RunbookRead) => {

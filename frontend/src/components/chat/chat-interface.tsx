@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
-import { useChatReadiness, useGetCase } from "@/lib/hooks"
+import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -58,17 +58,6 @@ export function ChatInterface({
 
   // Create prompt mutation
   const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
-
-  // Fetch case data if entityType is "case"
-  const { caseData } = useGetCase(
-    {
-      caseId: entityType === "case" ? entityId : "",
-      workspaceId,
-    },
-    {
-      enabled: entityType === "case",
-    }
-  )
 
   // Fetch runbook data if entityType is "runbook"
   const { data: runbookData } = useGetRunbook({
@@ -137,24 +126,8 @@ export function ChatInterface({
     }
 
     try {
-      // Build meta object with entity information
-      let meta = undefined
-      if (entityType === "case" && caseData) {
-        meta = {
-          case_id: caseData.id,
-          case_slug: caseData.short_id,
-          case_title: caseData.summary,
-        }
-      } else if (entityType === "runbook" && runbookData) {
-        meta = {
-          runbook_id: runbookData.id,
-          runbook_title: runbookData.title,
-        }
-      }
-
       const runbook = await createRunbook({
         chat_id: selectedChatId,
-        meta,
       })
 
       console.log(`Chat saved as prompt: "${runbook.title}"`)
@@ -176,7 +149,7 @@ export function ChatInterface({
             ? `You are a helpful AI assistant helping with runbook editing.
         The current runbook ID is: ${entityId}
         ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
-        You can use the update_prompt tool to edit the runbook's title, content, or summary.
+        You can use the update_prompt tool to edit the runbook's title or instructions.
         Be concise but thorough in your responses.`
             : `You are a helpful AI assistant helping with ${entityType} management.
         The current ${entityType} ID is: ${entityId}

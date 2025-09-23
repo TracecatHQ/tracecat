@@ -30,6 +30,24 @@ from tracecat.runbook.service import RunbookService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
+
+def _is_constraint_violation(error: IntegrityError, constraint_name: str) -> bool:
+    """Return True when the integrity error matches the named DB constraint."""
+
+    orig = getattr(error, "orig", None)
+    diag = getattr(orig, "diag", None)
+    diag_constraint = getattr(diag, "constraint_name", None)
+
+    if diag_constraint == constraint_name:
+        return True
+
+    # Fallback to string inspection when the driver doesn't expose diag data.
+    if orig and constraint_name in str(orig):
+        return True
+
+    return constraint_name in str(error)
+
+
 router = APIRouter(prefix="/runbooks", tags=["runbook"])
 
 WorkspaceUser = Annotated[
@@ -57,9 +75,14 @@ async def create_runbook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_runbook_alias_owner_id" in str(e):
+        if _is_constraint_violation(e, "uq_prompt_alias_owner_id"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
@@ -136,7 +159,7 @@ async def update_runbook(
         runbook = await svc.update_runbook(runbook, params)
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_runbook_alias_owner_id" in str(e):
+        if _is_constraint_violation(e, "uq_prompt_alias_owner_id"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
@@ -166,21 +189,11 @@ async def delete_runbook(
     await svc.delete_runbook(runbook)
 
 
-WorkspaceUserOrService = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=True,
-        require_workspace="yes",
-    ),
-]
-
-
 @router.post("/{runbook_id}/execute", response_model=RunbookExecuteResponse)
 async def execute_runbook(
     runbook_id: uuid.UUID,
     params: RunbookExecuteRequest,
-    role: WorkspaceUserOrService,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> RunbookExecuteResponse:
     """Execute a runbook on multiple cases."""
@@ -192,14 +205,8 @@ async def execute_runbook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Runbook not found",
         )
-
     try:
-        responses = await svc.execute_runbook(runbook, params.entities)
-        return RunbookExecuteResponse(
-            stream_urls={
-                str(response.chat_id): response.stream_url for response in responses
-            }
-        )
+        return await svc.execute_runbook(runbook, case_ids=params.case_ids)
     except Exception as e:
         logger.error(
             "Failed to run runbook",

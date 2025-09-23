@@ -3,7 +3,7 @@ definition:
   title: Add user to group
   description: Add a user to a specific group in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#add-user-to-group
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/assignUserToGroup
   namespace: tools.okta
   name: add_to_group
   secrets:

@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get template
+  description: Get a template in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/templates#get-template
+  namespace: tools.gophish
+  name: get_template
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    template_id:
+      type: int
+      description: The ID of the template to get.
+      required: true
+  steps:
+    - ref: get_template
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/templates/${{ inputs.template_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.get_template.result.data }}

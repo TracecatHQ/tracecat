@@ -1,72 +1,106 @@
-import asyncio
-import json
-import textwrap
-import uuid
-from datetime import datetime
-
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.runtime import run_agent
+from tracecat.agent.runtime import build_agent
 from tracecat.agent.service import AgentManagementService
-from tracecat.cases.service import CasesService
-from tracecat.chat.enums import ChatEntity
-from tracecat.chat.models import ChatResponse
-from tracecat.chat.service import ChatService
-from tracecat.db.schemas import Runbook
+from tracecat.chat.models import ChatMessage
+from tracecat.db.schemas import Case, Runbook
+from tracecat.runbook.prompts import (
+    CaseToRunbookPrompts,
+    CaseToRunbookTitlePrompts,
+    ExecuteRunbookPrompts,
+)
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
-async def execute_runbook_for_case(
+def _clean_runbook_text(text: str) -> str:
+    """Clean and normalize runbook output by removing code block wrappers."""
+    text = text.strip()
+
+    # Remove markdown code block wrapper if the entire content is wrapped
+    if text.startswith("```") and text.endswith("```"):
+        # Find the first newline after opening ```
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            # Remove opening ``` and language identifier
+            text = text[first_newline + 1 :]
+            # Remove closing ```
+            if text.endswith("```"):
+                text = text[:-3].rstrip()
+    return text
+
+
+async def generate_runbook_from_chat(
     *,
-    runbook: Runbook,
-    case_id: uuid.UUID,
+    case: Case,
+    messages: list[ChatMessage],
+    tools: list[str],
     session: AsyncSession,
     role: Role,
-) -> ChatResponse:
-    """Run runbook for a case.
+):
+    """Generate a runbook from a chat."""
 
-    This creates a new chat for the case and runs the runbook on it.
-    """
-    chat_svc = ChatService(session, role)
-    case_svc = CasesService(session, role)
-    case = await case_svc.get_case(case_id)
-    if not case:
-        raise TracecatNotFoundError(f"Case {case_id} not found")
-
-    chat = await chat_svc.create_chat(
-        entity_type=ChatEntity.CASE,
-        entity_id=case.id,
-        title=f"Runbook {runbook.title}: {datetime.now().isoformat()}",
+    prompts = CaseToRunbookPrompts(
+        case=case,
+        messages=messages,
+        tools=tools,
     )
-
-    # Create task with proper environment
-    # NOTE: In production, this should use workspace-specific credentials
-    agent_svc = AgentManagementService(session, role)
-    async with agent_svc.with_model_config() as model_config:
-        coro = run_agent(
-            instructions=runbook.content,
+    instructions, user_prompt = prompts.instructions, prompts.user_prompt
+    svc = AgentManagementService(session, role)
+    async with svc.with_model_config() as model_config:
+        agent = await build_agent(
             model_name=model_config.name,
             model_provider=model_config.provider,
-            actions=runbook.tools,
-            stream_id=str(chat.id),
-            user_prompt=textwrap.dedent(f"""
-            You are working with the following case:
-            <CaseId>
-            {case.id}
-            </CaseId>
-
-            This case has the following alert payload:
-            <Alert type="json">
-            {json.dumps(case.payload)}
-            </Alert>
-            """),
+            instructions=instructions,
         )
-        _ = asyncio.create_task(coro)
+        response = await agent.run(user_prompt)
+        instructions = _clean_runbook_text(response.output)
+        return instructions
 
-    stream_url = f"/api/chat/{chat.id}/stream"
 
-    return ChatResponse(
-        stream_url=stream_url,
-        chat_id=chat.id,
+async def generate_runbook_title_from_chat(
+    *,
+    case: Case,
+    messages: list[ChatMessage],
+    session: AsyncSession,
+    role: Role,
+):
+    """Generate a runbook title from a chat."""
+    prompts = CaseToRunbookTitlePrompts(
+        case=case,
+        messages=messages,
     )
+    instructions, user_prompt = prompts.instructions, prompts.user_prompt
+    svc = AgentManagementService(session, role)
+    async with svc.with_model_config() as model_config:
+        agent = await build_agent(
+            model_name=model_config.name,
+            model_provider=model_config.provider,
+            instructions=instructions,
+        )
+        response = await agent.run(user_prompt)
+        title = _clean_runbook_text(response.output)
+        return title
+
+
+async def execute_runbook_on_case(
+    *,
+    runbook: Runbook,
+    case: Case,
+    session: AsyncSession,
+    role: Role,
+):
+    """Execute a runbook for a case."""
+    prompts = ExecuteRunbookPrompts(
+        runbook=runbook,
+        case=case,
+    )
+    instructions, user_prompt = prompts.instructions, prompts.user_prompt
+    svc = AgentManagementService(session, role)
+    async with svc.with_model_config() as model_config:
+        agent = await build_agent(
+            model_name=model_config.name,
+            model_provider=model_config.provider,
+            instructions=instructions,
+        )
+        response = await agent.run(user_prompt)
+        return response.output
