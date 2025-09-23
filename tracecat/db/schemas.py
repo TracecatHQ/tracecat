@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Interval,
+    String,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -1297,6 +1298,11 @@ class Chat(Resource, table=True):
         default_factory=list,
         sa_column=Column(JSONB),
         description="The tools available to the agent for this chat.",
+    )
+    last_stream_id: str | None = Field(
+        default=None,
+        sa_column=Column(String(length=128), nullable=True),
+        description="Last processed Redis stream ID for this chat.",
     )
 
     # Relationships
