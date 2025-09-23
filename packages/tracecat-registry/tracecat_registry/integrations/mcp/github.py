@@ -1,0 +1,44 @@
+from tracecat.agent.runtime import run_agent
+from typing import Any
+
+from tracecat_registry import RegistryOAuthSecret, registry, secrets
+
+
+github_mcp_oauth_secret = RegistryOAuthSecret(
+    provider_id="github_mcp",
+    grant_type="authorization_code",
+)
+"""GitHub OAuth2.0 credentials (Authorization Code grant).
+
+- name: `github_mcp`
+- provider_id: `github_mcp`
+- token_name: `GITHUB_MCP_USER_TOKEN`
+"""
+
+
+@registry.register(
+    default_title="GitHub MCP",
+    description="Use AI to interact with GitHub.",
+    display_group="GitHub MCP",
+    doc_url="https://docs.github.com/en/copilot",
+    namespace="tools.github",
+    secrets=[github_mcp_oauth_secret],
+)
+async def mcp(
+    user_prompt: str,
+    instructions: str,
+    model_name: str,
+    model_provider: str,
+) -> dict[str, Any]:
+    """Use AI to interact with GitHub."""
+    token = secrets.get(github_mcp_oauth_secret.token_name)
+    mcp_server_url = "https://api.githubcopilot.com/mcp"
+    mcp_server_headers = {"Authorization": f"Bearer {token}"}
+    return await run_agent(
+        user_prompt=user_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        instructions=instructions,
+        mcp_server_url=mcp_server_url,
+        mcp_server_headers=mcp_server_headers,
+    )

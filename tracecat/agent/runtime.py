@@ -8,6 +8,7 @@ from langfuse import observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_ai import Agent, RunUsage, StructuredDict
 from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -112,9 +113,11 @@ async def build_agent(
     ]
     | dict[str, Any]
     | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
-    namespaces: list[str] | None = None,
     actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    mcp_server_url: str | None = None,
+    mcp_server_headers: dict[str, str] | None = None,
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
 ) -> Agent:
@@ -135,6 +138,14 @@ async def build_agent(
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n\n".join(part for part in instruction_parts if part)
 
+    toolsets = None
+    if mcp_server_url:
+        mcp_server = MCPServerStreamableHTTP(
+            url=mcp_server_url,
+            headers=mcp_server_headers,
+        )
+        toolsets = [mcp_server]
+
     agent = Agent(
         model=model,
         instructions=instructions,
@@ -143,6 +154,7 @@ async def build_agent(
         retries=retries,
         instrument=True,
         tools=tools.tools,
+        toolsets=toolsets,
     )
     return agent
 
@@ -152,8 +164,10 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
-    actions: list[str],
+    actions: list[str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    mcp_server_url: str | None = None,
+    mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
     output_type: Literal[
         "bool",
@@ -189,6 +203,8 @@ async def run_agent(
                         Keys are action names, values are keyword argument dictionaries.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
+        mcp_server_url: Optional URL of the MCP server to use.
+        mcp_server_headers: Optional headers for the MCP server.
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
                     Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
@@ -233,6 +249,8 @@ async def run_agent(
         model_provider=model_provider,
         actions=actions,
         fixed_arguments=fixed_arguments,
+        mcp_server_url=mcp_server_url,
+        mcp_server_headers=mcp_server_headers,
         instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
