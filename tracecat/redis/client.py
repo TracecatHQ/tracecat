@@ -93,13 +93,13 @@ class RedisClient:
             # Set TTL if specified
             if expire_seconds is not None:
                 await self.client.expire(name=stream_key, time=expire_seconds)
-                logger.debug(
+                logger.trace(
                     "Set TTL for Redis stream",
                     stream_key=stream_key,
                     expire_seconds=expire_seconds,
                 )
 
-            logger.debug(
+            logger.trace(
                 "Added entry to Redis stream",
                 stream_key=stream_key,
                 message_id=message_id,
