@@ -203,7 +203,7 @@ async def deduplicate(
     keys: Annotated[
         list[str],
         Doc(
-            "List of keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
+            "List of JSONPath fields to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
         ),
     ],
     expire_seconds: Annotated[
@@ -259,6 +259,30 @@ async def deduplicate(
         return result[0]
 
     return result
+
+
+@registry.register(
+    default_title="Is duplicate",
+    description="Check if a JSON object was recently seen.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+async def is_duplicate(
+    item: Annotated[
+        dict[str, Any],
+        Doc("JSON object to check."),
+    ],
+    keys: Annotated[
+        list[str],
+        Doc("List of JSONPath fields to check."),
+    ],
+    expire_seconds: Annotated[
+        int,
+        Doc("Time to live for the deduplicated items in seconds. Defaults to 1 hour."),
+    ] = 3600,
+) -> bool:
+    result = await deduplicate(item, keys, expire_seconds=expire_seconds, persist=True)
+    return item in result
 
 
 @registry.register(
