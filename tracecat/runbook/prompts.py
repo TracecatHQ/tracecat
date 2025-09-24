@@ -129,7 +129,7 @@ def _reduce_messages_to_text(messages: list[ChatMessage], n: int = 4) -> str:
 
 def _reduce_runbook_to_text(runbook: Runbook) -> str:
     """Reduce runbook to a single text."""
-    return f'<Runbook description="The runbook to be edited">\nversion={runbook.version}\n{runbook.instructions}\n</Runbook>'
+    return f'<Runbook id="{runbook.id}" description="The runbook to be edited">\nversion={runbook.version}\n{runbook.instructions}\n</Runbook>'
 
 
 class CaseToRunbookPrompts(BaseModel):
@@ -231,14 +231,18 @@ class RunbookCopilotPrompts(BaseModel):
         if self.runbook:
             action = "edit"
             source = "You will be given a user request to edit the runbook. The current runbook to be edited will be provided to you inside the <Runbook> tag."
+            runbook_id = f"<RunbookID>{self.runbook.id}</RunbookID>"
         else:
             action = "create"
             source = "You will be given a user request to create a runbook that will be used to automate a specific task."
+            runbook_id = ""
 
         base_instructions = textwrap.dedent(f"""
             You are an expert runbook {action} agent. {source}
             You must interpret the user's request and {action} the runbook as requested by the user.
             Use the runbook tools provided to you to {action} the runbook.
+
+            {runbook_id}
 
             <RunbookSections>
             - The runbook has the following sections: Objective, Tools, Steps
@@ -298,6 +302,10 @@ class ExecuteRunbookPrompts(BaseModel):
         """Build the user prompt for executing a runbook."""
         return textwrap.dedent(f"""
             {self.instructions}
+
+            <RunbookID>
+            {self.runbook.id}
+            </RunbookID>
 
             {_reduce_runbook_to_text(self.runbook)}
 
