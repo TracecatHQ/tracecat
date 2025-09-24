@@ -3,6 +3,7 @@ from typing import Final
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
+from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
@@ -21,6 +22,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftGraphCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
+    GitHubOAuthProvider,
     GitHubMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,
