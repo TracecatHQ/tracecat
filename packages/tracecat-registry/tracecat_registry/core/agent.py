@@ -206,14 +206,14 @@ async def agent(
 
 
 @registry.register(
-    default_title="Call AI model",
+    default_title="AI action",
     description="Call an LLM with a given prompt and model.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
     namespace="ai",
     secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
 )
-async def call(
+async def action(
     user_prompt: Annotated[
         str,
         Doc("User prompt to the agent."),
