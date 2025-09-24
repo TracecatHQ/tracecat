@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Get host tags
+  description: Get all tags assigned to a specific host in Datadog.
+  display_group: Datadog
+  doc_url: https://docs.datadoghq.com/api/latest/tags/#get-host-tags
+  namespace: tools.datadog
+  name: get_host_tags
+  secrets:
+    - name: datadog
+      keys: ["DD_API_KEY", "DD_APPLICATION_KEY"]
+  expects:
+    host_name:
+      type: str
+      description: The hostname for which to get tags (e.g., "my-server", "production-web-01").
+    base_url:
+      type: str
+      description: Datadog API base URL (e.g., https://api.datadoghq.com, https://api.us3.datadoghq.com).
+      default: "https://api.datadoghq.com"
+  steps:
+    - ref: datadog_get_host_tags
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/tags/hosts/${{ inputs.host_name }}
+        method: GET
+        headers:
+          Accept: application/json
+          DD-API-KEY: ${{ SECRETS.datadog.DD_API_KEY }}
+          DD-APPLICATION-KEY: ${{ SECRETS.datadog.DD_APPLICATION_KEY }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          host_name: ${{ inputs.host_name }}
+          tags: ${{ steps.datadog_get_host_tags.result.data.tags }}
+  returns: ${{ steps.human_readable.result }}
