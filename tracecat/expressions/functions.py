@@ -845,14 +845,20 @@ def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
     return x.isoformat(timespec=timespec)
 
 
-def now() -> datetime:
+def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
     """Return the current datetime."""
-    return datetime.now()
+    dt = datetime.now()
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
-def utcnow() -> datetime:
+def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
     """Return the current timezone-aware datetime."""
-    return datetime.now(UTC)
+    dt = datetime.now(UTC)
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
 def today() -> date:
