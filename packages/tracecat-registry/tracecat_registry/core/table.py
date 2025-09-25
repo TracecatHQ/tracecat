@@ -343,7 +343,7 @@ async def get_table_metadata(
     display_group="Tables",
     namespace="core.table",
 )
-async def download_table(
+async def download(
     name: Annotated[str, Doc("The name of the table to download.")],
     format: Annotated[
         Literal["json", "ndjson", "csv", "markdown"] | None,
