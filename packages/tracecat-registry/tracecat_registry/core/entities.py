@@ -9,8 +9,6 @@ Fields define the schema for entities, supporting various types including text, 
 dates, and select dropdowns.
 """
 
-from __future__ import annotations
-
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
