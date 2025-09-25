@@ -100,6 +100,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
       # Redis
@@ -152,6 +153,9 @@ services:
       LANGFUSE_HOST: ${LANGFUSE_HOST}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      # Modal
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
