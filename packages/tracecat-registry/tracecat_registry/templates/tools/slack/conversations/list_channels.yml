@@ -27,5 +27,6 @@ definition:
         params:
           exclude_archived: ${{ inputs.exclude_archived }}
           types: ${{ inputs.types }}
+        key: channels
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_channels.result }}
