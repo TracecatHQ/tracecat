@@ -7,7 +7,6 @@ from tracecat.agent.runtime import run_agent
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 
-
 anthropic_secret = RegistrySecret(
     name="anthropic",
     optional_keys=["ANTHROPIC_API_KEY"],
@@ -133,7 +132,6 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     gemini_secret,
     bedrock_secret,
     custom_model_provider_secret,
-    langfuse_secret,
 ]
 
 
@@ -142,7 +140,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
     namespace="ai",
 )
 async def agent(

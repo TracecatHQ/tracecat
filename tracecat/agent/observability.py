@@ -1,6 +1,6 @@
 """Langfuse observability helpers."""
 
-from __future__ import annotations
+from tracecat_registry import secrets
 
 from tracecat.contexts import ctx_run
 from tracecat.logger import logger
@@ -14,11 +14,12 @@ except ImportError:
 def init_langfuse(model_name: str | None, model_provider: str | None) -> str | None:
     """Initialize Langfuse client and return the trace id when Langfuse is available."""
 
-    if get_client is None:
-        logger.debug("Langfuse client not available; skipping trace initialization")
+    if get_client is None or secrets.get("LANGFUSE_PUBLIC_KEY") is None:
+        logger.info("Langfuse client not available; skipping trace initialization")
         return None
 
-    langfuse_client = get_client()
+    langfuse_client = get_client(public_key=secrets.get("LANGFUSE_PUBLIC_KEY"))
+    logger.info("Found Langfuse credentials; initialized Langfuse client.")
 
     # Get workflow context for session_id
     run_context = ctx_run.get()
