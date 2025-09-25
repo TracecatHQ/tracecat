@@ -31,5 +31,6 @@ definition:
           channel: ${{ inputs.channel }}
           latest: ${{ inputs.latest }}
           oldest: ${{ inputs.oldest }}
+        key: messages
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_messages.result }}
