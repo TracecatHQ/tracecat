@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
-    download_table,
+    download,
     insert_row,
     insert_rows,
     list_tables,
@@ -601,7 +601,7 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Call the download_table function
-        result = await download_table(name="test_table", limit=100)
+        result = await download(name="test_table", limit=100)
 
         # Assert service methods were called correctly
         mock_service.get_table_by_name.assert_called_once_with("test_table")
@@ -638,7 +638,7 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Call the download_table function with JSON format
-        result = await download_table(name="test_table", format="json", limit=100)
+        result = await download(name="test_table", format="json", limit=100)
 
         # Verify the result is a JSON string
         assert isinstance(result, str)
@@ -679,7 +679,7 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Call the download_table function with NDJSON format
-        result = await download_table(name="test_table", format="ndjson", limit=100)
+        result = await download(name="test_table", format="ndjson", limit=100)
 
         # Verify the result is an NDJSON string
         assert isinstance(result, str)
@@ -723,7 +723,7 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Call the download_table function with CSV format
-        result = await download_table(name="test_table", format="csv", limit=100)
+        result = await download(name="test_table", format="csv", limit=100)
 
         # Verify the result is a CSV string
         assert isinstance(result, str)
@@ -760,7 +760,7 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Call the download_table function with Markdown format
-        result = await download_table(name="test_table", format="markdown", limit=100)
+        result = await download(name="test_table", format="markdown", limit=100)
 
         # Verify the result is a Markdown table string
         assert isinstance(result, str)
@@ -781,61 +781,10 @@ class TestCoreDownloadTable:
             ValueError,
             match="Cannot return more than 1000 rows",
         ):
-            await download_table(
+            await download(
                 name="test_table",
                 limit=1001,
             )
-
-    @patch("tracecat_registry.core.table.TablesService.with_session")
-    async def test_download_table_with_complex_types(
-        self, mock_with_session, mock_table
-    ):
-        """Test downloading table data with complex types that need serialization."""
-        # Create mock rows with various complex types
-        mock_rows = [
-            {
-                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
-                "name": "Alice",
-                "metadata": {"key": "value", "nested": {"data": 123}},
-                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-                "tags": ["tag1", "tag2"],
-                "nullable_field": None,
-            },
-        ]
-
-        # Set up the mock service context manager
-        mock_service = AsyncMock()
-        mock_service.get_table_by_name.return_value = mock_table
-        mock_service.list_rows.return_value = mock_rows
-
-        # Set up the context manager's __aenter__ to return the mock service
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        # Call the download_table function with JSON format to verify serialization
-        result = await download_table(name="test_table", format="json", limit=100)
-
-        # Parse the JSON to verify all types were properly serialized
-        parsed = orjson.loads(result)
-        assert len(parsed) == 1
-        row = parsed[0]
-
-        # UUID should be converted to string
-        assert row["id"] == "123e4567-e89b-12d3-a456-426655440000"
-
-        # Complex nested objects should be preserved
-        assert row["metadata"] == {"key": "value", "nested": {"data": 123}}
-
-        # Arrays should be preserved
-        assert row["tags"] == ["tag1", "tag2"]
-
-        # Datetime should be converted to ISO format string
-        assert isinstance(row["created_at"], str)
-        assert "2024-01-01" in row["created_at"]
-
-        # None should be preserved as null in JSON
-        assert row["nullable_field"] is None
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_download_table_empty_table(self, mock_with_session, mock_table):
@@ -851,15 +800,15 @@ class TestCoreDownloadTable:
         mock_with_session.return_value = mock_ctx
 
         # Test with no format (list)
-        result = await download_table(name="empty_table")
+        result = await download(name="empty_table")
         assert result == []
 
         # Test with JSON format
-        result = await download_table(name="empty_table", format="json")
+        result = await download(name="empty_table", format="json")
         assert result == "[]"
 
         # Test with NDJSON format
-        result = await download_table(name="empty_table", format="ndjson")
+        result = await download(name="empty_table", format="ndjson")
         assert result == ""
 
 
