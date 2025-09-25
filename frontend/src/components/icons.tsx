@@ -530,7 +530,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
     "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
-    "llm.openai": (props: IconProps) => <OpenAIIcon {...props} />,
+    "ai.openai": (props: IconProps) => <OpenAIIcon {...props} />,
     "llm.ollama": (props: IconProps) => <OllamaIcon {...props} />,
     openai: (props: IconProps) => <OpenAIIcon {...props} />,
     ollama: (props: IconProps) => <OllamaIcon {...props} />,
