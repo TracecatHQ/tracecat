@@ -143,6 +143,10 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # Langfuse
+      LANGFUSE_HOST: ${LANGFUSE_HOST}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:

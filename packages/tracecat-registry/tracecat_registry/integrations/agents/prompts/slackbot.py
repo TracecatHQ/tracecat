@@ -1,7 +1,7 @@
 from typing import Any
 from pydantic import BaseModel
 import textwrap
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 class SlackbotPrompts(BaseModel):
@@ -16,7 +16,7 @@ class SlackbotPrompts(BaseModel):
         """Convert a Slack timestamp to a datetime string."""
         # Slack timestamps are Unix timestamps as strings (e.g., '1758823640.279089')
         timestamp_float = float(ts)
-        return datetime.fromtimestamp(timestamp_float).isoformat()
+        return datetime.fromtimestamp(timestamp_float, tz=UTC).isoformat()
 
     def _parse_blocks(self) -> str:
         """Parse the blocks into a list of text messages."""

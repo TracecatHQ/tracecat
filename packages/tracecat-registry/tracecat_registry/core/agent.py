@@ -132,7 +132,6 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     gemini_secret,
     bedrock_secret,
     custom_model_provider_secret,
-    langfuse_secret,
 ]
 
 
@@ -141,7 +140,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
     namespace="ai",
 )
 async def agent(
