@@ -243,7 +243,6 @@ def _setup_codex(
         enable_search=enable_search,
         builtin_mcp_servers=builtin_mcp_servers,
     )
-    logger.info("Codex Config TOML", config_toml=config_toml)
     setup_commands.append(
         _create_file_sommand("~/.codex/config.toml", toml.dumps(config_toml))
     )
