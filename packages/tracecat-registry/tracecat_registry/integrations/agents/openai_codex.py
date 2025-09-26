@@ -11,8 +11,10 @@ https://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28#download-a-
 from dataclasses import dataclass
 import json
 import textwrap
-import modal
+import toml
 from typing import Annotated, Any, Literal
+
+import modal
 import re
 
 from tracecat_registry.integrations.agents.types import McpServer
@@ -94,18 +96,51 @@ def _get_agents_md(
     return base_content
 
 
+def _generate_config_toml(
+    *,
+    mcp_servers: dict[str, McpServer] | None = None,
+    reasoning_effort: str = "low",
+    enable_search: bool = False,
+    model: str = "gpt-5-codex",
+    model_provider: str = "openai",
+) -> dict[str, Any]:
+    """Generate a TOML configuration file for the sandbox based on Codex configuration spec."""
+    config: dict[str, Any] = {
+        "model": model,
+        "model_provider": model_provider,
+        "approval_policy": "never",  # Since we're in sandbox, no approvals needed
+        "sandbox_mode": "danger-full-access",  # Full access in Modal sandbox
+        "model_reasoning_effort": reasoning_effort,
+        "tools": {
+            "web_search": enable_search,
+        },
+    }
+
+    if mcp_servers:
+        servers = {}
+        for name, server in mcp_servers.items():
+            # Handle different MCP server types
+            match server:
+                case {"command": _, "args": _, "env": _}:
+                    servers[name] = server
+                case _:
+                    logger.warning("Unsupported MCP server type", server=server)
+                    continue
+        config["mcp_servers"] = servers
+    return config
+
+
 def _create_sandbox(
     *,
     timeout: int,
     block_network: bool = False,
     apt_packages: list[str] | None = None,
     env: dict[str, str] | None = None,
-    mcp_servers: dict[str, McpServer] | None = None,
     commands: list[str] | None = None,
 ) -> modal.Sandbox:
     """Create (or look up) the Modal app and sandbox image for OpenAI Codex."""
     # Dependencies - base tools first
-    base_deps = ["git", "gh"]
+    base_deps = ["ca-certificates", "curl", "ripgrep", "git", "gh"]
     if apt_packages:
         base_deps.extend(apt_packages)
 
@@ -114,28 +149,19 @@ def _create_sandbox(
     if env:
         all_env.update(env)
 
-    # Commands for MCP servers and user commands
-    post_install_commands = []
-    if mcp_servers:
-        pass
-    # Run user defined commands after installing dependencies
-    if commands:
-        post_install_commands.extend(commands)
-
     image = (
         modal.Image.debian_slim(python_version="3.12")
         .run_commands("apt-get update")
-        # 1) base tools first
-        .apt_install("ca-certificates", "curl", "gnupg")
+        # 3) Install base development tools
         .apt_install(*base_deps)
-        # 2) install a recent Node that includes Corepack
+        # 4) Install a recent Node.js that includes Corepack
         .run_commands(
             [
                 "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
                 "apt-get update && apt-get install -y nodejs",
             ]
         )
-        # 3) Install OpenAI Codex CLI (placeholder - replace with actual package when available)
+        # 5) Install OpenAI Codex CLI (placeholder - replace with actual package when available)
         # Note: Currently using openai package as placeholder since Codex CLI doesn't exist yet
         .run_commands(
             [
@@ -148,10 +174,11 @@ def _create_sandbox(
             ]
         )
         .workdir("/app")
-        .run_commands("touch final_output")
+        .run_commands(["touch final_output"])
         .env(all_env)
-        .run_commands(post_install_commands)
     )
+    if commands:
+        image = image.run_commands(commands)
     app = modal.App.lookup(SANDBOX_APP_NAME, create_if_missing=True)
     sandbox = modal.Sandbox.create(
         app=app,
@@ -160,6 +187,36 @@ def _create_sandbox(
         block_network=block_network,
     )
     return sandbox
+
+
+def _create_file_sommand(filename: str, content: str) -> str:
+    """Convert a string to a file."""
+    return f"cat <<EOF > {filename}\n{content}\nEOF"
+
+
+def _setup_codex(
+    sb: modal.Sandbox,
+    post_install_commands: list[PostInstallCommand],
+    mcp_servers: dict[str, McpServer] | None = None,
+    reasoning_effort: str = "low",
+    enable_search: bool = False,
+) -> None:
+    """Setup Codex. These don't need to be inccluded in the post-install commands."""
+    setup_commands = [
+        _create_file_sommand("AGENTS.md", _get_agents_md(post_install_commands))
+    ]
+    config_toml = _generate_config_toml(
+        mcp_servers=mcp_servers,
+        reasoning_effort=reasoning_effort,
+        enable_search=enable_search,
+    )
+    setup_commands.append(
+        _create_file_sommand("~/.codex/config.toml", toml.dumps(config_toml))
+    )
+    # Login to codex
+    setup_commands.append(f"codex login --api-key {secrets.get('OPENAI_API_KEY')}")
+    for cmd in setup_commands:
+        sb.exec("bash", "-c", cmd)
 
 
 @registry.register(
@@ -226,6 +283,7 @@ def codex(
 ) -> dict[str, Any]:
     """Run a user-provided command inside a pre-configured Modal sandbox with OpenAI Codex CLI."""
 
+    # These are use-case specific commands that are executed after the sandbox is created
     post_install_commands: list[PostInstallCommand] = []
     github_user_token = None
     if git_repo:
@@ -256,24 +314,20 @@ def codex(
                     description=f"Cloned the GitHub repo {git_repo}.",
                 )
             )
-    # Login to codex
-    openai_api_key = secrets.get("OPENAI_API_KEY")
-    post_install_commands.append(
-        PostInstallCommand(
-            description="Authenticated to OpenAI Codex.",
-            # NOTE: Cannot pass shell variables to the command
-            command=["codex", "login", "--api-key", SecretStr(openai_api_key)],
-        )
-    )
     with modal.enable_output():
         sb = _create_sandbox(
             timeout=timeout,
             block_network=block_network,
             env={"GITHUB_USER_TOKEN": github_user_token} if github_user_token else {},
-            mcp_servers=mcp_servers,
-            commands=[
-                f"cat <<EOF > AGENTS.md\n{_get_agents_md(post_install_commands)}\nEOF"
-            ],
+            # Setup
+            commands=[],
+        )
+        _setup_codex(
+            sb,
+            post_install_commands,
+            mcp_servers,
+            reasoning_effort,
+            enable_search,
         )
 
         user_prompt = prompt
@@ -295,20 +349,11 @@ def codex(
             "/app",
             "--color",
             "never",
-            "--config",
-            f"model_reasoning_effort='{reasoning_effort}'",
             "--json",
             "--output-last-message",
             "final_output",
         ]
-        if enable_search:
-            options.append("--search")
-        cmd = [
-            "codex",
-            "exec",
-            *options,
-            f"'{user_prompt}'",
-        ]
+        cmd = ["codex", "exec", *options, f"'{user_prompt}'"]
         logger.info("Run command:", cmd=cmd)
 
         process = sb.exec(*cmd)
