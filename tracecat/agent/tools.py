@@ -11,6 +11,7 @@ from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
 
+from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
@@ -215,6 +216,7 @@ async def build_agent_tools(
     namespaces: list[str] | None = None,
     actions: list[str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
     """Build tools from a list of actions."""
     tools: list[Tool] = []
@@ -287,6 +289,9 @@ async def build_agent_tools(
         raise ValueError(
             "Unable to build the requested tools:\n" + "\n\n".join(details)
         )
+
+    if max_tools > 0 and len(tools) > max_tools:
+        raise ValueError(f"Cannot request more than {max_tools} tools")
 
     return BuildToolsResult(
         tools=tools,
