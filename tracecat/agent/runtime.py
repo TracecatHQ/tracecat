@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import UsageLimits
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
@@ -33,6 +34,7 @@ from tracecat.agent.tokens import (
     END_TOKEN_VALUE,
 )
 from tracecat.agent.tools import build_agent_tools
+from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 
@@ -185,6 +187,8 @@ async def run_agent(
     | dict[str, Any]
     | None = None,
     model_settings: dict[str, Any] | None = None,
+    max_tools_calls: int = 5,
+    max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
     stream_id: str | None = None,
@@ -213,6 +217,8 @@ async def run_agent(
                     Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
         model_settings: Optional model-specific configuration parameters
                        (temperature, max_tokens, etc.).
+        max_tools_calls: Maximum number of tool calls to make per agent run (default: 5).
+        max_requests: Maximum number of requests to make per agent run (default: 20).
         retries: Maximum number of retry attempts for agent execution (default: 3).
         base_url: Optional custom base URL for the model provider's API.
         stream_id: Optional identifier for Redis streaming of execution events.
@@ -245,6 +251,16 @@ async def run_agent(
     """
 
     trace_id = init_langfuse(model_name, model_provider)
+
+    if max_tools_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
+        raise ValueError(
+            f"Cannot request more than {TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls"
+        )
+
+    if max_requests > TRACECAT__AGENT_MAX_REQUESTS:
+        raise ValueError(
+            f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
+        )
 
     # Create the agent with enhanced instructions
     agent = await build_agent(
@@ -317,6 +333,10 @@ async def run_agent(
         async with agent.iter(
             user_prompt=user_prompt,
             message_history=message_history_prompt.to_message_history(),
+            usage_limits=UsageLimits(
+                request_limit=max_requests,
+                tool_calls_limit=max_tools_calls,
+            ),
         ) as run:
             async for node in run:
                 curr: ModelMessage

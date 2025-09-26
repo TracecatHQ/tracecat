@@ -186,7 +186,11 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
+    max_tools_calls: Annotated[
+        int, Doc("Maximum number of tool calls for the agent.")
+    ] = 5,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
     return await run_agent(
@@ -199,6 +203,8 @@ async def agent(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
+        max_tools_calls=max_tools_calls,
+        max_requests=max_requests,
         base_url=base_url,
     )
 
@@ -242,6 +248,7 @@ async def action(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
@@ -253,5 +260,6 @@ async def action(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
+        max_requests=max_requests,
         base_url=base_url,
     )
