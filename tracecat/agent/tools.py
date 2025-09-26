@@ -290,7 +290,7 @@ async def build_agent_tools(
             "Unable to build the requested tools:\n" + "\n\n".join(details)
         )
 
-    if max_tools and len(tools) > max_tools:
+    if max_tools > 0 and len(tools) > max_tools:
         raise ValueError(f"Cannot request more than {max_tools} tools")
 
     return BuildToolsResult(
