@@ -14,11 +14,13 @@ except ImportError:
 def init_langfuse(model_name: str | None, model_provider: str | None) -> str | None:
     """Initialize Langfuse client and return the trace id when Langfuse is available."""
 
-    if get_client is None or secrets.get("LANGFUSE_PUBLIC_KEY") is None:
+    if get_client is None or secrets.get_or_default("LANGFUSE_PUBLIC_KEY") is None:
         logger.info("Langfuse client not available; skipping trace initialization")
         return None
 
-    langfuse_client = get_client(public_key=secrets.get("LANGFUSE_PUBLIC_KEY"))
+    langfuse_client = get_client(
+        public_key=secrets.get_or_default("LANGFUSE_PUBLIC_KEY")
+    )
     logger.info("Found Langfuse credentials; initialized Langfuse client.")
 
     # Get workflow context for session_id
