@@ -26,7 +26,7 @@ from pydantic_core import to_jsonable_python
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt
+from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tokens import (
     DATA_KEY,
@@ -135,13 +135,17 @@ async def build_agent(
     _model_settings = ModelSettings(**model_settings) if model_settings else None
     model = get_model(model_name, model_provider, base_url)
 
+    # Add verbosity prompt
+    verbosity_prompt = VerbosityPrompt()
+    instructions = f"{instructions}\n{verbosity_prompt.prompt}"
+
     if actions:
         tool_calling_prompt = ToolCallPrompt(
             tools=tools.tools,
             fixed_arguments=fixed_arguments,
         )
         instruction_parts = [instructions, tool_calling_prompt.prompt]
-        instructions = "\n\n".join(part for part in instruction_parts if part)
+        instructions = "\n".join(part for part in instruction_parts if part)
 
     toolsets = None
     if mcp_server_url:

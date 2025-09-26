@@ -44,6 +44,11 @@ class SlackbotPrompts(BaseModel):
             <ThreadTS>{self.thread_ts}</ThreadTS>
             <TimeRightNow>{datetime.now().isoformat()}</TimeRightNow>
 
+            <IMPORTANT>
+            You MUST only post once. You CANNOT under any circumstances post more than once.
+            Stop once you've posted.
+            </IMPORTANT>
+
             <instructions>
             {self.user_instructions}
             </instructions>
