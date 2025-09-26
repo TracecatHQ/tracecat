@@ -157,6 +157,9 @@ services:
       LANGFUSE_HOST: ${LANGFUSE_HOST}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      # Modal
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
