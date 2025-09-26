@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 import ray
 
+from tracecat import config
 from tracecat.logger import logger
 
 EXECUTION_TIMEOUT = 300
@@ -16,7 +17,7 @@ def setup_ray():
         namespace="tracecat",
         dashboard_host="0.0.0.0",
         include_dashboard=True,
-        log_to_driver=False,
+        log_to_driver=config.TRACECAT__APP_ENV == "development",
         logging_level=logging.WARNING,
         num_cpus=DEFAULT_NUM_WORKERS,
         resources={"cpu": DEFAULT_NUM_WORKERS},
