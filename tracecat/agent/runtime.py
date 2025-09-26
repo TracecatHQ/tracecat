@@ -6,7 +6,7 @@ from typing import Any, Literal, TypeVar
 import orjson
 from langfuse import observe
 from pydantic import BaseModel, TypeAdapter
-from pydantic_ai import Agent, RunUsage, StructuredDict
+from pydantic_ai import Agent, RunUsage, StructuredDict, Tool
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.messages import (
@@ -121,11 +121,14 @@ async def build_agent(
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
 ) -> Agent:
-    tools = await build_agent_tools(
-        fixed_arguments=fixed_arguments,
-        namespaces=namespaces,
-        actions=actions,
-    )
+    agent_tools: list[Tool] = []
+    if actions:
+        tools = await build_agent_tools(
+            fixed_arguments=fixed_arguments,
+            namespaces=namespaces,
+            actions=actions,
+        )
+        agent_tools = tools.tools
     _output_type = _parse_output_type(output_type)
     _model_settings = ModelSettings(**model_settings) if model_settings else None
     model = get_model(model_name, model_provider, base_url)
@@ -153,7 +156,7 @@ async def build_agent(
         model_settings=_model_settings,
         retries=retries,
         instrument=True,
-        tools=tools.tools,
+        tools=agent_tools,
         toolsets=toolsets,
     )
     return agent
