@@ -114,19 +114,28 @@ def _generate_config_toml(
         "tools": {
             "web_search": enable_search,
         },
+        "mcp_servers": {
+            "github": {
+                "command": "github-mcp-server",
+                "args": ["stdio"],
+                "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": secrets.get(
+                        github_oauth_secret.token_name
+                    ),
+                },
+            },
+        },
     }
 
     if mcp_servers:
-        servers = {}
         for name, server in mcp_servers.items():
             # Handle different MCP server types
             match server:
                 case {"command": _, "args": _, "env": _}:
-                    servers[name] = server
+                    config["mcp_servers"][name] = server
                 case _:
                     logger.warning("Unsupported MCP server type", server=server)
                     continue
-        config["mcp_servers"] = servers
     return config
 
 
@@ -140,7 +149,7 @@ def _create_sandbox(
 ) -> modal.Sandbox:
     """Create (or look up) the Modal app and sandbox image for OpenAI Codex."""
     # Dependencies - base tools first
-    base_deps = ["ca-certificates", "curl", "ripgrep", "git", "gh"]
+    base_deps = ["ca-certificates", "curl", "ripgrep", "git", "gh", "tree"]
     if apt_packages:
         base_deps.extend(apt_packages)
 
@@ -173,6 +182,21 @@ def _create_sandbox(
                 "mkdir -p ~/.codex",
             ]
         )
+        .run_commands(
+            # Install Go and build github-mcp-server
+            # NOTE: This should be deprecated once codex supports http/sse mcp servers
+            [
+                # Install Go (>=1.22 required)
+                "curl -OL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz",
+                "rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz",
+                "ln -s /usr/local/go/bin/go /usr/local/bin/go",
+                # Clone and build github-mcp-server
+                "mkdir -p /tmp/gh-mcp",
+                "git clone https://github.com/github/github-mcp-server.git /tmp/gh-mcp",
+                "cd /tmp/gh-mcp/cmd/github-mcp-server && go build -o /usr/local/bin/github-mcp-server",
+                "github-mcp-server -v",
+            ]
+        )
         .workdir("/app")
         .run_commands(["touch final_output"])
         .env(all_env)
@@ -185,6 +209,8 @@ def _create_sandbox(
         image=image,
         timeout=timeout,
         block_network=block_network,
+        cpu=1,
+        memory=512,
     )
     return sandbox
 
@@ -319,8 +345,6 @@ def codex(
             timeout=timeout,
             block_network=block_network,
             env={"GITHUB_USER_TOKEN": github_user_token} if github_user_token else {},
-            # Setup
-            commands=[],
         )
         _setup_codex(
             sb,
@@ -369,14 +393,14 @@ def codex(
         # Check return code before reading output
         if rc := process.returncode:
             raise RuntimeError(
-                f"Sandbox command exited with status {rc}.\n"
+                f"Codex exec command exited with status {rc}.\n"
                 f"stdout: {stdout}\n"
                 f"stderr: {stderr}"
             )
 
         # Parse the ndjson
         all_events = [json.loads(line) for line in stdout.splitlines()]
-        exclude_events = {"exec_command_output_delta"}
+        exclude_events = {"exec_command_output_delta", "token_count"}
         events = [
             event
             for event in all_events
@@ -392,7 +416,7 @@ def codex(
         logger.info("READ PROC STDERR", stderr=read_stderr)
         if rc := read_proc.returncode:
             raise RuntimeError(
-                f"Sandbox command exited with status {rc}.\n"
+                f"Read final output command exited with status {rc}.\n"
                 f"stdout: {read_stdout}\n"
                 f"stderr: {read_stderr}"
             )
