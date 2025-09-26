@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal
 import modal
 import re
 
-from tracecat_registry.integrations.agents.types import McpServer
+from tracecat_registry.integrations.agents.types import McpServer, StdioMcpServer
 
 from tracecat.logger import logger
 
@@ -103,6 +103,7 @@ def _generate_config_toml(
     enable_search: bool = False,
     model: str = "gpt-5-codex",
     model_provider: str = "openai",
+    builtin_mcp_servers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Generate a TOML configuration file for the sandbox based on Codex configuration spec."""
     config: dict[str, Any] = {
@@ -114,28 +115,47 @@ def _generate_config_toml(
         "tools": {
             "web_search": enable_search,
         },
-        "mcp_servers": {
-            "github": {
-                "command": "github-mcp-server",
-                "args": ["stdio"],
-                "env": {
-                    "GITHUB_PERSONAL_ACCESS_TOKEN": secrets.get(
-                        github_oauth_secret.token_name
-                    ),
-                },
-            },
-        },
+        "mcp_servers": {},
     }
+    if builtin_mcp_servers:
+        for name in builtin_mcp_servers:
+            if name in config["mcp_servers"]:
+                raise ValueError(
+                    f"MCP server {name} already exists. Please use a different name."
+                )
+            match name:
+                case "github":
+                    server = StdioMcpServer(
+                        command="github-mcp-server",
+                        args=["stdio"],
+                        env={
+                            "GITHUB_PERSONAL_ACCESS_TOKEN": secrets.get(
+                                github_oauth_secret.token_name
+                            )
+                        },
+                    )
+                case _:
+                    logger.warning("Unsupported builtin MCP server", name=name)
+                    continue
+            config["mcp_servers"][name] = server
 
     if mcp_servers:
         for name, server in mcp_servers.items():
             # Handle different MCP server types
+            if name in config["mcp_servers"]:
+                raise ValueError(
+                    f"MCP server {name} already exists. Please use a different name."
+                )
             match server:
                 case {"command": _, "args": _, "env": _}:
                     config["mcp_servers"][name] = server
                 case _:
-                    logger.warning("Unsupported MCP server type", server=server)
+                    logger.warning(
+                        "Unsupported MCP server type", name=name, server=server
+                    )
                     continue
+    if not config["mcp_servers"]:
+        del config["mcp_servers"]
     return config
 
 
@@ -149,7 +169,7 @@ def _create_sandbox(
 ) -> modal.Sandbox:
     """Create (or look up) the Modal app and sandbox image for OpenAI Codex."""
     # Dependencies - base tools first
-    base_deps = ["ca-certificates", "curl", "ripgrep", "git", "gh", "tree"]
+    base_deps = ["ca-certificates", "curl", "ripgrep", "git", "gh", "tree", "jq"]
     if apt_packages:
         base_deps.extend(apt_packages)
 
@@ -182,21 +202,6 @@ def _create_sandbox(
                 "mkdir -p ~/.codex",
             ]
         )
-        .run_commands(
-            # Install Go and build github-mcp-server
-            # NOTE: This should be deprecated once codex supports http/sse mcp servers
-            [
-                # Install Go (>=1.22 required)
-                "curl -OL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz",
-                "rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz",
-                "ln -s /usr/local/go/bin/go /usr/local/bin/go",
-                # Clone and build github-mcp-server
-                "mkdir -p /tmp/gh-mcp",
-                "git clone https://github.com/github/github-mcp-server.git /tmp/gh-mcp",
-                "cd /tmp/gh-mcp/cmd/github-mcp-server && go build -o /usr/local/bin/github-mcp-server",
-                "github-mcp-server -v",
-            ]
-        )
         .workdir("/app")
         .run_commands(["touch final_output"])
         .env(all_env)
@@ -226,6 +231,7 @@ def _setup_codex(
     mcp_servers: dict[str, McpServer] | None = None,
     reasoning_effort: str = "low",
     enable_search: bool = False,
+    builtin_mcp_servers: list[str] | None = None,
 ) -> None:
     """Setup Codex. These don't need to be inccluded in the post-install commands."""
     setup_commands = [
@@ -235,7 +241,9 @@ def _setup_codex(
         mcp_servers=mcp_servers,
         reasoning_effort=reasoning_effort,
         enable_search=enable_search,
+        builtin_mcp_servers=builtin_mcp_servers,
     )
+    logger.info("Codex Config TOML", config_toml=config_toml)
     setup_commands.append(
         _create_file_sommand("~/.codex/config.toml", toml.dumps(config_toml))
     )
@@ -289,7 +297,7 @@ def codex(
         dict[str, McpServer] | None,
         Field(
             default=None,
-            description="List of Stdio MCP servers to use in the sandbox.",
+            description="Mapping of custom Stdio MCP servers to use in the sandbox. Follows the standard MCP server format.",
         ),
     ] = None,
     reasoning_effort: Annotated[
@@ -306,6 +314,14 @@ def codex(
             description="Whether to enable web search for Codex.",
         ),
     ] = False,
+    builtin_mcp_servers: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="List of built-in MCP servers to use in the sandbox.",
+        ),
+        fields.Select(options=["github"], multiple=True),
+    ] = None,
 ) -> dict[str, Any]:
     """Run a user-provided command inside a pre-configured Modal sandbox with OpenAI Codex CLI."""
 
@@ -340,11 +356,29 @@ def codex(
                     description=f"Cloned the GitHub repo {git_repo}.",
                 )
             )
+    if builtin_mcp_servers and "github" in builtin_mcp_servers:
+        # Install Go and build github-mcp-server
+        # NOTE: This should be deprecated once codex supports http/sse mcp servers
+        commands = [
+            # Install Go (>=1.22 required)
+            "curl -OL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz",
+            "rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz",
+            "ln -s /usr/local/go/bin/go /usr/local/bin/go",
+            # Clone and build github-mcp-server
+            "mkdir -p /tmp/gh-mcp",
+            "git clone https://github.com/github/github-mcp-server.git /tmp/gh-mcp",
+            "cd /tmp/gh-mcp/cmd/github-mcp-server && go build -o /usr/local/bin/github-mcp-server",
+            "github-mcp-server -v",
+        ]
+    else:
+        commands = None
     with modal.enable_output():
         sb = _create_sandbox(
             timeout=timeout,
             block_network=block_network,
+            # Used for git and gh cli
             env={"GITHUB_USER_TOKEN": github_user_token} if github_user_token else {},
+            commands=commands,
         )
         _setup_codex(
             sb,
@@ -352,6 +386,7 @@ def codex(
             mcp_servers,
             reasoning_effort,
             enable_search,
+            builtin_mcp_servers,
         )
 
         user_prompt = prompt
