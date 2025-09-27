@@ -1,7 +1,7 @@
 """add_chat_message_table
 
 Revision ID: 93f034d69301
-Revises: 2b82bb8c7c42
+Revises: 3c55aa60ca2c
 Create Date: 2025-09-18 19:02:47.533454
 
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "93f034d69301"
-down_revision: str | None = "2b82bb8c7c42"
+down_revision: str | None = "3c55aa60ca2c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
