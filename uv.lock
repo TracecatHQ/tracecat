@@ -3971,6 +3971,12 @@ dev = [
 [[package]]
 name = "tracecat-ee"
 source = { editable = "packages/tracecat-ee" }
+dependencies = [
+    { name = "modal" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "modal", specifier = "==1.1.4" }]
 
 [[package]]
 name = "tracecat-registry"
@@ -3988,7 +3994,6 @@ dependencies = [
     { name = "langfuse" },
     { name = "ldap3" },
     { name = "marshmallow" },
-    { name = "modal" },
     { name = "msal" },
     { name = "nh3" },
     { name = "ollama" },
@@ -4020,7 +4025,6 @@ requires-dist = [
     { name = "langfuse", specifier = "==3.3.4" },
     { name = "ldap3", specifier = "==2.9.1" },
     { name = "marshmallow", specifier = "==3.26.1" },
-    { name = "modal", specifier = "==1.1.4" },
     { name = "msal", specifier = "==1.31.1" },
     { name = "nh3", specifier = "==0.2.18" },
     { name = "ollama", specifier = "==0.4.8" },
