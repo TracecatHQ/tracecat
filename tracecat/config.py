@@ -23,7 +23,7 @@ TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 120.0)
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 120.0
 )
 """Timeout for the executor client in seconds (default 120s).
 
