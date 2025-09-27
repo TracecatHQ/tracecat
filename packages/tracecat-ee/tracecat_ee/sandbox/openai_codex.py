@@ -1,5 +1,4 @@
 import json
-import os
 import textwrap
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -307,11 +306,6 @@ def codex(
     ] = None,
 ) -> dict[str, Any]:
     """Run a user-provided command inside a pre-configured Modal sandbox with OpenAI Codex CLI."""
-
-    if not os.getenv("MODAL_TOKEN_ID") or not os.getenv("MODAL_TOKEN_SECRET"):
-        raise ValueError(
-            "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET must be set in the environment"
-        )
 
     # These are use-case specific commands that are executed after the sandbox is created
     post_install_commands: list[PostInstallCommand] = []

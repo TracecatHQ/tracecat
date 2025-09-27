@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -204,11 +203,6 @@ def claude_code(
     ] = None,
 ) -> dict[str, Any]:
     """Run a user-provided command inside a pre-configured Modal sandbox with Claude Code CLI."""
-
-    if not os.getenv("MODAL_TOKEN_ID") or not os.getenv("MODAL_TOKEN_SECRET"):
-        raise ValueError(
-            "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET must be set in the environment"
-        )
 
     post_install_commands: list[PostInstallCommand] = []
     if git_repo:
