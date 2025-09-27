@@ -7,8 +7,6 @@ This module exposes high-level UDFs over:
 See `core.cases` and `core.table` for decorator patterns.
 """
 
-from __future__ import annotations
-
 from typing import Annotated, Any
 from uuid import UUID
 
