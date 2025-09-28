@@ -12,6 +12,42 @@ from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 from typing import Annotated, Any
+from tracecat.logger import logger
+
+
+async def _ack_app_mention(channel_id: str, ts: str):
+    await call_method(
+        sdk_method="reactions_add",
+        params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+    )
+
+
+async def _notify_error(channel_id: str, ts: str):
+    # Remove the eyes emoji
+    await call_method(
+        sdk_method="reactions_remove",
+        params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+    )
+    # Add the warning emoji
+    await call_method(
+        sdk_method="reactions_add",
+        params={"channel": channel_id, "timestamp": ts, "name": "warning"},
+    )
+    # Send a warning message
+    await call_method(
+        sdk_method="chat_postMessage",
+        params={
+            "channel": channel_id,
+            "text": "I'm having trouble responding to your message. Please try again.",
+        },
+    )
+
+
+async def _remove_ack(channel_id: str, ts: str):
+    await call_method(
+        sdk_method="reactions_remove",
+        params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+    )
 
 
 @registry.register(
@@ -53,41 +89,63 @@ async def slackbot(
     if actions:
         bot_actions = list(set([*actions, *bot_actions]))
 
-    # Determine is app mention in channel or thread
-    channel_id = app_mention_event["event"]["channel"]
-    if is_app_mention_in_channel(app_mention_event):
-        # If in channel, list conversation history
-        response = await call_method(
-            sdk_method="conversations_history",
-            params={"channel": channel_id, "limit": limit_messages},
+    try:
+        ts = app_mention_event["event"]["ts"]
+        thread_ts = app_mention_event["event"].get("thread_ts", ts)
+        channel_id = app_mention_event["event"]["channel"]
+        logger.info(f"ts: {ts}, thread_ts: {thread_ts}, channel_id: {channel_id}")
+    except KeyError:
+        raise ValueError(
+            "No thread timestamp or channel ID found in app mention event."
         )
-        thread_ts = app_mention_event["event"]["ts"]
-        messages = response.get("messages", [])
-    elif is_app_mention_in_thread(app_mention_event):
-        # If in thread, list message replies
-        thread_ts = app_mention_event["event"]["thread_ts"]
-        response = await call_method(
-            sdk_method="conversations_replies",
-            params={"channel": channel_id, "ts": thread_ts, "limit": limit_messages},
+
+    # Add "eyes" emoji to the app mention message
+    await _ack_app_mention(channel_id, ts)
+
+    try:
+        # Determine is app mention in channel or thread
+        channel_id = app_mention_event["event"]["channel"]
+        if is_app_mention_in_channel(app_mention_event):
+            # If in channel, list conversation history
+            response = await call_method(
+                sdk_method="conversations_history",
+                params={"channel": channel_id, "limit": limit_messages},
+            )
+            messages = response.get("messages", [])
+        elif is_app_mention_in_thread(app_mention_event):
+            # If in thread, list message replies
+            response = await call_method(
+                sdk_method="conversations_replies",
+                params={
+                    "channel": channel_id,
+                    "ts": thread_ts,
+                    "limit": limit_messages,
+                },
+            )
+            messages = response.get("messages", [])
+        else:
+            raise ValueError("App mention event is not in channel or thread.")
+
+        prompts = SlackbotPrompts(
+            messages=messages,
+            user_instructions=instructions,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
         )
-        messages = response.get("messages", [])
+        response = await run_agent(
+            user_prompt=prompts.user_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+            actions=bot_actions,
+            instructions=prompts.instructions,
+            model_settings=model_settings,
+            retries=retries,
+            base_url=base_url,
+        )
+    except Exception as e:
+        # Send unexpected error message to Slack with the thread_ts
+        await _notify_error(channel_id, thread_ts)
+        raise e
     else:
-        raise ValueError("App mention event is not in channel or thread.")
-
-    prompts = SlackbotPrompts(
-        messages=messages,
-        user_instructions=instructions,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-    )
-
-    return await run_agent(
-        user_prompt=prompts.user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=bot_actions,
-        instructions=prompts.instructions,
-        model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
-    )
+        await _remove_ack(channel_id, ts)
+    return response
