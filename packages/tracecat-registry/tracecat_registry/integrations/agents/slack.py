@@ -22,7 +22,7 @@ async def _ack_app_mention(channel_id: str, ts: str):
     )
 
 
-async def _notify_error(channel_id: str, ts: str):
+async def _notify_error(channel_id: str, thread_ts: str, ts: str):
     # Remove the eyes emoji
     await call_method(
         sdk_method="reactions_remove",
@@ -39,6 +39,7 @@ async def _notify_error(channel_id: str, ts: str):
         params={
             "channel": channel_id,
             "text": "I'm having trouble responding to your message. Please try again.",
+            "thread_ts": thread_ts,
         },
     )
 
@@ -144,7 +145,7 @@ async def slackbot(
         )
     except Exception as e:
         # Send unexpected error message to Slack with the thread_ts
-        await _notify_error(channel_id, thread_ts)
+        await _notify_error(channel_id, thread_ts, ts)
         raise e
     else:
         await _remove_ack(channel_id, ts)
