@@ -19,7 +19,7 @@ definition:
     - ref: search_domain_leak
       action: core.http_request
       args:
-        url: https://leakcheck.io/api/v2/query/${{ inputs.domain_name }}
+        url: https://leakcheck.io/api/v2/query/${{ FN.url_encode(inputs.domain_name) }}
         params:
           type: domain
         method: GET
