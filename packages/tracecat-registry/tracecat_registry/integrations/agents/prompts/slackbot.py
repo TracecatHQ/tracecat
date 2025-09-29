@@ -68,9 +68,10 @@ class SlackNoEventPrompts(SlackPromptBase):
 
             Steps:
             1. Study the planning instructions block.
-            2. Compose exactly one Slack message that satisfies those instructions.
-            3. Call `tools.slack.post_message` once with `channel` set to `{self.channel_id}` and do not provide `thread_ts`.
-            4. Immediately after the tool call, end the run by emitting the literal word `DONE` as your final assistant message (do not send it to Slack).
+            2. Check if you're already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+            3. Compose exactly one Slack message that satisfies those instructions.
+            4. Call `tools.slack.post_message` once with `channel` set to `{self.channel_id}` and do not provide `thread_ts`.
+            5. Immediately after the tool call, end the run by emitting the literal word `DONE` as your final assistant message (do not send it to Slack).
 
             <TimeRightNow>{self._now_iso()}</TimeRightNow>
 
@@ -111,9 +112,10 @@ class SlackAppMentionPrompts(SlackPromptBase):
 
             Steps:
             1. Review the transcript to understand the situation and the latest app mention that triggered you at <TriggerTS>{trigger_time}</TriggerTS>.
-            2. Formulate a concise, helpful reply that resolves the user's request.
-            3. Call `tools.slack.post_message` exactly once with `channel` set to `{self.channel_id}` and `thread_ts` set to `{self.thread_ts}` so your reply stays in the thread.
-            4. Immediately after the tool call, output the single token `DONE` as your final assistant message (not via a Slack tool) and halt.
+            2. Check if you're already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+            3. Formulate a concise, helpful reply that resolves the user's request.
+            4. Call `tools.slack.post_message` exactly once with `channel` set to `{self.channel_id}` and `thread_ts` set to `{self.thread_ts}` so your reply stays in the thread.
+            5. Immediately after the tool call, output the single token `DONE` as your final assistant message (not via a Slack tool) and halt.
 
             <ThreadTS>{self.thread_ts}</ThreadTS>
             <TriggerTS>{self.trigger_ts}</TriggerTS>
@@ -166,9 +168,12 @@ class SlackInteractionPrompts(SlackPromptBase):
 
             Steps:
             1. Review the transcript and payload details to understand what the user needs.
-            2. Use `tools.slack_sdk.post_response` once to update the interactive message via <ResponseURL>{self.response_url}</ResponseURL>. Set `replace_original` to true and restate the prompt alongside the available options (as plain text or disabled controls).
-            3. After updating the interactive message, call `tools.slack.post_message` exactly once with `thread_ts` set to `{self.thread_ts}` and `channel` set to `{self.channel_id}` to confirm the outcome or next steps for the participants.
-            4. Immediately after the confirmation reply, output the literal word `DONE` as your final assistant message (not via Slack) to finish the run.
+            2. Check if you've already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+            3. Use `tools.slack_sdk.post_response` once to update the interactive message via <ResponseURL>{self.response_url}</ResponseURL>. Set `replace_original` to true. Update the message to show who performed the action and what action they took.
+            4. After updating the interactive message, call `tools.slack.post_message` exactly once with `thread_ts` set to `{self.thread_ts}` and `channel` set to `{self.channel_id}` to provide a follow-up response that explains:
+               - Who did what (reference the acting user and their specific action)
+               - What happens next (clear next steps or outcomes)
+            5. Immediately after the confirmation reply, output the literal word `DONE` as your final assistant message (not via Slack) to finish the run.
 
             <ThreadTS>{self.thread_ts}</ThreadTS>
             <TriggerTS>{self.trigger_ts}</TriggerTS>
