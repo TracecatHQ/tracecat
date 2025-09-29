@@ -17,6 +17,8 @@ describe("GIT_SSH_URL_REGEX", () => {
     "ssh://git@github.com/user/repo.git",
     "git+ssh://github.com/user/repo.git", // Missing git@ user
     "git+ssh://git@github.com:not_a_port/user/repo.git", // Invalid port
+    "git+ssh://git@github.com/repo.git", // Missing org segment
+    "git+ssh://git@github.com:/org/repo/subdir.git", // Missing port
   ]
 
   it.each(validUrls)("accepts valid git SSH URL %s", (url) => {
