@@ -31,6 +31,7 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useOrgSecrets, useWorkspaceSettings } from "@/lib/hooks"
+import { GIT_SSH_URL_REGEX } from "@/lib/git"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
 import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 import { WorkflowPullDialog } from "./workflow-pull-dialog"
@@ -41,8 +42,8 @@ const workspaceSettingsSchema = z.object({
     .string()
     .nullish()
     .refine(
-      (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
-      "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
+      (url) => !url || GIT_SSH_URL_REGEX.test(url),
+      "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
     ),
   workflow_unlimited_timeout_enabled: z.boolean().optional(),
   workflow_default_timeout_seconds: z

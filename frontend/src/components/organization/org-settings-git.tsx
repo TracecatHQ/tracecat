@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useOrgGitSettings } from "@/lib/hooks"
+import { GIT_SSH_URL_REGEX } from "@/lib/git"
 
 const gitFormSchema = z.object({
   git_allowed_domains: z.array(
@@ -31,16 +32,14 @@ const gitFormSchema = z.object({
     .nullish()
     .refine((url) => {
       if (!url) return true
-      // Matches the backend regex in tracecat/git/utils.py
+      // Matches the backend regex in tracecat/git/constants.py
       // Supports:
       // - Standard format: git+ssh://git@github.com/org/repo.git
       // - With port: git+ssh://git@gitlab.example.com:2222/org/repo.git
       // - Nested groups: git+ssh://git@gitlab.com/org/team/subteam/repo.git
       // - With ref: git+ssh://git@github.com/org/repo.git@main
       // - Optional .git suffix
-      // Requires at least 2 path segments (org/repo) to match backend validation
-      const regex = /^git\+ssh:\/\/git@[^/]+\/[^/]+\/.+?(?:\.git)?(?:@[^/]+)?$/
-      return regex.test(url)
+      return GIT_SSH_URL_REGEX.test(url)
     }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)")
     // Empty string signals removal
     .transform((url) => url?.trim() || null),
