@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Call Bedrock
+  description: Call an LLM via AWS Bedrock.
+  display_group: (Deprecated -> use ai.action instead) Amazon Bedrock
+  doc_url: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
+  namespace: llm.bedrock
+  name: call
+  secrets:
+    - name: amazon_bedrock
+      optional_keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use.
+    instructions:
+      type: str | None
+      description: Instructions to use for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, Any] | None
+      description: >
+        Output format to use. Either JSONSchema
+        or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
+      default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
+  steps:
+    - ref: call_bedrock
+      action: ai.action
+      args:
+        user_prompt: ${{ inputs.prompt }}
+        model_name: ${{ inputs.model }}
+        model_provider: bedrock
+        instructions: ${{ inputs.instructions }}
+        output_type: ${{ inputs.output_type }}
+        model_settings: ${{ inputs.model_settings }}
+  returns: ${{ steps.call_bedrock.result }}

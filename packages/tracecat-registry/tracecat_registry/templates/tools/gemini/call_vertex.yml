@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Call Gemini (Vertex AI)
+  description: Call an LLM via Gemini API (Vertex AI).
+  display_group: (Deprecated -> use ai.action instead) Gemini
+  doc_url: https://ai.google.dev/api/generate-content
+  namespace: llm.gemini_vertex
+  name: call
+  secrets:
+    - name: google
+      optional_keys: ["GOOGLE_API_CREDENTIALS"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use.
+    instructions:
+      type: str | None
+      description: Instructions to use for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, Any] | None
+      description: Output type to use.
+      default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
+  steps:
+    - ref: call_gemini
+      action: ai.action
+      args:
+        user_prompt: ${{ inputs.prompt }}
+        model_name: ${{ inputs.model }}
+        model_provider: google
+        instructions: ${{ inputs.instructions }}
+        output_type: ${{ inputs.output_type }}
+        model_settings: ${{ inputs.model_settings }}
+  returns: ${{ steps.call_gemini.result }}
