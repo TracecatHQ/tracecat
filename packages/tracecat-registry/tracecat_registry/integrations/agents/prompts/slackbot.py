@@ -1,13 +1,13 @@
+import textwrap
 import yaml
 from datetime import UTC, datetime
-import textwrap
 from typing import Any, Iterable
 
 from pydantic import BaseModel
 
 
 class SlackPromptBase(BaseModel):
-    """Base prompt builder for Slack agents."""
+    """Shared helpers for building Slack agent prompts."""
 
     channel_id: str
     response_instructions: str
@@ -18,33 +18,45 @@ class SlackPromptBase(BaseModel):
     def _ts_to_datetime(self, ts: str | None) -> str:
         if not ts:
             return "unknown"
-        timestamp_float = float(ts)
+        try:
+            timestamp_float = float(ts)
+        except (TypeError, ValueError):
+            return "unknown"
         return datetime.fromtimestamp(timestamp_float, tz=UTC).isoformat()
 
     def _format_messages(self, messages: Iterable[dict[str, Any]]) -> str:
-        formatted: list[str] = []
+        lines: list[str] = []
         for message in messages:
-            ts = self._ts_to_datetime(message.get("ts"))
-            user = message.get("user") or message.get("username") or "unknown"
+            ts_iso = self._ts_to_datetime(message.get("ts"))
+            user = (
+                message.get("user")
+                or message.get("username")
+                or message.get("bot_id")
+                or "unknown"
+            )
             text = message.get("text") or ""
-            formatted.append(f"{user} [{ts}]: {text}".strip())
-        return "\n".join(reversed([line for line in formatted if line]))
+            line = f"{user} [{ts_iso}]: {text}".strip()
+            if line:
+                lines.append(line)
+        if not lines:
+            return ""
+        return "\n".join(reversed(lines))
 
     @property
     def instructions(
         self,
-    ) -> str:  # pragma: no cover - abstract pattern enforced in subclasses
+    ) -> str:  # pragma: no cover - subclasses must implement
         raise NotImplementedError
 
     @property
     def user_prompt(
         self,
-    ) -> str:  # pragma: no cover - abstract pattern enforced in subclasses
+    ) -> str:  # pragma: no cover - subclasses must implement
         raise NotImplementedError
 
 
 class SlackNoEventPrompts(SlackPromptBase):
-    """Prompts when proactively posting to a channel with no triggering event."""
+    """Prompt configuration when proactively posting to a channel."""
 
     initial_prompt: str
 
@@ -52,10 +64,22 @@ class SlackNoEventPrompts(SlackPromptBase):
     def instructions(self) -> str:
         return textwrap.dedent(
             f"""
-            You are preparing a proactive Slack message.
-            Post a single update to channel <ChannelID>{self.channel_id}</ChannelID>.
+            You are an expert Slackbot preparing a proactive update for channel <ChannelID>{self.channel_id}</ChannelID>.
+
+            Steps:
+            1. Study the planning instructions block.
+            2. Compose exactly one Slack message that satisfies those instructions.
+            3. Call `tools.slack.post_message` once with `channel` set to `{self.channel_id}` and do not provide `thread_ts`.
+            4. Immediately after the tool call, end the run by emitting the literal word `DONE` as your final assistant message (do not send it to Slack).
 
             <TimeRightNow>{self._now_iso()}</TimeRightNow>
+
+            <IMPORTANT>
+            - Post only once; after the tool call, stop.
+            - Do not fabricate additional context beyond what the instructions provide.
+            - Keep the tone clear, professional, and tailored to the audience described.
+            - Never call any additional tools after you've posted once; the closing `DONE` text completes the run.
+            </IMPORTANT>
 
             <instructions>
             {self.response_instructions}
@@ -69,7 +93,7 @@ class SlackNoEventPrompts(SlackPromptBase):
 
 
 class SlackAppMentionPrompts(SlackPromptBase):
-    """Prompts when responding to an app mention inside Slack."""
+    """Prompt configuration when replying to an app mention."""
 
     messages: list[dict[str, Any]]
     thread_ts: str
@@ -79,19 +103,29 @@ class SlackAppMentionPrompts(SlackPromptBase):
     @property
     def instructions(self) -> str:
         trigger_user = self.trigger_user_id or "unknown"
+        trigger_time = self._ts_to_datetime(self.trigger_ts)
         return textwrap.dedent(
             f"""
-            You are replying to an app mention.
-            Work strictly inside thread <ThreadTS>{self.thread_ts}</ThreadTS> in channel <ChannelID>{self.channel_id}</ChannelID>.
+            You are an expert Slackbot responding to a user who mentioned you in channel <ChannelID>{self.channel_id}</ChannelID>.
+            The conversation transcript is attached for context.
+
+            Steps:
+            1. Review the transcript to understand the situation and the latest app mention that triggered you at <TriggerTS>{trigger_time}</TriggerTS>.
+            2. Formulate a concise, helpful reply that resolves the user's request.
+            3. Call `tools.slack.post_message` exactly once with `channel` set to `{self.channel_id}` and `thread_ts` set to `{self.thread_ts}` so your reply stays in the thread.
+            4. Immediately after the tool call, output the single token `DONE` as your final assistant message (not via a Slack tool) and halt.
+
+            <ThreadTS>{self.thread_ts}</ThreadTS>
+            <TriggerTS>{self.trigger_ts}</TriggerTS>
+            <MentionedUser>{trigger_user}</MentionedUser>
+            <TimeRightNow>{self._now_iso()}</TimeRightNow>
 
             <IMPORTANT>
-            - Send exactly one reply using `tools.slack.post_message` with `thread_ts` set to {self.thread_ts}.
-            - Do not send additional posts or duplicate replies unless the injected instructions explicitly require it.
-            - Keep your tone helpful and concise; avoid echoing metadata from the block below unless requested.
+            - Respond only once and stop immediately after the tool call.
+            - Address the newest user message directly; do not repeat earlier bot output or loop on prior prompts.
+            - Keep the tone friendly, confident, and appropriately brief.
+            - After posting, do not call any other tools; the `DONE` message ends the run.
             </IMPORTANT>
-
-            Mention metadata (for your awareness):
-            - user: {trigger_user}
 
             <instructions>
             {self.response_instructions}
@@ -107,7 +141,7 @@ class SlackAppMentionPrompts(SlackPromptBase):
 
 
 class SlackInteractionPrompts(SlackPromptBase):
-    """Prompts when handling interaction payloads (e.g., button presses)."""
+    """Prompt configuration when handling interactive payloads (buttons, menus, etc.)."""
 
     messages: list[dict[str, Any]]
     thread_ts: str
@@ -122,31 +156,36 @@ class SlackInteractionPrompts(SlackPromptBase):
 
     @property
     def instructions(self) -> str:
-        trigger_time = self._ts_to_datetime(self.trigger_ts)
         acting_user = self.acting_user_id or "unknown"
         callback = self.callback_id or "n/a"
         actions_yaml = self._actions_yaml()
-        response_url = self.response_url
         return textwrap.dedent(
             f"""
-            You are replying to an interaction payload.
-            Send your response in thread <ThreadTS>{self.thread_ts}</ThreadTS> for channel <ChannelID>{self.channel_id}</ChannelID>.
+            You are handling a Slack interaction payload inside channel <ChannelID>{self.channel_id}</ChannelID>.
+            The current conversation context and action summary are provided.
 
-            Interaction details:
-            - callback_id: {callback}
-            - user: {acting_user}
-            - triggered_at: {trigger_time}
-            - response_url: {response_url}
+            Steps:
+            1. Review the transcript and payload details to understand what the user needs.
+            2. Use `tools.slack_sdk.post_response` once to update the interactive message via <ResponseURL>{self.response_url}</ResponseURL>. Set `replace_original` to true and restate the prompt alongside the available options (as plain text or disabled controls).
+            3. After updating the interactive message, call `tools.slack.post_message` exactly once with `thread_ts` set to `{self.thread_ts}` and `channel` set to `{self.channel_id}` to confirm the outcome or next steps for the participants.
+            4. Immediately after the confirmation reply, output the literal word `DONE` as your final assistant message (not via Slack) to finish the run.
 
-            Actions YAML:
+            <ThreadTS>{self.thread_ts}</ThreadTS>
+            <TriggerTS>{self.trigger_ts}</TriggerTS>
+            <CallbackID>{callback}</CallbackID>
+            <ActingUser>{acting_user}</ActingUser>
+            <TimeRightNow>{self._now_iso()}</TimeRightNow>
+
+            Interaction actions:
             ```yaml
             {actions_yaml}
             ```
 
-            Use `tools.slack_sdk.post_response` to send the reply via the provided response_url and set `replace_original` to true so the original interactive message is replaced.
-            The updated message MUST restate the original question and present the available options (as plain text or disabled buttons) so context is preserved for the channel.
-            After replacing the original message, you MUST send a confirmation reply in thread <ThreadTS>{self.thread_ts}</ThreadTS> via `tools.slack.post_message` (include `thread_ts` in the tool call) to explain the outcome or next steps.
-            Only call `tools.slack.update_message` if explicitly directed within the injected instructions block.
+            <IMPORTANT>
+            - Maintain the order: update the interactive message first, then post exactly one confirmation reply in the thread.
+            - Do not call `tools.slack.update_message` unless the injected instructions explicitly require it.
+            - Stop immediately after the confirmation reply and emit the standalone `DONE` message to close the run.
+            </IMPORTANT>
 
             <instructions>
             {self.response_instructions}
@@ -167,6 +206,7 @@ SlackPrompts = (
     | SlackAppMentionPrompts
     | SlackInteractionPrompts
 )
+
 
 __all__ = [
     "SlackPromptBase",
