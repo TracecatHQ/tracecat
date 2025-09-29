@@ -17,8 +17,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { useOrgGitSettings } from "@/lib/hooks"
 import { GIT_SSH_URL_REGEX } from "@/lib/git"
+import { useOrgGitSettings } from "@/lib/hooks"
 
 const gitFormSchema = z.object({
   git_allowed_domains: z.array(
