@@ -23,7 +23,7 @@
       }
     ],
     "strictNullChecks": true,
-    "target": "ES2017"
+    "target": "ES2018"
   },
   "include": ["**/*.ts", "**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
   "exclude": ["node_modules", ".next"]

@@ -30,20 +30,19 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { validateGitSshUrl } from "@/lib/git"
 import { useOrgSecrets, useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
 import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 import { WorkflowPullDialog } from "./workflow-pull-dialog"
 
-const workspaceSettingsSchema = z.object({
+export const workspaceSettingsSchema = z.object({
   name: z.string().min(1, "Workspace name is required"),
   git_repo_url: z
     .string()
     .nullish()
-    .refine(
-      (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
-      "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
-    ),
+    .transform((url) => url?.trim() || null)
+    .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
   workflow_unlimited_timeout_enabled: z.boolean().optional(),
   workflow_default_timeout_seconds: z
     .number()
@@ -100,6 +99,8 @@ export function OrgWorkspaceSettings({
 
   const form = useForm<WorkspaceSettingsForm>({
     resolver: zodResolver(workspaceSettingsSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       name: workspace.name,
       git_repo_url: workspace.settings?.git_repo_url || "",

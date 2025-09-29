@@ -9,7 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.db.schemas import Workspace
 from tracecat.types.auth import Role
-from tracecat.workspaces.models import WorkspaceSettings
+from tracecat.workspaces.models import WorkspaceSettings, WorkspaceSettingsUpdate
 from tracecat.workspaces.service import WorkspaceService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -88,3 +88,38 @@ class TestWorkspaceService:
         assert workspace.owner_id == svc_workspace.owner_id
         # Verify settings are preserved through validation
         assert workspace.settings is not None
+
+
+@pytest.mark.parametrize(
+    "valid_url",
+    [
+        "git+ssh://git@github.com/org/repo.git",
+        "git+ssh://git@gitlab.company.com:2222/team/project.git",
+        "git+ssh://git@gitlab.com/group/subgroup/repo.git",
+        "git+ssh://git@example.com/org/repo",
+    ],
+)
+def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> None:
+    """Workspace settings should accept git+ssh URLs that match the shared regex."""
+    settings = WorkspaceSettingsUpdate(git_repo_url=valid_url)
+
+    assert settings.git_repo_url == valid_url
+
+
+@pytest.mark.parametrize(
+    "invalid_url",
+    [
+        "https://github.com/org/repo.git",
+        "git+ssh://user@github.com/org/repo.git",
+        "git+ssh://git@github.com",
+        "git+ssh://git@github.com:not_a_port/org/repo.git",
+        "git+ssh://git@github.com:/org/repo.git",
+        "git+ssh://git@github.com/repo.git",
+    ],
+)
+def test_workspace_settings_update_rejects_invalid_git_urls(invalid_url: str) -> None:
+    """Workspace settings should reject malformed git repo URLs."""
+    with pytest.raises(ValueError) as exc_info:
+        WorkspaceSettingsUpdate(git_repo_url=invalid_url)
+
+    assert "Must be a valid Git SSH URL" in str(exc_info.value)
