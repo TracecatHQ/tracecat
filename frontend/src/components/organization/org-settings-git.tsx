@@ -17,7 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { GIT_SSH_URL_REGEX } from "@/lib/git"
+import { validateGitSshUrl } from "@/lib/git"
 import { useOrgGitSettings } from "@/lib/hooks"
 
 export const gitFormSchema = z.object({
@@ -32,96 +32,7 @@ export const gitFormSchema = z.object({
     .nullish()
     // Empty string signals removal
     .transform((url) => url?.trim() || null)
-    .superRefine((url, ctx) => {
-      if (!url) return
-
-      // Use the regex with named capture groups to provide detailed error messages
-      const match = GIT_SSH_URL_REGEX.exec(url)
-      if (match) return
-
-      // Provide specific error messages based on what's missing
-      if (!url.startsWith("git+ssh://")) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "URL must start with 'git+ssh://' protocol",
-        })
-        return
-      }
-
-      if (!url.includes("git@")) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "URL must include 'git@' user specification",
-        })
-        return
-      }
-
-      const afterProtocol = url.replace("git+ssh://git@", "")
-
-      // Split by first '/' to separate hostname from path
-      const firstSlashIndex = afterProtocol.indexOf("/")
-      if (firstSlashIndex === -1) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "URL must include a repository path",
-        })
-        return
-      }
-
-      const hostname = afterProtocol.substring(0, firstSlashIndex)
-      const repoPath = afterProtocol.substring(firstSlashIndex + 1)
-
-      // Check for valid hostname
-      if (!hostname) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Missing hostname",
-        })
-        return
-      }
-
-      if (hostname.includes(":")) {
-        const colonIndex = hostname.lastIndexOf(":")
-        const portPart = hostname.substring(colonIndex + 1)
-
-        if (!portPart) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Missing port number after ':'",
-          })
-          return
-        }
-
-        if (!/^\d+$/.test(portPart)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Port must be numeric",
-          })
-          return
-        }
-      }
-
-      // Check that we have at least 2 segments in the repo path (org/repo)
-      const pathSegments = repoPath
-        .split("/")
-        .filter((segment) => segment.length > 0)
-
-      if (pathSegments.length < 2) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Repository path must have at least 2 segments (e.g., org/repo)",
-        })
-        return
-      }
-
-      // Fallback for any other validation failures
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
-      })
-    }),
+    .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
   git_repo_package_name: z
     .string()
     .nullish()
