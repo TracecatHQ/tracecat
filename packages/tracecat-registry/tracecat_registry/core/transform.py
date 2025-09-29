@@ -278,7 +278,7 @@ async def is_duplicate(
     ] = 3600,
 ) -> bool:
     result = await deduplicate(item, keys, expire_seconds=expire_seconds, persist=True)
-    return len(result) > 0
+    return len(result) == 0
 
 
 @registry.register(
