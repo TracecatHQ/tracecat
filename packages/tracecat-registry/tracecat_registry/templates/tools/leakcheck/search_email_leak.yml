@@ -19,7 +19,7 @@ definition:
     - ref: search_email_leak
       action: core.http_request
       args:
-        url: https://leakcheck.io/api/v2/query/${{ inputs.email_address }}
+        url: https://leakcheck.io/api/v2/query/${{ FN.url_encode(inputs.email_address) }}
         method: GET
         headers:
           x-api-key: ${{ SECRETS.leakcheck_api.API_KEY }}
