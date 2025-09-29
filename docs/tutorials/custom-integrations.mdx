@@ -36,12 +36,19 @@ By the end of this tutorial, you'll learn how to:
 
 ## Sync remote git repository
 
+<Note>
+  We install sync the custom integrations git repo using `pip`'s `git+ssh` scheme.
+  The correct scheme is: `git+ssh://git@github.com/<username>/<repo>.git`.
+  This differs from the standard Git URL scheme (`git@github.com:<username>/<repo>.git`), which uses a colon (`:`) instead of a slash (`/`).
+</Note>
+
 In this section, we'll walk through the process of securely syncing custom integrations into Tracecat.
 
 <Steps>
   <CreateNewRepoStep />
   <Step title="Configure remote repo URL">
-    Go to the `Git repository` section in `Organization` settings and configure the remote repo URL to point to your private repository.
+    Go to the `Git repository` section in `Organization` settings and configure the remote repo URL to point to your private repository:
+    `git+ssh://git@github.com/<username>/<repo>.git` (notice the "/" not ":")
 
   </Step>
   <Step title="GitHub SSH deploy key">
