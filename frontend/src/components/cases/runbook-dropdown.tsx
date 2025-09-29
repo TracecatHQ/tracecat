@@ -25,6 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useListRunbooks } from "@/hooks/use-runbook"
 import { capitalizeFirst } from "@/lib/utils"
 
@@ -41,6 +42,8 @@ export function RunbookDropdown({
   entityId,
   disabled,
 }: RunbookDropdownProps) {
+  const { isFeatureEnabled, isLoading: isFeatureLoading } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
   const [open, setOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedRunbook, setSelectedRunbook] = useState<RunbookRead | null>(
@@ -52,7 +55,11 @@ export function RunbookDropdown({
     data: runbooks,
     isLoading: runbooksLoading,
     error: runbooksError,
-  } = useListRunbooks({ workspaceId })
+  } = useListRunbooks({ workspaceId, enabled: runbooksEnabled })
+
+  if (isFeatureLoading || !runbooksEnabled) {
+    return null
+  }
 
   const filteredRunbooks =
     runbooks?.filter(

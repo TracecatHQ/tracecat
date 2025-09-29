@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -58,11 +59,14 @@ export function ChatInterface({
 
   // Create prompt mutation
   const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
+  const { isFeatureEnabled } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   // Fetch runbook data if entityType is "runbook"
   const { data: runbookData } = useGetRunbook({
     runbookId: entityType === "runbook" ? entityId : "",
     workspaceId,
+    enabled: runbooksEnabled && entityType === "runbook",
   })
 
   const { sendMessage, isResponding, messages } = useChat({
@@ -114,6 +118,9 @@ export function ChatInterface({
   }
 
   const handleSaveAsPrompt = async () => {
+    if (!runbooksEnabled) {
+      return
+    }
     if (!selectedChatId) {
       console.warn("No chat selected")
       return
@@ -271,7 +278,7 @@ export function ChatInterface({
             </TooltipProvider>
 
             {/* Generate runbook icon button with tooltip - only show for non-runbook entities */}
-            {entityType !== "runbook" && (
+            {runbooksEnabled && entityType !== "runbook" && (
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -291,7 +298,7 @@ export function ChatInterface({
                 </Tooltip>
               </TooltipProvider>
             )}
-            {entityType === "case" && (
+            {runbooksEnabled && entityType === "case" && (
               <RunbookDropdown
                 workspaceId={workspaceId}
                 entityType={entityType}

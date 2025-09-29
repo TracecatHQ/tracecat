@@ -55,15 +55,18 @@ export function useListRunbooks({
   limit = 50,
   sortBy = "created_at",
   order = "desc",
+  enabled = true,
 }: {
   workspaceId: string
   limit?: number
   sortBy?: "created_at" | "updated_at"
   order?: "asc" | "desc"
+  enabled?: boolean
 }) {
   return useQuery<RunbookRead[], ApiError>({
     queryKey: ["runbooks", workspaceId, limit, sortBy, order],
     queryFn: () => runbookListRunbooks({ workspaceId, limit, sortBy, order }),
+    enabled: enabled && !!workspaceId,
   })
 }
 
@@ -71,14 +74,16 @@ export function useListRunbooks({
 export function useGetRunbook({
   workspaceId,
   runbookId,
+  enabled = true,
 }: {
   workspaceId: string
   runbookId: string
+  enabled?: boolean
 }) {
   return useQuery<RunbookRead, ApiError>({
     queryKey: ["runbooks", workspaceId, runbookId],
     queryFn: () => runbookGetRunbook({ workspaceId, runbookId }),
-    enabled: !!runbookId && !!workspaceId,
+    enabled: !!runbookId && !!workspaceId && enabled,
   })
 }
 

@@ -4,6 +4,7 @@ import {
   BoxIcon,
   KeyRoundIcon,
   ListTodoIcon,
+  type LucideIcon,
   ShapesIcon,
   SquareStackIcon,
   Table2Icon,
@@ -29,6 +30,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -38,9 +40,18 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
+  const { isFeatureEnabled } = useFeatureFlag()
   const basePath = `/workspaces/${workspaceId}`
 
-  const navMain = [
+  type NavItem = {
+    title: string
+    url: string
+    icon: LucideIcon
+    isActive?: boolean
+    visible?: boolean
+  }
+
+  const navMain: NavItem[] = [
     {
       title: "Cases",
       url: `${basePath}/cases`,
@@ -52,6 +63,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/runbooks`,
       icon: ListTodoIcon,
       isActive: pathname?.startsWith(`${basePath}/runbooks`),
+      visible: isFeatureEnabled("runbooks"),
     },
     {
       title: "Workflows",
@@ -109,16 +121,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navMain.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navMain
+                .filter((item) => item.visible !== false)
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={item.isActive}>
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

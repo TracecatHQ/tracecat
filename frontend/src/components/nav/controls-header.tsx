@@ -44,6 +44,7 @@ import {
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -547,8 +548,10 @@ function EntityBreadcrumb({
 function getPageConfig(
   pathname: string,
   workspaceId: string,
-  searchParams?: ReturnType<typeof useSearchParams>
+  searchParams: ReturnType<typeof useSearchParams> | null,
+  options: { runbooksEnabled: boolean }
 ): PageConfig | null {
+  const { runbooksEnabled } = options
   const basePath = `/workspaces/${workspaceId}`
 
   // Remove base path to get the page route
@@ -661,6 +664,9 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/runbooks")) {
+    if (!runbooksEnabled) {
+      return null
+    }
     // Check if this is a runbook detail page
     const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
     if (runbookMatch) {
@@ -696,9 +702,13 @@ export function ControlsHeader({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
+  const { isFeatureEnabled } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   const pageConfig = pathname
-    ? getPageConfig(pathname, workspaceId, searchParams)
+    ? getPageConfig(pathname, workspaceId, searchParams ?? null, {
+        runbooksEnabled,
+      })
     : null
 
   if (!pageConfig) {
