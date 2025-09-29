@@ -223,7 +223,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_attachments_router)
     app.include_router(case_records_router)
     app.include_router(chat_router)
-    app.include_router(runbook_router)
+    app.include_router(
+        runbook_router,
+        dependencies=[Depends(feature_flag_dep("runbooks"))],
+    )
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
