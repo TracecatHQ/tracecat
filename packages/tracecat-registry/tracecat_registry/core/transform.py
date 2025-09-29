@@ -191,7 +191,7 @@ async def _deduplicate_redis(
 
 @registry.register(
     default_title="Deduplicate",
-    description="Deduplicate a JSON object or a list of JSON objects given a list of keys.",
+    description="Deduplicate a JSON object or a list of JSON objects given a list of keys. Returns a list of deduplicated JSON objects.",
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -216,7 +216,7 @@ async def deduplicate(
             "Whether to persist deduplicated items across calls. If True, deduplicates across calls. If False, deduplicates within the current call only."
         ),
     ] = True,
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if not items:
         return []
 
@@ -236,7 +236,7 @@ async def deduplicate(
         return tuple(values)
 
     seen = {}
-    result = []
+    results = []
 
     for item in items_list:
         key = get_nested_values(item, keys)
@@ -250,15 +250,11 @@ async def deduplicate(
             seen[key] = item.copy()
 
     if persist:
-        result = await _deduplicate_redis(seen, expire_seconds)
+        results = await _deduplicate_redis(seen, expire_seconds)
     else:
-        result = list(seen.values())
+        results = list(seen.values())
 
-    # Return single dict if input was single dict and we have exactly one result
-    if isinstance(items, dict) and len(result) == 1:
-        return result[0]
-
-    return result
+    return results
 
 
 @registry.register(
@@ -282,7 +278,7 @@ async def is_duplicate(
     ] = 3600,
 ) -> bool:
     result = await deduplicate(item, keys, expire_seconds=expire_seconds, persist=True)
-    return item in result
+    return len(result) == 0
 
 
 @registry.register(
