@@ -43,7 +43,7 @@ const workspaceSettingsSchema = z.object({
     .nullish()
     .refine(
       (url) => !url || GIT_SSH_URL_REGEX.test(url),
-      "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
+      "Must be a valid pip Git SSH URL (e.g., git+ssh://git@github.com[:port]/org/repo.git)"
     ),
   workflow_unlimited_timeout_enabled: z.boolean().optional(),
   workflow_default_timeout_seconds: z

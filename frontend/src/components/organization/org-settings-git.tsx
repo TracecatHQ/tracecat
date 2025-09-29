@@ -42,7 +42,7 @@ const gitFormSchema = z.object({
       // - With ref: git+ssh://git@github.com/org/repo.git@main
       // - Optional .git suffix
       return GIT_SSH_URL_REGEX.test(url)
-    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com[:port]/org/repo.git)"),
+    }, "Must be a valid pip Git SSH URL (e.g., git+ssh://git@github.com[:port]/org/repo.git)"),
   git_repo_package_name: z
     .string()
     .nullish()
@@ -118,10 +118,18 @@ export function OrgSettingsGitForm() {
                   value={field.value ?? ""}
                 />
               </FormControl>
-              <FormDescription>
-                Git URL of the remote repository. Must use{" "}
-                <span className="font-mono tracking-tighter">git+ssh</span>{" "}
-                scheme. Supports nested groups and custom ports.
+              <FormDescription className="flex flex-col gap-2">
+                <span>
+                  The pip git URL of the remote repository, which uses the{" "}
+                  <span className="font-mono tracking-tighter">git+ssh</span>{" "}
+                  scheme. Supports nested groups and custom ports.
+                </span>
+                <span>
+                  Format:{" "}
+                  <span className="font-mono tracking-tight">
+                    {"git+ssh://git@<hostname>[:<port>]/<org>/<repo>.git"}
+                  </span>
+                </span>
               </FormDescription>
               <FormMessage />
             </FormItem>
