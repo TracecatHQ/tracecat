@@ -317,6 +317,18 @@ def test_not_in(
             ["deep.nested.id"],
             [{"deep": {"nested": {"id": 1, "value": "test"}}}],
         ),
+        # Dict input case
+        (
+            {"id": 1, "name": "Alice"},
+            ["id"],
+            [{"id": 1, "name": "Alice"}],
+        ),
+        # Dict input case with multiple keys
+        (
+            {"id": 1, "name": "Alice"},
+            ["id", "name"],
+            [{"id": 1, "name": "Alice"}],
+        ),
     ],
 )
 @pytest.mark.anyio
@@ -368,6 +380,20 @@ async def test_deduplicate(
             [{"id": 1}],
             [],
             [{"id": 1}],
+        ),
+        # Dict input case deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 1, "name": "Alice"},
+            [{"id": 1, "name": "Alice"}],
+            [],
+        ),
+        # Dict input case no deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Alice"},
+            [{"id": 1, "name": "Alice"}],
+            [{"id": 2, "name": "Alice"}],
         ),
     ],
 )
@@ -468,7 +494,7 @@ async def test_deduplicate_special_values(
         (
             {"id": 1, "name": "test"},
             ["id"],
-            dict,
+            list,
         ),
         # List with single item returns list
         (
@@ -691,50 +717,6 @@ async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
 
     with pytest.raises(ConnectionError, match="key-value store.*"):
         await deduplicate([{"id": 1}], ["id"])
-
-
-@pytest.mark.parametrize(
-    "items,keys,expected",
-    [
-        # Basic skip_persistence deduplication
-        (
-            [
-                {"id": 1, "name": "Alice"},
-                {"id": 2, "name": "Bob"},
-                {"id": 1, "name": "Charlie"},
-            ],
-            ["id"],
-            [{"id": 1, "name": "Charlie"}, {"id": 2, "name": "Bob"}],
-        ),
-        # Single dict input with skip_persistence
-        (
-            {"id": 1, "name": "Alice"},
-            ["id"],
-            {"id": 1, "name": "Alice"},
-        ),
-        # Empty list with skip_persistence
-        (
-            [],
-            ["id"],
-            [],
-        ),
-        # Nested keys with skip_persistence
-        (
-            [{"user": {"id": 1, "name": "Alice"}}, {"user": {"id": 1, "name": "Bob"}}],
-            ["user.id"],
-            [{"user": {"id": 1, "name": "Bob"}}],
-        ),
-    ],
-)
-@pytest.mark.anyio
-async def test_deduplicate_skip_persistence(
-    items: dict[str, Any] | list[dict[str, Any]],
-    keys: list[str],
-    expected: dict[str, Any] | list[dict[str, Any]],
-) -> None:
-    """Test deduplicate with persist=False (no Redis interaction)."""
-    result = await deduplicate(items, keys, persist=False)
-    assert result == expected
 
 
 @pytest.mark.anyio

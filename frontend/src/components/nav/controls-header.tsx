@@ -44,6 +44,7 @@ import {
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -138,12 +139,26 @@ function TablesActions() {
 }
 
 function CasesActions() {
-  const [view, setView] = useLocalStorage("cases-view", CasesViewMode.Cases)
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
+
+  const view = pathname?.includes("/cases/custom-fields")
+    ? CasesViewMode.CustomFields
+    : CasesViewMode.Cases
+
+  const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
+  const customFieldsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/custom-fields`
+    : undefined
 
   return (
     <>
-      <CasesViewToggle view={view} onViewChange={setView} />
+      <CasesViewToggle
+        view={view}
+        casesHref={casesHref}
+        customFieldsHref={customFieldsHref}
+      />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
       ) : (
@@ -250,9 +265,7 @@ function RunbooksActions() {
   const handleCreateRunbook = async () => {
     try {
       // Create a runbook without chat_id - backend will auto-generate title and content
-      const runbook = await createRunbook({
-        meta: { created_directly: true },
-      })
+      const runbook = await createRunbook({})
 
       // Navigate to the new runbook
       router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
@@ -535,8 +548,10 @@ function EntityBreadcrumb({
 function getPageConfig(
   pathname: string,
   workspaceId: string,
-  searchParams?: ReturnType<typeof useSearchParams>
+  searchParams: ReturnType<typeof useSearchParams> | null,
+  options: { runbooksEnabled: boolean }
 ): PageConfig | null {
+  const { runbooksEnabled } = options
   const basePath = `/workspaces/${workspaceId}`
 
   // Remove base path to get the page route
@@ -551,6 +566,13 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
+    if (pagePath === "/cases/custom-fields") {
+      return {
+        title: "Cases",
+        actions: <CasesActions />,
+      }
+    }
+
     // Check if this is a case detail page
     const caseMatch = pagePath.match(/^\/cases\/([^/]+)$/)
     if (caseMatch) {
@@ -642,6 +664,9 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/runbooks")) {
+    if (!runbooksEnabled) {
+      return null
+    }
     // Check if this is a runbook detail page
     const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
     if (runbookMatch) {
@@ -677,9 +702,13 @@ export function ControlsHeader({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
+  const { isFeatureEnabled } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   const pageConfig = pathname
-    ? getPageConfig(pathname, workspaceId, searchParams)
+    ? getPageConfig(pathname, workspaceId, searchParams ?? null, {
+        runbooksEnabled,
+      })
     : null
 
   if (!pageConfig) {

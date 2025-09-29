@@ -444,6 +444,24 @@ function ComponentContent({
         />
       )
     case "select":
+      if (component.multiple) {
+        const suggestions: Suggestion[] =
+          component.options?.map((option: string) => ({
+            id: option,
+            label: option,
+            value: option,
+          })) || []
+
+        return (
+          <MultiTagCommandInput
+            value={field.value || []}
+            onChange={field.onChange}
+            suggestions={suggestions}
+            searchKeys={["label", "value"]}
+            placeholder="Select options..."
+          />
+        )
+      }
       return (
         <Select value={field.value} onValueChange={field.onChange}>
           <SelectTrigger>

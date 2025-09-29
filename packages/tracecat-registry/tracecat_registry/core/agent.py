@@ -7,7 +7,6 @@ from tracecat.agent.runtime import run_agent
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 
-
 anthropic_secret = RegistrySecret(
     name="anthropic",
     optional_keys=["ANTHROPIC_API_KEY"],
@@ -133,7 +132,6 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     gemini_secret,
     bedrock_secret,
     custom_model_provider_secret,
-    langfuse_secret,
 ]
 
 
@@ -142,7 +140,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
     namespace="ai",
 )
 async def agent(
@@ -154,7 +152,7 @@ async def agent(
     model_name: Annotated[str, Doc("Name of the model to use.")],
     model_provider: Annotated[str, Doc("Provider of the model to use.")],
     actions: Annotated[
-        list[str] | str,
+        list[str],
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
@@ -188,6 +186,69 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
+    max_tools_calls: Annotated[
+        int, Doc("Maximum number of tool calls for the agent.")
+    ] = 15,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
+) -> Any:
+    return await run_agent(
+        user_prompt=user_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        actions=actions,
+        fixed_arguments=fixed_arguments,
+        instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
+        max_tools_calls=max_tools_calls,
+        max_requests=max_requests,
+        base_url=base_url,
+    )
+
+
+@registry.register(
+    default_title="AI action",
+    description="Call an LLM with a given prompt and model.",
+    display_group="AI",
+    doc_url="https://ai.pydantic.dev/agents/",
+    namespace="ai",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+)
+async def action(
+    user_prompt: Annotated[
+        str,
+        Doc("User prompt to the agent."),
+        TextArea(),
+    ],
+    model_name: Annotated[str, Doc("Name of the model to use.")],
+    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    instructions: Annotated[
+        str | None, Doc("Instructions for the agent."), TextArea()
+    ] = None,
+    output_type: Annotated[
+        Literal[
+            "bool",
+            "float",
+            "int",
+            "str",
+            "list[bool]",
+            "list[float]",
+            "list[int]",
+            "list[str]",
+        ]
+        | dict[str, Any]
+        | None,
+        Doc(
+            "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
+        ),
+    ] = None,
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model settings for the agent.")
+    ] = None,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
@@ -195,11 +256,10 @@ async def agent(
         user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
-        actions=actions if isinstance(actions, list) else [actions],
-        fixed_arguments=fixed_arguments,
         instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
+        max_requests=max_requests,
         base_url=base_url,
     )

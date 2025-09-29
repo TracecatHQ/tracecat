@@ -1,5 +1,6 @@
 import functools
 import importlib.metadata
+import uuid
 from collections.abc import Callable
 from typing import ParamSpec, TypeVar
 
@@ -24,3 +25,12 @@ def load_ee_impl[T: ImplT](group: str, *, default: T) -> T:
         return default
     logger.debug(f"Loaded {group} implementation from {impl}")
     return impl
+
+
+def is_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False

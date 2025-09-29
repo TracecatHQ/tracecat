@@ -41,13 +41,16 @@ export function RunbookCard({ runbook, onDelete }: RunbookCardProps) {
     onDelete(runbook.id)
   }
 
-  // Extract preview text from content or summary
+  // Extract preview text from instructions
   const getPreviewText = () => {
-    if (runbook.summary) {
-      return runbook.summary
+    if (!runbook.instructions) {
+      return ""
     }
-    // Extract first few lines of content as preview
-    const lines = runbook.content.split("\n").filter((line) => line.trim())
+    // Extract first few lines of instructions as preview
+    const lines = runbook.instructions.split("\n").filter((line) => line.trim())
+    if (lines.length === 0) {
+      return ""
+    }
     return (
       lines.slice(0, 3).join(" ").substring(0, 150) +
       (lines.length > 3 ? "..." : "")

@@ -24,8 +24,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
-import { useChatReadiness, useGetCase } from "@/lib/hooks"
+import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -58,22 +59,14 @@ export function ChatInterface({
 
   // Create prompt mutation
   const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
-
-  // Fetch case data if entityType is "case"
-  const { caseData } = useGetCase(
-    {
-      caseId: entityType === "case" ? entityId : "",
-      workspaceId,
-    },
-    {
-      enabled: entityType === "case",
-    }
-  )
+  const { isFeatureEnabled } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   // Fetch runbook data if entityType is "runbook"
   const { data: runbookData } = useGetRunbook({
     runbookId: entityType === "runbook" ? entityId : "",
     workspaceId,
+    enabled: runbooksEnabled && entityType === "runbook",
   })
 
   const { sendMessage, isResponding, messages } = useChat({
@@ -125,6 +118,9 @@ export function ChatInterface({
   }
 
   const handleSaveAsPrompt = async () => {
+    if (!runbooksEnabled) {
+      return
+    }
     if (!selectedChatId) {
       console.warn("No chat selected")
       return
@@ -137,24 +133,8 @@ export function ChatInterface({
     }
 
     try {
-      // Build meta object with entity information
-      let meta = undefined
-      if (entityType === "case" && caseData) {
-        meta = {
-          case_id: caseData.id,
-          case_slug: caseData.short_id,
-          case_title: caseData.summary,
-        }
-      } else if (entityType === "runbook" && runbookData) {
-        meta = {
-          runbook_id: runbookData.id,
-          runbook_title: runbookData.title,
-        }
-      }
-
       const runbook = await createRunbook({
         chat_id: selectedChatId,
-        meta,
       })
 
       console.log(`Chat saved as prompt: "${runbook.title}"`)
@@ -176,7 +156,7 @@ export function ChatInterface({
             ? `You are a helpful AI assistant helping with runbook editing.
         The current runbook ID is: ${entityId}
         ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
-        You can use the update_prompt tool to edit the runbook's title, content, or summary.
+        You can use the update_prompt tool to edit the runbook's title or instructions.
         Be concise but thorough in your responses.`
             : `You are a helpful AI assistant helping with ${entityType} management.
         The current ${entityType} ID is: ${entityId}
@@ -298,7 +278,7 @@ export function ChatInterface({
             </TooltipProvider>
 
             {/* Generate runbook icon button with tooltip - only show for non-runbook entities */}
-            {entityType !== "runbook" && (
+            {runbooksEnabled && entityType !== "runbook" && (
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -318,7 +298,7 @@ export function ChatInterface({
                 </Tooltip>
               </TooltipProvider>
             )}
-            {entityType === "case" && (
+            {runbooksEnabled && entityType === "case" && (
               <RunbookDropdown
                 workspaceId={workspaceId}
                 entityType={entityType}

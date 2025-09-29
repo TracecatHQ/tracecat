@@ -49,7 +49,7 @@ export function SyncRepositoryDialog({
         description: (
           <span className="flex flex-col space-y-2">
             <span className="flex items-center space-x-2">
-              <Spinner className="size-6" />
+              <Spinner className="size-3" />
               <span>
                 Syncing repository{" "}
                 <b className="inline-block">{selectedRepo.origin}</b>

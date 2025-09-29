@@ -1,0 +1,44 @@
+from tracecat.agent.runtime import run_agent
+from typing import Any
+
+from tracecat_registry import RegistryOAuthSecret, registry, secrets
+
+
+sentry_mcp_oauth_secret = RegistryOAuthSecret(
+    provider_id="sentry_mcp",
+    grant_type="authorization_code",
+)
+"""Sentry MCP OAuth2.0 credentials (Authorization Code grant).
+
+- name: `sentry_mcp`
+- provider_id: `sentry_mcp`
+- token_name: `SENTRY_MCP_USER_TOKEN`
+"""
+
+
+@registry.register(
+    default_title="Sentry MCP",
+    description="Use AI to interact with Sentry.",
+    display_group="Sentry MCP",
+    doc_url="https://docs.sentry.io/product/sentry-mcp/",
+    namespace="tools.sentry",
+    secrets=[sentry_mcp_oauth_secret],
+)
+async def mcp(
+    user_prompt: str,
+    instructions: str,
+    model_name: str,
+    model_provider: str,
+) -> dict[str, Any]:
+    """Use AI to interact with Sentry."""
+    token = secrets.get(sentry_mcp_oauth_secret.token_name)
+    mcp_server_url = "https://mcp.sentry.dev/mcp"
+    mcp_server_headers = {"Authorization": f"Bearer {token}"}
+    return await run_agent(
+        user_prompt=user_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        instructions=instructions,
+        mcp_server_url=mcp_server_url,
+        mcp_server_headers=mcp_server_headers,
+    )

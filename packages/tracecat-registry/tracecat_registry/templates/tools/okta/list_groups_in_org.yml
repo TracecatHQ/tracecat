@@ -3,7 +3,7 @@ definition:
   title: List groups in organization
   description: List all groups in your Okta organization with optional filtering.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#list-groups
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/listGroups
   namespace: tools.okta
   name: list_groups_in_org
   secrets:

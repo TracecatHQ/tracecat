@@ -316,7 +316,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <WandSparkles {...rest} />
         <Sparkles
           className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+            "absolute top-0 right-0 -translate-y-1/8 translate-x-1/8 fill-yellow-500/70 text-amber-500/70",
             getFlairSize(flairsize)
           )}
         />
@@ -454,7 +454,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         viewBox="0 0 24 24"
         className={cn(
           basicIconsCommon,
-          "bg-green-400/20 rounded-xl",
+          "rounded-xl bg-green-400/20",
           className
         )}
         {...rest}
@@ -465,13 +465,77 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         />
       </svg>
     ),
+    "tools.gophish": ({ className, ...rest }: IconProps) => (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="186.667"
+        height="213.333"
+        viewBox="0 0 174.99999 199.99999"
+        className={cn(
+          basicIconsCommon,
+          "rounded-full bg-blue-400/20",
+          className
+        )}
+        {...rest}
+      >
+        <g transform="translate(-286.786 -403.79)">
+          <path
+            d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z"
+            fill="#283F50"
+          />
+          <path
+            d="M472.126 134.444l6.911 3.808-6.753 4.081z"
+            transform="matrix(.33514 0 0 .78956 188.901 398.936)"
+            fill="#283F50"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <path
+            d="M348.42 508.015v17.441-17.441z"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+          />
+          <circle
+            r="6.294"
+            cy="456.744"
+            cx="390.358"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <g stroke="#283F50">
+            <path
+              d="M390.45 463.343v61.879-61.88z"
+              fill="none"
+              stroke-width="4"
+            />
+            <path
+              d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
+              fill="#283F50"
+            />
+          </g>
+        </g>
+      </svg>
+    ),
     "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
     "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
-    "llm.openai": (props: IconProps) => <OpenAIIcon {...props} />,
+    "ai.openai": (props: IconProps) => <OpenAIIcon {...props} />,
     "llm.ollama": (props: IconProps) => <OllamaIcon {...props} />,
     openai: (props: IconProps) => <OpenAIIcon {...props} />,
     ollama: (props: IconProps) => <OllamaIcon {...props} />,
     "tools.jira": (props: IconProps) => <JiraIcon {...props} />,
+    "ai.anthropic": (props: IconProps) => <ClaudeIcon {...props} />,
   }
 
 /**
@@ -564,6 +628,27 @@ export function GenericWorkflowIcon({ className, ...rest }: IconProps) {
   return (
     <div className={cn(basicIconsCommon, className)}>
       <WorkflowIcon {...rest} />
+    </div>
+  )
+}
+
+export function ClaudeIcon({ className, ...rest }: IconProps) {
+  return (
+    <div className={cn(basicIconsCommon, className)}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="256"
+        height="257"
+        preserveAspectRatio="xMidYMid"
+        viewBox="0 0 256 257"
+        className={cn(basicIconsCommon, className)}
+        {...rest}
+      >
+        <path
+          fill="#D97757"
+          d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
+        />
+      </svg>
     </div>
   )
 }

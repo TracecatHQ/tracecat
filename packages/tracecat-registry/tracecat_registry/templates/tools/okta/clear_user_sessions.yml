@@ -3,7 +3,7 @@ definition:
   title: Clear user sessions
   description: Clear all active sessions for a user in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#clear-user-sessions
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserSessions/#tag/UserSessions/operation/revokeUserSessions
   namespace: tools.okta
   name: clear_user_sessions
   secrets:

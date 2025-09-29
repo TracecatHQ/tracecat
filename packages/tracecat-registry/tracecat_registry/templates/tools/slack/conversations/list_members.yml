@@ -21,5 +21,6 @@ definition:
         sdk_method: conversations_members
         params:
           channel: ${{ inputs.channel }}
+        key: members
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_members.result }}

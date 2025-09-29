@@ -11,14 +11,14 @@ import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect } from "react"
 import type { RunbookRead } from "@/client"
-import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { RunbookInlineAliasEditor } from "@/components/runbooks/runbook-inline-alias-editor"
-import { RunbookSummaryEditor } from "@/components/runbooks/runbook-summary-editor"
+import { RunbookInstructionsEditor } from "@/components/runbooks/runbook-instructions-editor"
 import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useGetRunbook, useUpdateRunbook } from "@/hooks/use-runbook"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -26,28 +26,42 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export default function RunbookDetailPage() {
   const params = useParams()
   const workspaceId = useWorkspaceId()
+  const router = useRouter()
+  const { isFeatureEnabled, isLoading: isFeatureLoading } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   const runbookId = params?.runbookId as string | undefined
 
   const {
     data: runbook,
-    isLoading,
+    isLoading: isRunbookLoading,
     error,
   } = useGetRunbook({
     workspaceId,
     runbookId: runbookId || "",
+    enabled: runbooksEnabled,
   })
 
   useEffect(() => {
-    if (runbook?.title) {
+    if (!isFeatureLoading && !runbooksEnabled) {
+      router.replace("/not-found")
+    }
+  }, [isFeatureLoading, runbooksEnabled, router])
+
+  useEffect(() => {
+    if (runbooksEnabled && runbook?.title) {
       document.title = runbook.title
     }
-  }, [runbook])
+  }, [runbooksEnabled, runbook])
 
   if (!params) {
     return <div>Error: Invalid parameters</div>
   }
-  if (isLoading) {
+  if (isFeatureLoading || !runbooksEnabled) {
+    return <CenteredSpinner />
+  }
+
+  if (isRunbookLoading) {
     return <CenteredSpinner />
   }
 
@@ -78,7 +92,7 @@ export default function RunbookDetailPage() {
   return <RunbookDetailContent runbook={runbook} />
 }
 
-type RunbookDetailTab = "summary" | "instructions"
+type RunbookDetailTab = "instructions" | "data"
 
 function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
   const workspaceId = useWorkspaceId()
@@ -86,12 +100,12 @@ function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
   const searchParams = useSearchParams()
   const { updateRunbook } = useUpdateRunbook(workspaceId)
 
-  // Get active tab from URL query params, default to "summary"
+  // Get active tab from URL query params, default to "instructions"
   const activeTab = (
     searchParams &&
-    ["summary", "instructions"].includes(searchParams.get("tab") || "")
-      ? (searchParams.get("tab") ?? "summary")
-      : "summary"
+    ["instructions", "data"].includes(searchParams.get("tab") || "")
+      ? (searchParams.get("tab") ?? "instructions")
+      : "instructions"
   ) as RunbookDetailTab
 
   // Function to handle tab changes and update URL
@@ -116,11 +130,9 @@ function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
           <div className="flex-1 space-y-2">
             <p className="text-muted-foreground">
-              {runbook.meta?.case_slug
-                ? `Created from ${runbook.meta.case_slug}`
-                : runbook.meta?.chat_id
-                  ? `Created from chat ${runbook.meta.chat_id}`
-                  : "Created manually"}
+              {runbook.related_cases?.length
+                ? `Linked to ${runbook.related_cases.length} case${runbook.related_cases.length === 1 ? "" : "s"}`
+                : "No related cases linked yet"}
             </p>
             <RunbookInlineAliasEditor
               runbookData={runbook}
@@ -149,35 +161,33 @@ function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
         <TabsList className="h-8 justify-start rounded-none bg-transparent p-0 border-b border-border w-full">
           <TabsTrigger
             className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            value="summary"
-          >
-            <LayoutListIcon className="mr-2 size-4" />
-            <span>Summary</span>
-          </TabsTrigger>
-          <TabsTrigger
-            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
             value="instructions"
           >
             <FileTextIcon className="mr-2 size-4" />
             <span>Instructions</span>
           </TabsTrigger>
+          <TabsTrigger
+            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            value="data"
+          >
+            <LayoutListIcon className="mr-2 size-4" />
+            <span>Data</span>
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary" className="space-y-6">
+        <TabsContent value="instructions" className="space-y-6">
           {/* Main Content */}
           <div className="space-y-6">
-            {runbook.summary !== undefined ? (
-              <RunbookSummaryEditor
+            {runbook.instructions !== undefined && (
+              <RunbookInstructionsEditor
                 runbookData={runbook}
                 updateRunbook={updateRunbook}
               />
-            ) : (
-              <CaseCommentViewer content="" className="min-h-[200px]" />
             )}
           </div>
         </TabsContent>
 
-        <TabsContent value="instructions" className="space-y-6">
+        <TabsContent value="data" className="space-y-6">
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Payload</h3>
             <JsonViewWithControls

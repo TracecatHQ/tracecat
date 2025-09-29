@@ -21,7 +21,7 @@ export function useCreateRunbook(workspaceId: string) {
 
   const { mutateAsync: createRunbook, isPending: createRunbookPending } =
     useMutation<RunbookRead, ApiError, RunbookCreate>({
-      mutationFn: (request: RunbookCreate) => {
+      mutationFn: (request) => {
         // Kick off the runbook creation
         const result = runbookCreateRunbook({
           requestBody: request,
@@ -55,15 +55,18 @@ export function useListRunbooks({
   limit = 50,
   sortBy = "created_at",
   order = "desc",
+  enabled = true,
 }: {
   workspaceId: string
   limit?: number
   sortBy?: "created_at" | "updated_at"
   order?: "asc" | "desc"
+  enabled?: boolean
 }) {
   return useQuery<RunbookRead[], ApiError>({
     queryKey: ["runbooks", workspaceId, limit, sortBy, order],
     queryFn: () => runbookListRunbooks({ workspaceId, limit, sortBy, order }),
+    enabled: enabled && !!workspaceId,
   })
 }
 
@@ -71,14 +74,16 @@ export function useListRunbooks({
 export function useGetRunbook({
   workspaceId,
   runbookId,
+  enabled = true,
 }: {
   workspaceId: string
   runbookId: string
+  enabled?: boolean
 }) {
   return useQuery<RunbookRead, ApiError>({
     queryKey: ["runbooks", workspaceId, runbookId],
     queryFn: () => runbookGetRunbook({ workspaceId, runbookId }),
-    enabled: !!runbookId && !!workspaceId,
+    enabled: !!runbookId && !!workspaceId && enabled,
   })
 }
 
@@ -142,22 +147,17 @@ export function useRunRunbook(workspaceId: string) {
         workspaceId,
         requestBody: request,
       }),
-    onSuccess: (data, variables) => {
+    onSuccess: (_data, variables) => {
       // Invalidate chats to force refresh when a runbook is executed
       // This ensures the new chat appears in the chat list
-      if (variables.request.entities && variables.request.entities.length > 0) {
-        // Invalidate cache for all entities, not just the first one
-        for (const entity of variables.request.entities) {
+      if (variables.request.case_ids && variables.request.case_ids.length > 0) {
+        for (const caseId of variables.request.case_ids) {
           queryClient.invalidateQueries({
-            queryKey: [
-              "chats",
-              workspaceId,
-              entity.entity_type,
-              entity.entity_id,
-            ],
+            queryKey: ["chats", workspaceId, "case", caseId],
           })
         }
       }
+      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
 
       toast({
         title: "Runbook executed successfully",

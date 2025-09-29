@@ -13,10 +13,10 @@ import { CaseDescriptionEditor } from "@/components/cases/case-description-edito
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
 import { cn } from "@/lib/utils"
 
-const summaryFormSchema = z.object({
-  summary: z.string().optional(),
+const instructionsFormSchema = z.object({
+  instructions: z.string().optional(),
 })
-type SummaryFormSchema = z.infer<typeof summaryFormSchema>
+type InstructionsFormSchema = z.infer<typeof instructionsFormSchema>
 
 enum SaveState {
   IDLE = "idle",
@@ -26,7 +26,7 @@ enum SaveState {
   ERROR = "error",
 }
 
-interface RunbookSummaryEditorProps {
+interface RunbookInstructionsEditorProps {
   runbookData: RunbookRead
   updateRunbook: (params: {
     runbookId: string
@@ -34,23 +34,23 @@ interface RunbookSummaryEditorProps {
   }) => Promise<RunbookRead>
 }
 
-export function RunbookSummaryEditor({
+export function RunbookInstructionsEditor({
   runbookData,
   updateRunbook,
-}: RunbookSummaryEditorProps) {
+}: RunbookInstructionsEditorProps) {
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
 
-  const form = useForm<SummaryFormSchema>({
-    resolver: zodResolver(summaryFormSchema),
+  const form = useForm<InstructionsFormSchema>({
+    resolver: zodResolver(instructionsFormSchema),
     defaultValues: {
-      summary: runbookData?.summary || "",
+      instructions: runbookData?.instructions || "",
     },
   })
 
   // Reset form when promptData changes to avoid false dirty states
   useEffect(() => {
     form.reset({
-      summary: runbookData?.summary || "",
+      instructions: runbookData?.instructions || "",
     })
   }, [runbookData, form])
 
@@ -62,8 +62,8 @@ export function RunbookSummaryEditor({
   }, [form.formState.isDirty])
 
   const handleSave = useCallback(
-    async (values: SummaryFormSchema) => {
-      if (values.summary === runbookData?.summary) {
+    async (values: InstructionsFormSchema) => {
+      if (values.instructions === runbookData?.instructions) {
         return // No changes to save
       }
 
@@ -71,14 +71,14 @@ export function RunbookSummaryEditor({
       try {
         await updateRunbook({
           runbookId: runbookData.id,
-          request: { summary: values.summary },
+          request: { instructions: values.instructions },
         })
         setSaveState(SaveState.SAVED)
-        form.reset({ summary: values.summary })
+        form.reset({ instructions: values.instructions })
         // Reset to IDLE after 2 seconds
         setTimeout(() => setSaveState(SaveState.IDLE), 2000)
       } catch (error) {
-        console.error("Failed to save summary", error)
+        console.error("Failed to save instructions", error)
         setSaveState(SaveState.ERROR)
       }
     },
@@ -111,13 +111,13 @@ export function RunbookSummaryEditor({
         <form className="space-y-2" onSubmit={form.handleSubmit(handleSave)}>
           <FormField
             control={form.control}
-            name="summary"
+            name="instructions"
             render={({ field }) => (
               <FormItem className="relative">
                 <FormControl>
                   <CaseDescriptionEditor
                     className="min-h-[250px]"
-                    initialContent={runbookData.summary || ""}
+                    initialContent={runbookData.instructions || ""}
                     onChange={(content) => {
                       field.onChange(content)
                     }}
