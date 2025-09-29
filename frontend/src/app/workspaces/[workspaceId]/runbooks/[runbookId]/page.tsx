@@ -18,6 +18,7 @@ import { RunbookInstructionsEditor } from "@/components/runbooks/runbook-instruc
 import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useGetRunbook, useUpdateRunbook } from "@/hooks/use-runbook"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -25,28 +26,42 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export default function RunbookDetailPage() {
   const params = useParams()
   const workspaceId = useWorkspaceId()
+  const router = useRouter()
+  const { isFeatureEnabled, isLoading: isFeatureLoading } = useFeatureFlag()
+  const runbooksEnabled = isFeatureEnabled("runbooks")
 
   const runbookId = params?.runbookId as string | undefined
 
   const {
     data: runbook,
-    isLoading,
+    isLoading: isRunbookLoading,
     error,
   } = useGetRunbook({
     workspaceId,
     runbookId: runbookId || "",
+    enabled: runbooksEnabled,
   })
 
   useEffect(() => {
-    if (runbook?.title) {
+    if (!isFeatureLoading && !runbooksEnabled) {
+      router.replace("/not-found")
+    }
+  }, [isFeatureLoading, runbooksEnabled, router])
+
+  useEffect(() => {
+    if (runbooksEnabled && runbook?.title) {
       document.title = runbook.title
     }
-  }, [runbook])
+  }, [runbooksEnabled, runbook])
 
   if (!params) {
     return <div>Error: Invalid parameters</div>
   }
-  if (isLoading) {
+  if (isFeatureLoading || !runbooksEnabled) {
+    return <CenteredSpinner />
+  }
+
+  if (isRunbookLoading) {
     return <CenteredSpinner />
   }
 
