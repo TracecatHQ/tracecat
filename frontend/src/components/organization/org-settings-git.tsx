@@ -30,6 +30,8 @@ const gitFormSchema = z.object({
   git_repo_url: z
     .string()
     .nullish()
+    // Empty string signals removal
+    .transform((url) => url?.trim() || null)
     .refine((url) => {
       if (!url) return true
       // Matches the backend regex in tracecat/git/constants.py
@@ -40,9 +42,7 @@ const gitFormSchema = z.object({
       // - With ref: git+ssh://git@github.com/org/repo.git@main
       // - Optional .git suffix
       return GIT_SSH_URL_REGEX.test(url)
-    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)")
-    // Empty string signals removal
-    .transform((url) => url?.trim() || null),
+    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com[:port]/org/repo.git)"),
   git_repo_package_name: z
     .string()
     .nullish()
