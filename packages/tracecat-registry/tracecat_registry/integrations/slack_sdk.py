@@ -12,18 +12,6 @@ from slack_sdk.webhook.async_client import AsyncWebhookClient
 from tracecat_registry import RegistrySecret, registry, secrets
 
 
-def is_app_mention_in_channel(event: dict[str, Any]) -> bool:
-    app_mention = event.get("event", {}).get("type") == "app_mention"
-    has_thread_ts = event.get("event", {}).get("thread_ts")
-    return app_mention and not has_thread_ts
-
-
-def is_app_mention_in_thread(event: dict[str, Any]) -> bool:
-    app_mention = event.get("event", {}).get("type") == "app_mention"
-    has_thread_ts = event.get("event", {}).get("thread_ts")
-    return app_mention and has_thread_ts
-
-
 slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
 """Slack bot token.
 
