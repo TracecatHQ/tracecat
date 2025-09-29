@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Call Ollama
+  description: Call a local LLM via Ollama.
+  display_group: (Deprecated -> use ai.action instead) Ollama
+  doc_url: https://github.com/ollama/ollama/blob/main/docs/api.md
+  namespace: llm.ollama
+  name: call
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use (e.g., llama3.2, mistral, qwen2.5).
+    instructions:
+      type: str | None
+      description: System instructions for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, Any] | None
+      description: >
+        Output format to use. Either JSONSchema
+        or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
+      default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
+    base_url:
+      type: str
+      description: Base URL for Ollama API.
+      default: http://localhost:11434
+  steps:
+    - ref: call_ollama
+      action: ai.action
+      args:
+        user_prompt: ${{ inputs.prompt }}
+        model_name: ${{ inputs.model }}
+        model_provider: ollama
+        instructions: ${{ inputs.instructions }}
+        output_type: ${{ inputs.output_type }}
+        model_settings: ${{ inputs.model_settings }}
+        base_url: ${{ inputs.base_url }}
+  returns: ${{ steps.call_ollama.result }}

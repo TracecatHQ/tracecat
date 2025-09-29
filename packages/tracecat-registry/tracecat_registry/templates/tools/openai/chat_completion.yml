@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Call OpenAI (chat)
+  description: Call an LLM via OpenAI chat completion API.
+  display_group: (Deprecated -> use ai.action instead) OpenAI
+  doc_url: https://platform.openai.com/docs/api-reference/chat/create
+  namespace: llm.openai
+  name: chat_completion
+  secrets:
+    - name: openai
+      optional_keys: ["OPENAI_API_KEY"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt or conversation history to send to the LLM
+    model:
+      type: str
+      description: Model to use
+      default: gpt-4o-mini
+    system_prompt:
+      type: str | None
+      description: Insert a system message at the beginning of the conversation.
+      default: null
+    response_format:
+      type: str | dict[str, Any] | None
+      description: >
+        Output format to use. Either JSONSchema
+        or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
+      default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL for OpenAI API. Defaults to OpenAI's API endpoint.
+      default: null
+  steps:
+    - ref: call_openai
+      action: ai.action
+      args:
+        user_prompt: ${{ inputs.prompt }}
+        model_name: ${{ inputs.model }}
+        model_provider: openai
+        instructions: ${{ inputs.system_prompt }}
+        output_type: ${{ inputs.response_format }}
+        model_settings: ${{ inputs.model_settings }}
+        base_url: ${{ inputs.base_url }}
+  returns: ${{ steps.call_openai.result }}
