@@ -82,6 +82,10 @@ class SlackNoEventPrompts(SlackPromptBase):
             - Never call any additional tools after you've posted once; the closing `DONE` text completes the run.
             </IMPORTANT>
 
+            <TaggingUsers>
+            You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+            </TaggingUsers>
+
             <instructions>
             {self.response_instructions}
             </instructions>
@@ -128,6 +132,10 @@ class SlackAppMentionPrompts(SlackPromptBase):
             - Keep the tone friendly, confident, and appropriately brief.
             - After posting, do not call any other tools; the `DONE` message ends the run.
             </IMPORTANT>
+
+            <TaggingUsers>
+            You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+            </TaggingUsers>
 
             <instructions>
             {self.response_instructions}
@@ -191,6 +199,10 @@ class SlackInteractionPrompts(SlackPromptBase):
             - Do not call `tools.slack.update_message` unless the injected instructions explicitly require it.
             - Stop immediately after the confirmation reply and emit the standalone `DONE` message to close the run.
             </IMPORTANT>
+
+            <TaggingUsers>
+            You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+            </TaggingUsers>
 
             <instructions>
             {self.response_instructions}
