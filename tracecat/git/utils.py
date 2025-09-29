@@ -36,14 +36,19 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
     """
     if match := GIT_SSH_URL_REGEX.match(url):
         host = match.group("host")
+        port = match.group("port")
         path = match.group("path")
         ref = match.group("ref")
 
         if not isinstance(host, str) or not isinstance(path, str):
             raise ValueError(f"Invalid Git URL: {url}")
 
+        # Combine host and port if port is present
+        full_host = f"{host}:{port}" if port else host
+
         # Split the path to separate org/groups from repo name
         # The last segment is the repo, everything else is the org/group path
+        # Note: .git suffix is excluded by the regex's lazy quantifiers
         path_parts = path.split("/")
         if len(path_parts) < 2:
             raise ValueError(f"Invalid Git URL path format: {url}")
@@ -51,12 +56,12 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
         repo = path_parts[-1]
         org = "/".join(path_parts[:-1])
 
-        if allowed_domains and host not in allowed_domains:
+        if allowed_domains and full_host not in allowed_domains:
             raise ValueError(
-                f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
+                f"Domain {full_host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
             )
 
-        return GitUrl(host=host, org=org, repo=repo, ref=ref)
+        return GitUrl(host=full_host, org=org, repo=repo, ref=ref)
 
     raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
