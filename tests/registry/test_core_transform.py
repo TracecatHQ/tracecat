@@ -317,6 +317,18 @@ def test_not_in(
             ["deep.nested.id"],
             [{"deep": {"nested": {"id": 1, "value": "test"}}}],
         ),
+        # Dict input case
+        (
+            {"id": 1, "name": "Alice"},
+            ["id"],
+            [{"id": 1, "name": "Alice"}],
+        ),
+        # Dict input case with multiple keys
+        (
+            {"id": 1, "name": "Alice"},
+            ["id", "name"],
+            [{"id": 1, "name": "Alice"}],
+        ),
     ],
 )
 @pytest.mark.anyio
@@ -368,6 +380,20 @@ async def test_deduplicate(
             [{"id": 1}],
             [],
             [{"id": 1}],
+        ),
+        # Dict input case deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 1, "name": "Alice"},
+            [{"id": 1, "name": "Alice"}],
+            [],
+        ),
+        # Dict input case no deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 1, "name": "Bob"},
+            [{"id": 1, "name": "Alice"}],
+            [{"id": 1, "name": "Bob"}],
         ),
     ],
 )
