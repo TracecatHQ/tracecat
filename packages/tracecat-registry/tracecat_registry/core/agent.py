@@ -188,8 +188,8 @@ async def agent(
     ] = None,
     max_tools_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")
-    ] = 5,
-    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
+    ] = 15,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:

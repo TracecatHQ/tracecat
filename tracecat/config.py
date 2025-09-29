@@ -454,9 +454,9 @@ TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 10))
 
 
 TRACECAT__AGENT_MAX_TOOL_CALLS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS", 30)
+    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS", 40)
 )
 """The maximum number of tool calls that can be made per agent run."""
 
-TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 100))
+TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
 """The maximum number of requests that can be made per agent run."""
