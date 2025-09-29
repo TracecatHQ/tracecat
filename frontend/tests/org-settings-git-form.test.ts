@@ -16,7 +16,7 @@ describe("gitFormSchema git_repo_url superRefine", () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.git_repo_url).toBe(
-        "git+ssh://git@gitlab.example.com/group/subgroup/repo.git",
+        "git+ssh://git@gitlab.example.com/group/subgroup/repo.git"
       )
     }
   })
@@ -60,7 +60,9 @@ describe("gitFormSchema git_repo_url superRefine", () => {
 
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.issues.map((issue) => issue.message)).toContain(message)
+      expect(result.error.issues.map((issue) => issue.message)).toContain(
+        message
+      )
     }
   })
 
@@ -73,7 +75,7 @@ describe("gitFormSchema git_repo_url superRefine", () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.error.issues.map((issue) => issue.message)).toContain(
-        "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
+        "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
       )
     }
   })
