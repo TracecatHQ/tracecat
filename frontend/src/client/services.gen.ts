@@ -5248,6 +5248,7 @@ export const chatStartChatTurn = (
  * @param data The data for the request.
  * @param data.chatId
  * @param data.workspaceId
+ * @param data.format Streaming format (e.g. 'vercel')
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -5261,6 +5262,7 @@ export const chatStreamChatEvents = (
       chat_id: data.chatId,
     },
     query: {
+      format: data.format,
       workspace_id: data.workspaceId,
     },
     errors: {

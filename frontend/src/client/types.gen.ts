@@ -5906,6 +5906,10 @@ export type ChatStartChatTurnResponse = ChatResponse
 
 export type ChatStreamChatEventsData = {
   chatId: string
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: string | null
   workspaceId: string
 }
 
