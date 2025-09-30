@@ -13363,7 +13363,6 @@ export const $login = {
     },
     password: {
       type: "string",
-      format: "password",
       title: "Password",
     },
     scope: {
@@ -13391,7 +13390,6 @@ export const $login = {
           type: "null",
         },
       ],
-      format: "password",
       title: "Client Secret",
     },
   },
