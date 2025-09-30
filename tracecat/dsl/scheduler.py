@@ -387,6 +387,10 @@ class DSLScheduler:
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
+        # Normalize delay immediately so downstream tasks never inherit it when we skip.
+        original_delay = task.delay
+        if original_delay > 0:
+            task = replace(task, delay=0.0)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
@@ -406,13 +410,11 @@ class DSLScheduler:
             # 4) If we made it here, the task is reachable and not force-skipped.
 
             # Respect the task delay if it exists. We need this to stagger tasks for scatter.
-            if task.delay > 0:
+            if original_delay > 0:
                 self.logger.info(
-                    "Task has delay, sleeping", task=task, delay=task.delay
+                    "Task has delay, sleeping", task=task, delay=original_delay
                 )
-                await asyncio.sleep(task.delay)
-                # Reset the delay to 0.0 so it doesn't propagate to the next task
-                task = replace(task, delay=0.0)
+                await asyncio.sleep(original_delay)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
