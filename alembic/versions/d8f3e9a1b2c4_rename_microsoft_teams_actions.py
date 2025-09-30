@@ -69,9 +69,9 @@ def upgrade() -> None:
                     CASE
                         {node_case_sql}
                         ELSE node
-                    END
+                    END ORDER BY ordinality
                 )
-                FROM jsonb_array_elements(object->'nodes') AS node
+                FROM jsonb_array_elements_with_ordinality(object->'nodes') AS node(node, ordinality)
             )
         )
         WHERE object IS NOT NULL
@@ -106,9 +106,9 @@ def upgrade() -> None:
                     CASE
                         {action_def_case_sql}
                         ELSE action
-                    END
+                    END ORDER BY ordinality
                 )
-                FROM jsonb_array_elements(content->'actions') AS action
+                FROM jsonb_array_elements_with_ordinality(content->'actions') AS action(action, ordinality)
             )
         )
         FROM workflow w
@@ -170,9 +170,9 @@ def downgrade() -> None:
                     CASE
                         {node_case_sql}
                         ELSE node
-                    END
+                    END ORDER BY ordinality
                 )
-                FROM jsonb_array_elements(object->'nodes') AS node
+                FROM jsonb_array_elements_with_ordinality(object->'nodes') AS node(node, ordinality)
             )
         )
         WHERE object IS NOT NULL
@@ -206,9 +206,9 @@ def downgrade() -> None:
                     CASE
                         {action_def_case_sql}
                         ELSE action
-                    END
+                    END ORDER BY ordinality
                 )
-                FROM jsonb_array_elements(content->'actions') AS action
+                FROM jsonb_array_elements_with_ordinality(content->'actions') AS action(action, ordinality)
             )
         )
         FROM workflow w
