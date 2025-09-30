@@ -181,6 +181,7 @@ async def stream_chat_events(
     role: WorkspaceUser,
     request: Request,
     chat_id: uuid.UUID,
+    format: str | None = Query(None, description="Streaming format (e.g. 'vercel')"),
 ):
     """Stream chat events via Server-Sent Events (SSE).
 
@@ -209,8 +210,13 @@ async def stream_chat_events(
     )
 
     stream = AgentStream(await get_redis_client(), chat_id)
+    stream_iterable = (
+        stream.sse_vercel(request, last_id=start_id)
+        if format == "vercel"
+        else stream.sse(request, last_id=start_id)
+    )
     return StreamingResponse(
-        stream.sse(request, last_id=start_id),
+        stream_iterable,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
