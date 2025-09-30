@@ -41,7 +41,7 @@ dependencies = [
     "jsonpath_ng>=1.7.0,<1.8.0",
     "lark==1.1.9",
     "loguru==0.7.2",
-    "minio==7.2.15",
+    "minio==7.2.18",
     "authlib==1.6.4",
     "orjson==3.10.3",
     "paramiko==3.5.0",
