@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
 
@@ -355,7 +355,8 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(ref=next_ref, stream_id=stream_id)
+                # Inherit the delay if it exists. We need this to stagger tasks for scatter.
+                next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -386,6 +387,10 @@ class DSLScheduler:
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
+        # Normalize delay immediately so downstream tasks never inherit it when we skip.
+        original_delay = task.delay
+        if original_delay > 0:
+            task = replace(task, delay=0.0)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
@@ -403,6 +408,13 @@ class DSLScheduler:
                 return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
+
+            # Respect the task delay if it exists. We need this to stagger tasks for scatter.
+            if original_delay > 0:
+                self.logger.info(
+                    "Task has delay, sleeping", task=task, delay=original_delay
+                )
+                await asyncio.sleep(original_delay)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
@@ -685,7 +697,10 @@ class DSLScheduler:
 
         # -- EXECUTION STREAM
         self.logger.debug(
-            "Exploding collection", task=task, collection_size=len(collection)
+            "Scattering collection",
+            task=task,
+            collection_size=len(collection),
+            interval=args.interval,
         )
 
         # Create stream for each collection item
@@ -705,7 +720,9 @@ class DSLScheduler:
             }
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
+            # Calculate the task delay
+            delay = i * (args.interval or 0)
+            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
                 item=item,

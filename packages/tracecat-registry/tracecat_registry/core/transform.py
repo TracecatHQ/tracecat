@@ -352,6 +352,10 @@ def scatter(
             " be a JSONPath expression to a collection or a list of items."
         ),
     ],
+    interval: Annotated[
+        float | None,
+        Doc("The interval in seconds between each scatter task."),
+    ] = None,
 ) -> Any:
     raise ActionIsInterfaceError()
 
