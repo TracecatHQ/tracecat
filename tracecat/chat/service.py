@@ -9,9 +9,10 @@ from sqlmodel import col, select
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
 from tracecat.agent.runtime import ModelMessageTA
+from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
-from tracecat.chat.enums import MessageKind
-from tracecat.chat.models import ChatMessage
+from tracecat.chat.enums import ChatEntity, MessageKind
+from tracecat.chat.models import ChatMessage, ChatRequest, ChatResponse
 from tracecat.chat.tokens import (
     DATA_KEY,
     END_TOKEN,
@@ -19,10 +20,6 @@ from tracecat.chat.tokens import (
     SCHEMA_KEY,
     STREAM_SCHEMA_ID,
 )
-from tracecat.cases.prompts import CaseCopilotPrompts
-from tracecat.cases.service import CasesService
-from tracecat.chat.enums import ChatEntity
-from tracecat.chat.models import ChatMessage, ChatRequest, ChatResponse
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Case, Chat, Runbook
 from tracecat.db.schemas import ChatMessage as DBChatMessage

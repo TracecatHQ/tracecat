@@ -40,8 +40,8 @@ import {
 } from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
-import { useWorkspaceId } from "@/providers/workspace-id"
 import { isMCPProvider } from "@/lib/providers"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
   switch (schemaProperty.type) {
