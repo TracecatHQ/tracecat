@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
 
@@ -365,7 +365,7 @@ class Task:
     """The task action reference"""
     stream_id: StreamID
     """The stream ID of the task"""
-    delay: float | None = None
+    delay: float = field(default=0.0, compare=False)
     """Delay in seconds before scheduling an action."""
 
 

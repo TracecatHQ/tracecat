@@ -405,8 +405,8 @@ class DSLScheduler:
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
-            # Respsect the task delay if it exists. We need this to stagger tasks for scatter.
-            if task.delay:
+            # Respect the task delay if it exists. We need this to stagger tasks for scatter.
+            if task.delay > 0:
                 self.logger.info(
                     "Task has delay, sleeping", task=task, delay=task.delay
                 )
