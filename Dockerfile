@@ -88,14 +88,10 @@ FROM cgr.dev/tracecat.com/python:3.12 AS final
 ENV HOST=0.0.0.0 \
     PORT=8000 \
     PYTHONUSERBASE="/home/nonroot/.local" \
-    UV_CACHE_DIR="/home/nonroot/.cache/uv" \
     PYTHONPATH=/home/nonroot/.local:$PYTHONPATH \
     PATH="/app/.venv/bin:/home/nonroot/.local/bin:$PATH" \
     DENO_DIR="/home/nonroot/.cache/deno" \
     NODE_MODULES_DIR="/home/nonroot/.local/lib/node_modules" \
-    TMPDIR="/home/nonroot/.cache/tmp" \
-    TEMP="/home/nonroot/.cache/tmp" \
-    TMP="/home/nonroot/.cache/tmp" \
     VIRTUAL_ENV=/app/.venv
 
 WORKDIR /app
@@ -109,7 +105,6 @@ COPY --chown=nonroot:nonroot --from=builder /app /app
 COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.local /home/nonroot/.local
 COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/deno /home/nonroot/.cache/deno
 COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/s3   /home/nonroot/.cache/s3
-COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/tmp  /home/nonroot/.cache/tmp
 COPY --from=builder /usr/local/bin/deno /usr/local/bin/deno
 COPY --from=builder /usr/local/bin/check_tmp.py /usr/local/bin/check_tmp.py
 

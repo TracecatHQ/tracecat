@@ -26,6 +26,11 @@ cleanup() {
 trap cleanup EXIT
 
 # ---- wget helpers (quiet, with a few retries) ----
+if ! wget --version >/dev/null 2>&1; then
+  echo "ERROR: wget not installed." >&2
+  exit 1
+fi
+
 wget_stdout() { wget -q --tries=3 --timeout=20 -O- "$1"; }
 wget_to()     { wget -q --tries=3 --timeout=20 "$1" -O "$2"; }
 
@@ -38,10 +43,17 @@ echo "Downloading: ${DENO_URL}"
 wget_to "${DENO_URL}" "${DENO_ZIP}.partial"
 mv "${DENO_ZIP}.partial" "${DENO_ZIP}"
 
-if [[ -n "${DENO_SHA256}" ]]; then
-  echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -
-else
-  echo "WARNING: checksum unavailable; skipping verification." >&2
+# Require checksum verification
+if [[ -z "${DENO_SHA256}" ]]; then
+  echo "ERROR: checksum not provided; refusing to install unverified binary." >&2
+  exit 1
+fi
+
+# Verify checksum
+if ! echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -; then
+  echo "ERROR: checksum verification failed." >&2
+  rm -f "${DENO_ZIP}"
+  exit 1
 fi
 
 # Install Deno
