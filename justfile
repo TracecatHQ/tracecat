@@ -54,22 +54,6 @@ gen-client:
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}
 
-# CLI shortcuts
-# Check that cli is installed
-_check-cli:
-	#!/usr/bin/env sh
-	set -e
-	command -v tracecat >/dev/null 2>&1 || { echo "Error: Tracecat CLI is not installed" >&2; exit 1; }
-
-gen-api: _check-cli
-	LOG_LEVEL=ERROR tracecat dev generate-spec --update-docs
-
-gen-integrations: _check-cli
-	tracecat dev gen-integrations
-
-gen-functions: _check-cli
-	tracecat dev gen-functions
-
 # Check temporal CLI is installed
 _check-temporal-cli:
 	#!/usr/bin/env sh
