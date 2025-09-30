@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Reply to Teams message
+  title: Send replies to a Teams message
   description: Send a reply to a Microsoft Teams message.
   display_group: Microsoft Teams
-  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post-replies
+  doc_url: https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies
   namespace: tools.microsoft_teams
-  name: reply_message
+  name: post_replies
   secrets:
     - type: oauth
       provider_id: microsoft_teams
@@ -23,8 +23,12 @@ definition:
     message:
       type: str
       description: The reply message to send.
+    contentType:
+      type: str
+      description: The content type of the reply message.
+      default: html
   steps:
-    - ref: reply_message
+    - ref: post_replies
       action: core.http_request
       args:
         url: https://graph.microsoft.com/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages/${{ inputs.message_id }}/replies
@@ -35,4 +39,5 @@ definition:
         payload:
           body:
             content: ${{ inputs.message }}
-  returns: ${{ steps.reply_message.result.data }}
+            contentType: ${{ inputs.contentType }}
+  returns: ${{ steps.post_replies.result.data }}
