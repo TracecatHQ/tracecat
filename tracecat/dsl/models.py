@@ -365,11 +365,16 @@ class Task:
     """The task action reference"""
     stream_id: StreamID
     """The stream ID of the task"""
+    delay: float | None = None
+    """Delay in seconds before scheduling an action."""
 
 
 class ScatterArgs(BaseModel):
     collection: ExpressionStr | list[Any] = Field(
         ..., description="The collection to scatter"
+    )
+    interval: float | None = Field(
+        default=None, description="The interval in seconds between each scatter task"
     )
 
 

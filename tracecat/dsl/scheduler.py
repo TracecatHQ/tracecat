@@ -355,7 +355,8 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(ref=next_ref, stream_id=stream_id)
+                # Inherit the delay if it exists. We need this to stagger tasks for scatter.
+                next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -403,6 +404,13 @@ class DSLScheduler:
                 return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
+
+            # Respsect the task delay if it exists. We need this to stagger tasks for scatter.
+            if task.delay:
+                self.logger.info(
+                    "Task has delay, sleeping", task=task, delay=task.delay
+                )
+                await asyncio.sleep(task.delay)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
@@ -685,7 +693,10 @@ class DSLScheduler:
 
         # -- EXECUTION STREAM
         self.logger.debug(
-            "Exploding collection", task=task, collection_size=len(collection)
+            "Scattering collection",
+            task=task,
+            collection_size=len(collection),
+            delay=args.interval,
         )
 
         # Create stream for each collection item
@@ -705,7 +716,9 @@ class DSLScheduler:
             }
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
+            # Calculate the task delay
+            delay = i * (args.interval) if args.interval else None
+            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
                 item=item,
