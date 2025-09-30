@@ -53,8 +53,8 @@ def upgrade() -> None:
     node_case_parts = []
     for old_name, new_name in ACTION_RENAMES.items():
         node_case_parts.append(
-            f"WHEN node->'data'->>'type' = '{old_name}' "
-            f"THEN jsonb_set(node, '{{data,type}}', '\"{new_name}\"'::jsonb)"
+            f"WHEN node_item.node->'data'->>'type' = '{old_name}' "
+            f"THEN jsonb_set(node_item.node, '{{data,type}}', '\"{new_name}\"'::jsonb)"
         )
     node_case_sql = "\n                            ".join(node_case_parts)
 
@@ -68,10 +68,11 @@ def upgrade() -> None:
                 SELECT jsonb_agg(
                     CASE
                         {node_case_sql}
-                        ELSE node
+                        ELSE node_item.node
                     END
+                    ORDER BY node_item.ord
                 )
-                FROM jsonb_array_elements(object->'nodes') AS node
+                FROM jsonb_array_elements(object->'nodes') WITH ORDINALITY AS node_item(node, ord)
             )
         )
         WHERE object IS NOT NULL
@@ -90,8 +91,8 @@ def upgrade() -> None:
     action_def_case_parts = []
     for old_name, new_name in ACTION_RENAMES.items():
         action_def_case_parts.append(
-            f"WHEN action->>'action' = '{old_name}' "
-            f"THEN jsonb_set(action, '{{action}}', '\"{new_name}\"'::jsonb)"
+            f"WHEN action_item.action->>'action' = '{old_name}' "
+            f"THEN jsonb_set(action_item.action, '{{action}}', '\"{new_name}\"'::jsonb)"
         )
     action_def_case_sql = "\n                            ".join(action_def_case_parts)
 
@@ -105,10 +106,11 @@ def upgrade() -> None:
                 SELECT jsonb_agg(
                     CASE
                         {action_def_case_sql}
-                        ELSE action
+                        ELSE action_item.action
                     END
+                    ORDER BY action_item.ord
                 )
-                FROM jsonb_array_elements(content->'actions') AS action
+                FROM jsonb_array_elements(content->'actions') WITH ORDINALITY AS action_item(action, ord)
             )
         )
         FROM workflow w
@@ -154,8 +156,8 @@ def downgrade() -> None:
     node_case_parts = []
     for new_name, old_name in reverse_mapping.items():
         node_case_parts.append(
-            f"WHEN node->'data'->>'type' = '{new_name}' "
-            f"THEN jsonb_set(node, '{{data,type}}', '\"{old_name}\"'::jsonb)"
+            f"WHEN node_item.node->'data'->>'type' = '{new_name}' "
+            f"THEN jsonb_set(node_item.node, '{{data,type}}', '\"{old_name}\"'::jsonb)"
         )
     node_case_sql = "\n                            ".join(node_case_parts)
 
@@ -169,10 +171,11 @@ def downgrade() -> None:
                 SELECT jsonb_agg(
                     CASE
                         {node_case_sql}
-                        ELSE node
+                        ELSE node_item.node
                     END
+                    ORDER BY node_item.ord
                 )
-                FROM jsonb_array_elements(object->'nodes') AS node
+                FROM jsonb_array_elements(object->'nodes') WITH ORDINALITY AS node_item(node, ord)
             )
         )
         WHERE object IS NOT NULL
@@ -190,8 +193,8 @@ def downgrade() -> None:
     action_def_case_parts = []
     for new_name, old_name in reverse_mapping.items():
         action_def_case_parts.append(
-            f"WHEN action->>'action' = '{new_name}' "
-            f"THEN jsonb_set(action, '{{action}}', '\"{old_name}\"'::jsonb)"
+            f"WHEN action_item.action->>'action' = '{new_name}' "
+            f"THEN jsonb_set(action_item.action, '{{action}}', '\"{old_name}\"'::jsonb)"
         )
     action_def_case_sql = "\n                            ".join(action_def_case_parts)
 
@@ -205,10 +208,11 @@ def downgrade() -> None:
                 SELECT jsonb_agg(
                     CASE
                         {action_def_case_sql}
-                        ELSE action
+                        ELSE action_item.action
                     END
+                    ORDER BY action_item.ord
                 )
-                FROM jsonb_array_elements(content->'actions') AS action
+                FROM jsonb_array_elements(content->'actions') WITH ORDINALITY AS action_item(action, ord)
             )
         )
         FROM workflow w
