@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import redis.asyncio as redis
+import asyncio
 
 from tracecat_registry import ActionIsInterfaceError, registry
 
@@ -385,3 +386,13 @@ def gather(
     ] = "partition",
 ) -> list[Any]:
     raise ActionIsInterfaceError()
+
+
+@registry.register(
+    default_title="Wait",
+    description="Wait for a given number of seconds.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+async def wait(seconds: Annotated[int, Doc("Number of seconds to wait.")]) -> None:
+    await asyncio.sleep(seconds)
