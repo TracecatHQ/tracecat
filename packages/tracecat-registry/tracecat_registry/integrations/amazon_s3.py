@@ -46,12 +46,13 @@ s3_secret = RegistrySecret(
     Either:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
-        - `AWS_REGION`
     Or:
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME` (optional)
+    And:
+        - `AWS_REGION`
 """
 
 
