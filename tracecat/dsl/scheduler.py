@@ -696,7 +696,7 @@ class DSLScheduler:
             "Scattering collection",
             task=task,
             collection_size=len(collection),
-            delay=args.interval,
+            interval=args.interval,
         )
 
         # Create stream for each collection item
@@ -717,7 +717,7 @@ class DSLScheduler:
 
             # Create tasks for all tasks in this stream
             # Calculate the task delay
-            delay = i * (args.interval) if args.interval else None
+            delay = i * (args.interval or 0)
             new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
