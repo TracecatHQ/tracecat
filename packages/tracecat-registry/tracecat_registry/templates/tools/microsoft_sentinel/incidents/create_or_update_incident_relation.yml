@@ -44,5 +44,6 @@ definition:
           Content-Type: application/json
         params:
           api-version: ${{ inputs.api_version }}
-        payload: ${{ inputs.properties }}
+        payload:
+          properties: ${{ inputs.properties }}
   returns: ${{ steps.create_update_relation.result.data }}
