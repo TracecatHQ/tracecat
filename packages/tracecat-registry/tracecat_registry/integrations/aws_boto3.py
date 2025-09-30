@@ -41,45 +41,14 @@ aws_secret = RegistrySecret(
     Either:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
-        - `AWS_REGION`
     Or:
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME`
+    And:
+        - `AWS_REGION`
 """
-
-
-def has_usable_aws_credentials(
-    aws_access_key_id: str | None,
-    aws_secret_access_key: str | None,
-    aws_region: str | None,
-    aws_profile: str | None,
-    aws_role_arn: str | None,
-    aws_role_session_name: str | None,
-) -> bool:
-    if not any(
-        [
-            aws_access_key_id,
-            aws_secret_access_key,
-            aws_region,
-            aws_profile,
-            aws_role_arn,
-            aws_role_session_name,
-        ]
-    ):
-        return False
-
-    if aws_access_key_id and aws_secret_access_key and aws_region:
-        return True
-
-    if aws_profile:
-        return True
-
-    if aws_role_arn and aws_role_session_name:
-        return True
-
-    return False
 
 
 async def get_temporary_credentials(
