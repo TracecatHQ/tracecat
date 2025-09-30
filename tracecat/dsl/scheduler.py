@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
 
@@ -411,6 +411,8 @@ class DSLScheduler:
                     "Task has delay, sleeping", task=task, delay=task.delay
                 )
                 await asyncio.sleep(task.delay)
+                # Reset the delay to 0.0 so it doesn't propagate to the next task
+                task = replace(task, delay=0.0)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
