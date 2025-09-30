@@ -53,6 +53,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const navMain: NavItem[] = [
     {
+      title: "Workflows",
+      url: `${basePath}/workflows`,
+      icon: WorkflowIcon,
+      isActive: pathname?.startsWith(`${basePath}/workflows`),
+    },
+    {
       title: "Cases",
       url: `${basePath}/cases`,
       icon: SquareStackIcon,
@@ -64,12 +70,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: ListTodoIcon,
       isActive: pathname?.startsWith(`${basePath}/runbooks`),
       visible: isFeatureEnabled("runbooks"),
-    },
-    {
-      title: "Workflows",
-      url: `${basePath}/workflows`,
-      icon: WorkflowIcon,
-      isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
   ]
 
