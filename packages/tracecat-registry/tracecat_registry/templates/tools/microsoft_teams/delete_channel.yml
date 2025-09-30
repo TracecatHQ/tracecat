@@ -25,21 +25,4 @@ definition:
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
-
-    - ref: build_response
-      action: core.script.run_python
-      args:
-        inputs:
-          status_code: ${{ steps.delete_channel.result.status_code }}
-          team_id: ${{ inputs.team_id }}
-          channel_id: ${{ inputs.channel_id }}
-        script: |
-          def main(status_code, team_id, channel_id):
-              return {
-                  "success": True,
-                  "status_code": status_code,
-                  "team_id": team_id,
-                  "channel_id": channel_id,
-                  "message": "Channel deleted successfully"
-              }
-  returns: ${{ steps.build_response.result }}
+  returns: ${{ steps.delete_channel.result.data }}

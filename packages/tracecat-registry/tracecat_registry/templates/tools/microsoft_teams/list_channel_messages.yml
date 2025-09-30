@@ -35,9 +35,9 @@ definition:
         script: |
           def main(top, expand_replies):
               params = {}
-              if top:
-                  if top > 50:
-                      raise ValueError("Top parameter cannot exceed 50 messages per page")
+              if isinstance(top, int):
+                  if top < 1 or top > 50:
+                      raise ValueError("Top parameter must be between 1 and 50")
                   params["$top"] = top
               if expand_replies:
                   params["$expand"] = "replies"

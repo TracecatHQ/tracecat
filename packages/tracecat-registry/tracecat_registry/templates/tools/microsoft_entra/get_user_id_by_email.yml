@@ -23,7 +23,7 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN }}
         params:
-          $filter: mail eq '${{ inputs.email }}'
+          $filter: mail eq '${{ inputs.email }}' or userPrincipalName eq '${{ inputs.email }}'
           $select: id
           $top: 1
   returns: ${{ steps.get_user_id_by_email.result.data }}
