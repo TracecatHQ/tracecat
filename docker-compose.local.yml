@@ -120,7 +120,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["-m", "tracecat/dsl/worker.py"]
+    entrypoint: ["/app/.venv/bin/python", "/app/tracecat/dsl/worker.py"]
     depends_on:
       - api
       - temporal

@@ -107,9 +107,19 @@ WORKDIR /app
 # - user caches/locals that runtime expects
 COPY --chown=nonroot:nonroot --from=builder /app /app
 COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.local /home/nonroot/.local
-COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache /home/nonroot/.cache
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/deno /home/nonroot/.cache/deno
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/s3   /home/nonroot/.cache/s3
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/tmp  /home/nonroot/.cache/tmp
 COPY --from=builder /usr/local/bin/deno /usr/local/bin/deno
 COPY --from=builder /usr/local/bin/check_tmp.py /usr/local/bin/check_tmp.py
+
+# Remove unused aiohttp
+RUN ["/app/.venv/bin/python", "-c", "\
+import pathlib, shutil; \
+base = pathlib.Path('/app/.venv/lib/python3.12/site-packages/ray/_private/runtime_env/agent/thirdparty_files'); \
+paths = list(base.glob('aiohttp-*')); \
+[ (print('Removing', p), (shutil.rmtree(p) if p.is_dir() else p.unlink())) for p in paths ] \
+"]
 
 # Deno exists and is runnable
 RUN ["/usr/local/bin/deno", "--version"]
@@ -126,21 +136,15 @@ def check_path(p, want_exec=False):\n\
     return ok_r and (ok_w or not want_exec) and (ok_x if want_exec else True)\n\
 \n\
 d = os.environ.get('DENO_DIR','/home/nonroot/.cache/deno')\n\
-u = os.environ.get('UV_CACHE_DIR','/home/nonroot/.cache/uv')\n\
 n = os.environ.get('NODE_MODULES_DIR','/home/nonroot/.local/lib/node_modules')\n\
 ok = True\n\
 print('Checking cache dirs and entrypoint…')\n\
 ok &= check_path(d)\n\
-ok &= check_path(u)\n\
 ok &= check_path(n)\n\
 ok &= check_path('/app/.scripts')\n\
 ok &= check_path('/home/nonroot/.cache/s3')\n\
 # entrypoint is launched via python, so it doesn't need the +x bit; we just need R\n\
 ok &= check_path('/app/entrypoint.py', want_exec=False)\n\
-# Write test in UV cache\n\
-tf = tempfile.NamedTemporaryFile(dir=u, delete=True)\n\
-tf.write(b'ok'); tf.flush(); tf.close()\n\
-print('UV_CACHE_DIR write test: OK')\n\
 sys.exit(0 if ok else 1)\n\
 "]
 
