@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 import aiohttp
 import orjson
+import pydantic
 from fastapi import Request
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
@@ -17,10 +18,9 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import RunContext
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.adapter.vercel import adapt_events_to_vercel
 from tracecat.agent.runtime import ModelMessageTA
 from tracecat.chat import tokens
-
-# Late import to avoid circular dependency
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient
@@ -44,6 +44,70 @@ class BasicStreamingAgentDeps:
 
 
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamDelta:
+    """Container for Redis stream payloads and adapter errors."""
+
+    kind: Literal["event"] = "event"
+    id: str
+    event: AgentStreamEvent
+
+    def sse(self) -> str:
+        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamMessage:
+    """Container for Redis stream payloads and adapter errors."""
+
+    kind: Literal["message"] = "message"
+    id: str
+    message: ModelMessage
+
+    def sse(self) -> str:
+        return f"id: {self.id}\nevent: message\ndata: {orjson.dumps(self.message).decode()}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamConnected:
+    """Container for Redis stream payloads and adapter errors."""
+
+    kind: Literal["connected"] = "connected"
+    id: str
+
+    def sse(self) -> str:
+        return f"id: {self.id}\nevent: connected\ndata: {{}}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamEnd:
+    """Container for Redis stream payloads and adapter errors."""
+
+    kind: Literal["end-of-stream"] = "end-of-stream"
+    id: str
+
+    @staticmethod
+    def sse() -> str:
+        return "event: end\ndata: {}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamError:
+    """Container for Redis stream payloads and adapter errors."""
+
+    kind: Literal["error"] = "error"
+    error: str
+
+    def sse(self) -> str:
+        return f"event: error\ndata: {{'error': '{self.error}'}}\n\n"
+
+
+type StreamEvent = Annotated[
+    StreamDelta | StreamMessage | StreamEnd | StreamError,
+    pydantic.Discriminator("kind"),
+]
 
 
 class AgentStream:
@@ -78,85 +142,117 @@ class AgentStream:
             else:
                 logger.warning("Chat not found", session_id=self.session_id)
 
-    async def sse(self, request: Request, last_id: str) -> AsyncIterable[str]:
+    async def _stream_events(
+        self, request: Request, last_id: str
+    ) -> AsyncIterator[StreamEvent]:
+        current_id = last_id
         try:
-            # Send initial connection event
-            yield f"id: {last_id}\nevent: connected\ndata: {{}}\n\n"
-
-            current_id = last_id
-
             while not await request.is_disconnected():
                 try:
-                    # Read from Redis stream with blocking
                     if result := await self.client.xread(
                         streams={self._stream_key: current_id},
                         count=10,
-                        block=1000,  # Block for 1 second
+                        block=1000,
                     ):
                         for _stream_name, messages in result:
-                            for message_id, fields in messages:
-                                try:
-                                    data = orjson.loads(fields[tokens.DATA_KEY])
-                                    logger.debug("Stream message", data=data)
-                                    if not isinstance(data, dict):
-                                        raise ValueError(
-                                            f"Invalid stream message, expected dict but got {type(data)}"
+                            for msg_id, fields in messages:
+                                data = orjson.loads(fields[tokens.DATA_KEY])
+                                current_id = msg_id
+                                match data:
+                                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
+                                        logger.debug("End-of-stream marker")
+                                        yield StreamEnd(id=msg_id)
+                                    case {"event_kind": event_kind}:
+                                        logger.debug(
+                                            "Stream event", event_kind=event_kind
+                                        )
+                                        event = AgentStreamEventTA.validate_python(data)
+                                        yield StreamDelta(id=msg_id, event=event)
+                                    case {"kind": kind}:
+                                        logger.debug("Model message", kind=kind)
+                                        message = ModelMessageTA.validate_python(data)
+                                        yield StreamMessage(id=msg_id, message=message)
+                                    case _:
+                                        logger.warning(
+                                            "Invalid stream message",
+                                            error="Unexpected payload",
+                                            message_id=msg_id,
                                         )
 
-                                    # Check for end-of-stream marker
-                                    match data:
-                                        case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
-                                            logger.debug("End-of-stream marker")
-                                            yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
-                                        case {"event_kind": event_kind}:
-                                            logger.debug(
-                                                "Stream event", event_kind=event_kind
-                                            )
-                                            event = AgentStreamEventTA.validate_python(
-                                                data
-                                            )
-                                            data_json = orjson.dumps(event).decode()
-                                            yield f"id: {message_id}\nevent: delta\ndata: {data_json}\n\n"
-                                        case {"kind": kind}:
-                                            logger.debug("Model message", kind=kind)
-                                            message = ModelMessageTA.validate_python(
-                                                data
-                                            )
-                                            data_json = orjson.dumps(message).decode()
-                                            yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
-                                        case _:
-                                            raise ValueError(
-                                                f"Invalid stream message, expected dict but got {type(data)}"
-                                            )
+                        await self._set_last_stream_id(current_id)
 
-                                    # Ensure in all cases we advance the current ID
-                                    current_id = message_id
-
-                                except Exception as e:
-                                    logger.warning(
-                                        "Failed to process stream message",
-                                        error=str(e),
-                                        message_id=message_id,
-                                    )
-                                    continue
-                            # Store this every len(messages) messages
-                            await self._set_last_stream_id(current_id)
-
-                    # Send heartbeat to keep connection alive
                     await asyncio.sleep(0.1)
 
                 except Exception as e:
                     logger.error("Error reading from Redis stream", error=str(e))
-                    yield 'event: error\ndata: {"error": "Stream read error"}\n\n'
+                    yield StreamError(error="Stream read error")
                     await asyncio.sleep(1)
 
         except Exception as e:
             logger.error("Fatal error in stream generator", error=str(e))
-            yield 'event: error\ndata: {"error": "Fatal stream error"}\n\n'
+            yield StreamError(error="Fatal stream error")
         finally:
             logger.info("Chat stream ended", stream_key=self._stream_key)
             await self._set_last_stream_id(current_id)
-            yield "event: end\ndata: {{}}\n\n"
+
+    async def sse(self, request: Request, last_id: str) -> AsyncIterable[str]:
+        try:
+            yield StreamConnected(id=last_id).sse()
+            async for event in self._stream_events(request, last_id):
+                match event:
+                    case StreamError(error=error):
+                        yield event.sse()
+                        if error == "Fatal stream error":
+                            break
+                        continue
+                    case StreamEnd():
+                        logger.debug("End-of-stream marker")
+                        yield event.sse()
+                        break
+                    case StreamDelta(event=delta):
+                        logger.debug("Stream event", event_kind=delta.event_kind)
+                        yield event.sse()
+                    case StreamMessage(message=message):
+                        logger.debug("Model message", kind=message.kind)
+                        yield event.sse()
+                    case _:
+                        logger.warning(
+                            "Invalid stream message",
+                            error="Unexpected payload",
+                            event=event,
+                        )
+        finally:
+            yield StreamEnd.sse()
+
+    async def sse_vercel(self, request: Request, last_id: str) -> AsyncIterable[str]:
+        """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
+
+        try:
+            yield StreamConnected(id=last_id).sse()
+
+            unwrapped_stream = unwrap_stream(self._stream_events(request, last_id))
+            async for frame in adapt_events_to_vercel(unwrapped_stream):
+                yield frame
+
+            yield StreamEnd.sse()
+
+        except Exception as e:
+            logger.error("Error in Vercel SSE stream", error=str(e))
+            yield StreamError(error="Stream error").sse()
+
+
+async def unwrap_stream(
+    stream: AsyncIterable[StreamEvent],
+) -> AsyncIterator[AgentStreamEvent | ModelMessage]:
+    """Unwrap StreamEvent containers to extract actual events/messages."""
+    async for item in stream:
+        match item:
+            case StreamDelta(event=event):
+                yield event
+            case StreamMessage(message=message):
+                yield message
+            case StreamEnd() | StreamError():
+                break
 
 
 class HttpStreamWriter(StreamWriter):
