@@ -20,8 +20,8 @@ from tracecat.agent.runtime import (
     run_agent,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.stream import (
-    AgentStream,
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.writers import (
     BasicStreamingAgentDeps,
     PersistentStreamWriter,
     event_stream_handler,
@@ -159,6 +159,8 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                     deps=deps,
                     message_history=message_history,
                 )
+            # Emit end-of-turn marker only once after the agent's run
+            await writer.stream.done()
 
         new_messages = result.new_messages()
         await writer.store(new_messages)

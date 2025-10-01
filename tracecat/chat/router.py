@@ -7,14 +7,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import AgentStreamEvent
 
+from tracecat.agent.adapter import vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
-from tracecat.agent.stream import AgentStream
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.events import StreamFormat
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
     ChatRead,
     ChatReadMinimal,
+    ChatReadVercel,
     ChatRequest,
     ChatResponse,
     ChatUpdate,
@@ -109,6 +112,42 @@ async def get_chat(
     return res
 
 
+@router.get("/{chat_id}/vercel")
+async def get_chat_vercel(
+    chat_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> ChatReadVercel:
+    """Get a chat with its message history in Vercel format."""
+
+    # Get chat with ModelMessage format
+
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id, with_messages=True)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Convert messages to UIMessage format
+    ui_messages = vercel.convert_model_messages_to_ui(chat.messages)
+
+    # Return ChatReadVercel with converted messages
+    return ChatReadVercel(
+        id=chat.id,
+        title=chat.title,
+        user_id=chat.user_id,
+        entity_type=chat.entity_type,
+        entity_id=chat.entity_id,
+        tools=chat.tools,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_stream_id=chat.last_stream_id,
+        messages=ui_messages,
+    )
+
+
 @router.patch("/{chat_id}")
 async def update_chat(
     chat_id: uuid.UUID,
@@ -176,12 +215,94 @@ async def start_chat_turn(
         ) from e
 
 
+@router.post("/{chat_id}/vercel")
+async def chat_with_vercel_streaming(
+    chat_id: uuid.UUID,
+    request: ChatRequest,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
+    http_request: Request,
+) -> StreamingResponse:
+    """Vercel AI SDK compatible chat endpoint with streaming.
+
+    This endpoint combines chat turn initiation with streaming response,
+    compatible with Vercel's AI SDK useChat hook. It:
+    1. Accepts Vercel UI message format
+    2. Starts the agent execution
+    3. Streams the response back in Vercel's data protocol format
+    """
+
+    try:
+        svc = ChatService(session, role)
+        # Start the chat turn (this will spawn the agent execution)
+        await svc.start_chat_turn(
+            chat_id=chat_id,
+            request=request,
+            executor=executor,
+        )
+
+        # Get the chat to retrieve last stream ID
+        chat = await svc.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
+            )
+
+        # Set up streaming with Vercel format
+        start_id = chat.last_stream_id or http_request.headers.get(
+            "Last-Event-ID", "0-0"
+        )
+
+        logger.info(
+            "Starting Vercel streaming chat",
+            chat_id=chat_id,
+            start_id=start_id,
+        )
+
+        # Create stream and return with Vercel format
+        stream = AgentStream(await get_redis_client(), chat_id)
+        return StreamingResponse(
+            stream.sse(http_request, last_id=start_id, format="vercel"),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+                "x-vercel-ai-ui-message-stream": "v1",
+            },
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.exception(
+            "Failed to start Vercel streaming chat",
+            chat_id=chat_id,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start streaming chat: {str(e)}",
+        ) from e
+
+
 @router.get("/{chat_id}/stream", response_model=list[AgentStreamEvent])
 async def stream_chat_events(
     role: WorkspaceUser,
     request: Request,
     chat_id: uuid.UUID,
-    format: str | None = Query(None, description="Streaming format (e.g. 'vercel')"),
+    format: StreamFormat | None = Query(
+        default=None, description="Streaming format (e.g. 'vercel')"
+    ),
 ):
     """Stream chat events via Server-Sent Events (SSE).
 
@@ -210,17 +331,15 @@ async def stream_chat_events(
     )
 
     stream = AgentStream(await get_redis_client(), chat_id)
-    stream_iterable = (
-        stream.sse_vercel(request, last_id=start_id)
-        if format == "vercel"
-        else stream.sse(request, last_id=start_id)
-    )
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+    }
+    if format == "vercel":
+        headers["x-vercel-ai-ui-message-stream"] = "v1"
     return StreamingResponse(
-        stream_iterable,
+        stream.sse(request, last_id=start_id, format=format),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        },
+        headers=headers,
     )

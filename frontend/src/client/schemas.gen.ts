@@ -1303,6 +1303,83 @@ export const $AuthSettingsUpdate = {
   title: "AuthSettingsUpdate",
 } as const
 
+export const $BasicChatRequest = {
+  properties: {
+    format: {
+      type: "string",
+      const: "basic",
+      title: "Format",
+      default: "basic",
+    },
+    message: {
+      type: "string",
+      maxLength: 10000,
+      minLength: 1,
+      title: "Message",
+      description: "User message to send to the agent",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Model Name",
+      description: "AI model to use",
+      default: "gpt-4o-mini",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Model Provider",
+      description: "AI model provider",
+      default: "openai",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 5000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+      description: "Optional instructions for the agent",
+    },
+    context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Context",
+      description: "Optional context data for the agent",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "BasicChatRequest",
+  description: "Simple request model for starting a chat with a text message.",
+} as const
+
 export const $BinaryContent = {
   properties: {
     data: {
@@ -3003,75 +3080,90 @@ export const $ChatReadMinimal = {
   description: "Model for chat metadata without messages.",
 } as const
 
-export const $ChatRequest = {
+export const $ChatReadVercel = {
   properties: {
-    message: {
+    id: {
       type: "string",
-      maxLength: 10000,
-      minLength: 1,
-      title: "Message",
-      description: "User message to send to the agent",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
     },
-    model_name: {
+    title: {
       type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Model Name",
-      description: "AI model to use",
-      default: "gpt-4o-mini",
+      title: "Title",
+      description: "Human-readable title for the chat",
     },
-    model_provider: {
+    user_id: {
       type: "string",
-      maxLength: 50,
-      minLength: 1,
-      title: "Model Provider",
-      description: "AI model provider",
-      default: "openai",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
     },
-    instructions: {
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    last_stream_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 5000,
         },
         {
           type: "null",
         },
       ],
-      title: "Instructions",
-      description: "Optional instructions for the agent",
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
     },
-    context: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Context",
-      description: "Optional context data for the agent",
-    },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-      description: "Optional base URL for the model provider",
+    messages: {
+      items: {
+        $ref: "#/components/schemas/UIMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
     },
   },
   type: "object",
-  required: ["message"],
-  title: "ChatRequest",
-  description: "Request model for starting a chat with an AI agent.",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatReadVercel",
+  description: "Model for chat metadata with message history in Vercel format.",
 } as const
 
 export const $ChatResponse = {
@@ -3775,6 +3867,27 @@ export const $DSLValidationResult = {
   description: "Result of validating a generic input.",
 } as const
 
+export const $DataUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      pattern: "^data-.+$",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    data: {
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["type", "data"],
+  title: "DataUIPart",
+  description: "A custom data part, where type matches 'data-...'.",
+} as const
+
 export const $DocumentUrl = {
   properties: {
     url: {
@@ -3827,6 +3940,181 @@ export const $DocumentUrl = {
   required: ["url", "media_type"],
   title: "DocumentUrl",
   description: "The URL of the document.",
+} as const
+
+export const $DynamicToolUIPartInputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input"],
+  title: "DynamicToolUIPartInputAvailable",
+} as const
+
+export const $DynamicToolUIPartInputStreaming = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-streaming",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state"],
+  title: "DynamicToolUIPartInputStreaming",
+} as const
+
+export const $DynamicToolUIPartOutputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+    preliminary: {
+      type: "boolean",
+      title: "Preliminary",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input", "output"],
+  title: "DynamicToolUIPartOutputAvailable",
+} as const
+
+export const $DynamicToolUIPartOutputError = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-error",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "string",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input", "errorText"],
+  title: "DynamicToolUIPartOutputError",
 } as const
 
 export const $EditorActionRead = {
@@ -4879,6 +5167,40 @@ export const $FieldType = {
   ],
   title: "FieldType",
   description: "Supported field types for entities.",
+} as const
+
+export const $FileUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "file",
+      title: "Type",
+    },
+    mediaType: {
+      type: "string",
+      title: "Mediatype",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "mediaType", "url"],
+  title: "FileUIPart",
+  description: "A file part of a message.",
 } as const
 
 export const $FinalResultEvent = {
@@ -6997,6 +7319,37 @@ export const $PullResult = {
     "message",
   ],
   title: "PullResult",
+} as const
+
+export const $ReasoningUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "reasoning",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    state: {
+      type: "string",
+      enum: ["streaming", "done"],
+      title: "State",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "ReasoningUIPart",
+  description: "A reasoning part of a message.",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -9731,6 +10084,78 @@ export const $SeverityChangedEventRead = {
   description: "Event for when a case severity is changed.",
 } as const
 
+export const $SourceDocumentUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "source-document",
+      title: "Type",
+    },
+    sourceId: {
+      type: "string",
+      title: "Sourceid",
+    },
+    mediaType: {
+      type: "string",
+      title: "Mediatype",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "sourceId", "mediaType", "title"],
+  title: "SourceDocumentUIPart",
+  description: "A document source part of a message.",
+} as const
+
+export const $SourceUrlUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "source-url",
+      title: "Type",
+    },
+    sourceId: {
+      type: "string",
+      title: "Sourceid",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "sourceId", "url"],
+  title: "SourceUrlUIPart",
+  description: "A source URL part of a message.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -9804,6 +10229,20 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $StepStartUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "step-start",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "StepStartUIPart",
+  description: "A step boundary part of a message.",
 } as const
 
 export const $SyntaxToken = {
@@ -10756,6 +11195,37 @@ export const $TextPartDelta = {
     "A partial update (delta) for a `TextPart` to append new text content.",
 } as const
 
+export const $TextUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "text",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    state: {
+      type: "string",
+      enum: ["streaming", "done"],
+      title: "State",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "TextUIPart",
+  description: "A text part of a message.",
+} as const
+
 export const $ThinkingPart = {
   properties: {
     content: {
@@ -11000,6 +11470,180 @@ export const $ToolReturnPart = {
     "A tool return message, this encodes the result of running a tool.",
 } as const
 
+export const $ToolUIPartInputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "input"],
+  title: "ToolUIPartInputAvailable",
+} as const
+
+export const $ToolUIPartInputStreaming = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-streaming",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state"],
+  title: "ToolUIPartInputStreaming",
+} as const
+
+export const $ToolUIPartOutputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+    preliminary: {
+      type: "boolean",
+      title: "Preliminary",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "input", "output"],
+  title: "ToolUIPartOutputAvailable",
+} as const
+
+export const $ToolUIPartOutputError = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-error",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    rawInput: {
+      title: "Rawinput",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "string",
+      title: "Errortext",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "errorText"],
+  title: "ToolUIPartOutputError",
+} as const
+
 export const $Trigger = {
   properties: {
     type: {
@@ -11028,6 +11672,88 @@ export const $TriggerType = {
   enum: ["manual", "scheduled", "webhook"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
+} as const
+
+export const $UIMessage = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    role: {
+      type: "string",
+      enum: ["system", "user", "assistant"],
+      title: "Role",
+    },
+    metadata: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+    },
+    parts: {
+      items: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/TextUIPart",
+          },
+          {
+            $ref: "#/components/schemas/ReasoningUIPart",
+          },
+          {
+            $ref: "#/components/schemas/SourceUrlUIPart",
+          },
+          {
+            $ref: "#/components/schemas/SourceDocumentUIPart",
+          },
+          {
+            $ref: "#/components/schemas/FileUIPart",
+          },
+          {
+            $ref: "#/components/schemas/StepStartUIPart",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartInputStreaming",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartInputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartOutputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartOutputError",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartInputStreaming",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartInputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartOutputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartOutputError",
+          },
+          {
+            $ref: "#/components/schemas/DataUIPart",
+          },
+        ],
+      },
+      type: "array",
+      title: "Parts",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "role", "parts"],
+  title: "UIMessage",
+  description: `Pydantic model for AI SDK UI Messages, used for validation between
+frontend and backend.`,
 } as const
 
 export const $UpdatedEventRead = {
@@ -11507,6 +12233,52 @@ export const $ValidationResult = {
       secret: "#/components/schemas/SecretValidationResult",
     },
   },
+} as const
+
+export const $VercelChatRequest = {
+  properties: {
+    format: {
+      type: "string",
+      const: "vercel",
+      title: "Format",
+      default: "vercel",
+    },
+    message: {
+      $ref: "#/components/schemas/UIMessage",
+      description: "User message in Vercel UI format",
+    },
+    model: {
+      type: "string",
+      title: "Model",
+      description: "AI model to use",
+      default: "gpt-4o-mini",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Model Provider",
+      description: "AI model provider",
+      default: "openai",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "VercelChatRequest",
+  description: "Vercel AI SDK format request with structured UI messages.",
 } as const
 
 export const $VideoUrl = {

@@ -1,22 +1,32 @@
+import * as aiSdk from "@ai-sdk/react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { DefaultChatTransport, type UIMessage } from "ai"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   type ApiError,
+  type BasicChatRequest,
   type ChatCreate,
   type ChatEntity,
   type ChatRead,
   type ChatReadMinimal,
-  type ChatRequest,
+  type ChatReadVercel,
   type ChatResponse,
   type ChatUpdate,
   chatCreateChat,
   chatGetChat,
+  chatGetChatVercel,
   chatListChats,
   chatStartChatTurn,
   chatUpdateChat,
+  type VercelChatRequest,
 } from "@/client"
 import { getBaseUrl } from "@/lib/api"
-import { isModelMessage, isStreamEvent, type ModelMessage } from "@/lib/chat"
+import {
+  isModelMessage,
+  isStreamEvent,
+  type ModelMessage,
+  toUIMessage,
+} from "@/lib/chat"
 
 const serializeMessageForComparison = (message: ModelMessage) => {
   const normalized = {
@@ -246,9 +256,9 @@ export function useChat({
   const { mutateAsync: sendMessage } = useMutation<
     ChatResponse,
     ApiError,
-    ChatRequest
+    BasicChatRequest
   >({
-    mutationFn: async (request: ChatRequest) => {
+    mutationFn: async (request: BasicChatRequest) => {
       if (!chatId) {
         throw new Error("No chat ID available")
       }
@@ -593,4 +603,61 @@ export function useUpdateChat(workspaceId: string) {
     isUpdating: mutation.isPending,
     updateError: mutation.error,
   }
+}
+
+// Combined hook for chat functionality with Vercel AI SDK streaming
+export function useVercelChat({
+  chatId,
+  workspaceId,
+}: {
+  chatId?: string
+  workspaceId: string
+}) {
+  // Fetch chat history in Vercel format (backend handles conversion)
+  const { data: chatHistory } = useQuery<ChatReadVercel, ApiError>({
+    queryKey: ["chat", chatId, workspaceId, "vercel"],
+    queryFn: () => {
+      if (!chatId) {
+        throw new Error("No chat ID available")
+      }
+      return chatGetChatVercel({ chatId, workspaceId })
+    },
+    enabled: !!chatId && !!workspaceId,
+  })
+
+  // Messages are already in UIMessage format from the backend
+  const initialMessages: UIMessage[] = useMemo(
+    () => (chatHistory?.messages || []).map(toUIMessage),
+    [chatHistory]
+  )
+
+  // Build the Vercel streaming endpoint URL
+  const apiEndpoint = useMemo(() => {
+    if (!chatId) return ""
+    const url = new URL(`/api/chat/${chatId}/vercel`, getBaseUrl())
+    url.searchParams.set("workspace_id", workspaceId)
+    return url.toString()
+  }, [chatId, workspaceId])
+
+  // Use Vercel's useChat hook for streaming
+  return aiSdk.useChat({
+    id: chatId,
+    messages: initialMessages,
+    transport: new DefaultChatTransport({
+      api: apiEndpoint,
+      credentials: "include",
+      prepareSendMessagesRequest: ({ messages }) => {
+        // Send only the last message
+        const reqBody: VercelChatRequest = {
+          format: "vercel",
+          model: "gpt-4o-mini",
+          model_provider: "openai",
+          message: messages[messages.length - 1],
+        }
+        return {
+          body: reqBody,
+        }
+      },
+    }),
+  })
 }

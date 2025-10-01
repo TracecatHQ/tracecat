@@ -7,6 +7,7 @@ from typing import Any
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import RedisError
+from redis.typing import KeyT, StreamIdT
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -120,7 +121,7 @@ class RedisClient:
     )
     async def xread(
         self,
-        streams: dict[str, str],
+        streams: dict[KeyT, StreamIdT],
         count: int | None = None,
         block: int | None = None,
     ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
@@ -135,8 +136,7 @@ class RedisClient:
             List of tuples (stream_key, [(message_id, fields)])
         """
         try:
-            result = await self.client.xread(streams=streams, count=count, block=block)  # type: ignore
-            return result
+            return await self.client.xread(streams=streams, count=count, block=block)
         except RedisError as e:
             logger.error(
                 "Failed to read from Redis stream",

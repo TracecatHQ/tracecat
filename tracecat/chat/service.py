@@ -2,17 +2,24 @@ import uuid
 from collections.abc import Sequence
 
 import orjson
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 
+import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
 from tracecat.agent.runtime import ModelMessageTA
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
-from tracecat.chat.models import ChatMessage, ChatRequest, ChatResponse
+from tracecat.chat.models import (
+    BasicChatRequest,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    VercelChatRequest,
+)
 from tracecat.chat.tokens import (
     DATA_KEY,
     END_TOKEN,
@@ -112,22 +119,57 @@ class ChatService(BaseWorkspaceService):
 
         This method handles the business logic for starting a chat turn,
         including instruction merging, content injection, and agent execution.
+
+        Supports both simple text messages and Vercel UI messages.
         """
+
         # Get the chat
         chat = await self.get_chat(chat_id)
         if not chat:
             raise TracecatNotFoundError(f"Chat with ID {chat_id} not found")
 
+        # Handle different request formats
+        match request:
+            case VercelChatRequest(
+                message=ui_message,
+                model=model_name,
+                model_provider=model_provider,
+                base_url=base_url,
+            ):
+                # Convert Vercel UI messages to pydantic-ai messages
+                [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
+                match message:
+                    case ModelRequest(parts=[UserPromptPart(content=content)]):
+                        match content:
+                            case str(s):
+                                user_prompt = s
+                            case list(l):
+                                user_prompt = "\n".join(str(item) for item in l)
+                            case _:
+                                raise ValueError(f"Unsupported user prompt: {content}")
+                    case _:
+                        raise ValueError(f"Unsupported message: {message}")
+            case BasicChatRequest(
+                message=user_prompt,
+                model_name=model_name,
+                model_provider=model_provider,
+                base_url=base_url,
+            ):
+                pass
+            case _:
+                raise ValueError(f"Unsupported chat request: {request}")
+
+        logger.info("User prompt", user_prompt=user_prompt)
         # Prepare agent execution arguments
         instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
         model_info = ModelInfo(
-            name=request.model_name,
-            provider=request.model_provider,
-            base_url=request.base_url,
+            name=model_name,
+            provider=model_provider,
+            base_url=base_url,
         )
         args = RunAgentArgs(
             role=self.role,
-            user_prompt=request.message,
+            user_prompt=user_prompt,
             tool_filters=ToolFilters(actions=chat.tools),
             session_id=str(chat_id),
             instructions=instructions,
@@ -139,10 +181,7 @@ class ChatService(BaseWorkspaceService):
 
         # Return response with stream URL
         stream_url = f"/api/chat/{chat_id}/stream"
-        return ChatResponse(
-            stream_url=stream_url,
-            chat_id=chat_id,
-        )
+        return ChatResponse(stream_url=stream_url, chat_id=chat_id)
 
     async def get_chat(
         self, chat_id: uuid.UUID, *, with_messages: bool = False
@@ -367,7 +406,7 @@ class ChatService(BaseWorkspaceService):
                 "No messages in database, attempting Redis backfill",
                 chat_id=chat.id,
             )
-            await self._backfill_from_redis(chat)
+            # await self._backfill_from_redis(chat)
             # Re-fetch from database after backfill
             db_messages = await self.list_messages(chat.id)
 

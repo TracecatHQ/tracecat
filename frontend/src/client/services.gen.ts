@@ -107,10 +107,14 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  ChatChatWithVercelStreamingData,
+  ChatChatWithVercelStreamingResponse,
   ChatCreateChatData,
   ChatCreateChatResponse,
   ChatGetChatData,
   ChatGetChatResponse,
+  ChatGetChatVercelData,
+  ChatGetChatVercelResponse,
   ChatListChatsData,
   ChatListChatsResponse,
   ChatStartChatTurnData,
@@ -5224,6 +5228,69 @@ export const chatStartChatTurn = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Chat Vercel
+ * Get a chat with its message history in Vercel format.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns ChatReadVercel Successful Response
+ * @throws ApiError
+ */
+export const chatGetChatVercel = (
+  data: ChatGetChatVercelData
+): CancelablePromise<ChatGetChatVercelResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}/vercel",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Chat With Vercel Streaming
+ * Vercel AI SDK compatible chat endpoint with streaming.
+ *
+ * This endpoint combines chat turn initiation with streaming response,
+ * compatible with Vercel's AI SDK useChat hook. It:
+ * 1. Accepts Vercel UI message format
+ * 2. Starts the agent execution
+ * 3. Streams the response back in Vercel's data protocol format
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const chatChatWithVercelStreaming = (
+  data: ChatChatWithVercelStreamingData
+): CancelablePromise<ChatChatWithVercelStreamingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/{chat_id}/vercel",
     path: {
       chat_id: data.chatId,
     },
