@@ -28,14 +28,16 @@ minio_secret = RegistrySecret(
 """
 
 
-def _get_client(endpoint: str | None = None, cert_check: bool = True) -> Minio:
+def _get_client(
+    endpoint: str | None = None, cert_check: bool = True, secure: bool = True
+) -> Minio:
     """Helper function to create MinIO client."""
     return Minio(
         endpoint=endpoint or secrets.get("MINIO_ENDPOINT"),
         access_key=secrets.get("MINIO_ACCESS_KEY"),
         secret_key=secrets.get("MINIO_SECRET_KEY"),
         region=secrets.get("MINIO_REGION"),
-        secure=True,
+        secure=secure,
         cert_check=cert_check,
     )
 
@@ -51,8 +53,13 @@ def _get_client(endpoint: str | None = None, cert_check: bool = True) -> Minio:
 def call_method(
     method_name: Annotated[str, Doc("MinIO method name.")],
     params: Annotated[dict[str, Any], Doc("MinIO method parameters.")],
+    endpoint: Annotated[str | None, Doc("MinIO endpoint URL.")] = None,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
+    cert_check: Annotated[
+        bool, Doc("Whether to check the server certificate for HTTPS connection.")
+    ] = True,
 ) -> dict[str, Any]:
-    client = _get_client()
+    client = _get_client(endpoint=endpoint, secure=secure, cert_check=cert_check)
     return to_jsonable_python(getattr(client, method_name)(**params))
 
 
@@ -71,8 +78,9 @@ def get_object(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> str:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     response = client.get_object(bucket, key)
     data = response.read()
     response.close()
@@ -96,8 +104,9 @@ def list_objects(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> list[dict[str, Any]]:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     objects = client.list_objects(bucket, prefix=prefix, recursive=recursive)
     return to_jsonable_python(list(objects))
 
@@ -118,8 +127,9 @@ def copy_objects(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> list[dict[str, Any]]:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     objects = client.list_objects(src_bucket, prefix=prefix, recursive=True)
     results = []
 
@@ -149,8 +159,9 @@ def get_objects(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> list[str]:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     results = []
 
     for key in keys:
@@ -179,6 +190,7 @@ def put_object(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> dict[str, Any]:
     if not key or "\x00" in key:
         raise ValueError(
@@ -193,7 +205,7 @@ def put_object(
             f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
         )
 
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     result = client.put_object(
         bucket, key, io.BytesIO(content_bytes), len(content_bytes)
     )
@@ -215,8 +227,9 @@ def delete_object(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> dict[str, Any]:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     response = client.remove_object(bucket, key)
     return to_jsonable_python(response)
 
@@ -234,6 +247,7 @@ def list_buckets(
     cert_check: Annotated[
         bool, Doc("Whether to check the server certificate for HTTPS connection.")
     ] = True,
+    secure: Annotated[bool, Doc("Whether to use HTTPS connection.")] = True,
 ) -> list[dict[str, Any]]:
-    client = _get_client(endpoint, cert_check)
+    client = _get_client(endpoint, cert_check, secure)
     return to_jsonable_python(client.list_buckets())
