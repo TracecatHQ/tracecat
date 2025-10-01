@@ -1,10 +1,10 @@
 type: action
 definition:
   title: Execute cross-workspace KQL query
-  description: Execute a KQL query across multiple Log Analytics workspaces for federated Sentinel queries.
-  display_group: Microsoft Sentinel
+  description: Execute a KQL query across multiple Log Analytics workspaces for federated Azure Log Analytics queries.
+  display_group: Azure Log Analytics
   doc_url: https://learn.microsoft.com/en-us/rest/api/loganalytics/dataaccess/query/execute
-  namespace: tools.microsoft_sentinel
+  namespace: tools.azure_log_analytics
   name: execute_cross_workspace_kql_query
   secrets:
     - type: oauth

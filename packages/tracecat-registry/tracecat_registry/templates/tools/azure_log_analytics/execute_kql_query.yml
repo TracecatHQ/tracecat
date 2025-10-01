@@ -1,10 +1,10 @@
 type: action
 definition:
   title: Execute KQL query
-  description: Execute a KQL query against Microsoft Sentinel Log Analytics workspace.
-  display_group: Microsoft Sentinel
+  description: Execute a KQL query against Azure Log Analytics workspace.
+  display_group: Azure Log Analytics
   doc_url: https://learn.microsoft.com/en-us/rest/api/loganalytics/dataaccess/query/execute
-  namespace: tools.microsoft_sentinel
+  namespace: tools.azure_log_analytics
   name: execute_kql_query
   secrets:
     - type: oauth
