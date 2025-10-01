@@ -1,5 +1,6 @@
 from tracecat.agent.runtime import run_agent
-from typing import Any
+from typing import Any, Annotated
+from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
 
@@ -25,10 +26,10 @@ linear_mcp_oauth_secret = RegistryOAuthSecret(
     secrets=[linear_mcp_oauth_secret],
 )
 async def mcp(
-    user_prompt: str,
-    instructions: str,
-    model_name: str,
-    model_provider: str,
+    user_prompt: Annotated[str, Doc("User prompt to the agent.")],
+    instructions: Annotated[str, Doc("Instructions for the agent.")],
+    model_name: Annotated[str, Doc("Name of the model to use.")],
+    model_provider: Annotated[str, Doc("Provider of the model to use.")],
 ) -> dict[str, Any]:
     """Use AI to interact with Linear."""
     token = secrets.get(linear_mcp_oauth_secret.token_name)
