@@ -1,6 +1,7 @@
 "use client"
 
-import { ArrowUpRight, PlayIcon } from "lucide-react"
+import fuzzysort from "fuzzysort"
+import { ArrowUpRight, ChevronsUpDown, PlayIcon } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useMemo, useState } from "react"
 import type { CaseRead } from "@/client"
@@ -18,14 +19,20 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -53,6 +60,8 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
   )
+  const [searchTerm, setSearchTerm] = useState("")
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false)
   // Use the useLocalStorage hook
   const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
     "groupCaseFields",
@@ -83,6 +92,33 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const selectedWorkflowUrl = `/workspaces/${workspaceId}/workflows/${selectedWorkflowId}`
   // Fetch workflows
   const { workflows, workflowsLoading, workflowsError } = useWorkflowManager()
+
+  const searchableWorkflows = useMemo(
+    () =>
+      (workflows ?? []).map((workflow) => ({
+        workflow,
+        title: workflow.title,
+        alias: workflow.alias ?? "",
+      })),
+    [workflows]
+  )
+
+  const filteredWorkflows = useMemo(() => {
+    if (!searchableWorkflows.length) {
+      return []
+    }
+
+    if (!searchTerm.trim()) {
+      return searchableWorkflows
+    }
+
+    const results = fuzzysort.go(searchTerm, searchableWorkflows, {
+      all: true,
+      keys: ["title", "alias"],
+    })
+
+    return results.map((result) => result.obj)
+  }, [searchableWorkflows, searchTerm])
 
   const handleTrigger = useCallback(async () => {
     if (!selectedWorkflowId) return
@@ -124,37 +160,95 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const selectedWorkflow = workflows?.find((wf) => wf.id === selectedWorkflowId)
   return (
     <div className="space-y-3">
-      <Select
-        onValueChange={setSelectedWorkflowId}
-        value={selectedWorkflowId || ""}
+      <Popover
+        open={isComboboxOpen}
+        onOpenChange={(open) => {
+          setIsComboboxOpen(open)
+          if (!open) {
+            setSearchTerm("")
+          }
+        }}
       >
-        <SelectTrigger className="h-8 border-muted text-xs">
-          <SelectValue placeholder="Select a workflow..." />
-        </SelectTrigger>
-        <SelectContent>
-          {workflows && workflows.length > 0 ? (
-            workflows.map((workflow) => (
-              <SelectItem key={workflow.id} value={workflow.id}>
-                <div className="flex items-center gap-2 text-xs">
-                  <span>{workflow.title}</span>
-                  {workflow.alias && (
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={isComboboxOpen}
+            className="h-8 w-full justify-between border-muted text-xs"
+          >
+            <span className="flex min-w-0 items-center gap-2 truncate">
+              {selectedWorkflow ? (
+                <>
+                  <span className="truncate">{selectedWorkflow.title}</span>
+                  {selectedWorkflow.alias && (
                     <Badge
                       variant="secondary"
                       className="px-1 py-0 text-[10px] font-normal"
                     >
-                      {workflow.alias}
+                      {selectedWorkflow.alias}
                     </Badge>
                   )}
-                </div>
-              </SelectItem>
-            ))
-          ) : (
-            <div className="p-2 text-center text-xs text-muted-foreground">
-              No workflows found
-            </div>
-          )}
-        </SelectContent>
-      </Select>
+                </>
+              ) : (
+                <span className="text-muted-foreground">
+                  Select a workflow...
+                </span>
+              )}
+            </span>
+            <ChevronsUpDown className="ml-2 size-3 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] min-w-64 p-0"
+          align="start"
+        >
+          <Command shouldFilter={false}>
+            <CommandInput
+              placeholder="Search workflows..."
+              value={searchTerm}
+              onValueChange={setSearchTerm}
+            />
+            <CommandList>
+              {workflowsLoading ? (
+                <CommandEmpty>Loading workflows...</CommandEmpty>
+              ) : workflowsError ? (
+                <CommandEmpty>Failed to load workflows</CommandEmpty>
+              ) : filteredWorkflows.length === 0 ? (
+                <CommandEmpty>No workflows found</CommandEmpty>
+              ) : (
+                <CommandGroup>
+                  {filteredWorkflows.map(({ workflow }) => (
+                    <CommandItem
+                      key={workflow.id}
+                      value={workflow.id}
+                      onSelect={() => {
+                        setSelectedWorkflowId(workflow.id)
+                        setIsComboboxOpen(false)
+                        setSearchTerm("")
+                      }}
+                      className="flex flex-col items-start py-2"
+                    >
+                      <div className="flex w-full items-center gap-2">
+                        <span className="truncate font-medium">
+                          {workflow.title}
+                        </span>
+                        {workflow.alias && (
+                          <Badge
+                            variant="secondary"
+                            className="px-1 py-0 text-[10px] font-normal"
+                          >
+                            {workflow.alias}
+                          </Badge>
+                        )}
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
 
       <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <AlertDialogTrigger asChild>
