@@ -2,11 +2,11 @@
 
 from typing import Annotated, Any
 
+import orjson
 from pydantic import Field
 from pymongo import MongoClient
 from pymongo.cursor import Cursor
-from pydantic_core import to_jsonable_python
-
+from bson.json_util import dumps
 from tracecat_registry import RegistrySecret, registry, secrets
 
 mongodb_secret = RegistrySecret(
@@ -30,7 +30,7 @@ mongodb_secret = RegistrySecret(
     namespace="tools.pymongo",
     secrets=[mongodb_secret],
 )
-async def execute_operation(
+def execute_operation(
     operation_name: Annotated[
         str,
         Field(
@@ -51,26 +51,22 @@ async def execute_operation(
         Field(..., description="Parameters for the operation"),
     ] = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
-    # Connect to MongoDB
+    # Connect to MongoDB (PyMongo's client is synchronous; context manager guarantees cleanup)
     connection_string = secrets.get("MONGODB_CONNECTION_STRING")
-    client = MongoClient(connection_string)
+    with MongoClient(connection_string) as client:
+        # Get the database and collection
+        db = client[database_name]
+        collection = db[collection_name]
 
-    # Get the database and collection
-    db = client[database_name]
-    collection = db[collection_name]
+        # Call the operation
+        params = params or {}
+        result = getattr(collection, operation_name)(**params)
 
-    # Call the operation
-    params = params or {}
-    result = getattr(collection, operation_name)(**params)
+        if isinstance(result, Cursor):
+            # Force cursor evaluation so we can serialize the documents
+            result = list(result)
 
-    if isinstance(result, Cursor):
-        # Stringify the ObjectIDs
-        result = [
-            {**item, "_id": str(item["_id"])} if "_id" in item else item
-            for item in list(result)
-        ]
-    elif isinstance(result, dict) and "_id" in result:
-        result["_id"] = str(result["_id"])
-
-    # Ensure that the result is JSON serializable
-    return to_jsonable_python(result)
+        # pymongo uses bson which is not directly JSON serializable
+        # https://pymongo.readthedocs.io/en/stable/api/bson/json_util.html
+        # https://stackoverflow.com/questions/13241878/convert-pymongo-cursor-to-json
+        return orjson.loads(dumps(result))
