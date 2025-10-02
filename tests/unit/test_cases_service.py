@@ -678,3 +678,88 @@ class TestCasesService:
         case_ids = {case.id for case in cases}
         assert second_case.id in case_ids
         assert first_case.id not in case_ids  # Different priority
+
+    async def test_create_case_with_nonexistent_field(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test creating a case with a field that doesn't exist in the schema."""
+        from tracecat.types.exceptions import TracecatException
+
+        params = CaseCreate(
+            summary="Test Case",
+            description="Test case with invalid field",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            fields={"nonexistent_field": "some value"},
+        )
+
+        # Should raise TracecatException with clear message about undefined field
+        with pytest.raises(TracecatException) as exc_info:
+            await cases_service.create_case(params)
+
+        # Error message should mention that field doesn't exist
+        assert "custom fields do not exist" in str(exc_info.value).lower()
+
+    async def test_create_case_fields_update_fails(
+        self, cases_service: CasesService, case_create_params: CaseCreate, mocker
+    ) -> None:
+        """Test that case creation is atomic when field update fails."""
+        from tracecat.types.exceptions import TracecatException, TracecatNotFoundError
+
+        # Add fields to the params
+        params_with_fields = CaseCreate(
+            summary=case_create_params.summary,
+            description=case_create_params.description,
+            status=case_create_params.status,
+            priority=case_create_params.priority,
+            severity=case_create_params.severity,
+            fields={"test_field": "test_value"},
+        )
+
+        # Mock update_row to raise TracecatNotFoundError (simulating UPDATE matching 0 rows)
+        mocker.patch.object(
+            cases_service.fields.editor,
+            "update_row",
+            side_effect=TracecatNotFoundError("Row not found in table case_fields"),
+        )
+
+        # Should raise TracecatException with helpful message
+        with pytest.raises(TracecatException) as exc_info:
+            await cases_service.create_case(params_with_fields)
+
+        # Verify error message is user-friendly
+        error_msg = str(exc_info.value).lower()
+        assert "failed to save custom field values" in error_msg
+        assert "test_field" in error_msg  # Should mention the field name
+        assert (
+            "row" not in error_msg or "case_fields" not in error_msg
+        )  # Should not expose DB details
+
+        # Verify the case was NOT created (transaction rolled back)
+        cases = await cases_service.list_cases()
+        assert len(cases) == 0
+
+    async def test_create_case_atomic_rollback_on_field_error(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test that case creation is fully atomic - if fields fail, case also rolls back."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Try to create case with invalid field
+        params = CaseCreate(
+            summary="Test Case",
+            description="Test case that should rollback",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            fields={"this_field_does_not_exist_in_schema": "value"},
+        )
+
+        # Should fail
+        with pytest.raises(TracecatException):
+            await cases_service.create_case(params)
+
+        # Verify the case was NOT created (entire transaction rolled back)
+        cases = await cases_service.list_cases()
+        assert len(cases) == 0, "Case should not exist if fields creation failed"

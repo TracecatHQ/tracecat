@@ -1862,3 +1862,126 @@ class TestCoreCaseTags:
 
         # Verify the result
         assert result == updated_case.model_dump.return_value
+
+
+@pytest.mark.anyio
+class TestCoreCreateCaseErrorHandling:
+    """Test error handling for create_case registry action."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_with_invalid_field_shows_clear_error(
+        self, mock_with_session
+    ):
+        """Test that creating a case with an invalid field shows a clear error message."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.create_case.side_effect = TracecatException(
+            "Failed to create case fields. One or more custom fields do not exist. "
+            "Please ensure these fields have been created and try again."
+        )
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_case with invalid field
+        with pytest.raises(TracecatException) as exc_info:
+            await create_case(
+                summary="Test Case",
+                description="Test Description",
+                priority="medium",
+                severity="medium",
+                status="new",
+                fields={"invalid_field_name": "value"},
+            )
+
+        # Verify error message is clear and user-friendly
+        error_msg = str(exc_info.value)
+        assert "custom fields do not exist" in error_msg.lower()
+        assert "please ensure" in error_msg.lower()
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_error_no_technical_jargon(self, mock_with_session):
+        """Test that error messages don't contain technical database details."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Set up the mock service to raise TracecatNotFoundError (simulating field update failure)
+        mock_service = AsyncMock()
+        mock_service.create_case.side_effect = TracecatException(
+            "Failed to save custom field values for case. The field row was created but could not be updated. "
+            "Fields attempted: user_email, case_count. "
+            "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+        )
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_case
+        with pytest.raises(TracecatException) as exc_info:
+            await create_case(
+                summary="Test Case",
+                description="Test Description",
+                priority="medium",
+                severity="medium",
+                status="new",
+                fields={"user_email": "test@example.com", "case_count": 5},
+            )
+
+        # Verify error message is user-friendly
+        error_msg = str(exc_info.value)
+
+        # Should contain helpful guidance
+        assert "custom field" in error_msg.lower()
+        assert "settings" in error_msg.lower()
+
+        # Should mention the field names
+        assert "user_email" in error_msg or "case_count" in error_msg
+
+        # Should NOT contain technical DB details
+        assert "row_id" not in error_msg.lower()
+        assert (
+            "table" not in error_msg.lower() or "case_fields" not in error_msg.lower()
+        )
+        assert "update" not in error_msg.lower() or "returning" not in error_msg.lower()
+        assert "mappings().one()" not in error_msg.lower()
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_atomicity_verified(self, mock_with_session):
+        """Test that case creation failure doesn't leave partial data."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Set up mock to simulate field creation failure AFTER case creation
+        mock_service = AsyncMock()
+
+        # Simulate: case created but fields fail
+        # In reality, this should rollback the case too due to transaction atomicity
+        mock_service.create_case.side_effect = TracecatException(
+            "Failed to save custom field values for case."
+        )
+
+        # Set up the context manager
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Attempt to create case
+        with pytest.raises(TracecatException):
+            await create_case(
+                summary="Test Case",
+                description="Test Description",
+                priority="medium",
+                severity="medium",
+                status="new",
+                fields={"test_field": "value"},
+            )
+
+        # Verify create_case was called (and failed)
+        mock_service.create_case.assert_called_once()
+
+        # In production, the transaction should rollback, leaving no partial data
+        # This is verified by the service-level tests

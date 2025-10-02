@@ -55,6 +55,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
+    TracecatNotFoundError,
 )
 from tracecat.types.pagination import (
     BaseCursorPaginator,
@@ -415,7 +416,9 @@ class CasesService(BaseWorkspaceService):
             event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
         )
 
-        await self.session.commit()
+        # NOTE: Commit is handled by the context manager (router session or with_session())
+        # to ensure atomicity - if any step fails, the entire transaction rolls back
+        await self.session.flush()
         # Make sure to refresh the case to get the fields relationship loaded
         await self.session.refresh(case)
         return case
@@ -538,8 +541,9 @@ class CasesService(BaseWorkspaceService):
         for event in events:
             await self.events.create_event(case=case, event=event)
 
-        # Commit changes and refresh case
-        await self.session.commit()
+        # NOTE: Commit is handled by the context manager (router session or with_session())
+        # to ensure atomicity - if any step fails, the entire transaction rolls back
+        await self.session.flush()
         await self.session.refresh(case)
         return case
 
@@ -653,6 +657,24 @@ class CaseFieldsService(BaseWorkspaceService):
                 # If no fields provided, just get the row to return defaults
                 res = await self.editor.get_row(row_id=case_fields.id)
                 return res
+        except TracecatNotFoundError as e:
+            # This happens when UPDATE/SELECT finds no row - shouldn't occur after INSERT
+            self.logger.error(
+                "Case fields row not found after creation",
+                case_fields_id=case_fields.id,
+                case_id=case.id,
+                fields=fields,
+                error=str(e),
+            )
+            # Extract field names for better error message
+            field_names = list(fields.keys()) if fields else []
+            field_info = (
+                f" Fields attempted: {', '.join(field_names)}." if field_names else ""
+            )
+            raise TracecatException(
+                f"Failed to save custom field values for case. The field row was created but could not be updated.{field_info} "
+                "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+            ) from e
         except ProgrammingError as e:
             while cause := e.__cause__:
                 e = cause
