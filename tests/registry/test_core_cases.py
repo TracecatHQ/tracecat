@@ -1945,7 +1945,7 @@ class TestCoreCreateCaseErrorHandling:
         # Should NOT contain technical DB details
         assert "row_id" not in error_msg.lower()
         assert (
-            "table" not in error_msg.lower() or "case_fields" not in error_msg.lower()
+            "table" not in error_msg.lower() and "case_fields" not in error_msg.lower()
         )
         assert "update" not in error_msg.lower() or "returning" not in error_msg.lower()
         assert "mappings().one()" not in error_msg.lower()
