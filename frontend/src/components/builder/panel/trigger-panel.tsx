@@ -104,6 +104,17 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
+const formatScheduleDate = (value?: string | null) => {
+  if (!value) {
+    return "None"
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return "Invalid date"
+  }
+  return parsed.toLocaleString()
+}
+
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
     <div className="overflow-auto size-full">
@@ -337,6 +348,8 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="text-xs font-semibold">Timeout</TableHead>
             <TableHead className="text-xs font-semibold">Offset</TableHead>
+            <TableHead className="text-xs font-semibold">Starts</TableHead>
+            <TableHead className="text-xs font-semibold">Ends</TableHead>
             <TableHead className="text-right text-xs font-semibold">
               Actions
             </TableHead>
@@ -344,134 +357,157 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
-            schedules.map(({ id, status, every, cron, timeout, offset }) => {
-              const isCron = Boolean(cron)
-              const scheduleLabel = isCron
-                ? cron
-                : every
-                  ? durationToHumanReadable(every)
-                  : "—"
-              const offsetLabel =
-                !isCron && offset
-                  ? (() => {
-                      try {
-                        return durationToHumanReadable(offset)
-                      } catch {
-                        return offset
-                      }
-                    })()
-                  : "None"
+            schedules.map(
+              ({
+                id,
+                status,
+                every,
+                cron,
+                timeout,
+                offset,
+                start_at,
+                end_at,
+              }) => {
+                const isCron = Boolean(cron)
+                const scheduleLabel = isCron
+                  ? cron
+                  : every
+                    ? durationToHumanReadable(every)
+                    : "—"
+                const offsetLabel =
+                  !isCron && offset
+                    ? (() => {
+                        try {
+                          return durationToHumanReadable(offset)
+                        } catch {
+                          return offset
+                        }
+                      })()
+                    : "None"
+                const startLabel = formatScheduleDate(start_at)
+                const endLabel = formatScheduleDate(end_at)
 
-              return (
-                <TableRow key={id} className="ext-xs text-muted-foreground">
-                  <TableCell className="items-center pl-3 text-xs">
-                    {id}
-                  </TableCell>
-                  <TableCell className="items-center text-xs">
-                    {isCron ? "Cron" : "Interval"}
-                  </TableCell>
-                  <TableCell className="items-center text-xs">
-                    {isCron ? (
-                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                        {scheduleLabel}
-                      </code>
-                    ) : (
-                      scheduleLabel
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs capitalize">
-                    <div className="flex">
-                      <p>{status}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs capitalize">
-                    <div className="flex">
-                      <p>{timeout ? `${timeout}s` : "None"}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    <div className="flex">
-                      <p>{offsetLabel}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="items-center pr-3 text-xs">
-                    <div className="flex justify-end">
-                      <AlertDialog>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button className="p-0 size-6" variant="ghost">
-                              <DotsHorizontalIcon className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                            <DropdownMenuLabel className="text-xs">
-                              Actions
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={() => navigator.clipboard.writeText(id!)}
-                              className="text-xs"
-                            >
-                              Copy ID
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className={cn("text-xs", status === "online")}
-                              onClick={async () =>
-                                await updateSchedule({
-                                  workspaceId,
-                                  scheduleId: id!,
-                                  requestBody: {
-                                    status:
-                                      status === "online"
-                                        ? "offline"
-                                        : "online",
-                                  },
-                                })
-                              }
-                            >
-                              {status === "online" ? "Pause" : "Unpause"}
-                            </DropdownMenuItem>
-                            <AlertDialogTrigger asChild>
-                              <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
-                                Delete
+                return (
+                  <TableRow key={id} className="ext-xs text-muted-foreground">
+                    <TableCell className="items-center pl-3 text-xs">
+                      {id}
+                    </TableCell>
+                    <TableCell className="items-center text-xs">
+                      {isCron ? "Cron" : "Interval"}
+                    </TableCell>
+                    <TableCell className="items-center text-xs">
+                      {isCron ? (
+                        <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                          {scheduleLabel}
+                        </code>
+                      ) : (
+                        scheduleLabel
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs capitalize">
+                      <div className="flex">
+                        <p>{status}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs capitalize">
+                      <div className="flex">
+                        <p>{timeout ? `${timeout}s` : "None"}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex">
+                        <p>{offsetLabel}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex">
+                        <p>{startLabel}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex">
+                        <p>{endLabel}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="items-center pr-3 text-xs">
+                      <div className="flex justify-end">
+                        <AlertDialog>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button className="p-0 size-6" variant="ghost">
+                                <DotsHorizontalIcon className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuLabel className="text-xs">
+                                Actions
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={() => navigator.clipboard.writeText(id!)}
+                                className="text-xs"
+                              >
+                                Copy ID
                               </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete schedule</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this schedule?
-                              This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              variant="destructive"
-                              onClick={async () =>
-                                await deleteSchedule({
-                                  workspaceId,
-                                  scheduleId: id!,
-                                })
-                              }
-                            >
-                              Confirm
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className={cn("text-xs", status === "online")}
+                                onClick={async () =>
+                                  await updateSchedule({
+                                    workspaceId,
+                                    scheduleId: id!,
+                                    requestBody: {
+                                      status:
+                                        status === "online"
+                                          ? "offline"
+                                          : "online",
+                                    },
+                                  })
+                                }
+                              >
+                                {status === "online" ? "Pause" : "Unpause"}
+                              </DropdownMenuItem>
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                                  Delete
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete schedule</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this schedule?
+                                This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={async () =>
+                                  await deleteSchedule({
+                                    workspaceId,
+                                    scheduleId: id!,
+                                  })
+                                }
+                              >
+                                Confirm
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              }
+            )
           ) : (
             <TableRow className="justify-center text-xs text-muted-foreground">
               <TableCell
                 className="h-8 text-center bg-muted-foreground/5"
-                colSpan={7}
+                colSpan={9}
               >
                 No Schedules
               </TableCell>
@@ -509,6 +545,8 @@ const scheduleInputsSchema = z
     cronExpression: z.string().optional(),
     timeout: z.number().optional(),
     offset: z.string().optional(),
+    startAt: z.string().optional(),
+    endAt: z.string().optional(),
   })
   .superRefine((values, ctx) => {
     if (values.mode === "interval") {
@@ -560,6 +598,46 @@ const scheduleInputsSchema = z
         })
       }
     }
+
+    const startAt = values.startAt?.trim()
+    const endAt = values.endAt?.trim()
+
+    const parseDate = (value: string) => {
+      const parsed = Date.parse(value)
+      return Number.isNaN(parsed) ? null : parsed
+    }
+
+    if (startAt) {
+      if (!parseDate(startAt)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["startAt"],
+          message: "Enter a valid start date and time.",
+        })
+      }
+    }
+
+    if (endAt) {
+      if (!parseDate(endAt)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endAt"],
+          message: "Enter a valid end date and time.",
+        })
+      }
+    }
+
+    if (startAt && endAt) {
+      const start = parseDate(startAt)
+      const end = parseDate(endAt)
+      if (start && end && start > end) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endAt"],
+          message: "End time must be after the start time.",
+        })
+      }
+    }
   })
 type DurationType =
   | "duration.years"
@@ -591,9 +669,12 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       cronExpression: "",
       timeout: undefined,
       offset: "",
+      startAt: "",
+      endAt: "",
     },
   })
   const mode = form.watch("mode")
+  const startAtValue = form.watch("startAt")
 
   useEffect(() => {
     if (mode === "cron") {
@@ -614,7 +695,8 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       return
     }
 
-    const { mode, duration, cronExpression, timeout, offset } = values
+    const { mode, duration, cronExpression, timeout, offset, startAt, endAt } =
+      values
     try {
       const payload: SchedulesCreateScheduleData["requestBody"] = {
         workflow_id: workflowId,
@@ -639,6 +721,23 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
         if (cron) {
           payload.cron = cron
         }
+      }
+
+      const convertDateTime = (value?: string) => {
+        const trimmed = value?.trim()
+        if (!trimmed) return undefined
+        const parsed = Date.parse(trimmed)
+        return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString()
+      }
+
+      const startAtIso = convertDateTime(startAt)
+      if (startAtIso) {
+        payload.start_at = startAtIso
+      }
+
+      const endAtIso = convertDateTime(endAt)
+      if (endAtIso) {
+        payload.end_at = endAtIso
       }
 
       const response = await createSchedule({
@@ -859,6 +958,57 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                 )}
               />
             )}
+            <FormField
+              key="startAt"
+              control={form.control}
+              name="startAt"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs capitalize text-foreground/80">
+                    Start after
+                  </FormLabel>
+                  <FormDescription className="text-xs">
+                    Optional earliest date and time to begin running this
+                    schedule.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="datetime-local"
+                      className="text-xs"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              key="endAt"
+              control={form.control}
+              name="endAt"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs capitalize text-foreground/80">
+                    End by
+                  </FormLabel>
+                  <FormDescription className="text-xs">
+                    Optional latest date and time after which the schedule will
+                    stop running.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="datetime-local"
+                      className="text-xs"
+                      value={field.value ?? ""}
+                      min={startAtValue || undefined}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter className="mt-4">
               <DialogClose asChild>
                 <Button type="submit" variant="default">
