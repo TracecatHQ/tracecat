@@ -68,7 +68,7 @@ class AgentStream:
                 try:
                     if result := await self.client.xread(
                         streams={self._stream_key: current_id},
-                        count=10,
+                        count=100,
                         block=1000,
                     ):
                         for _stream_name, messages in result:
@@ -98,7 +98,7 @@ class AgentStream:
 
                         await self._set_last_stream_id(current_id)
 
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0)
 
                 except Exception as e:
                     logger.error("Error reading from Redis stream", error=str(e))
