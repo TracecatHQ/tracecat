@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -120,9 +121,13 @@ def parse_postgres_default(default_value: str | None) -> str | None:
     if default_value is None:
         return None
 
-    # Remove PostgreSQL type cast suffix (::type)
-    if "::" in default_value:
-        default_value = default_value.split("::")[0]
+    # Remove a trailing PostgreSQL type cast suffix (e.g., ::text, ::timestamp)
+    # Only strip if the cast appears at the end of the expression to avoid
+    # breaking values like nextval('seq'::regclass)
+    cast_suffix_pattern = re.compile(r"::[A-Za-z_][\w\. ]*(\[\])?\s*$")
+    # Strip multiple trailing casts if present (e.g., 'x'::text::text)
+    while cast_suffix_pattern.search(default_value):
+        default_value = cast_suffix_pattern.sub("", default_value)
 
     # Remove surrounding quotes if present
     if default_value.startswith("'") and default_value.endswith("'"):
