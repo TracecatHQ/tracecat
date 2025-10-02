@@ -43,7 +43,7 @@ repos:
     hooks:
       - id: gen-client
         name: update frontend client
-        entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
+        entry: bash -c "pnpm -C frontend generate-client-ci && pnpm -C frontend check"
         language: system
         files: ^(tracecat|packages)
         require_serial: true
