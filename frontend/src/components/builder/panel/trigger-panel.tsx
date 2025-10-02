@@ -443,7 +443,9 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                                 Actions
                               </DropdownMenuLabel>
                               <DropdownMenuItem
-                                onClick={() => navigator.clipboard.writeText(id!)}
+                                onClick={() =>
+                                  navigator.clipboard.writeText(id!)
+                                }
                                 className="text-xs"
                               >
                                 Copy ID
@@ -475,7 +477,9 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                           </DropdownMenu>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete schedule</AlertDialogTitle>
+                              <AlertDialogTitle>
+                                Delete schedule
+                              </AlertDialogTitle>
                               <AlertDialogDescription>
                                 Are you sure you want to delete this schedule?
                                 This action cannot be undone.
