@@ -6,8 +6,9 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate, CaseUpdate
-from tracecat.cases.service import CasesService
+from tracecat.cases.models import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.service import CaseFieldsService, CasesService
+from tracecat.tables.enums import SqlType
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
@@ -41,6 +42,14 @@ def test_case_id() -> uuid.UUID:
 async def cases_service(session: AsyncSession, svc_role: Role) -> CasesService:
     """Create a cases service instance for testing."""
     return CasesService(session=session, role=svc_role)
+
+
+@pytest.fixture
+async def case_fields_service(
+    session: AsyncSession, svc_admin_role: Role
+) -> CaseFieldsService:
+    """Create a case fields service instance for testing."""
+    return CaseFieldsService(session=session, role=svc_admin_role)
 
 
 @pytest.fixture
@@ -454,39 +463,40 @@ class TestCasesService:
             mock_update.assert_called_once()
 
     async def test_update_case_with_fields(
-        self, cases_service: CasesService, case_create_params: CaseCreate
+        self,
+        cases_service: CasesService,
+        case_fields_service: CaseFieldsService,
+        case_create_params: CaseCreate,
     ) -> None:
         """Test updating a case with fields."""
-        # Create case first
+        # First create custom field definitions
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="field2", type=SqlType.INTEGER)
+        )
+
+        # Create case without initial field values
         created_case = await cases_service.create_case(case_create_params)
 
-        # Then mock both methods that handle fields
-        with (
-            patch.object(cases_service.fields, "get_fields"),
-            patch.object(cases_service.fields, "update_field_values"),
-            patch.object(
-                cases_service.fields, "create_field_values"
-            ) as mock_insert_fields,
-        ):
-            # Set up case.fields to None to simulate a case without fields
-            created_case.fields = None
+        # Verify case was created with empty fields
+        assert created_case.fields is not None
 
-            # Mock return value for create_field_values
-            mock_insert_fields.return_value = {"field1": "updated_value", "field2": 2}
+        # Update parameters including fields
+        update_params = CaseUpdate(
+            summary="Updated Test Case",
+            fields={"field1": "updated_value", "field2": 2},
+        )
 
-            # Update parameters including fields
-            update_params = CaseUpdate(
-                summary="Updated Test Case",
-                fields={"field1": "updated_value", "field2": 2},
-            )
+        # Update case
+        updated_case = await cases_service.update_case(created_case, update_params)
 
-            # Update case
-            await cases_service.update_case(created_case, update_params)
-
-            # Verify create_field_values was called with the case and fields
-            mock_insert_fields.assert_called_once_with(
-                created_case, {"field1": "updated_value", "field2": 2}
-            )
+        # Verify fields were updated
+        assert updated_case.summary == "Updated Test Case"
+        fields = await cases_service.fields.get_fields(updated_case)
+        assert fields["field1"] == "updated_value"
+        assert fields["field2"] == 2
 
     async def test_delete_case(
         self, cases_service: CasesService, case_create_params: CaseCreate

@@ -391,37 +391,40 @@ class CasesService(BaseWorkspaceService):
         return result.first()
 
     async def create_case(self, params: CaseCreate) -> Case:
-        # Create the base case first
-        case = Case(
-            owner_id=self.workspace_id,
-            summary=params.summary,
-            description=params.description,
-            priority=params.priority,
-            severity=params.severity,
-            status=params.status,
-            assignee_id=params.assignee_id,
-            payload=params.payload,
-        )
+        try:
+            # Create the base case first
+            case = Case(
+                owner_id=self.workspace_id,
+                summary=params.summary,
+                description=params.description,
+                priority=params.priority,
+                severity=params.severity,
+                status=params.status,
+                assignee_id=params.assignee_id,
+                payload=params.payload,
+            )
 
-        self.session.add(case)
-        await self.session.flush()  # Generate case ID
+            self.session.add(case)
+            await self.session.flush()  # Generate case ID
 
-        # Always create the fields row to ensure defaults are applied
-        # Pass empty dict if no fields provided to trigger default value application
-        await self.fields.create_field_values(case, params.fields or {})
+            # Always create the fields row to ensure defaults are applied
+            # Pass empty dict if no fields provided to trigger default value application
+            await self.fields.create_field_values(case, params.fields or {})
 
-        run_ctx = ctx_run.get()
-        await self.events.create_event(
-            case=case,
-            event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
-        )
+            run_ctx = ctx_run.get()
+            await self.events.create_event(
+                case=case,
+                event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
+            )
 
-        # NOTE: Commit is handled by the context manager (router session or with_session())
-        # to ensure atomicity - if any step fails, the entire transaction rolls back
-        await self.session.flush()
-        # Make sure to refresh the case to get the fields relationship loaded
-        await self.session.refresh(case)
-        return case
+            # Commit once to persist case, fields, and event atomically
+            await self.session.commit()
+            # Make sure to refresh the case to get the fields relationship loaded
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
         """Update a case and optionally its custom fields.
@@ -537,15 +540,18 @@ class CasesService(BaseWorkspaceService):
                 if old != value:
                     events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
-        # If there are any remaining changed fields, record a general update activity
-        for event in events:
-            await self.events.create_event(case=case, event=event)
+        try:
+            # If there are any remaining changed fields, record a general update activity
+            for event in events:
+                await self.events.create_event(case=case, event=event)
 
-        # NOTE: Commit is handled by the context manager (router session or with_session())
-        # to ensure atomicity - if any step fails, the entire transaction rolls back
-        await self.session.flush()
-        await self.session.refresh(case)
-        return case
+            # Commit once to persist all updates and emitted events atomically
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def delete_case(self, case: Case) -> None:
         """Delete a case and optionally its associated field data.
@@ -856,7 +862,12 @@ class CaseEventsService(BaseWorkspaceService):
         return result.all()
 
     async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
-        """Create a new activity record for a case with variant-specific data."""
+        """Create a new activity record for a case with variant-specific data.
+
+        Note: This method is non-committing. The caller is responsible for
+        wrapping operations in a transaction and committing once at the end
+        to preserve atomicity across multi-step updates.
+        """
         db_event = CaseEvent(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -865,6 +876,6 @@ class CaseEventsService(BaseWorkspaceService):
             user_id=self.role.user_id,
         )
         self.session.add(db_event)
-        await self.session.commit()
-        await self.session.refresh(db_event)
+        # Flush so that generated fields (e.g., id) are available if needed
+        await self.session.flush()
         return db_event
