@@ -659,5 +659,17 @@ export function useVercelChat({
         }
       },
     }),
+    onError: (error) => {
+      console.error("Error in Vercel chat:", error)
+    },
+    onData: (data) => {
+      console.log("Vercel chat data:", data)
+    },
+    onToolCall: (toolCall) => {
+      console.log("Vercel chat tool call:", toolCall)
+    },
+    onFinish: () => {
+      console.log("Vercel chat finished")
+    },
   })
 }

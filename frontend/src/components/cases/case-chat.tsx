@@ -1,4 +1,5 @@
 "use client"
+import { getToolName, isToolUIPart } from "ai"
 import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react"
 import { Fragment, useEffect, useState } from "react"
 import { Action, Actions } from "@/components/ai-elements/actions"
@@ -41,6 +42,13 @@ import {
   SourcesContent,
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool"
 import { Dots } from "@/components/loading/dots"
 import { useCreateChat, useVercelChat } from "@/hooks/use-chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -131,7 +139,7 @@ export function InputDemo({
   console.log("messages", messages)
 
   return (
-    <div className="max-w-4xl mx-auto p-6 relative size-full h-screen">
+    <div className="max-w-4xl mx-auto p-4 relative size-full h-screen">
       <div className="flex flex-col h-full">
         <Conversation className="h-full">
           <ConversationContent>
@@ -162,53 +170,73 @@ export function InputDemo({
                     </Sources>
                   )}
                 {message.parts.map((part, i) => {
-                  switch (part.type) {
-                    case "text":
-                      return (
-                        <Fragment key={`${message.id}-${i}`}>
-                          <Message from={message.role}>
-                            <MessageContent>
-                              <Response>{part.text}</Response>
-                            </MessageContent>
-                          </Message>
-                          {message.role === "assistant" &&
-                            i === messages.length - 1 && (
-                              <Actions className="mt-2">
-                                <Action
-                                  onClick={() => regenerate()}
-                                  label="Retry"
-                                >
-                                  <RefreshCcwIcon className="size-3" />
-                                </Action>
-                                <Action
-                                  onClick={() =>
-                                    navigator.clipboard.writeText(part.text)
-                                  }
-                                  label="Copy"
-                                >
-                                  <CopyIcon className="size-3" />
-                                </Action>
-                              </Actions>
-                            )}
-                        </Fragment>
-                      )
-                    case "reasoning":
-                      return (
-                        <Reasoning
-                          key={`${message.id}-${i}`}
-                          className="w-full"
-                          isStreaming={
-                            status === "streaming" &&
-                            i === message.parts.length - 1 &&
-                            message.id === messages.at(-1)?.id
-                          }
-                        >
-                          <ReasoningTrigger />
-                          <ReasoningContent>{part.text}</ReasoningContent>
-                        </Reasoning>
-                      )
-                    default:
-                      return null
+                  console.debug({
+                    messageId: message.id,
+                    partType: part.type,
+                    part: part,
+                  })
+                  if (part.type === "text") {
+                    return (
+                      <Fragment key={`${message.id}-${i}`}>
+                        <Message from={message.role}>
+                          <MessageContent variant="flat">
+                            <Response>{part.text}</Response>
+                          </MessageContent>
+                        </Message>
+                        {message.role === "assistant" &&
+                          message.id === messages.at(-1)?.id &&
+                          i === message.parts.length - 1 && (
+                            <Actions>
+                              <Action
+                                onClick={() => regenerate()}
+                                label="Retry"
+                              >
+                                <RefreshCcwIcon className="size-3" />
+                              </Action>
+                              <Action
+                                onClick={() =>
+                                  navigator.clipboard.writeText(part.text)
+                                }
+                                label="Copy"
+                              >
+                                <CopyIcon className="size-3" />
+                              </Action>
+                            </Actions>
+                          )}
+                      </Fragment>
+                    )
+                  } else if (part.type === "reasoning") {
+                    return (
+                      <Reasoning
+                        key={`${message.id}-${i}`}
+                        className="w-full"
+                        isStreaming={
+                          status === "streaming" &&
+                          i === message.parts.length - 1 &&
+                          message.id === messages.at(-1)?.id
+                        }
+                      >
+                        <ReasoningTrigger />
+                        <ReasoningContent>{part.text}</ReasoningContent>
+                      </Reasoning>
+                    )
+                  } else if (isToolUIPart(part)) {
+                    return (
+                      <Tool key={`${message.id}-${i}`}>
+                        <ToolHeader
+                          title={getToolName(part).replaceAll("__", ".")}
+                          type={part.type}
+                          state={part.state}
+                        />
+                        <ToolContent>
+                          <ToolInput input={part.input} />
+                          <ToolOutput
+                            output={part.output}
+                            errorText={part.errorText}
+                          />
+                        </ToolContent>
+                      </Tool>
+                    )
                   }
                 })}
               </div>
