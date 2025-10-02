@@ -405,9 +405,9 @@ class CasesService(BaseWorkspaceService):
         self.session.add(case)
         await self.session.flush()  # Generate case ID
 
-        # If fields are provided, create the fields row
-        if params.fields:
-            await self.fields.create_field_values(case, params.fields)
+        # Always create the fields row to ensure defaults are applied
+        # Pass empty dict if no fields provided to trigger default value application
+        await self.fields.create_field_values(case, params.fields or {})
 
         run_ctx = ctx_run.get()
         await self.events.create_event(
@@ -644,19 +644,24 @@ class CaseFieldsService(BaseWorkspaceService):
 
         # This will use the created case_fields ID
         try:
-            res = await self.editor.update_row(row_id=case_fields.id, data=fields)
-            await self.session.flush()
-            return res
+            if fields:
+                # If fields provided, update the row with those values
+                res = await self.editor.update_row(row_id=case_fields.id, data=fields)
+                await self.session.flush()
+                return res
+            else:
+                # If no fields provided, just get the row to return defaults
+                res = await self.editor.get_row(row_id=case_fields.id)
+                return res
         except ProgrammingError as e:
             while cause := e.__cause__:
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to create case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to create case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error creating case fields: {e}"
+                "Failed to create case fields due to an unexpected error."
             ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
@@ -673,11 +678,10 @@ class CaseFieldsService(BaseWorkspaceService):
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to update case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to update case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error updating case fields: {e}"
+                "Failed to update case fields due to an unexpected error."
             ) from e
 
 
