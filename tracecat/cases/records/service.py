@@ -15,10 +15,10 @@ from tracecat.cases.records.models import (
     CaseRecordLink,
     CaseRecordUpdate,
 )
-from tracecat.db.schemas import Case, CaseRecord, Entity
+from tracecat.db.schemas import Case, CaseRecord, Entity, EntityRecord
 from tracecat.entities.service import EntityService
 from tracecat.logger import logger
-from tracecat.records.model import RecordCreate, RecordUpdate
+from tracecat.records.model import RecordUpdate
 from tracecat.records.service import RecordService
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
@@ -124,9 +124,18 @@ class CaseRecordService(BaseWorkspaceService):
                 f"Entity with key '{params.entity_key}' not found"
             ) from err
 
-        # Create the entity record
-        record_params = RecordCreate(data=params.data)
-        entity_record = await self.record_service.create_record(entity, record_params)
+        # Create the entity record and link atomically in a single transaction
+        # Validate and normalize payload using RecordService helpers
+        fields = await self.record_service._get_active_fields(entity)
+        normalized = self.record_service._validate_and_coerce(params.data, fields)
+
+        entity_record = EntityRecord(
+            owner_id=self.workspace_id,
+            entity_id=entity.id,
+            data=normalized,
+        )
+        self.session.add(entity_record)
+        await self.session.flush()  # Ensure entity_record.id is available
 
         # Create the link
         case_record = CaseRecord(
@@ -277,15 +286,15 @@ class CaseRecordService(BaseWorkspaceService):
         if case_record.owner_id != self.workspace_id:
             raise TracecatNotFoundError("Case record not found")
 
-        # Store record ID for deletion
+        # Ensure the related record is loaded
+        await self.session.refresh(case_record, ["record"])
+
+        # Store record ID for logging
         record_id = case_record.record_id
 
-        # Delete the link first
+        # Delete both link and record atomically in one commit
+        await self.session.delete(case_record.record)
         await self.session.delete(case_record)
-
-        # Delete the entity record
-        await self.record_service.delete_record(case_record.record)
-
         await self.session.commit()
 
         logger.info(

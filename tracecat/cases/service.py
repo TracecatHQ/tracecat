@@ -55,6 +55,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
+    TracecatNotFoundError,
 )
 from tracecat.types.pagination import (
     BaseCursorPaginator,
@@ -390,35 +391,40 @@ class CasesService(BaseWorkspaceService):
         return result.first()
 
     async def create_case(self, params: CaseCreate) -> Case:
-        # Create the base case first
-        case = Case(
-            owner_id=self.workspace_id,
-            summary=params.summary,
-            description=params.description,
-            priority=params.priority,
-            severity=params.severity,
-            status=params.status,
-            assignee_id=params.assignee_id,
-            payload=params.payload,
-        )
+        try:
+            # Create the base case first
+            case = Case(
+                owner_id=self.workspace_id,
+                summary=params.summary,
+                description=params.description,
+                priority=params.priority,
+                severity=params.severity,
+                status=params.status,
+                assignee_id=params.assignee_id,
+                payload=params.payload,
+            )
 
-        self.session.add(case)
-        await self.session.flush()  # Generate case ID
+            self.session.add(case)
+            await self.session.flush()  # Generate case ID
 
-        # If fields are provided, create the fields row
-        if params.fields:
-            await self.fields.create_field_values(case, params.fields)
+            # Always create the fields row to ensure defaults are applied
+            # Pass empty dict if no fields provided to trigger default value application
+            await self.fields.create_field_values(case, params.fields or {})
 
-        run_ctx = ctx_run.get()
-        await self.events.create_event(
-            case=case,
-            event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
-        )
+            run_ctx = ctx_run.get()
+            await self.events.create_event(
+                case=case,
+                event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
+            )
 
-        await self.session.commit()
-        # Make sure to refresh the case to get the fields relationship loaded
-        await self.session.refresh(case)
-        return case
+            # Commit once to persist case, fields, and event atomically
+            await self.session.commit()
+            # Make sure to refresh the case to get the fields relationship loaded
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
         """Update a case and optionally its custom fields.
@@ -534,14 +540,18 @@ class CasesService(BaseWorkspaceService):
                 if old != value:
                     events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
-        # If there are any remaining changed fields, record a general update activity
-        for event in events:
-            await self.events.create_event(case=case, event=event)
+        try:
+            # If there are any remaining changed fields, record a general update activity
+            for event in events:
+                await self.events.create_event(case=case, event=event)
 
-        # Commit changes and refresh case
-        await self.session.commit()
-        await self.session.refresh(case)
-        return case
+            # Commit once to persist all updates and emitted events atomically
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def delete_case(self, case: Case) -> None:
         """Delete a case and optionally its associated field data.
@@ -644,19 +654,42 @@ class CaseFieldsService(BaseWorkspaceService):
 
         # This will use the created case_fields ID
         try:
-            res = await self.editor.update_row(row_id=case_fields.id, data=fields)
-            await self.session.flush()
-            return res
+            if fields:
+                # If fields provided, update the row with those values
+                res = await self.editor.update_row(row_id=case_fields.id, data=fields)
+                await self.session.flush()
+                return res
+            else:
+                # If no fields provided, just get the row to return defaults
+                res = await self.editor.get_row(row_id=case_fields.id)
+                return res
+        except TracecatNotFoundError as e:
+            # This happens when UPDATE/SELECT finds no row - shouldn't occur after INSERT
+            self.logger.error(
+                "Case fields row not found after creation",
+                case_fields_id=case_fields.id,
+                case_id=case.id,
+                fields=fields,
+                error=str(e),
+            )
+            # Extract field names for better error message
+            field_names = list(fields.keys()) if fields else []
+            field_info = (
+                f" Fields attempted: {', '.join(field_names)}." if field_names else ""
+            )
+            raise TracecatException(
+                f"Failed to save custom field values for case. The field row was created but could not be updated.{field_info} "
+                "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+            ) from e
         except ProgrammingError as e:
             while cause := e.__cause__:
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to create case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to create case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error creating case fields: {e}"
+                "Failed to create case fields due to an unexpected error."
             ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
@@ -673,11 +706,10 @@ class CaseFieldsService(BaseWorkspaceService):
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to update case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to update case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error updating case fields: {e}"
+                "Failed to update case fields due to an unexpected error."
             ) from e
 
 
@@ -830,7 +862,12 @@ class CaseEventsService(BaseWorkspaceService):
         return result.all()
 
     async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
-        """Create a new activity record for a case with variant-specific data."""
+        """Create a new activity record for a case with variant-specific data.
+
+        Note: This method is non-committing. The caller is responsible for
+        wrapping operations in a transaction and committing once at the end
+        to preserve atomicity across multi-step updates.
+        """
         db_event = CaseEvent(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -839,6 +876,6 @@ class CaseEventsService(BaseWorkspaceService):
             user_id=self.role.user_id,
         )
         self.session.add(db_event)
-        await self.session.commit()
-        await self.session.refresh(db_event)
+        # Flush so that generated fields (e.g., id) are available if needed
+        await self.session.flush()
         return db_event

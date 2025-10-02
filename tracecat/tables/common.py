@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -100,6 +101,39 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=sa.UUID)
         case _:
             raise ValueError(f"Unsupported SQL type for value conversion: {type}")
+
+
+def parse_postgres_default(default_value: str | None) -> str | None:
+    """Parse PostgreSQL default value expressions to extract the actual value.
+
+    PostgreSQL stores default values as SQL expressions with type casts like:
+    - 'attack'::text -> attack
+    - 0::integer -> 0
+    - true::boolean -> true
+    - '2024-01-01'::timestamp -> 2024-01-01
+
+    Args:
+        default_value: The raw default value from PostgreSQL column reflection
+
+    Returns:
+        The parsed default value without type casts, or None if input is None
+    """
+    if default_value is None:
+        return None
+
+    # Remove a trailing PostgreSQL type cast suffix (e.g., ::text, ::timestamp)
+    # Only strip if the cast appears at the end of the expression to avoid
+    # breaking values like nextval('seq'::regclass)
+    cast_suffix_pattern = re.compile(r"::[A-Za-z_][\w\. ]*(\[\])?\s*$")
+    # Strip multiple trailing casts if present (e.g., 'x'::text::text)
+    while cast_suffix_pattern.search(default_value):
+        default_value = cast_suffix_pattern.sub("", default_value)
+
+    # Remove surrounding quotes if present
+    if default_value.startswith("'") and default_value.endswith("'"):
+        default_value = default_value[1:-1]
+
+    return default_value
 
 
 def convert_value(value: str, type: SqlType) -> Any:

@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import Table
 from tracecat.logger import logger
+from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -163,6 +164,42 @@ class TestTablesService:
         # Attempt to retrieve the table; should raise TracecatNotFoundError
         with pytest.raises(TracecatNotFoundError):
             await tables_service.get_table_by_name("deletable_table")
+
+
+class TestParsePostgresDefault:
+    @pytest.fixture
+    def parse_default(self):
+        return parse_postgres_default
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (None, None),
+            ("'attack'::text", "attack"),
+            ("0::integer", "0"),
+            ("true::boolean", "true"),
+            ("'2024-01-01'::timestamp", "2024-01-01"),
+            ("'2024-01-01 00:00:00+00'::timestamptz", "2024-01-01 00:00:00+00"),
+            ("'foo'::pg_catalog.text", "foo"),
+            ("'bar'::character varying", "bar"),
+            ("'X'::text[]", "X"),
+            ("'keep::inside'::text", "keep::inside"),
+            ("'double'::text::text", "double"),
+            ("'endswith::'::text", "endswith::"),
+            ("'yes'", "yes"),
+            ("42", "42"),
+            # Should not strip inner casts when not at end
+            ("nextval('seq'::regclass)", "nextval('seq'::regclass)"),
+            # Should strip only a trailing cast on the whole expression
+            ("nextval('seq'::regclass)::text", "nextval('seq'::regclass)"),
+            # Trailing whitespace after cast should still be removed
+            ("'abc'::text   ", "abc"),
+        ],
+    )
+    def test_parse_postgres_default_variants(
+        self, parse_default, raw: str | None, expected: str | None
+    ) -> None:
+        assert parse_default(raw) == expected
 
 
 @pytest.mark.anyio

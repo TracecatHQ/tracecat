@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, RootModel
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
 from tracecat.tags.models import TagRead
@@ -88,7 +89,7 @@ class CaseFieldRead(BaseModel):
             type=SqlType(str(column["type"])),
             description=column.get("comment") or "",
             nullable=column["nullable"],
-            default=column.get("default"),
+            default=parse_postgres_default(column.get("default")),
             reserved=column["name"] in RESERVED_CASE_FIELDS,
         )
 
