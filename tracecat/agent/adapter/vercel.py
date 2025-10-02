@@ -10,7 +10,7 @@ import base64
 import json
 import re
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -22,16 +22,19 @@ from typing import (
 )
 
 import pydantic
-from pydantic_ai import Agent, CallToolsNode, ModelRequestNode
 from pydantic_ai.messages import (
     AgentStreamEvent,
     AudioUrl,
     BinaryContent,
+    BuiltinToolCallPart,
+    BuiltinToolReturnPart,
     DocumentUrl,
     FunctionToolResultEvent,
     ImageUrl,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    ModelResponsePart,
     MultiModalContent,
     PartDeltaEvent,
     PartStartEvent,
@@ -59,7 +62,7 @@ from tracecat.agent.stream.events import (
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
-    from tracecat.db.schemas import ChatMessage
+    from tracecat.chat.models import ChatMessage
 
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
@@ -655,233 +658,118 @@ class VercelStreamContext:
                 )
 
 
-async def run_vercel_ui(
-    agent: Agent, request: VercelAIRequest, deps=None
-) -> AsyncGenerator[str]:
-    """
-    Runs a pydantic-ai Agent with a Vercel AI SDK request and streams
-    events in the Vercel data stream protocol format.
-
-    Args:
-        agent: The pydantic-ai Agent to run.
-        request: The VercelAIRequest object from the Vercel AI SDK frontend.
-
-    Yields:
-        Server-Sent Event (SSE) strings compliant with the Vercel AI SDK
-        data stream protocol.
-    """
-    message_id = f"msg_{uuid.uuid4().hex}"
-    context = VercelStreamContext(message_id=message_id)  # type: ignore[call-arg]
-
-    try:
-        # 1. Start of the message stream
-        yield format_sse({"type": "start", "messageId": message_id})
-
-        # 2. Convert messages and run the agent
-        # NOTE: This should be handled at the start of a turn.
-        messages = convert_ui_messages(request.messages)
-        async with agent.iter(message_history=messages, deps=deps) as run:
-            async for node in run:
-                if isinstance(node, ModelRequestNode):
-                    async with node.stream(run.ctx) as request_stream:
-                        async for agent_event in request_stream:
-                            async for msg in context.handle_event(agent_event):
-                                yield msg
-                elif isinstance(node, CallToolsNode):
-                    async with node.stream(run.ctx) as handle_stream:
-                        async for event in handle_stream:
-                            if isinstance(event, FunctionToolResultEvent):
-                                async for msg in context.handle_event(event):
-                                    yield msg
-
-        # 3. Finalize any open parts at the end of the stream
-        if context.current_part_id:
-            if context.current_part_type == "text":
-                yield format_sse({"type": "text-end", "id": context.current_part_id})
-            elif context.current_part_type == "reasoning":
-                yield format_sse(
-                    {"type": "reasoning-end", "id": context.current_part_id}
-                )
-            elif context.current_part_type == "tool" and context.current_tool_call:
-                yield format_sse(
-                    {
-                        "type": "tool-input-available",
-                        "toolCallId": context.current_tool_call.tool_call_id,
-                        "toolName": context.current_tool_call.tool_name,
-                        "input": context.current_tool_call.args_as_dict(),
-                    }
-                )
-
-    except Exception as e:
-        # 4. Handle errors
-        yield format_sse({"type": "error", "errorText": str(e)})
-        # Optionally re-raise or log the exception
-        raise e
-    finally:
-        # 5. Finish the message and terminate the stream
-        yield format_sse({"type": "finish"})
-        yield "data: [DONE]\n\n"
-
-
 # ==============================================================================
 # 9. Convert Persisted ModelMessage to UIMessage
 # ==============================================================================
 
 
-def _convert_model_message_part_to_ui_part(part: Any) -> UIMessagePart | None:
-    """Convert a single ModelMessage part to a UIMessage part."""
-    if not isinstance(part, dict | object):
-        return None
+def _convert_model_message_part_to_ui_part(
+    part: ModelResponsePart | ModelRequestPart,
+) -> UIMessagePart | None:
+    """Convert a single ModelMessage part to a UIMessage part.
 
-    # Extract part_kind - works for both dict and object
-    part_kind = getattr(part, "part_kind", None) or (
-        part.get("part_kind") if isinstance(part, dict) else None
-    )
+    Args:
+        part: A pydantic-ai message part (TextPart, ToolCallPart, etc.)
 
-    match part_kind:
-        case "text":
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if isinstance(content, str):
-                return TextUIPart(type="text", text=content, state="done")
+    Returns:
+        Converted UIMessagePart or None if conversion not supported
+    """
+    # Use match-case for structural pattern matching with proper type narrowing
+    match part:
+        case TextPart(content=str(content)):
+            return TextUIPart(type="text", text=content, state="done")
 
-        case "thinking":
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if isinstance(content, str):
-                return ReasoningUIPart(type="reasoning", text=content, state="done")
+        case ThinkingPart(content=str(content)):
+            return ReasoningUIPart(type="reasoning", text=content, state="done")
 
-        case "tool-call":
-            tool_name = getattr(part, "tool_name", None) or (
-                part.get("tool_name") if isinstance(part, dict) else None
+        case ToolCallPart(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        ):
+            return DynamicToolUIPartInputAvailable(
+                type="dynamic-tool",
+                toolName=tool_name,
+                toolCallId=tool_call_id,
+                state="input-available",
+                input=part.args_as_dict(),
+                output=None,
+                errorText=None,
             )
-            tool_call_id = getattr(part, "tool_call_id", None) or (
-                part.get("tool_call_id") if isinstance(part, dict) else None
-            )
-            args = getattr(part, "args", None) or (
-                part.get("args") if isinstance(part, dict) else {}
-            )
-            if tool_name and tool_call_id:
-                return DynamicToolUIPartInputAvailable(
-                    type="dynamic-tool",
-                    toolName=tool_name,
-                    toolCallId=tool_call_id,
-                    state="input-available",
-                    input=args or {},
-                    output=None,
-                    errorText=None,
-                )
 
-        case "tool-return":
-            tool_name = getattr(part, "tool_name", None) or (
-                part.get("tool_name") if isinstance(part, dict) else None
+        case ToolReturnPart(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            content=content,
+        ):
+            return DynamicToolUIPartOutputAvailable(
+                type="dynamic-tool",
+                toolName=tool_name,
+                toolCallId=tool_call_id,
+                state="output-available",
+                input={},
+                output=content,
+                errorText=None,
             )
-            tool_call_id = getattr(part, "tool_call_id", None) or (
-                part.get("tool_call_id") if isinstance(part, dict) else None
-            )
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if tool_name and tool_call_id:
-                return DynamicToolUIPartOutputAvailable(
-                    type="dynamic-tool",
-                    toolName=tool_name,
-                    toolCallId=tool_call_id,
-                    state="output-available",
-                    input={},
-                    output=content,
-                    errorText=None,
-                )
 
-        case "retry-prompt":
-            tool_name = getattr(part, "tool_name", None) or (
-                part.get("tool_name") if isinstance(part, dict) else None
+        case RetryPromptPart(
+            tool_name=str(tool_name),
+            tool_call_id=tool_call_id,
+            content=content,
+        ):
+            return DynamicToolUIPartOutputError(
+                type="dynamic-tool",
+                toolName=tool_name,
+                toolCallId=tool_call_id,
+                state="output-error",
+                input={},
+                output=None,
+                errorText=content if isinstance(content, str) else str(content),
             )
-            tool_call_id = getattr(part, "tool_call_id", None) or (
-                part.get("tool_call_id") if isinstance(part, dict) else None
-            )
-            content = getattr(part, "content", None) or (
-                part.get("content")
-                if isinstance(part, dict)
-                else "Tool execution failed"
-            )
-            if tool_name and tool_call_id:
-                return DynamicToolUIPartOutputError(
-                    type="dynamic-tool",
-                    toolName=tool_name,
-                    toolCallId=tool_call_id,
-                    state="output-error",
-                    input={},
-                    output=None,
-                    errorText=content if isinstance(content, str) else str(content),
-                )
 
-        case "user-prompt":
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if content is not None:
-                if isinstance(content, str):
-                    text = content
-                elif isinstance(content, list):
+        case UserPromptPart(content=content):
+            match content:
+                case str(text):
+                    pass
+                case list(items):
                     text = "\n".join(
                         item if isinstance(item, str) else json.dumps(item)
-                        for item in content
+                        for item in items
                     )
-                else:
+                case _:
                     text = json.dumps(content)
-                return TextUIPart(type="text", text=text, state="done")
+            return TextUIPart(type="text", text=text, state="done")
 
-        case "system-prompt":
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if isinstance(content, str):
-                return TextUIPart(type="text", text=content, state="done")
+        case SystemPromptPart(content=str(content)):
+            return TextUIPart(type="text", text=content, state="done")
 
-        case "builtin-tool-call":
-            tool_name = getattr(part, "tool_name", None) or (
-                part.get("tool_name") if isinstance(part, dict) else None
+        case BuiltinToolCallPart(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        ):
+            return DynamicToolUIPartInputAvailable(
+                type="dynamic-tool",
+                toolName=tool_name,
+                toolCallId=tool_call_id,
+                state="input-available",
+                input=part.args_as_dict(),
+                output=None,
+                errorText=None,
             )
-            tool_call_id = getattr(part, "tool_call_id", None) or (
-                part.get("tool_call_id") if isinstance(part, dict) else None
-            )
-            args = getattr(part, "args", None) or (
-                part.get("args") if isinstance(part, dict) else {}
-            )
-            if tool_name and tool_call_id:
-                return DynamicToolUIPartInputAvailable(
-                    type="dynamic-tool",
-                    toolName=tool_name,
-                    toolCallId=tool_call_id,
-                    state="input-available",
-                    input=args or {},
-                    output=None,
-                    errorText=None,
-                )
 
-        case "builtin-tool-return":
-            tool_name = getattr(part, "tool_name", None) or (
-                part.get("tool_name") if isinstance(part, dict) else None
+        case BuiltinToolReturnPart(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            content=content,
+        ):
+            return DynamicToolUIPartOutputAvailable(
+                type="dynamic-tool",
+                toolName=tool_name,
+                toolCallId=tool_call_id,
+                state="output-available",
+                input={},
+                output=content,
+                errorText=None,
             )
-            tool_call_id = getattr(part, "tool_call_id", None) or (
-                part.get("tool_call_id") if isinstance(part, dict) else None
-            )
-            content = getattr(part, "content", None) or (
-                part.get("content") if isinstance(part, dict) else None
-            )
-            if tool_name and tool_call_id:
-                return DynamicToolUIPartOutputAvailable(
-                    type="dynamic-tool",
-                    toolName=tool_name,
-                    toolCallId=tool_call_id,
-                    state="output-available",
-                    input={},
-                    output=content,
-                    errorText=None,
-                )
 
     return None
 
@@ -901,18 +789,17 @@ def convert_model_messages_to_ui(
 
     for chat_message in messages:
         # Extract message data from the ChatMessage schema
-        message_id = str(chat_message.id)
-        message_data = chat_message.data
+        message_id = chat_message.id
+        message_data = chat_message.message
 
         # Determine role from message kind
         role: Literal["system", "user", "assistant"] = (
-            "assistant" if message_data.get("kind") == "response" else "user"
+            "assistant" if message_data.kind == "response" else "user"
         )
 
         # Convert all parts
         ui_parts: list[UIMessagePart] = []
-        parts = message_data.get("parts", [])
-        for part in parts:
+        for part in message_data.parts:
             converted_part = _convert_model_message_part_to_ui_part(part)
             if converted_part is not None:
                 ui_parts.append(converted_part)
