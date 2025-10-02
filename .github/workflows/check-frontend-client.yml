@@ -1,0 +1,88 @@
+name: Check Frontend Client
+
+on:
+  pull_request:
+    paths:
+      - tracecat/**
+      - packages/**
+      - .github/workflows/check-frontend-client.yml
+  push:
+    branches:
+      - main
+    paths:
+      - tracecat/**
+      - packages/**
+      - .github/workflows/check-frontend-client.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-client-sync:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        working-directory: frontend
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate frontend client
+        working-directory: frontend
+        run: pnpm generate-client
+
+      - name: Run Biome check
+        working-directory: frontend
+        run: pnpm check
+
+      - name: Check for changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "❌ Frontend client is out of sync with backend API!"
+            echo ""
+            echo "The following files have changes:"
+            git status --short
+            echo ""
+            echo "Please run 'just gen-client' locally and commit the changes."
+            exit 1
+          else
+            echo "✅ Frontend client is in sync with backend API"
+          fi
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✅ Frontend client sync check completed successfully!"
+          echo "📝 Steps completed:"
+          echo "  - Frontend client generation"
+          echo "  - Biome linting and formatting"
+          echo "  - Git diff verification"
+          echo ""
+          echo "🎉 Frontend client is properly synchronized!"
