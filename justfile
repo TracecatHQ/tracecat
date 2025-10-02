@@ -50,6 +50,9 @@ mypy path:
 gen-client:
 	pnpm -C frontend generate-client
 	just lint-fix
+gen-client-ci:
+	pnpm -C frontend generate-client-ci
+	just lint-fix
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}
