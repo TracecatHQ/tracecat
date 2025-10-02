@@ -187,6 +187,7 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "triggers", "description": "Workflow triggers"},
             {"name": "secrets", "description": "Secret management"},
         ],
+        servers=[{"url": config.TRACECAT__API_ROOT_PATH}],
         generate_unique_id_function=custom_generate_unique_id,
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
