@@ -102,6 +102,35 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             raise ValueError(f"Unsupported SQL type for value conversion: {type}")
 
 
+def parse_postgres_default(default_value: str | None) -> str | None:
+    """Parse PostgreSQL default value expressions to extract the actual value.
+
+    PostgreSQL stores default values as SQL expressions with type casts like:
+    - 'attack'::text -> attack
+    - 0::integer -> 0
+    - true::boolean -> true
+    - '2024-01-01'::timestamp -> 2024-01-01
+
+    Args:
+        default_value: The raw default value from PostgreSQL column reflection
+
+    Returns:
+        The parsed default value without type casts, or None if input is None
+    """
+    if default_value is None:
+        return None
+
+    # Remove PostgreSQL type cast suffix (::type)
+    if "::" in default_value:
+        default_value = default_value.split("::")[0]
+
+    # Remove surrounding quotes if present
+    if default_value.startswith("'") and default_value.endswith("'"):
+        default_value = default_value[1:-1]
+
+    return default_value
+
+
 def convert_value(value: str, type: SqlType) -> Any:
     try:
         match type:
