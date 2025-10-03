@@ -4,8 +4,13 @@ import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
-import { useEffect } from "react"
+import {
+  CalendarClockIcon,
+  ChevronDownIcon,
+  PlusCircleIcon,
+  WebhookIcon,
+} from "lucide-react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
@@ -39,9 +44,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -68,6 +73,12 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -233,7 +244,6 @@ export function WebhookControls({
             <span>Toggle Webhook</span>
           </Label>
           <Switch
-            id="webhook-toggle"
             checked={status === "online"}
             onCheckedChange={onCheckedChange}
             className="data-[state=checked]:bg-emerald-500"
@@ -255,7 +265,6 @@ export function WebhookControls({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                role="combobox"
                 className="justify-between w-full text-xs"
               >
                 {methods.length > 0
@@ -340,9 +349,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-3 text-xs font-semibold">
-              Schedule ID
-            </TableHead>
+            <TableHead className="pl-3 text-xs font-semibold">ID</TableHead>
             <TableHead className="text-xs font-semibold">Type</TableHead>
             <TableHead className="text-xs font-semibold">Schedule</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
@@ -390,7 +397,32 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                 return (
                   <TableRow key={id} className="ext-xs text-muted-foreground">
                     <TableCell className="items-center pl-3 text-xs">
-                      {id}
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="font-mono text-xs hover:text-foreground transition-colors cursor-pointer"
+                              onClick={async () => {
+                                await navigator.clipboard.writeText(id!)
+                                toast({
+                                  title: "Copied to clipboard",
+                                  description:
+                                    "Schedule ID copied successfully",
+                                })
+                              }}
+                            >
+                              {id?.slice(0, 8)}...
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="font-mono text-xs">{id}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Click to copy
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </TableCell>
                     <TableCell className="items-center text-xs">
                       {isCron ? "Cron" : "Interval"}
@@ -657,6 +689,9 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const hasVersion = !!workflow?.version
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false)
+  const [endDatePickerOpen, setEndDatePickerOpen] = useState(false)
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
     defaultValues: {
@@ -678,7 +713,6 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
     },
   })
   const mode = form.watch("mode")
-  const startAtValue = form.watch("startAt")
 
   useEffect(() => {
     if (mode === "cron") {
@@ -750,6 +784,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       })
       console.log("Schedule created", response)
       form.reset()
+      setDialogOpen(false)
     } catch (error) {
       if (error instanceof ApiError) {
         console.error("Failed to create schedule", error.body)
@@ -760,11 +795,11 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   }
 
   return (
-    <Dialog>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <TooltipProvider>
         <Tooltip open={!hasVersion ? undefined : false}>
           <TooltipTrigger asChild>
-            <span tabIndex={0}>
+            <span>
               <DialogTrigger asChild>
                 <Button
                   type="button"
@@ -784,8 +819,8 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className="max-h-[calc(100vh-4rem)] grid-rows-[auto,1fr] overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="border-b px-6 py-4 text-left">
           <DialogTitle>Create a new schedule</DialogTitle>
           <DialogDescription>
             Configure the schedule for the workflow. The workflow will not run
@@ -800,7 +835,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
         </DialogHeader>
         <Form {...form}>
           <form
-            className="space-y-4"
+            className="flex h-full flex-col overflow-hidden"
             onSubmit={form.handleSubmit(onSubmit, () => {
               console.error("Form validation failed")
               toast({
@@ -809,217 +844,383 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
               })
             })}
           >
-            <FormField
-              control={form.control}
-              name="mode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs capitalize text-foreground/80">
-                    Schedule Type
-                  </FormLabel>
-                  <FormDescription className="text-xs">
-                    Choose between interval-based or cron-based scheduling.
-                  </FormDescription>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="text-xs capitalize">
-                        <SelectValue placeholder="Select schedule type" />
-                      </SelectTrigger>
-                      <SelectContent className="text-xs">
-                        <SelectItem value="interval">Interval</SelectItem>
-                        <SelectItem value="cron">Cron</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <ScrollArea className="flex-1 px-6">
+              <div className="space-y-4 py-4">
+                <FormField
+                  control={form.control}
+                  name="mode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs capitalize text-foreground/80">
+                        Schedule Type
+                      </FormLabel>
+                      <FormDescription className="text-xs">
+                        Choose between interval-based or cron-based scheduling.
+                      </FormDescription>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger className="text-xs capitalize">
+                            <SelectValue placeholder="Select schedule type" />
+                          </SelectTrigger>
+                          <SelectContent className="text-xs">
+                            <SelectItem value="interval">Interval</SelectItem>
+                            <SelectItem value="cron">Cron</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            {mode === "interval" && (
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  "duration.years",
-                  "duration.months",
-                  "duration.days",
-                  "duration.hours",
-                  "duration.minutes",
-                  "duration.seconds",
-                ].map((unit) => (
+                {mode === "interval" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      "duration.years",
+                      "duration.months",
+                      "duration.days",
+                      "duration.hours",
+                      "duration.minutes",
+                      "duration.seconds",
+                    ].map((unit) => (
+                      <FormField
+                        key={unit}
+                        control={form.control}
+                        name={unit as DurationType}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs capitalize text-foreground/80">
+                              {unit.split(".")[1]}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                className="text-xs capitalize"
+                                placeholder={unit}
+                                value={Math.max(0, Number(field.value || 0))}
+                                {...form.register(unit as DurationType, {
+                                  valueAsNumber: true,
+                                })}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {mode === "cron" && (
                   <FormField
-                    key={unit}
                     control={form.control}
-                    name={unit as DurationType}
+                    name="cronExpression"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs capitalize text-foreground/80">
-                          {unit.split(".")[1]}
+                          Cron Expression
                         </FormLabel>
+                        <FormDescription className="text-xs">
+                          Standard 5 or 6 field cron format, e.g.{" "}
+                          <code className="font-mono">0 0 * * *</code>.
+                        </FormDescription>
                         <FormControl>
                           <Input
-                            type="number"
-                            className="text-xs capitalize"
-                            placeholder={unit}
-                            value={Math.max(0, Number(field.value || 0))}
-                            {...form.register(unit as DurationType, {
-                              valueAsNumber: true,
-                            })}
+                            type="text"
+                            className="text-xs font-mono"
+                            placeholder="0 0 * * *"
+                            {...field}
                           />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                ))}
-              </div>
-            )}
-
-            {mode === "cron" && (
-              <FormField
-                control={form.control}
-                name="cronExpression"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs capitalize text-foreground/80">
-                      Cron Expression
-                    </FormLabel>
-                    <FormDescription className="text-xs">
-                      Standard 5 or 6 field cron format, e.g.{" "}
-                      <code className="font-mono">0 0 * * *</code>.
-                    </FormDescription>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        className="text-xs font-mono"
-                        placeholder="0 0 * * *"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
                 )}
-              />
-            )}
 
-            <FormField
-              key="timeout"
-              control={form.control}
-              name="timeout"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs capitalize text-foreground/80">
-                    Timeout
-                  </FormLabel>
-                  <FormDescription className="text-xs">
-                    The maximum time in seconds the workflow can run for.
-                    Default is 0 (no timeout).
-                  </FormDescription>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      className="text-xs capitalize"
-                      placeholder="Timeout (seconds)"
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(
-                          e.target.value
-                            ? parseFloat(e.target.value)
-                            : undefined
-                        )
+                <FormField
+                  key="timeout"
+                  control={form.control}
+                  name="timeout"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs capitalize text-foreground/80">
+                        Timeout
+                      </FormLabel>
+                      <FormDescription className="text-xs">
+                        The maximum time in seconds the workflow can run for.
+                        Default is 0 (no timeout).
+                      </FormDescription>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          className="text-xs capitalize"
+                          placeholder="Timeout (seconds)"
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value
+                                ? parseFloat(e.target.value)
+                                : undefined
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {mode === "interval" && (
+                  <FormField
+                    key="offset"
+                    control={form.control}
+                    name="offset"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs capitalize text-foreground/80">
+                          Offset
+                        </FormLabel>
+                        <FormDescription className="text-xs">
+                          Optional delay before the first execution. Use ISO
+                          8601 duration format: PT1H (1 hour), P1D (1 day),
+                          PT30M (30 minutes).
+                        </FormDescription>
+                        <FormControl>
+                          <Input
+                            type="text"
+                            className="text-xs"
+                            placeholder="PT1H (optional)"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                <FormField
+                  key="startAt"
+                  control={form.control}
+                  name="startAt"
+                  render={({ field }) => {
+                    const dateValue = field.value
+                      ? new Date(field.value)
+                      : undefined
+                    const timeValue = field.value
+                      ? new Date(field.value).toTimeString().slice(0, 8)
+                      : ""
+
+                    const handleDateChange = (date: Date | undefined) => {
+                      if (!date) {
+                        field.onChange("")
+                        setStartDatePickerOpen(false)
+                        return
                       }
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
-            {mode === "interval" && (
-              <FormField
-                key="offset"
-                control={form.control}
-                name="offset"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs capitalize text-foreground/80">
-                      Offset
-                    </FormLabel>
-                    <FormDescription className="text-xs">
-                      Optional delay before the first execution. Use ISO 8601
-                      duration format: PT1H (1 hour), P1D (1 day), PT30M (30
-                      minutes).
-                    </FormDescription>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        className="text-xs"
-                        placeholder="PT1H (optional)"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-            <FormField
-              key="startAt"
-              control={form.control}
-              name="startAt"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs capitalize text-foreground/80">
-                    Start after
-                  </FormLabel>
-                  <FormDescription className="text-xs">
-                    Optional earliest date and time to begin running this
-                    schedule.
-                  </FormDescription>
-                  <FormControl>
-                    <Input
-                      type="datetime-local"
-                      className="text-xs"
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              key="endAt"
-              control={form.control}
-              name="endAt"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs capitalize text-foreground/80">
-                    End by
-                  </FormLabel>
-                  <FormDescription className="text-xs">
-                    Optional latest date and time after which the schedule will
-                    stop running.
-                  </FormDescription>
-                  <FormControl>
-                    <Input
-                      type="datetime-local"
-                      className="text-xs"
-                      value={field.value ?? ""}
-                      min={startAtValue || undefined}
-                      onChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter className="mt-4">
-              <DialogClose asChild>
-                <Button type="submit" variant="default">
-                  <PlusCircleIcon className="mr-2 size-4" />
-                  <span>Create</span>
-                </Button>
-              </DialogClose>
+                      const currentTime = field.value
+                        ? new Date(field.value).toTimeString().slice(0, 8)
+                        : "00:00:00"
+                      const [hours, minutes, seconds] = currentTime.split(":")
+                      date.setHours(
+                        Number.parseInt(hours),
+                        Number.parseInt(minutes),
+                        Number.parseInt(seconds)
+                      )
+                      field.onChange(date.toISOString())
+                      setStartDatePickerOpen(false)
+                    }
+
+                    const handleTimeChange = (
+                      e: React.ChangeEvent<HTMLInputElement>
+                    ) => {
+                      const timeStr = e.target.value
+                      const currentDate = field.value
+                        ? new Date(field.value)
+                        : new Date()
+
+                      const [hours, minutes, seconds] = timeStr.split(":")
+                      currentDate.setHours(
+                        Number.parseInt(hours || "0"),
+                        Number.parseInt(minutes || "0"),
+                        Number.parseInt(seconds || "0")
+                      )
+                      field.onChange(currentDate.toISOString())
+                    }
+
+                    return (
+                      <FormItem>
+                        <FormLabel className="text-xs capitalize text-foreground/80">
+                          Start after
+                        </FormLabel>
+                        <FormDescription className="text-xs">
+                          Optional earliest date and time to begin running this
+                          schedule.
+                        </FormDescription>
+                        <FormControl>
+                          <div className="flex gap-4">
+                            <div className="flex flex-col gap-3">
+                              <Popover
+                                open={startDatePickerOpen}
+                                onOpenChange={setStartDatePickerOpen}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="w-32 justify-between font-normal text-xs"
+                                  >
+                                    {dateValue
+                                      ? dateValue.toLocaleDateString()
+                                      : "Select date"}
+                                    <ChevronDownIcon className="size-4" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  className="w-auto overflow-hidden p-0"
+                                  align="start"
+                                >
+                                  <Calendar
+                                    mode="single"
+                                    selected={dateValue}
+                                    captionLayout="dropdown"
+                                    onSelect={handleDateChange}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                              <Input
+                                type="time"
+                                step="1"
+                                value={timeValue}
+                                onChange={handleTimeChange}
+                                className="bg-background text-xs appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                              />
+                            </div>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )
+                  }}
+                />
+
+                <FormField
+                  key="endAt"
+                  control={form.control}
+                  name="endAt"
+                  render={({ field }) => {
+                    const dateValue = field.value
+                      ? new Date(field.value)
+                      : undefined
+                    const timeValue = field.value
+                      ? new Date(field.value).toTimeString().slice(0, 8)
+                      : ""
+
+                    const handleDateChange = (date: Date | undefined) => {
+                      if (!date) {
+                        field.onChange("")
+                        setEndDatePickerOpen(false)
+                        return
+                      }
+
+                      const currentTime = field.value
+                        ? new Date(field.value).toTimeString().slice(0, 8)
+                        : "00:00:00"
+                      const [hours, minutes, seconds] = currentTime.split(":")
+                      date.setHours(
+                        Number.parseInt(hours),
+                        Number.parseInt(minutes),
+                        Number.parseInt(seconds)
+                      )
+                      field.onChange(date.toISOString())
+                      setEndDatePickerOpen(false)
+                    }
+
+                    const handleTimeChange = (
+                      e: React.ChangeEvent<HTMLInputElement>
+                    ) => {
+                      const timeStr = e.target.value
+                      const currentDate = field.value
+                        ? new Date(field.value)
+                        : new Date()
+
+                      const [hours, minutes, seconds] = timeStr.split(":")
+                      currentDate.setHours(
+                        Number.parseInt(hours || "0"),
+                        Number.parseInt(minutes || "0"),
+                        Number.parseInt(seconds || "0")
+                      )
+                      field.onChange(currentDate.toISOString())
+                    }
+
+                    return (
+                      <FormItem>
+                        <FormLabel className="text-xs capitalize text-foreground/80">
+                          End by
+                        </FormLabel>
+                        <FormDescription className="text-xs">
+                          Optional latest date and time after which the schedule
+                          will stop running.
+                        </FormDescription>
+                        <FormControl>
+                          <div className="flex gap-4">
+                            <div className="flex flex-col gap-3">
+                              <Popover
+                                open={endDatePickerOpen}
+                                onOpenChange={setEndDatePickerOpen}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="w-32 justify-between font-normal text-xs"
+                                  >
+                                    {dateValue
+                                      ? dateValue.toLocaleDateString()
+                                      : "Select date"}
+                                    <ChevronDownIcon className="size-4" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  className="w-auto overflow-hidden p-0"
+                                  align="start"
+                                >
+                                  <Calendar
+                                    mode="single"
+                                    selected={dateValue}
+                                    captionLayout="dropdown"
+                                    onSelect={handleDateChange}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                              <Input
+                                type="time"
+                                step="1"
+                                value={timeValue}
+                                onChange={handleTimeChange}
+                                className="bg-background text-xs appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                              />
+                            </div>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )
+                  }}
+                />
+              </div>
+            </ScrollArea>
+            <DialogFooter className="border-t px-6 py-4">
+              <Button type="submit" variant="default">
+                <PlusCircleIcon className="mr-2 size-4" />
+                <span>Create</span>
+              </Button>
             </DialogFooter>
           </form>
         </Form>
