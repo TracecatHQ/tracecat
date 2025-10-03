@@ -8,6 +8,7 @@ import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
+import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
@@ -100,10 +101,12 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <div className="flex h-full flex-1 flex-col">
-          <ControlsHeader />
-          <div className="flex-1 overflow-y-scroll">{children}</div>
-        </div>
+        <CaseSelectionProvider>
+          <div className="flex h-full flex-1 flex-col">
+            <ControlsHeader />
+            <div className="flex-1 overflow-y-scroll">{children}</div>
+          </div>
+        </CaseSelectionProvider>
       </SidebarInset>
     </SidebarProvider>
   )
