@@ -90,7 +90,13 @@ export function ChatSessionPane({
   onMessagesChange,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
-  const processedMessageRef = useRef<string | undefined>(undefined)
+  const processedMessageRef = useRef<
+    | {
+        messageId: string
+        partCount: number
+      }
+    | undefined
+  >(undefined)
 
   const [input, setInput] = useState<string>("")
   const [model, setModel] = useState<string>(models[0].id)
@@ -135,20 +141,27 @@ export function ChatSessionPane({
     }
 
     const lastMessage = messages[messages.length - 1]
-    if (!lastMessage?.id || processedMessageRef.current === lastMessage.id) {
+    const currentPartCount = lastMessage.parts?.length || 0
+
+    // Skip if we've already processed this message with the same number of parts
+    if (
+      processedMessageRef.current?.messageId === lastMessage.id &&
+      processedMessageRef.current?.partCount === currentPartCount
+    ) {
       return
     }
 
-    const toolNames = (lastMessage.parts || [])
-      .filter((part) => isToolUIPart(part))
-      .map((part) => ("toolName" in part ? part.toolName : getToolName(part)))
-      .filter((name): name is string => Boolean(name))
+    const toolNames = lastMessage.parts.filter(isToolUIPart).map(getToolName)
 
     if (toolNames.length > 0) {
+      console.log("Invalidating entity queries for tools:", toolNames)
       invalidateEntityQueries(toolNames)
     }
 
-    processedMessageRef.current = lastMessage.id
+    processedMessageRef.current = {
+      messageId: lastMessage.id,
+      partCount: currentPartCount,
+    }
   }, [messages, invalidateEntityQueries])
 
   const handleSubmit = (message: PromptInputMessage) => {
