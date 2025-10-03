@@ -230,18 +230,22 @@ export function ChatSessionPane({
                           index === (message.parts?.length || 0) - 1 && (
                             <Actions>
                               <Action
-                                onClick={() => regenerate()}
-                                label="Retry"
-                              >
-                                <RefreshCcwIcon className="size-3" />
-                              </Action>
-                              <Action
+                                size="sm"
                                 onClick={() =>
                                   navigator.clipboard.writeText(part.text)
                                 }
                                 label="Copy"
+                                tooltip="Copy"
                               >
                                 <CopyIcon className="size-3" />
+                              </Action>
+                              <Action
+                                size="sm"
+                                onClick={() => regenerate()}
+                                label="Retry"
+                                tooltip="Retry"
+                              >
+                                <RefreshCcwIcon className="size-3" />
                               </Action>
                             </Actions>
                           )}

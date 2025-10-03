@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 export type ActionsProps = ComponentProps<"div">
 
 export const Actions = ({ className, children, ...props }: ActionsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props}>
+  <div className={cn("flex items-center gap-0", className)} {...props}>
     {children}
   </div>
 )
@@ -35,7 +35,8 @@ export const Action = ({
   const button = (
     <Button
       className={cn(
-        "relative size-9 p-1.5 text-muted-foreground hover:text-foreground",
+        // Tighten spacing while allowing the width to shrink so buttons no longer appear square.
+        "relative size-5 p-0 text-muted-foreground hover:text-foreground",
         className
       )}
       size={size}
