@@ -28,21 +28,19 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceId } from "@/providers/workspace-id";
 
 interface ChatInterfaceProps {
-	chatId?: string;
 	entityType: ChatEntity;
 	entityId: string;
 	onChatSelect?: (chatId: string) => void;
 }
 
 export function ChatInterface({
-	chatId,
 	entityType,
 	entityId,
 	onChatSelect,
 }: ChatInterfaceProps) {
 	const workspaceId = useWorkspaceId();
 	const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
-		chatId,
+		undefined,
 	);
 
 	const { chats, chatsLoading, chatsError } = useListChats({
@@ -70,13 +68,6 @@ export function ChatInterface({
 			onChatSelect?.(firstChatId);
 		}
 	}, [chats, selectedChatId, onChatSelect]);
-
-	// Update selected chat when chatId prop changes
-	useEffect(() => {
-		if (chatId && chatId !== selectedChatId) {
-			setSelectedChatId(chatId);
-		}
-	}, [chatId, selectedChatId]);
 
 	const handleCreateChat = async () => {
 		try {
@@ -204,7 +195,7 @@ export function ChatInterface({
 
 			{/* Chat Body */}
 			<ChatBody
-				selectedChatId={selectedChatId}
+				chatId={selectedChatId}
 				workspaceId={workspaceId}
 				entityType={entityType}
 				entityId={entityId}
@@ -218,7 +209,7 @@ export function ChatInterface({
 }
 
 interface ChatBodyProps {
-	selectedChatId: string | undefined;
+	chatId?: string;
 	workspaceId: string;
 	entityType: ChatEntity;
 	entityId: string;
@@ -229,7 +220,7 @@ interface ChatBodyProps {
 }
 
 function ChatBody({
-	selectedChatId,
+	chatId,
 	workspaceId,
 	entityType,
 	entityId,
@@ -239,7 +230,7 @@ function ChatBody({
 	provider,
 }: ChatBodyProps) {
 	// Render loading state while checking if chat is selected
-	if (!selectedChatId || chatReadyLoading) {
+	if (!chatId || chatReadyLoading) {
 		return (
 			<div className="flex h-full items-center justify-center">
 				<CenteredSpinner />
@@ -280,7 +271,7 @@ function ChatBody({
 	}
 	return (
 		<ChatSessionPane
-			chatId={selectedChatId}
+			chatId={chatId}
 			workspaceId={workspaceId}
 			entityType={entityType}
 			entityId={entityId}

@@ -14,7 +14,7 @@ export function CaseChat({
   }
   return (
     <div className="flex h-full flex-col">
-      <ChatInterface chatId={caseId} entityType="case" entityId={caseId} />
+      <ChatInterface entityType="case" entityId={caseId} />
     </div>
   )
 }
