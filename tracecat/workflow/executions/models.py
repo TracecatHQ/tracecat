@@ -187,7 +187,7 @@ class EventGroup[T: EventInput](BaseModel):
             try:
                 action_input = RunActionInput(**activity_input_data)
             except Exception as e:
-                logger.error("Error parsing run action input", error=e)
+                logger.warning("Error parsing run action input", error=e)
                 return None
         if action_input.task is None:
             # It's a utility action.
@@ -385,7 +385,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         try:
             action_input = RunActionInput(**activity_input_data)
         except Exception as e:
-            logger.error("Error parsing run action input", error=e)
+            logger.warning("Error parsing run action input", error=e)
             return None
         task = action_input.task
         if task is None:
