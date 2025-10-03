@@ -28,19 +28,21 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface ChatInterfaceProps {
+  chatId?: string
   entityType: ChatEntity
   entityId: string
   onChatSelect?: (chatId: string) => void
 }
 
 export function ChatInterface({
+  chatId,
   entityType,
   entityId,
   onChatSelect,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
-    undefined
+    chatId
   )
 
   const { chats, chatsLoading, chatsError } = useListChats({
