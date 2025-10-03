@@ -19,6 +19,7 @@ from typing import (
     NotRequired,
     TypedDict,
     TypeGuard,
+    cast,
 )
 
 import pydantic
@@ -59,6 +60,7 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamMessage,
 )
+from tracecat.common import UNSET
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -665,6 +667,8 @@ class VercelStreamContext:
 
 def _convert_model_message_part_to_ui_part(
     part: ModelResponsePart | ModelRequestPart,
+    *,
+    tool_input: Any = UNSET,  # None is valid input
 ) -> UIMessagePart | None:
     """Convert a single ModelMessage part to a UIMessage part.
 
@@ -686,14 +690,11 @@ def _convert_model_message_part_to_ui_part(
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         ):
-            return DynamicToolUIPartInputAvailable(
-                type="dynamic-tool",
-                toolName=tool_name,
+            return ToolUIPartInputAvailable(
+                type=f"tool-{tool_name}",
                 toolCallId=tool_call_id,
                 state="input-available",
                 input=part.args_as_dict(),
-                output=None,
-                errorText=None,
             )
 
         case ToolReturnPart(
@@ -701,14 +702,12 @@ def _convert_model_message_part_to_ui_part(
             tool_call_id=tool_call_id,
             content=content,
         ):
-            return DynamicToolUIPartOutputAvailable(
-                type="dynamic-tool",
-                toolName=tool_name,
+            return ToolUIPartOutputAvailable(
+                type=f"tool-{tool_name}",
                 toolCallId=tool_call_id,
                 state="output-available",
-                input={},
+                input={} if tool_input is UNSET else tool_input,
                 output=content,
-                errorText=None,
             )
 
         case RetryPromptPart(
@@ -716,13 +715,11 @@ def _convert_model_message_part_to_ui_part(
             tool_call_id=tool_call_id,
             content=content,
         ):
-            return DynamicToolUIPartOutputError(
-                type="dynamic-tool",
-                toolName=tool_name,
+            return ToolUIPartOutputError(
+                type=f"tool-{tool_name}",
                 toolCallId=tool_call_id,
                 state="output-error",
-                input={},
-                output=None,
+                input={} if tool_input is UNSET else tool_input,
                 errorText=content if isinstance(content, str) else str(content),
             )
 
@@ -746,14 +743,11 @@ def _convert_model_message_part_to_ui_part(
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         ):
-            return DynamicToolUIPartInputAvailable(
-                type="dynamic-tool",
-                toolName=tool_name,
+            return ToolUIPartInputAvailable(
+                type=f"tool-{tool_name}",
                 toolCallId=tool_call_id,
                 state="input-available",
                 input=part.args_as_dict(),
-                output=None,
-                errorText=None,
             )
 
         case BuiltinToolReturnPart(
@@ -761,14 +755,12 @@ def _convert_model_message_part_to_ui_part(
             tool_call_id=tool_call_id,
             content=content,
         ):
-            return DynamicToolUIPartOutputAvailable(
-                type="dynamic-tool",
-                toolName=tool_name,
+            return ToolUIPartOutputAvailable(
+                type=f"tool-{tool_name}",
                 toolCallId=tool_call_id,
                 state="output-available",
-                input={},
+                input={} if tool_input is UNSET else tool_input,
                 output=content,
-                errorText=None,
             )
 
     return None
@@ -785,7 +777,9 @@ def convert_model_messages_to_ui(
     Returns:
         List of UIMessage objects for the Vercel AI SDK
     """
-    ui_messages: list[UIMessage] = []
+    raw_messages: list[dict[str, Any]] = []
+    tool_inputs: dict[str, Any] = {}
+    tool_ui_parts: dict[str, ToolUIPart] = {}
 
     for chat_message in messages:
         # Extract message data from the ChatMessage schema
@@ -800,21 +794,75 @@ def convert_model_messages_to_ui(
         # Convert all parts
         ui_parts: list[UIMessagePart] = []
         for part in message_data.parts:
-            converted_part = _convert_model_message_part_to_ui_part(part)
-            if converted_part is not None:
+            tool_input: Any = UNSET
+            tool_call_id: str | None = None
+            part_kind: str | None = None
+
+            match part:
+                case ToolCallPart(tool_call_id=tool_call_id):
+                    tool_input = part.args_as_dict()
+                    tool_inputs[tool_call_id] = tool_input
+                    part_kind = "call"
+                case BuiltinToolCallPart(tool_call_id=tool_call_id):
+                    tool_input = part.args_as_dict()
+                    tool_inputs[tool_call_id] = tool_input
+                    part_kind = "call"
+                case ToolReturnPart(tool_call_id=tool_call_id):
+                    tool_input = tool_inputs.get(tool_call_id, UNSET)
+                    part_kind = "return"
+                case RetryPromptPart(tool_call_id=tool_call_id):
+                    tool_input = tool_inputs.get(tool_call_id, UNSET)
+                    part_kind = "retry"
+                case BuiltinToolReturnPart(tool_call_id=tool_call_id):
+                    tool_input = tool_inputs.get(tool_call_id, UNSET)
+                    part_kind = "return"
+                case _:
+                    tool_input = UNSET
+
+            converted_part = _convert_model_message_part_to_ui_part(
+                part, tool_input=tool_input
+            )
+            if converted_part is None:
+                continue
+
+            if part_kind == "call" and tool_call_id is not None:
+                tool_ui_parts[tool_call_id] = cast(ToolUIPart, converted_part)
                 ui_parts.append(converted_part)
+                continue
+
+            if part_kind in {"return", "retry"} and tool_call_id is not None:
+                existing_part = tool_ui_parts.get(tool_call_id)
+                if existing_part is not None:
+                    existing_part["state"] = converted_part["state"]  # type: ignore[index]
+                    if "input" in converted_part:
+                        existing_part["input"] = converted_part["input"]  # type: ignore[index]
+                    if "output" in converted_part:
+                        existing_part["output"] = converted_part["output"]  # type: ignore[index]
+                    else:
+                        existing_part.pop("output", None)
+                    if "errorText" in converted_part:
+                        existing_part["errorText"] = converted_part["errorText"]  # type: ignore[index]
+                    else:
+                        existing_part.pop("errorText", None)
+                    continue
+
+                tool_ui_parts[tool_call_id] = cast(ToolUIPart, converted_part)
+                ui_parts.append(converted_part)
+                continue
+
+            ui_parts.append(converted_part)
 
         # Only create UIMessage if we have parts
         if ui_parts:
-            ui_messages.append(
-                UIMessage(
-                    id=message_id,
-                    role=role,
-                    parts=ui_parts,
-                )
+            raw_messages.append(
+                {
+                    "id": message_id,
+                    "role": role,
+                    "parts": ui_parts,
+                }
             )
 
-    return ui_messages
+    return [UIMessage(**message) for message in raw_messages]
 
 
 async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
