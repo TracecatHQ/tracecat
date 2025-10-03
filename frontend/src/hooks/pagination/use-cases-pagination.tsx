@@ -18,10 +18,10 @@ export interface UseCasesPaginationParams {
   workspaceId: string
   limit?: number
   searchTerm?: string | null
-  status?: CaseStatus | null
-  priority?: CasePriority | null
-  severity?: CaseSeverity | null
-  assigneeId?: string | null
+  status?: CaseStatus[] | null
+  priority?: CasePriority[] | null
+  severity?: CaseSeverity[] | null
+  assigneeIds?: string[] | null
   tags?: string[] | null
 }
 
@@ -32,7 +32,7 @@ export function useCasesPagination({
   status,
   priority,
   severity,
-  assigneeId,
+  assigneeIds,
   tags,
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
@@ -42,10 +42,10 @@ export function useCasesPagination({
     const response = await casesListCases({
       ...params,
       searchTerm,
-      status,
-      priority,
-      severity,
-      assigneeId,
+      status: status && status.length ? status : null,
+      priority: priority && priority.length ? priority : null,
+      severity: severity && severity.length ? severity : null,
+      assigneeId: assigneeIds && assigneeIds.length ? assigneeIds : null,
       tags,
     })
     return {
@@ -66,10 +66,12 @@ export function useCasesPagination({
       "paginated",
       workspaceId,
       searchTerm ?? null,
-      status ?? null,
-      priority ?? null,
-      severity ?? null,
-      assigneeId ?? null,
+      status && status.length ? [...status].sort().join(",") : null,
+      priority && priority.length ? [...priority].sort().join(",") : null,
+      severity && severity.length ? [...severity].sort().join(",") : null,
+      assigneeIds && assigneeIds.length
+        ? [...assigneeIds].sort().join(",")
+        : null,
       tags ? [...tags].sort().join(",") : null,
     ],
     queryFn: adaptedCasesListCases,

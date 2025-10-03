@@ -5473,7 +5473,7 @@ export type CasesListCasesData = {
   /**
    * Filter by assignee ID or 'unassigned'
    */
-  assigneeId?: string | null
+  assigneeId?: Array<string> | null
   /**
    * Cursor for pagination
    */
@@ -5485,7 +5485,7 @@ export type CasesListCasesData = {
   /**
    * Filter by case priority
    */
-  priority?: CasePriority | null
+  priority?: Array<CasePriority> | null
   /**
    * Reverse pagination direction
    */
@@ -5497,11 +5497,11 @@ export type CasesListCasesData = {
   /**
    * Filter by case severity
    */
-  severity?: CaseSeverity | null
+  severity?: Array<CaseSeverity> | null
   /**
    * Filter by case status
    */
-  status?: CaseStatus | null
+  status?: Array<CaseStatus> | null
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
@@ -5536,7 +5536,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by case priority
    */
-  priority?: CasePriority | null
+  priority?: Array<CasePriority> | null
   /**
    * Text to search for in case summary and description
    */
@@ -5544,7 +5544,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by case severity
    */
-  severity?: CaseSeverity | null
+  severity?: Array<CaseSeverity> | null
   /**
    * Direction to sort (asc or desc)
    */
@@ -5552,7 +5552,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by case status
    */
-  status?: CaseStatus | null
+  status?: Array<CaseStatus> | null
   /**
    * Filter by tag IDs or slugs (AND logic)
    */

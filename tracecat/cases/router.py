@@ -85,10 +85,14 @@ async def list_cases(
     search_term: str | None = Query(
         None, description="Text to search for in case summary and description"
     ),
-    status: CaseStatus | None = Query(None, description="Filter by case status"),
-    priority: CasePriority | None = Query(None, description="Filter by case priority"),
-    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
-    assignee_id: str | None = Query(
+    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
+    priority: list[CasePriority] | None = Query(
+        None, description="Filter by case priority"
+    ),
+    severity: list[CaseSeverity] | None = Query(
+        None, description="Filter by case severity"
+    ),
+    assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
     tags: list[str] | None = Query(
@@ -117,17 +121,20 @@ async def list_cases(
     )
 
     # Parse assignee_id - handle special "unassigned" value
-    parsed_assignee_id = None
-    if assignee_id == "unassigned":
-        parsed_assignee_id = "unassigned"  # Special marker for null assignees
-    elif assignee_id:
-        try:
-            parsed_assignee_id = uuid.UUID(assignee_id)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail=f"Invalid assignee_id: {assignee_id}",
-            ) from e
+    parsed_assignee_ids: list[uuid.UUID] = []
+    include_unassigned = False
+    if assignee_id:
+        for identifier in assignee_id:
+            if identifier == "unassigned":
+                include_unassigned = True
+                continue
+            try:
+                parsed_assignee_ids.append(uuid.UUID(identifier))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid assignee_id: {identifier}",
+                ) from e
 
     try:
         cases = await service.list_cases_paginated(
@@ -136,7 +143,8 @@ async def list_cases(
             status=status,
             priority=priority,
             severity=severity,
-            assignee_id=parsed_assignee_id,
+            assignee_ids=parsed_assignee_ids or None,
+            include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
         )
     except Exception as e:
@@ -156,9 +164,13 @@ async def search_cases(
     search_term: str | None = Query(
         None, description="Text to search for in case summary and description"
     ),
-    status: CaseStatus | None = Query(None, description="Filter by case status"),
-    priority: CasePriority | None = Query(None, description="Filter by case priority"),
-    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
+    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
+    priority: list[CasePriority] | None = Query(
+        None, description="Filter by case priority"
+    ),
+    severity: list[CaseSeverity] | None = Query(
+        None, description="Filter by case severity"
+    ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),

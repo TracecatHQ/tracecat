@@ -64,6 +64,21 @@ from tracecat.types.pagination import (
 )
 
 
+def _normalize_filter_values(values: Any) -> list[Any]:
+    """Ensure filter inputs are lists of unique values."""
+    if values is None:
+        return []
+    if isinstance(values, (str, bytes)):
+        return [values]
+    if isinstance(values, Sequence):
+        unique: list[Any] = []
+        for value in values:
+            if value not in unique:
+                unique.append(value)
+        return unique
+    return [values]
+
+
 class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
@@ -100,10 +115,11 @@ class CasesService(BaseWorkspaceService):
         self,
         params: CursorPaginationParams,
         search_term: str | None = None,
-        status: CaseStatus | None = None,
-        priority: CasePriority | None = None,
-        severity: CaseSeverity | None = None,
-        assignee_id: uuid.UUID | str | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        assignee_ids: Sequence[uuid.UUID] | None = None,
+        include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
@@ -138,25 +154,36 @@ class CasesService(BaseWorkspaceService):
                 )
             )
 
-        # Apply status filter
-        if status:
-            stmt = stmt.where(Case.status == status)
+        normalized_statuses = _normalize_filter_values(status)
+        if normalized_statuses:
+            stmt = stmt.where(col(Case.status).in_(normalized_statuses))
 
         # Apply priority filter
-        if priority:
-            stmt = stmt.where(Case.priority == priority)
+        normalized_priorities = _normalize_filter_values(priority)
+        if normalized_priorities:
+            stmt = stmt.where(col(Case.priority).in_(normalized_priorities))
 
         # Apply severity filter
-        if severity:
-            stmt = stmt.where(Case.severity == severity)
+        normalized_severities = _normalize_filter_values(severity)
+        if normalized_severities:
+            stmt = stmt.where(col(Case.severity).in_(normalized_severities))
 
         # Apply assignee filter
-        if assignee_id is not None:
-            # Special handling for unassigned cases
-            if assignee_id == "unassigned":
-                stmt = stmt.where(col(Case.assignee_id).is_(None))
-            else:
-                stmt = stmt.where(Case.assignee_id == assignee_id)
+        if include_unassigned or assignee_ids:
+            unique_assignees = list(dict.fromkeys(assignee_ids or []))
+            assignee_conditions: list[Any] = []
+
+            if unique_assignees:
+                assignee_conditions.append(col(Case.assignee_id).in_(unique_assignees))
+
+            if include_unassigned:
+                assignee_conditions.append(col(Case.assignee_id).is_(None))
+
+            if assignee_conditions:
+                if len(assignee_conditions) == 1:
+                    stmt = stmt.where(assignee_conditions[0])
+                else:
+                    stmt = stmt.where(or_(*assignee_conditions))
 
         # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
         if tag_ids:
@@ -263,9 +290,9 @@ class CasesService(BaseWorkspaceService):
     async def search_cases(
         self,
         search_term: str | None = None,
-        status: CaseStatus | None = None,
-        priority: CasePriority | None = None,
-        severity: CaseSeverity | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
         tag_ids: list[uuid.UUID] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
@@ -318,16 +345,19 @@ class CasesService(BaseWorkspaceService):
             )
 
         # Apply status filter
-        if status:
-            statement = statement.where(Case.status == status)
+        normalized_statuses = _normalize_filter_values(status)
+        if normalized_statuses:
+            statement = statement.where(col(Case.status).in_(normalized_statuses))
 
         # Apply priority filter
-        if priority:
-            statement = statement.where(Case.priority == priority)
+        normalized_priorities = _normalize_filter_values(priority)
+        if normalized_priorities:
+            statement = statement.where(col(Case.priority).in_(normalized_priorities))
 
         # Apply severity filter
-        if severity:
-            statement = statement.where(Case.severity == severity)
+        normalized_severities = _normalize_filter_values(severity)
+        if normalized_severities:
+            statement = statement.where(col(Case.severity).in_(normalized_severities))
 
         # Apply tag filtering if specified (AND logic for multiple tags)
         if tag_ids:

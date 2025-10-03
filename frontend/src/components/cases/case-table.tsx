@@ -33,14 +33,10 @@ export default function CaseTable() {
 
   // Server-side filter states
   const [searchTerm, setSearchTerm] = useState<string>("")
-  const [statusFilter, setStatusFilter] = useState<CaseStatus | null>(null)
-  const [priorityFilter, setPriorityFilter] = useState<CasePriority | null>(
-    null
-  )
-  const [severityFilter, setSeverityFilter] = useState<CaseSeverity | null>(
-    null
-  )
-  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>([])
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
   // Debounce search term for better performance
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
 
@@ -65,7 +61,12 @@ export default function CaseTable() {
     status: statusFilter,
     priority: priorityFilter,
     severity: severityFilter,
-    assigneeId: assigneeFilter === UNASSIGNED ? "unassigned" : assigneeFilter,
+    assigneeIds:
+      assigneeFilter.length > 0
+        ? assigneeFilter.map((value) =>
+            value === UNASSIGNED ? "unassigned" : value
+          )
+        : null,
   })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
@@ -135,7 +136,7 @@ export default function CaseTable() {
   )
 
   const handleStatusChange = useCallback(
-    (value: CaseStatus | null) => {
+    (value: CaseStatus[]) => {
       setStatusFilter(value)
       goToFirstPage()
     },
@@ -143,7 +144,7 @@ export default function CaseTable() {
   )
 
   const handlePriorityChange = useCallback(
-    (value: CasePriority | null) => {
+    (value: CasePriority[]) => {
       setPriorityFilter(value)
       goToFirstPage()
     },
@@ -151,7 +152,7 @@ export default function CaseTable() {
   )
 
   const handleSeverityChange = useCallback(
-    (value: CaseSeverity | null) => {
+    (value: CaseSeverity[]) => {
       setSeverityFilter(value)
       goToFirstPage()
     },
@@ -159,7 +160,7 @@ export default function CaseTable() {
   )
 
   const handleAssigneeChange = useCallback(
-    (value: string | null) => {
+    (value: string[]) => {
       setAssigneeFilter(value)
       goToFirstPage()
     },
