@@ -766,6 +766,11 @@ def _convert_model_message_part_to_ui_part(
     return None
 
 
+UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
+    list[UIMessage]
+)
+
+
 def convert_model_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
@@ -862,7 +867,7 @@ def convert_model_messages_to_ui(
                 }
             )
 
-    return [UIMessage(**message) for message in raw_messages]
+    return UIMessagesTA.validate_python(raw_messages)
 
 
 async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
