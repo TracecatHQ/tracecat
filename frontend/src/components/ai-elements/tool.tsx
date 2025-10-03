@@ -50,9 +50,11 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
   } as const
 
   const icons = {
-    "input-streaming": <CircleIcon className="size-4 text-muted-foreground" />,
+    "input-streaming": (
+      <CircleIcon className="size-3.5 text-muted-foreground animate-pulse" />
+    ),
     "input-available": (
-      <ClockIcon className="size-4 text-amber-500 animate-pulse" />
+      <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
     ),
     "output-available": (
       <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
