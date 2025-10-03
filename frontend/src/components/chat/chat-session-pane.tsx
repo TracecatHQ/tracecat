@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { getToolName, isToolUIPart, type UIMessage } from "ai"
 import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react"
+import { motion } from "motion/react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
@@ -289,7 +290,16 @@ export function ChatSessionPane({
                 })}
               </div>
             ))}
-            {status === "submitted" && <Dots />}
+            {status === "submitted" && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+              >
+                <Dots />
+              </motion.div>
+            )}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
