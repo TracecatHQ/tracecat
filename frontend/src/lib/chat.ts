@@ -190,3 +190,8 @@ export const ENTITY_TO_INVALIDATION: Record<
     },
   },
 }
+
+export type ModelInfo = {
+  name: string
+  provider: string
+}

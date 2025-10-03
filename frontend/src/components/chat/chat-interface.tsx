@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import type { ModelInfo } from "@/lib/chat"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -59,7 +60,7 @@ export function ChatInterface({
     ready: chatReady,
     loading: chatReadyLoading,
     reason: chatReason,
-    provider,
+    modelInfo,
   } = useChatReadiness()
 
   // Set the first chat as selected when chats are loaded and no chat is selected
@@ -205,7 +206,7 @@ export function ChatInterface({
           chatReady={chatReady}
           chatReadyLoading={chatReadyLoading}
           chatReason={chatReason}
-          provider={provider}
+          modelInfo={modelInfo}
         />
       </div>
     </div>
@@ -219,8 +220,8 @@ interface ChatBodyProps {
   entityId: string
   chatReady: boolean
   chatReadyLoading: boolean
-  chatReason: string | null
-  provider: string | null
+  chatReason?: string
+  modelInfo?: ModelInfo
 }
 
 function ChatBody({
@@ -231,7 +232,7 @@ function ChatBody({
   chatReady,
   chatReadyLoading,
   chatReason,
-  provider,
+  modelInfo,
 }: ChatBodyProps) {
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId,
@@ -255,7 +256,7 @@ function ChatBody({
   }
 
   // Render active chat session when ready
-  if (!chatReady) {
+  if (!chatReady || !modelInfo) {
     // Render configuration required state
     return (
       <>
@@ -275,7 +276,7 @@ function ChatBody({
                   {chatReason === "no_model" &&
                     "Select a default model in agent settings to enable chat."}
                   {chatReason === "no_credentials" &&
-                    `Configure ${provider} credentials in agent settings to enable chat.`}
+                    `Configure ${modelInfo?.provider || "model provider"} credentials in agent settings to enable chat.`}
                 </p>
               </div>
               <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
@@ -294,6 +295,7 @@ function ChatBody({
       entityId={entityId}
       placeholder={`Ask about this ${entityType}...`}
       className="flex-1 min-h-0"
+      modelInfo={modelInfo}
     />
   )
 }

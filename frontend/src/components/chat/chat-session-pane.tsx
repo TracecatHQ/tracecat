@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import { getToolName, isToolUIPart, type UIMessage } from "ai"
-import { CopyIcon, RefreshCcwIcon } from "lucide-react"
+import { CopyIcon, HammerIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
 import {
   Fragment,
@@ -23,6 +23,7 @@ import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   type PromptInputMessage,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -48,9 +49,17 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { getIcon } from "@/components/icons"
 import { Dots } from "@/components/loading/dots"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useVercelChat } from "@/hooks/use-chat"
+import type { ModelInfo } from "@/lib/chat"
 import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
@@ -62,6 +71,7 @@ export interface ChatSessionPaneProps {
   className?: string
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
+  modelInfo: ModelInfo
 }
 
 export function ChatSessionPane({
@@ -72,6 +82,7 @@ export function ChatSessionPane({
   className,
   placeholder = "Ask your question...",
   onMessagesChange,
+  modelInfo,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -83,6 +94,8 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
+  const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+  const toolsDisabled = entityType === "runbook"
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -92,11 +105,18 @@ export function ChatSessionPane({
     chatId: chat.id,
     workspaceId,
     messages: uiMessages,
+    modelInfo,
   })
 
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
+
+  useEffect(() => {
+    if (toolsDisabled && toolsDialogOpen) {
+      setToolsDialogOpen(false)
+    }
+  }, [toolsDisabled, toolsDialogOpen])
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -298,10 +318,37 @@ export function ChatSessionPane({
             />
           </PromptInputBody>
           <PromptInputToolbar>
-            <PromptInputTools />
+            <PromptInputTools>
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PromptInputButton
+                      aria-label="Configure tools"
+                      className="gap-1"
+                      disabled={toolsDisabled}
+                      onClick={() => setToolsDialogOpen(true)}
+                      variant="ghost"
+                    >
+                      <HammerIcon className="size-4" />
+                      <span className="text-xs">Tools</span>
+                    </PromptInputButton>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {toolsDisabled
+                      ? "Tools are unavailable for runbooks"
+                      : "Configure tools for the agent"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </PromptInputTools>
             <PromptInputSubmit disabled={!input && !status} status={status} />
           </PromptInputToolbar>
         </PromptInput>
+        <ChatToolsDialog
+          chatId={chat.id}
+          open={toolsDialogOpen}
+          onOpenChange={setToolsDialogOpen}
+        />
       </div>
     </div>
   )

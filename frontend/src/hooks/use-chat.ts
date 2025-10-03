@@ -21,6 +21,7 @@ import {
   type VercelChatRequest,
 } from "@/client"
 import { getBaseUrl } from "@/lib/api"
+import type { ModelInfo } from "@/lib/chat"
 import { isModelMessage, isStreamEvent, type ModelMessage } from "@/lib/chat"
 
 const serializeMessageForComparison = (message: ModelMessage) => {
@@ -629,10 +630,12 @@ export function useVercelChat({
   chatId,
   workspaceId,
   messages,
+  modelInfo,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
+  modelInfo: ModelInfo
 }) {
   const queryClient = useQueryClient()
 
@@ -656,8 +659,8 @@ export function useVercelChat({
         // TODO: Make this dynamic
         const reqBody: VercelChatRequest = {
           format: "vercel",
-          model: "gpt-4o-mini",
-          model_provider: "openai",
+          model: modelInfo?.name,
+          model_provider: modelInfo?.provider,
           message: messages[messages.length - 1],
         }
         return {
