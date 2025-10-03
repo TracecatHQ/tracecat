@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import { getToolName, isToolUIPart, type UIMessage } from "ai"
-import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react"
+import { CopyIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
 import {
   Fragment,
@@ -22,14 +22,7 @@ import {
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
-  PromptInputAttachment,
-  PromptInputAttachments,
   PromptInputBody,
-  PromptInputButton,
   type PromptInputMessage,
   PromptInputModelSelect,
   PromptInputModelSelectContent,
@@ -100,7 +93,6 @@ export function ChatSessionPane({
 
   const [input, setInput] = useState<string>("")
   const [model, setModel] = useState<string>(models[0].id)
-  const [webSearch, setWebSearch] = useState<boolean>(false)
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -166,9 +158,8 @@ export function ChatSessionPane({
 
   const handleSubmit = (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
-    const hasAttachments = Boolean(message.files?.length)
 
-    if (!(hasText || hasAttachments)) {
+    if (!hasText) {
       return
     }
 
@@ -176,12 +167,11 @@ export function ChatSessionPane({
       sendMessage(
         {
           text: message.text || "Sent with attachments",
-          files: message.files,
+          ...(message.files?.length ? { files: message.files } : {}),
         },
         {
           body: {
             model,
-            webSearch,
           },
         }
       )
@@ -312,11 +302,8 @@ export function ChatSessionPane({
         </Conversation>
       </div>
       <div className="px-4 pb-4">
-        <PromptInput onSubmit={handleSubmit} globalDrop multiple>
+        <PromptInput onSubmit={handleSubmit}>
           <PromptInputBody>
-            <PromptInputAttachments>
-              {(attachment) => <PromptInputAttachment data={attachment} />}
-            </PromptInputAttachments>
             <PromptInputTextarea
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
@@ -325,19 +312,6 @@ export function ChatSessionPane({
           </PromptInputBody>
           <PromptInputToolbar>
             <PromptInputTools>
-              <PromptInputActionMenu>
-                <PromptInputActionMenuTrigger />
-                <PromptInputActionMenuContent>
-                  <PromptInputActionAddAttachments />
-                </PromptInputActionMenuContent>
-              </PromptInputActionMenu>
-              <PromptInputButton
-                variant={webSearch ? "default" : "ghost"}
-                onClick={() => setWebSearch((previous) => !previous)}
-              >
-                <GlobeIcon size={16} />
-                <span>Search</span>
-              </PromptInputButton>
               <PromptInputModelSelect
                 onValueChange={(value) => setModel(value)}
                 value={model}
