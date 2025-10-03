@@ -460,7 +460,7 @@ export const PromptInput = ({
       />
       <form
         className={cn(
-          "w-full divide-y overflow-hidden rounded-xl border bg-background shadow-sm",
+          "w-full overflow-hidden rounded-xl border bg-background shadow-sm",
           className
         )}
         onSubmit={handleSubmit}
@@ -490,6 +490,25 @@ export const PromptInputTextarea = ({
   ...props
 }: PromptInputTextareaProps) => {
   const attachments = usePromptInputAttachments()
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const syncHeight = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      return
+    }
+    const MIN_HEIGHT = 64 // matches min-h-16
+    const MAX_HEIGHT = 192 // matches max-h-48
+    textarea.style.height = "auto"
+    const nextHeight = textarea.scrollHeight
+    const clampedHeight = Math.min(Math.max(nextHeight, MIN_HEIGHT), MAX_HEIGHT)
+    textarea.style.height = `${clampedHeight}px`
+    textarea.style.overflowY = nextHeight > MAX_HEIGHT ? "auto" : "hidden"
+  }, [])
+
+  useLayoutEffect(() => {
+    syncHeight()
+  }, [syncHeight, props.value, props.defaultValue])
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === "Enter") {
@@ -547,11 +566,13 @@ export const PromptInputTextarea = ({
       )}
       name="message"
       onChange={(e) => {
+        syncHeight()
         onChange?.(e)
       }}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       placeholder={placeholder}
+      ref={textareaRef}
       {...props}
     />
   )
