@@ -24,11 +24,6 @@ import {
   PromptInput,
   PromptInputBody,
   type PromptInputMessage,
-  PromptInputModelSelect,
-  PromptInputModelSelectContent,
-  PromptInputModelSelectItem,
-  PromptInputModelSelectTrigger,
-  PromptInputModelSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputToolbar,
@@ -59,11 +54,6 @@ import { useVercelChat } from "@/hooks/use-chat"
 import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
-const models = [
-  { id: "gpt-4o", name: "GPT-4o" },
-  { id: "claude-opus-4-20250514", name: "Claude 4 Opus" },
-]
-
 export interface ChatSessionPaneProps {
   chat: ChatReadVercel
   workspaceId: string
@@ -93,7 +83,6 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
-  const [model, setModel] = useState<string>(models[0].id)
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -165,17 +154,10 @@ export function ChatSessionPane({
     }
 
     try {
-      sendMessage(
-        {
-          text: message.text || "Sent with attachments",
-          ...(message.files?.length ? { files: message.files } : {}),
-        },
-        {
-          body: {
-            model,
-          },
-        }
-      )
+      sendMessage({
+        text: message.text || "Sent with attachments",
+        ...(message.files?.length ? { files: message.files } : {}),
+      })
     } catch (error) {
       console.error("Failed to send message:", error)
     } finally {
@@ -316,23 +298,7 @@ export function ChatSessionPane({
             />
           </PromptInputBody>
           <PromptInputToolbar>
-            <PromptInputTools>
-              <PromptInputModelSelect
-                onValueChange={(value) => setModel(value)}
-                value={model}
-              >
-                <PromptInputModelSelectTrigger>
-                  <PromptInputModelSelectValue />
-                </PromptInputModelSelectTrigger>
-                <PromptInputModelSelectContent>
-                  {models.map((item) => (
-                    <PromptInputModelSelectItem key={item.id} value={item.id}>
-                      {item.name}
-                    </PromptInputModelSelectItem>
-                  ))}
-                </PromptInputModelSelectContent>
-              </PromptInputModelSelect>
-            </PromptInputTools>
+            <PromptInputTools />
             <PromptInputSubmit disabled={!input && !status} status={status} />
           </PromptInputToolbar>
         </PromptInput>
