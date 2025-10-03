@@ -57,6 +57,7 @@ import { Dots } from "@/components/loading/dots"
 import { useVercelChat } from "@/hooks/use-chat"
 import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
+import { getIcon } from "@/components/icons"
 
 const models = [
   { id: "gpt-4o", name: "GPT-4o" },
@@ -265,12 +266,16 @@ export function ChatSessionPane({
                   }
 
                   if (isToolUIPart(part)) {
+                    const toolName = getToolName(part)?.replaceAll("__", ".")
                     return (
                       <Tool key={`${message.id}-${index}`}>
                         <ToolHeader
-                          title={getToolName(part)?.replaceAll("__", ".")}
+                          title={toolName}
                           type={part.type}
                           state={part.state}
+                          icon={getIcon(toolName, {
+                            className: "size-4 p-[3px]",
+                          })}
                         />
                         <ToolContent>
                           <ToolInput input={part.input} />
