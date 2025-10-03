@@ -116,7 +116,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between">
@@ -196,16 +196,18 @@ export function ChatInterface({
       </div>
 
       {/* Chat Body */}
-      <ChatBody
-        chatId={selectedChatId}
-        workspaceId={workspaceId}
-        entityType={entityType}
-        entityId={entityId}
-        chatReady={chatReady}
-        chatReadyLoading={chatReadyLoading}
-        chatReason={chatReason}
-        provider={provider}
-      />
+      <div className="flex flex-1 min-h-0 flex-col">
+        <ChatBody
+          chatId={selectedChatId}
+          workspaceId={workspaceId}
+          entityType={entityType}
+          entityId={entityId}
+          chatReady={chatReady}
+          chatReadyLoading={chatReadyLoading}
+          chatReason={chatReason}
+          provider={provider}
+        />
+      </div>
     </div>
   )
 }
@@ -278,7 +280,7 @@ function ChatBody({
       entityType={entityType}
       entityId={entityId}
       placeholder={`Ask about this ${entityType}...`}
-      className="h-full p-4"
+      className="flex-1 min-h-0"
     />
   )
 }

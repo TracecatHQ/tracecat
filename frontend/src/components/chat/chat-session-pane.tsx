@@ -186,10 +186,10 @@ export function ChatSessionPane({
   }
 
   return (
-    <div className={cn("flex h-full flex-col", className)}>
-      <div className="flex flex-1 flex-col">
+    <div className={cn("flex h-full min-h-0 flex-col", className)}>
+      <div className="flex flex-1 min-h-0 flex-col">
         <Conversation className="flex-1">
-          <ConversationContent>
+          <ConversationContent className="px-6">
             {messages.map((message) => (
               <div key={message.id}>
                 {message.role === "assistant" &&
@@ -303,13 +303,9 @@ export function ChatSessionPane({
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
-
-        <PromptInput
-          onSubmit={handleSubmit}
-          className="mt-4"
-          globalDrop
-          multiple
-        >
+      </div>
+      <div className="px-4 pb-4">
+        <PromptInput onSubmit={handleSubmit} globalDrop multiple>
           <PromptInputBody>
             <PromptInputAttachments>
               {(attachment) => <PromptInputAttachment data={attachment} />}
