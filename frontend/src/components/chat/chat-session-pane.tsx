@@ -53,11 +53,11 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import { getIcon } from "@/components/icons"
 import { Dots } from "@/components/loading/dots"
 import { useVercelChat } from "@/hooks/use-chat"
 import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
-import { getIcon } from "@/components/icons"
 
 const models = [
   { id: "gpt-4o", name: "GPT-4o" },
