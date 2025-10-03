@@ -7,11 +7,11 @@ As of 18.09.2025 full implementation of this is being added to pydantic AI in ht
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 import re
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator
-from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -525,7 +525,7 @@ def format_sse(data: dict[str, Any]) -> str:
     return f"data: {json_data}\n\n"
 
 
-@pydantic.dataclasses.dataclass
+@dataclasses.dataclass
 class VercelStreamContext:
     """Manages state for a Vercel AI SDK data stream."""
 
@@ -533,6 +533,7 @@ class VercelStreamContext:
     current_part_id: str | None = None
     current_part_type: Literal["text", "reasoning", "tool"] | None = None
     current_tool_call: ToolCallPart | None = None
+    tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
 
     def new_part(self) -> str:
         """Generates a new unique ID for a stream part."""
@@ -548,14 +549,18 @@ class VercelStreamContext:
             elif self.current_part_type == "reasoning":
                 yield format_sse({"type": "reasoning-end", "id": self.current_part_id})
             elif self.current_part_type == "tool" and self.current_tool_call:
-                yield format_sse(
-                    {
-                        "type": "tool-input-available",
-                        "toolCallId": self.current_tool_call.tool_call_id,
-                        "toolName": self.current_tool_call.tool_name,
-                        "input": self.current_tool_call.args_as_dict(),
-                    }
+                finished = self.tool_finished.get(
+                    self.current_tool_call.tool_call_id, False
                 )
+                if not finished:
+                    yield format_sse(
+                        {
+                            "type": "tool-input-available",
+                            "toolCallId": self.current_tool_call.tool_call_id,
+                            "toolName": self.current_tool_call.tool_name,
+                            "input": self.current_tool_call.args_as_dict(),
+                        }
+                    )
             self.current_part_id = None
             self.current_part_type = None
             self.current_tool_call = None
@@ -591,6 +596,7 @@ class VercelStreamContext:
             elif isinstance(part, ToolCallPart):
                 self.current_part_type = "tool"
                 self.current_tool_call = part
+                self.tool_finished.pop(part.tool_call_id, None)
                 yield format_sse(
                     {
                         "type": "tool-input-start",
@@ -646,6 +652,7 @@ class VercelStreamContext:
         # Handle Tool Call and Result Events
         elif isinstance(event, FunctionToolResultEvent):
             if isinstance(event.result, ToolReturnPart):
+                self.tool_finished[event.result.tool_call_id] = True
                 yield format_sse(
                     {
                         "type": "tool-output-available",
@@ -654,6 +661,8 @@ class VercelStreamContext:
                     }
                 )
             elif isinstance(event.result, RetryPromptPart):
+                if event.result.tool_call_id:
+                    self.tool_finished[event.result.tool_call_id] = True
                 yield format_sse(
                     {"type": "error", "errorText": event.result.model_response()}
                 )
@@ -702,7 +711,7 @@ def _convert_model_message_part_to_ui_part(
     return None
 
 
-@dataclass
+@dataclasses.dataclass
 class MutableToolPart:
     type: str
     tool_call_id: str
@@ -736,7 +745,7 @@ class MutableToolPart:
         )
 
 
-@dataclass
+@dataclasses.dataclass
 class MutableMessage:
     id: str
     role: Literal["system", "user", "assistant"]
