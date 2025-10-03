@@ -341,7 +341,11 @@ export function ChatSessionPane({
                 </Tooltip>
               </TooltipProvider>
             </PromptInputTools>
-            <PromptInputSubmit disabled={!input && !status} status={status} />
+            <PromptInputSubmit
+              disabled={!input && !status}
+              status={status}
+              className="text-muted-foreground/80"
+            />
           </PromptInputToolbar>
         </PromptInput>
         <ChatToolsDialog

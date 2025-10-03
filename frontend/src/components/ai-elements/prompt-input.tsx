@@ -2,11 +2,11 @@
 
 import type { ChatStatus, FileUIPart } from "ai"
 import {
+  ArrowUpIcon,
   ImageIcon,
   Loader2Icon,
   PaperclipIcon,
   PlusIcon,
-  SendIcon,
   SquareIcon,
   XIcon,
 } from "lucide-react"
@@ -682,32 +682,33 @@ export type PromptInputSubmitProps = ComponentProps<typeof Button> & {
 
 export const PromptInputSubmit = ({
   className,
-  variant = "default",
+  variant = "ghost",
   size = "icon",
   status,
   children,
   ...props
 }: PromptInputSubmitProps) => {
-  let Icon = <SendIcon className="size-4" />
+  let Icon = <ArrowUpIcon className="size-3.5" />
 
   if (status === "submitted") {
-    Icon = <Loader2Icon className="size-4 animate-spin" />
+    Icon = <Loader2Icon className="size-3.5 animate-spin" />
   } else if (status === "streaming") {
-    Icon = <SquareIcon className="size-4" />
+    Icon = <SquareIcon className="size-3.5" />
   } else if (status === "error") {
-    Icon = <XIcon className="size-4" />
+    Icon = <XIcon className="size-3.5" />
   }
 
   return (
     <Button
-      aria-label="Submit"
-      className={cn("gap-1.5 rounded-lg", className)}
+      aria-label="Send message"
+      className={cn("size-6 rounded-md hover:text-muted-foreground", className)}
       size={size}
       type="submit"
       variant={variant}
       {...props}
     >
       {children ?? Icon}
+      <span className="sr-only">Send message</span>
     </Button>
   )
 }
