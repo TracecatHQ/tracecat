@@ -2,7 +2,7 @@
 
 import type { ToolUIPart } from "ai"
 import {
-  CheckCircleIcon,
+  CircleCheckIcon,
   ChevronDownIcon,
   CircleIcon,
   ClockIcon,
@@ -45,14 +45,20 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
   } as const
 
   const icons = {
-    "input-streaming": <CircleIcon className="size-4" />,
-    "input-available": <ClockIcon className="size-4 animate-pulse" />,
-    "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
-    "output-error": <XCircleIcon className="size-4 text-red-600" />,
+    "input-streaming": <CircleIcon className="size-4 text-muted-foreground" />,
+    "input-available": (
+      <ClockIcon className="size-4 text-amber-500 animate-pulse" />
+    ),
+    "output-available": (
+      <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
+    ),
+    "output-error": (
+      <XCircleIcon className="size-4 fill-rose-500 stroke-white" />
+    ),
   } as const
 
   return (
-    <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+    <Badge className="gap-1.5 rounded-lg text-xs" variant="secondary">
       {icons[status]}
       {labels[status]}
     </Badge>
