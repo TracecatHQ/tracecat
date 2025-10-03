@@ -23,7 +23,12 @@ from slugify import slugify
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
-from tracecat.expressions.formatters import tabulate
+from tracecat.expressions.formatters import (
+    tabulate,
+    to_markdown_list,
+    to_markdown_table,
+    to_markdown_tasks,
+)
 from tracecat.expressions.ioc_extractors import (
     extract_asns,
     extract_cves,
@@ -1051,6 +1056,10 @@ _FUNCTION_MAPPING = {
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,
+    # Formatters
+    "to_markdown_list": to_markdown_list,
+    "to_markdown_table": to_markdown_table,
+    "to_markdown_tasks": to_markdown_tasks,
     # Logical
     "and": and_,
     "or": or_,
