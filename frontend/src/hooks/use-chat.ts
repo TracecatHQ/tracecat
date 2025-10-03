@@ -613,6 +613,7 @@ export function useVercelChat({
   chatId?: string
   workspaceId: string
 }) {
+  const queryClient = useQueryClient()
   // Fetch chat history in Vercel format (backend handles conversion)
   const { data: chatHistory } = useQuery<ChatReadVercel, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
@@ -662,14 +663,11 @@ export function useVercelChat({
     onError: (error) => {
       console.error("Error in Vercel chat:", error)
     },
-    onData: (data) => {
-      console.log("Vercel chat data:", data)
-    },
-    onToolCall: (toolCall) => {
-      console.log("Vercel chat tool call:", toolCall)
-    },
     onFinish: () => {
-      console.log("Vercel chat finished")
+      queryClient.invalidateQueries({
+        queryKey: ["chat", chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
   })
 }

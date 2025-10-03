@@ -1,0 +1,350 @@
+"use client"
+
+import { useQueryClient } from "@tanstack/react-query"
+import { getToolName, isToolUIPart, type UIMessage } from "ai"
+import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react"
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"
+import { Action, Actions } from "@/components/ai-elements/actions"
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation"
+import { Message, MessageContent } from "@/components/ai-elements/message"
+import {
+  PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
+  PromptInputAttachment,
+  PromptInputAttachments,
+  PromptInputBody,
+  PromptInputButton,
+  type PromptInputMessage,
+  PromptInputModelSelect,
+  PromptInputModelSelectContent,
+  PromptInputModelSelectItem,
+  PromptInputModelSelectTrigger,
+  PromptInputModelSelectValue,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputToolbar,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input"
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning"
+import { Response } from "@/components/ai-elements/response"
+import {
+  Source,
+  Sources,
+  SourcesContent,
+  SourcesTrigger,
+} from "@/components/ai-elements/sources"
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool"
+import { Dots } from "@/components/loading/dots"
+import { useVercelChat } from "@/hooks/use-chat"
+import { cn } from "@/lib/utils"
+
+const caseUpdateActions = [
+  "core__cases__update_case",
+  "core__cases__create_comment",
+]
+
+const runbookUpdateActions = ["core__runbooks__update_runbook"]
+
+const models = [
+  { id: "gpt-4o", name: "GPT-4o" },
+  { id: "claude-opus-4-20250514", name: "Claude 4 Opus" },
+]
+
+export interface ChatSessionPaneProps {
+  chatId: string
+  workspaceId: string
+  entityType?: string
+  entityId?: string
+  className?: string
+  placeholder?: string
+  onMessagesChange?: (messages: UIMessage[]) => void
+}
+
+export function ChatSessionPane({
+  chatId,
+  workspaceId,
+  entityType,
+  entityId,
+  className,
+  placeholder = "Ask your question...",
+  onMessagesChange,
+}: ChatSessionPaneProps) {
+  const queryClient = useQueryClient()
+  const processedMessageRef = useRef<string | undefined>(undefined)
+
+  const [input, setInput] = useState<string>("")
+  const [model, setModel] = useState<string>(models[0].id)
+  const [webSearch, setWebSearch] = useState<boolean>(false)
+
+  const { sendMessage, messages, status, regenerate } = useVercelChat({
+    chatId,
+    workspaceId,
+  })
+
+  useEffect(() => {
+    onMessagesChange?.(messages)
+  }, [messages, onMessagesChange])
+
+  const invalidateEntityQueries = useCallback(
+    (toolNames: string[]) => {
+      if (!entityType || !entityId) {
+        return
+      }
+
+      if (
+        entityType === "case" &&
+        toolNames.some((tool) => caseUpdateActions.includes(tool))
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["case", entityId] })
+        queryClient.invalidateQueries({
+          queryKey: ["cases", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["case-events", entityId, workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["case-comments", entityId, workspaceId],
+        })
+      }
+
+      if (
+        entityType === "runbook" &&
+        toolNames.some((tool) => runbookUpdateActions.includes(tool))
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
+      }
+    },
+    [entityId, entityType, queryClient, workspaceId]
+  )
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return
+    }
+
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage?.id || processedMessageRef.current === lastMessage.id) {
+      return
+    }
+
+    const toolNames = (lastMessage.parts || [])
+      .filter((part) => isToolUIPart(part))
+      .map((part) => ("toolName" in part ? part.toolName : getToolName(part)))
+      .filter((name): name is string => Boolean(name))
+
+    if (toolNames.length > 0) {
+      invalidateEntityQueries(toolNames)
+    }
+
+    processedMessageRef.current = lastMessage.id
+  }, [messages, invalidateEntityQueries])
+
+  const handleSubmit = (message: PromptInputMessage) => {
+    const hasText = Boolean(message.text?.trim())
+    const hasAttachments = Boolean(message.files?.length)
+
+    if (!(hasText || hasAttachments)) {
+      return
+    }
+
+    try {
+      sendMessage(
+        {
+          text: message.text || "Sent with attachments",
+          files: message.files,
+        },
+        {
+          body: {
+            model,
+            webSearch,
+          },
+        }
+      )
+    } catch (error) {
+      console.error("Failed to send message:", error)
+    } finally {
+      setInput("")
+    }
+  }
+
+  return (
+    <div className={cn("flex h-full flex-col", className)}>
+      <div className="flex flex-1 flex-col">
+        <Conversation className="flex-1">
+          <ConversationContent>
+            {messages.map((message) => (
+              <div key={message.id}>
+                {message.role === "assistant" &&
+                  message.parts?.filter((part) => part.type === "source-url")
+                    .length > 0 && (
+                    <Sources>
+                      <SourcesTrigger
+                        count={
+                          message.parts.filter(
+                            (part) => part.type === "source-url"
+                          ).length
+                        }
+                      />
+                      {message.parts
+                        .filter((part) => part.type === "source-url")
+                        .map((part, index) => (
+                          <SourcesContent key={`${message.id}-${index}`}>
+                            <Source
+                              href={"url" in part ? part.url : "#"}
+                              title={"url" in part ? part.url : "Source"}
+                            />
+                          </SourcesContent>
+                        ))}
+                    </Sources>
+                  )}
+
+                {message.parts?.map((part, index) => {
+                  if (part.type === "text") {
+                    return (
+                      <Fragment key={`${message.id}-${index}`}>
+                        <Message from={message.role}>
+                          <MessageContent variant="flat">
+                            <Response>{part.text}</Response>
+                          </MessageContent>
+                        </Message>
+                        {message.role === "assistant" &&
+                          message.id === messages.at(-1)?.id &&
+                          index === (message.parts?.length || 0) - 1 && (
+                            <Actions>
+                              <Action
+                                onClick={() => regenerate()}
+                                label="Retry"
+                              >
+                                <RefreshCcwIcon className="size-3" />
+                              </Action>
+                              <Action
+                                onClick={() =>
+                                  navigator.clipboard.writeText(part.text)
+                                }
+                                label="Copy"
+                              >
+                                <CopyIcon className="size-3" />
+                              </Action>
+                            </Actions>
+                          )}
+                      </Fragment>
+                    )
+                  }
+
+                  if (part.type === "reasoning") {
+                    const isLatestMessage =
+                      status === "streaming" &&
+                      index === (message.parts?.length || 0) - 1 &&
+                      message.id === messages.at(-1)?.id
+
+                    return (
+                      <Reasoning
+                        key={`${message.id}-${index}`}
+                        className="w-full"
+                        isStreaming={isLatestMessage}
+                      >
+                        <ReasoningTrigger />
+                        <ReasoningContent>{part.text}</ReasoningContent>
+                      </Reasoning>
+                    )
+                  }
+
+                  if (isToolUIPart(part)) {
+                    return (
+                      <Tool key={`${message.id}-${index}`}>
+                        <ToolHeader
+                          title={getToolName(part)?.replaceAll("__", ".")}
+                          type={part.type}
+                          state={part.state}
+                        />
+                        <ToolContent>
+                          <ToolInput input={part.input} />
+                          <ToolOutput
+                            output={part.output}
+                            errorText={part.errorText}
+                          />
+                        </ToolContent>
+                      </Tool>
+                    )
+                  }
+
+                  return null
+                })}
+              </div>
+            ))}
+            {status === "submitted" && <Dots />}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+
+        <PromptInput
+          onSubmit={handleSubmit}
+          className="mt-4"
+          globalDrop
+          multiple
+        >
+          <PromptInputBody>
+            <PromptInputAttachments>
+              {(attachment) => <PromptInputAttachment data={attachment} />}
+            </PromptInputAttachments>
+            <PromptInputTextarea
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={placeholder}
+              value={input}
+            />
+          </PromptInputBody>
+          <PromptInputToolbar>
+            <PromptInputTools>
+              <PromptInputActionMenu>
+                <PromptInputActionMenuTrigger />
+                <PromptInputActionMenuContent>
+                  <PromptInputActionAddAttachments />
+                </PromptInputActionMenuContent>
+              </PromptInputActionMenu>
+              <PromptInputButton
+                variant={webSearch ? "default" : "ghost"}
+                onClick={() => setWebSearch((previous) => !previous)}
+              >
+                <GlobeIcon size={16} />
+                <span>Search</span>
+              </PromptInputButton>
+              <PromptInputModelSelect
+                onValueChange={(value) => setModel(value)}
+                value={model}
+              >
+                <PromptInputModelSelectTrigger>
+                  <PromptInputModelSelectValue />
+                </PromptInputModelSelectTrigger>
+                <PromptInputModelSelectContent>
+                  {models.map((item) => (
+                    <PromptInputModelSelectItem key={item.id} value={item.id}>
+                      {item.name}
+                    </PromptInputModelSelectItem>
+                  ))}
+                </PromptInputModelSelectContent>
+              </PromptInputModelSelect>
+            </PromptInputTools>
+            <PromptInputSubmit disabled={!input && !status} status={status} />
+          </PromptInputToolbar>
+        </PromptInput>
+      </div>
+    </div>
+  )
+}

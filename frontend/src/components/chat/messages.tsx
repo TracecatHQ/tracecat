@@ -473,7 +473,7 @@ const requestPartKinds = new Set([
   "retry-prompt",
 ])
 
-function NoMessages() {
+export function NoMessages() {
   return (
     <div className="flex h-full items-center justify-center text-center">
       <div className="max-w-sm">
