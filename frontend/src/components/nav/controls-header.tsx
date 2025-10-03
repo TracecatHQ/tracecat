@@ -2,7 +2,18 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
-import { Calendar, ChevronDown, PanelRight, Plus, X } from "lucide-react"
+import {
+  Calendar,
+  ChevronDown,
+  PanelRight,
+  Plus,
+  X,
+  Flag,
+  AlertTriangle,
+  Flame,
+  User,
+  Trash2,
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
@@ -268,9 +279,9 @@ function CasesSelectionActionsBar() {
   return (
     <>
       <ButtonGroup className="max-w-full">
-        <ButtonGroupText className="h-8 px-3 text-xs">
+        <ButtonGroupText className="h-7 px-4 text-xs">
           <span className="font-medium">{selectedCount}</span>
-          <span className="ml-1">
+          <span>
             selected {selectedCount === 1 ? "case" : "cases"}
           </span>
           {clearSelection && (
@@ -279,7 +290,7 @@ function CasesSelectionActionsBar() {
               onClick={handleClearSelection}
               disabled={isBusy}
               className={cn(
-                "ml-2 flex size-5 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:bg-muted",
+                "ml-1 flex size-5 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:bg-muted",
                 isBusy && "cursor-not-allowed opacity-60 hover:bg-transparent"
               )}
               aria-label="Clear case selection"
@@ -293,7 +304,7 @@ function CasesSelectionActionsBar() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs font-medium"
+              className="h-7 px-3 text-xs font-medium"
               disabled={isBusy || !bulkUpdateSelectedCases}
             >
               {isBusy && <Spinner className="mr-2 size-3" />}
@@ -304,7 +315,10 @@ function CasesSelectionActionsBar() {
           <DropdownMenuContent align="center" className="w-44">
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={!canUpdate}>
-                Change status
+                <span className="flex items-center gap-2">
+                  <Flag className="size-3 text-muted-foreground" aria-hidden />
+                  <span>Change status</span>
+                </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
                 {statusOptions.map((status) => (
@@ -338,7 +352,13 @@ function CasesSelectionActionsBar() {
             </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={!canUpdate}>
-                Change priority
+                <span className="flex items-center gap-2">
+                  <AlertTriangle
+                    className="size-3 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <span>Change priority</span>
+                </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
                 {priorityOptions.map((priority) => (
@@ -372,7 +392,10 @@ function CasesSelectionActionsBar() {
             </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={!canUpdate}>
-                Change severity
+                <span className="flex items-center gap-2">
+                  <Flame className="size-3 text-muted-foreground" aria-hidden />
+                  <span>Change severity</span>
+                </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
                 {severityOptions.map((severity) => (
@@ -406,7 +429,10 @@ function CasesSelectionActionsBar() {
             </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={!canUpdate}>
-                Assign to
+                <span className="flex items-center gap-2">
+                  <User className="size-3 text-muted-foreground" aria-hidden />
+                  <span>Assign to</span>
+                </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-56">
                 {membersLoading && (
@@ -454,7 +480,10 @@ function CasesSelectionActionsBar() {
                 }
               }}
             >
-              Delete
+              <span className="flex items-center gap-2">
+                <Trash2 className="size-3" aria-hidden />
+                <span>Delete</span>
+              </span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
