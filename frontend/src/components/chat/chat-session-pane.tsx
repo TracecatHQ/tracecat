@@ -324,9 +324,10 @@ export function ChatSessionPane({
                   <TooltipTrigger asChild>
                     <PromptInputButton
                       aria-label="Configure tools"
-                      className="gap-1"
                       disabled={toolsDisabled}
+                      size="sm"
                       onClick={() => setToolsDialogOpen(true)}
+                      className="h-7 gap-1 px-2"
                       variant="ghost"
                     >
                       <HammerIcon className="size-4" />
