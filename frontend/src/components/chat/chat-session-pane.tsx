@@ -189,7 +189,7 @@ export function ChatSessionPane({
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex flex-1 min-h-0 flex-col">
         <Conversation className="flex-1">
-          <ConversationContent className="px-6">
+          <ConversationContent>
             {messages.map((message) => (
               <div key={message.id}>
                 {message.role === "assistant" &&

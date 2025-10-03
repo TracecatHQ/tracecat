@@ -125,7 +125,7 @@ export function ChatInterface({
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="px-0">
+                <Button size="sm" variant="ghost" className="px-2">
                   Conversations
                   <ChevronDown className="size-3 ml-1" />
                 </Button>
