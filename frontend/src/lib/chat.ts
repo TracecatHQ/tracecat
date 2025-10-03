@@ -1,3 +1,4 @@
+import type { QueryClient } from "@tanstack/react-query"
 import type * as ai from "ai"
 import type {
   BuiltinToolCallEvent,
@@ -139,4 +140,53 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
       }
     ),
   }
+}
+
+const CASE_UPDATE_ACTIONS = new Set([
+  "core__cases__update_case",
+  "core__cases__create_comment",
+])
+
+const RUNBOOK_UPDATE_ACTIONS = new Set(["core__runbooks__update_runbook"])
+
+// mapping from chatentity to
+/**
+ * Maps chat entity types to their query invalidation logic.
+ * Each entity type defines how to invalidate related queries when updates occur.
+ */
+export const ENTITY_TO_INVALIDATION: Record<
+  ChatEntity,
+  {
+    predicate: (toolName: string) => boolean
+    handler: (
+      queryClient: QueryClient,
+      workspaceId: string,
+      entityId: string
+    ) => void
+  }
+> = {
+  case: {
+    predicate: (toolName: string) => CASE_UPDATE_ACTIONS.has(toolName),
+    handler: (queryClient, workspaceId, entityId) => {
+      // Invalidate specific case query
+      queryClient.invalidateQueries({ queryKey: ["case", entityId] })
+      // Invalidate cases list for workspace
+      queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
+      // Invalidate case events
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", entityId, workspaceId],
+      })
+      // Invalidate case comments
+      queryClient.invalidateQueries({
+        queryKey: ["case-comments", entityId, workspaceId],
+      })
+    },
+  },
+  runbook: {
+    predicate: (toolName: string) => RUNBOOK_UPDATE_ACTIONS.has(toolName),
+    handler: (queryClient, workspaceId, entityId) => {
+      // Invalidate all runbook queries (non-exact match)
+      queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
+    },
+  },
 }

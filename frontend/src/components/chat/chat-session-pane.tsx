@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react"
-import type { ChatReadVercel } from "@/client"
+import type { ChatEntity, ChatReadVercel } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -62,15 +62,8 @@ import {
 } from "@/components/ai-elements/tool"
 import { Dots } from "@/components/loading/dots"
 import { useVercelChat } from "@/hooks/use-chat"
-import { toUIMessage } from "@/lib/chat"
+import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
-
-const caseUpdateActions = [
-  "core__cases__update_case",
-  "core__cases__create_comment",
-]
-
-const runbookUpdateActions = ["core__runbooks__update_runbook"]
 
 const models = [
   { id: "gpt-4o", name: "GPT-4o" },
@@ -80,7 +73,7 @@ const models = [
 export interface ChatSessionPaneProps {
   chat: ChatReadVercel
   workspaceId: string
-  entityType?: string
+  entityType?: ChatEntity
   entityId?: string
   className?: string
   placeholder?: string
@@ -123,27 +116,14 @@ export function ChatSessionPane({
         return
       }
 
-      if (
-        entityType === "case" &&
-        toolNames.some((tool) => caseUpdateActions.includes(tool))
-      ) {
-        queryClient.invalidateQueries({ queryKey: ["case", entityId] })
-        queryClient.invalidateQueries({
-          queryKey: ["cases", workspaceId],
-        })
-        queryClient.invalidateQueries({
-          queryKey: ["case-events", entityId, workspaceId],
-        })
-        queryClient.invalidateQueries({
-          queryKey: ["case-comments", entityId, workspaceId],
-        })
+      const invalidation = ENTITY_TO_INVALIDATION[entityType]
+      if (!invalidation) {
+        return
       }
 
-      if (
-        entityType === "runbook" &&
-        toolNames.some((tool) => runbookUpdateActions.includes(tool))
-      ) {
-        queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
+      const { predicate, handler } = invalidation
+      if (toolNames.some(predicate)) {
+        handler(queryClient, workspaceId, entityId)
       }
     },
     [entityId, entityType, queryClient, workspaceId]
