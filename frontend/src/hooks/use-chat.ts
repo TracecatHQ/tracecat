@@ -640,34 +640,56 @@ export function useVercelChat({
     return url.toString()
   }, [chatId, workspaceId])
 
-  // Use Vercel's useChat hook for streaming
-  return aiSdk.useChat({
-    id: chatId,
-    messages: initialMessages,
-    transport: new DefaultChatTransport({
+  const transport = useMemo(() => {
+    if (!apiEndpoint) {
+      return undefined
+    }
+    return new DefaultChatTransport({
       api: apiEndpoint,
       credentials: "include",
       prepareSendMessagesRequest: ({ messages }) => {
-        // Send only the last message
+        const lastMessage = messages[messages.length - 1]
+        if (!lastMessage) {
+          throw new Error("No message available to send")
+        }
         const reqBody: VercelChatRequest = {
           format: "vercel",
           model: "gpt-4o-mini",
           model_provider: "openai",
-          message: messages[messages.length - 1],
+          message: lastMessage,
         }
         return {
           body: reqBody,
         }
       },
-    }),
-    onError: (error) => {
-      console.error("Error in Vercel chat:", error)
-    },
-    onFinish: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["chat", chatId, workspaceId, "vercel"],
-      })
-      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
-    },
-  })
+    })
+  }, [apiEndpoint])
+
+  const chat = useMemo(() => {
+    if (!chatId || !transport) {
+      return undefined
+    }
+    return new aiSdk.Chat({
+      id: chatId,
+      messages: initialMessages,
+      transport,
+      onError: (error) => {
+        console.error("Error in Vercel chat:", error)
+      },
+      onFinish: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["chat", chatId, workspaceId, "vercel"],
+        })
+        queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+      },
+    })
+  }, [chatId, transport, initialMessages, queryClient, workspaceId])
+
+  return aiSdk.useChat(
+    chat
+      ? { chat }
+      : {
+          id: chatId ?? "pending-chat",
+        }
+  )
 }
