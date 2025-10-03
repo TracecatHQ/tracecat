@@ -195,3 +195,29 @@ export type ModelInfo = {
   name: string
   provider: string
 }
+
+/**
+ * Concatenates all text parts from a message into a single string.
+ * Skips non-text parts and preserves paragraph breaks between multiple parts.
+ */
+export function getAssistantText(parts: UIMessage["parts"]): string {
+  if (!parts || parts.length === 0) {
+    return ""
+  }
+
+  return parts.reduce<string>((accumulator, part) => {
+    // Ignore non-text parts to avoid copying tool input/output.
+    if (part.type !== "text") {
+      return accumulator
+    }
+
+    const partText =
+      "text" in part && typeof part.text === "string" ? part.text : ""
+
+    if (partText.length === 0) {
+      return accumulator
+    }
+
+    return accumulator.length > 0 ? `${accumulator}\n\n${partText}` : partText
+  }, "")
+}

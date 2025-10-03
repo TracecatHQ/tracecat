@@ -4,14 +4,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { getToolName, isToolUIPart, type UIMessage } from "ai"
 import { CopyIcon, HammerIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ChatEntity, ChatReadVercel } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
@@ -60,8 +53,13 @@ import {
 } from "@/components/ui/tooltip"
 import { useVercelChat } from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
-import { ENTITY_TO_INVALIDATION, toUIMessage } from "@/lib/chat"
+import {
+  ENTITY_TO_INVALIDATION,
+  getAssistantText,
+  toUIMessage,
+} from "@/lib/chat"
 import { cn } from "@/lib/utils"
+import { toast } from "@/components/ui/use-toast"
 
 export interface ChatSessionPaneProps {
   chat: ChatReadVercel
@@ -219,37 +217,14 @@ export function ChatSessionPane({
                 {message.parts?.map((part, index) => {
                   if (part.type === "text") {
                     return (
-                      <Fragment key={`${message.id}-${index}`}>
-                        <Message from={message.role}>
-                          <MessageContent variant="flat">
-                            <Response>{part.text}</Response>
-                          </MessageContent>
-                        </Message>
-                        {message.role === "assistant" &&
-                          message.id === messages.at(-1)?.id &&
-                          index === (message.parts?.length || 0) - 1 && (
-                            <Actions>
-                              <Action
-                                size="sm"
-                                onClick={() =>
-                                  navigator.clipboard.writeText(part.text)
-                                }
-                                label="Copy"
-                                tooltip="Copy"
-                              >
-                                <CopyIcon className="size-3" />
-                              </Action>
-                              <Action
-                                size="sm"
-                                onClick={() => regenerate()}
-                                label="Retry"
-                                tooltip="Retry"
-                              >
-                                <RefreshCcwIcon className="size-3" />
-                              </Action>
-                            </Actions>
-                          )}
-                      </Fragment>
+                      <Message
+                        key={`${message.id}-${index}`}
+                        from={message.role}
+                      >
+                        <MessageContent variant="flat">
+                          <Response>{part.text}</Response>
+                        </MessageContent>
+                      </Message>
                     )
                   }
 
@@ -272,7 +247,7 @@ export function ChatSessionPane({
                   }
 
                   if (isToolUIPart(part)) {
-                    const toolName = getToolName(part)?.replaceAll("__", ".")
+                    const toolName = getToolName(part).replaceAll("__", ".")
                     return (
                       <Tool key={`${message.id}-${index}`}>
                         <ToolHeader
@@ -296,6 +271,41 @@ export function ChatSessionPane({
 
                   return null
                 })}
+                {message.role === "assistant" && (
+                  // Render response actions for assistant messages.
+                  <Actions>
+                    {message.parts.some((part) => part.type === "text") && (
+                      <Action
+                        size="sm"
+                        onClick={() => {
+                          const assistantText = getAssistantText(message.parts)
+                          if (assistantText.length > 0) {
+                            navigator.clipboard.writeText(assistantText)
+                            toast({
+                              title: "Copied to clipboard",
+                              description:
+                                "The assistant's response has been copied to your clipboard.",
+                            })
+                          }
+                        }}
+                        label="Copy"
+                        tooltip="Copy"
+                      >
+                        <CopyIcon className="size-3" />
+                      </Action>
+                    )}
+                    {message.id === messages.at(-1)?.id && (
+                      <Action
+                        size="sm"
+                        onClick={() => regenerate()}
+                        label="Retry"
+                        tooltip="Retry"
+                      >
+                        <RefreshCcwIcon className="size-3" />
+                      </Action>
+                    )}
+                  </Actions>
+                )}
               </div>
             ))}
             {status === "submitted" && (
