@@ -10,12 +10,17 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
-import { Badge } from "@/components/ui/badge"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { CodeBlock } from "./code-block"
 
@@ -58,10 +63,16 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
   } as const
 
   return (
-    <Badge className="gap-1.5 rounded-lg text-xs" variant="secondary">
-      {icons[status]}
-      {labels[status]}
-    </Badge>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="inline-flex">{icons[status]}</div>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p>{labels[status]}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 
