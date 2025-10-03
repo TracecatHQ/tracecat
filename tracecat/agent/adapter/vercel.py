@@ -534,36 +534,55 @@ class VercelStreamContext:
     current_part_type: Literal["text", "reasoning", "tool"] | None = None
     current_tool_call: ToolCallPart | None = None
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
+    tool_input_emitted: dict[str, bool] = dataclasses.field(default_factory=dict)
 
     def new_part(self) -> str:
         """Generates a new unique ID for a stream part."""
         self.current_part_id = f"msg_{uuid.uuid4().hex}"
         return self.current_part_id
 
-    async def handle_event(self, event: AgentStreamEvent) -> AsyncIterator[str]:
-        """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
-        # End the previous part if a new one is starting
-        if isinstance(event, PartStartEvent) and self.current_part_id:
-            if self.current_part_type == "text":
-                yield format_sse({"type": "text-end", "id": self.current_part_id})
-            elif self.current_part_type == "reasoning":
-                yield format_sse({"type": "reasoning-end", "id": self.current_part_id})
-            elif self.current_part_type == "tool" and self.current_tool_call:
-                finished = self.tool_finished.get(
-                    self.current_tool_call.tool_call_id, False
-                )
-                if not finished:
-                    yield format_sse(
+    def _reset_current_part(self) -> None:
+        """Clear the currently tracked part metadata."""
+        self.current_part_id = None
+        self.current_part_type = None
+        self.current_tool_call = None
+
+    def collect_current_part_end_events(self) -> list[str]:
+        """Generate SSE frames required to close the current part, if any."""
+        if self.current_part_type is None:
+            return []
+
+        events: list[str] = []
+        if self.current_part_type == "text" and self.current_part_id:
+            events.append(format_sse({"type": "text-end", "id": self.current_part_id}))
+        elif self.current_part_type == "reasoning" and self.current_part_id:
+            events.append(
+                format_sse({"type": "reasoning-end", "id": self.current_part_id})
+            )
+        elif self.current_part_type == "tool" and self.current_tool_call:
+            tool_call_id = self.current_tool_call.tool_call_id
+            if not self.tool_input_emitted.get(tool_call_id, False):
+                events.append(
+                    format_sse(
                         {
                             "type": "tool-input-available",
-                            "toolCallId": self.current_tool_call.tool_call_id,
+                            "toolCallId": tool_call_id,
                             "toolName": self.current_tool_call.tool_name,
                             "input": self.current_tool_call.args_as_dict(),
                         }
                     )
-            self.current_part_id = None
-            self.current_part_type = None
-            self.current_tool_call = None
+                )
+                self.tool_input_emitted[tool_call_id] = True
+
+        self._reset_current_part()
+        return events
+
+    async def handle_event(self, event: AgentStreamEvent) -> AsyncIterator[str]:
+        """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
+        # End the previous part if a new one is starting
+        if isinstance(event, PartStartEvent):
+            for message in self.collect_current_part_end_events():
+                yield message
 
         # Handle Model Response Stream Events
         if isinstance(event, PartStartEvent):
@@ -597,6 +616,7 @@ class VercelStreamContext:
                 self.current_part_type = "tool"
                 self.current_tool_call = part
                 self.tool_finished.pop(part.tool_call_id, None)
+                self.tool_input_emitted[part.tool_call_id] = False
                 yield format_sse(
                     {
                         "type": "tool-input-start",
@@ -651,18 +671,24 @@ class VercelStreamContext:
 
         # Handle Tool Call and Result Events
         elif isinstance(event, FunctionToolResultEvent):
+            for message in self.collect_current_part_end_events():
+                yield message
             if isinstance(event.result, ToolReturnPart):
-                self.tool_finished[event.result.tool_call_id] = True
+                tool_call_id = event.result.tool_call_id
+                self.tool_finished[tool_call_id] = True
+                self.tool_input_emitted.pop(tool_call_id, None)
                 yield format_sse(
                     {
                         "type": "tool-output-available",
-                        "toolCallId": event.result.tool_call_id,
+                        "toolCallId": tool_call_id,
                         "output": event.result.model_response_str(),
                     }
                 )
             elif isinstance(event.result, RetryPromptPart):
                 if event.result.tool_call_id:
-                    self.tool_finished[event.result.tool_call_id] = True
+                    tool_call_id = event.result.tool_call_id
+                    self.tool_finished[tool_call_id] = True
+                    self.tool_input_emitted.pop(tool_call_id, None)
                 yield format_sse(
                     {"type": "error", "errorText": event.result.model_response()}
                 )
@@ -938,22 +964,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     break
 
         # 3. Finalize any open parts at the end of the stream
-        if context.current_part_id:
-            if context.current_part_type == "text":
-                yield format_sse({"type": "text-end", "id": context.current_part_id})
-            elif context.current_part_type == "reasoning":
-                yield format_sse(
-                    {"type": "reasoning-end", "id": context.current_part_id}
-                )
-            elif context.current_part_type == "tool" and context.current_tool_call:
-                yield format_sse(
-                    {
-                        "type": "tool-input-available",
-                        "toolCallId": context.current_tool_call.tool_call_id,
-                        "toolName": context.current_tool_call.tool_name,
-                        "input": context.current_tool_call.args_as_dict(),
-                    }
-                )
+        for message in context.collect_current_part_end_events():
+            yield message
 
     except Exception as e:
         # 4. Handle errors
