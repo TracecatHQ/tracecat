@@ -271,7 +271,7 @@ export function ChatSessionPane({
 
                   return null
                 })}
-                {message.role === "assistant" && (
+                {message.role === "assistant" && message.parts.length > 0 && (
                   // Render response actions for assistant messages.
                   <Actions>
                     {message.parts.some((part) => part.type === "text") && (
