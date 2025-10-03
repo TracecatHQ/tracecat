@@ -22,7 +22,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useCreateChat, useListChats } from "@/hooks/use-chat"
+import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -233,11 +233,23 @@ function ChatBody({
   chatReason,
   provider,
 }: ChatBodyProps) {
+  const { chat, chatLoading, chatError } = useGetChatVercel({
+    chatId,
+    workspaceId,
+  })
+
   // Render loading state while checking if chat is selected
-  if (!chatId || chatReadyLoading) {
+  if (!chatId || chatReadyLoading || chatLoading || !chat) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
+      </div>
+    )
+  }
+  if (chatError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-red-500">Failed to load chat</span>
       </div>
     )
   }
@@ -273,9 +285,10 @@ function ChatBody({
       </>
     )
   }
+
   return (
     <ChatSessionPane
-      chatId={chatId}
+      chat={chat}
       workspaceId={workspaceId}
       entityType={entityType}
       entityId={entityId}

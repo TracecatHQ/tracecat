@@ -4,7 +4,15 @@ import { useQueryClient } from "@tanstack/react-query"
 import { getToolName, isToolUIPart, type UIMessage } from "ai"
 import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
-import { Fragment, useCallback, useEffect, useRef, useState } from "react"
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import type { ChatReadVercel } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -54,6 +62,7 @@ import {
 } from "@/components/ai-elements/tool"
 import { Dots } from "@/components/loading/dots"
 import { useVercelChat } from "@/hooks/use-chat"
+import { toUIMessage } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
 const caseUpdateActions = [
@@ -69,7 +78,7 @@ const models = [
 ]
 
 export interface ChatSessionPaneProps {
-  chatId: string
+  chat: ChatReadVercel
   workspaceId: string
   entityType?: string
   entityId?: string
@@ -79,7 +88,7 @@ export interface ChatSessionPaneProps {
 }
 
 export function ChatSessionPane({
-  chatId,
+  chat,
   workspaceId,
   entityType,
   entityId,
@@ -94,9 +103,14 @@ export function ChatSessionPane({
   const [model, setModel] = useState<string>(models[0].id)
   const [webSearch, setWebSearch] = useState<boolean>(false)
 
+  const uiMessages = useMemo(
+    () => (chat?.messages || []).map(toUIMessage),
+    [chat?.messages]
+  )
   const { sendMessage, messages, status, regenerate } = useVercelChat({
-    chatId,
+    chatId: chat.id,
     workspaceId,
+    messages: uiMessages,
   })
 
   useEffect(() => {
