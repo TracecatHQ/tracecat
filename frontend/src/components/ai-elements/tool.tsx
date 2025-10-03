@@ -2,8 +2,8 @@
 
 import type { ToolUIPart } from "ai"
 import {
-  CircleCheckIcon,
   ChevronDownIcon,
+  CircleCheckIcon,
   CircleIcon,
   ClockIcon,
   WrenchIcon,

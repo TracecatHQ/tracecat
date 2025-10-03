@@ -51,6 +51,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { useVercelChat } from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
 import {
@@ -59,7 +60,6 @@ import {
   toUIMessage,
 } from "@/lib/chat"
 import { cn } from "@/lib/utils"
-import { toast } from "@/components/ui/use-toast"
 
 export interface ChatSessionPaneProps {
   chat: ChatReadVercel
@@ -188,126 +188,135 @@ export function ChatSessionPane({
       <div className="flex flex-1 min-h-0 flex-col">
         <Conversation className="flex-1">
           <ConversationContent>
-            {messages.map((message) => (
-              <div key={message.id}>
-                {message.role === "assistant" &&
-                  message.parts?.filter((part) => part.type === "source-url")
-                    .length > 0 && (
-                    <Sources>
-                      <SourcesTrigger
-                        count={
-                          message.parts.filter(
-                            (part) => part.type === "source-url"
-                          ).length
-                        }
-                      />
-                      {message.parts
-                        .filter((part) => part.type === "source-url")
-                        .map((part, index) => (
-                          <SourcesContent key={`${message.id}-${index}`}>
-                            <Source
-                              href={"url" in part ? part.url : "#"}
-                              title={"url" in part ? part.url : "Source"}
-                            />
-                          </SourcesContent>
-                        ))}
-                    </Sources>
-                  )}
+            {messages.map(({ id, role, parts }) => {
+              // Track whether this message is the latest entry so we can keep its actions visible.
+              const isLastMessage = id === messages.at(-1)?.id
 
-                {message.parts?.map((part, index) => {
-                  if (part.type === "text") {
-                    return (
-                      <Message
-                        key={`${message.id}-${index}`}
-                        from={message.role}
-                      >
-                        <MessageContent variant="flat">
-                          <Response>{part.text}</Response>
-                        </MessageContent>
-                      </Message>
-                    )
-                  }
-
-                  if (part.type === "reasoning") {
-                    const isLatestMessage =
-                      status === "streaming" &&
-                      index === (message.parts?.length || 0) - 1 &&
-                      message.id === messages.at(-1)?.id
-
-                    return (
-                      <Reasoning
-                        key={`${message.id}-${index}`}
-                        className="w-full"
-                        isStreaming={isLatestMessage}
-                      >
-                        <ReasoningTrigger />
-                        <ReasoningContent>{part.text}</ReasoningContent>
-                      </Reasoning>
-                    )
-                  }
-
-                  if (isToolUIPart(part)) {
-                    const toolName = getToolName(part).replaceAll("__", ".")
-                    return (
-                      <Tool key={`${message.id}-${index}`}>
-                        <ToolHeader
-                          title={toolName}
-                          type={part.type}
-                          state={part.state}
-                          icon={getIcon(toolName, {
-                            className: "size-4 p-[3px]",
-                          })}
-                        />
-                        <ToolContent>
-                          <ToolInput input={part.input} />
-                          <ToolOutput
-                            output={part.output}
-                            errorText={part.errorText}
-                          />
-                        </ToolContent>
-                      </Tool>
-                    )
-                  }
-
-                  return null
-                })}
-                {message.role === "assistant" && message.parts.length > 0 && (
-                  // Render response actions for assistant messages.
-                  <Actions>
-                    {message.parts.some((part) => part.type === "text") && (
-                      <Action
-                        size="sm"
-                        onClick={() => {
-                          const assistantText = getAssistantText(message.parts)
-                          if (assistantText.length > 0) {
-                            navigator.clipboard.writeText(assistantText)
-                            toast({
-                              title: "Copied to clipboard",
-                              description:
-                                "The assistant's response has been copied to your clipboard.",
-                            })
+              return (
+                <div key={id} className="group relative">
+                  {role === "assistant" &&
+                    parts?.filter((part) => part.type === "source-url").length >
+                      0 && (
+                      <Sources>
+                        <SourcesTrigger
+                          count={
+                            parts.filter((part) => part.type === "source-url")
+                              .length
                           }
-                        }}
-                        label="Copy"
-                        tooltip="Copy"
-                      >
-                        <CopyIcon className="size-3" />
-                      </Action>
+                        />
+                        {parts
+                          .filter((part) => part.type === "source-url")
+                          .map((part, index) => (
+                            <SourcesContent key={`${id}-${index}`}>
+                              <Source
+                                href={"url" in part ? part.url : "#"}
+                                title={"url" in part ? part.url : "Source"}
+                              />
+                            </SourcesContent>
+                          ))}
+                      </Sources>
                     )}
-                    {message.id === messages.at(-1)?.id && (
-                      <Action
-                        size="sm"
-                        onClick={() => regenerate()}
-                        label="Retry"
-                        tooltip="Retry"
-                      >
-                        <RefreshCcwIcon className="size-3" />
-                      </Action>
-                    )}
-                  </Actions>
-                )}
-              </div>
-            ))}
+
+                  {parts?.map((part, index) => {
+                    if (part.type === "text") {
+                      return (
+                        <Message key={`${id}-${index}`} from={role}>
+                          <MessageContent variant="flat">
+                            <Response>{part.text}</Response>
+                          </MessageContent>
+                        </Message>
+                      )
+                    }
+
+                    if (part.type === "reasoning") {
+                      const isLatestMessage =
+                        status === "streaming" &&
+                        index === (parts?.length || 0) - 1 &&
+                        id === messages.at(-1)?.id
+
+                      return (
+                        <Reasoning
+                          key={`${id}-${index}`}
+                          className="w-full"
+                          isStreaming={isLatestMessage}
+                        >
+                          <ReasoningTrigger />
+                          <ReasoningContent>{part.text}</ReasoningContent>
+                        </Reasoning>
+                      )
+                    }
+
+                    if (isToolUIPart(part)) {
+                      const toolName = getToolName(part).replaceAll("__", ".")
+                      return (
+                        <Tool key={`${id}-${index}`}>
+                          <ToolHeader
+                            title={toolName}
+                            type={part.type}
+                            state={part.state}
+                            icon={getIcon(toolName, {
+                              className: "size-4 p-[3px]",
+                            })}
+                          />
+                          <ToolContent>
+                            <ToolInput input={part.input} />
+                            <ToolOutput
+                              output={part.output}
+                              errorText={part.errorText}
+                            />
+                          </ToolContent>
+                        </Tool>
+                      )
+                    }
+
+                    return null
+                  })}
+                  {role === "assistant" && parts.length > 0 && (
+                    // Render response actions for assistant messages and reveal them on hover for older messages.
+                    <Actions
+                      className={cn(
+                        // Apply a smooth transition so the actions fade in and out gracefully.
+                        "transition-opacity duration-200 ease-out",
+                        // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                        !isLastMessage &&
+                          "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                      )}
+                    >
+                      {parts.some((part) => part.type === "text") && (
+                        <Action
+                          size="sm"
+                          onClick={() => {
+                            const assistantText = getAssistantText(parts)
+                            if (assistantText.length > 0) {
+                              navigator.clipboard.writeText(assistantText)
+                              toast({
+                                title: "Copied to clipboard",
+                                description:
+                                  "The assistant's response has been copied to your clipboard.",
+                              })
+                            }
+                          }}
+                          label="Copy"
+                          tooltip="Copy"
+                        >
+                          <CopyIcon className="size-3" />
+                        </Action>
+                      )}
+                      {isLastMessage && (
+                        <Action
+                          size="sm"
+                          onClick={() => regenerate()}
+                          label="Retry"
+                          tooltip="Retry"
+                        >
+                          <RefreshCcwIcon className="size-3" />
+                        </Action>
+                      )}
+                    </Actions>
+                  )}
+                </div>
+              )
+            })}
             {status === "submitted" && (
               <motion.div
                 initial={{ opacity: 0 }}
