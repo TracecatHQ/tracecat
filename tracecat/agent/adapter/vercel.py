@@ -11,6 +11,7 @@ import json
 import re
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -19,7 +20,6 @@ from typing import (
     NotRequired,
     TypedDict,
     TypeGuard,
-    cast,
 )
 
 import pydantic
@@ -60,7 +60,6 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamMessage,
 )
-from tracecat.common import UNSET
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -667,8 +666,6 @@ class VercelStreamContext:
 
 def _convert_model_message_part_to_ui_part(
     part: ModelResponsePart | ModelRequestPart,
-    *,
-    tool_input: Any = UNSET,  # None is valid input
 ) -> UIMessagePart | None:
     """Convert a single ModelMessage part to a UIMessage part.
 
@@ -686,43 +683,6 @@ def _convert_model_message_part_to_ui_part(
         case ThinkingPart(content=str(content)):
             return ReasoningUIPart(type="reasoning", text=content, state="done")
 
-        case ToolCallPart(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-        ):
-            return ToolUIPartInputAvailable(
-                type=f"tool-{tool_name}",
-                toolCallId=tool_call_id,
-                state="input-available",
-                input=part.args_as_dict(),
-            )
-
-        case ToolReturnPart(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-            content=content,
-        ):
-            return ToolUIPartOutputAvailable(
-                type=f"tool-{tool_name}",
-                toolCallId=tool_call_id,
-                state="output-available",
-                input={} if tool_input is UNSET else tool_input,
-                output=content,
-            )
-
-        case RetryPromptPart(
-            tool_name=str(tool_name),
-            tool_call_id=tool_call_id,
-            content=content,
-        ):
-            return ToolUIPartOutputError(
-                type=f"tool-{tool_name}",
-                toolCallId=tool_call_id,
-                state="output-error",
-                input={} if tool_input is UNSET else tool_input,
-                errorText=content if isinstance(content, str) else str(content),
-            )
-
         case UserPromptPart(content=content):
             match content:
                 case str(text):
@@ -739,31 +699,48 @@ def _convert_model_message_part_to_ui_part(
         case SystemPromptPart(content=str(content)):
             return TextUIPart(type="text", text=content, state="done")
 
-        case BuiltinToolCallPart(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-        ):
-            return ToolUIPartInputAvailable(
-                type=f"tool-{tool_name}",
-                toolCallId=tool_call_id,
-                state="input-available",
-                input=part.args_as_dict(),
-            )
-
-        case BuiltinToolReturnPart(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-            content=content,
-        ):
-            return ToolUIPartOutputAvailable(
-                type=f"tool-{tool_name}",
-                toolCallId=tool_call_id,
-                state="output-available",
-                input={} if tool_input is UNSET else tool_input,
-                output=content,
-            )
-
     return None
+
+
+@dataclass
+class MutableToolPart:
+    type: str
+    tool_call_id: str
+    state: Literal["input-available", "output-available", "output-error"]
+    input: Any
+    output: Any | None = None
+    error_text: str | None = None
+
+    def to_ui_part(self) -> ToolUIPart:
+        if self.state == "input-available":
+            return ToolUIPartInputAvailable(
+                type=self.type,
+                toolCallId=self.tool_call_id,
+                state="input-available",
+                input=self.input,
+            )
+        if self.state == "output-available":
+            return ToolUIPartOutputAvailable(
+                type=self.type,
+                toolCallId=self.tool_call_id,
+                state="output-available",
+                input=self.input,
+                output=self.output,
+            )
+        return ToolUIPartOutputError(
+            type=self.type,
+            toolCallId=self.tool_call_id,
+            state="output-error",
+            input=self.input,
+            errorText=self.error_text or "",
+        )
+
+
+@dataclass
+class MutableMessage:
+    id: str
+    role: Literal["system", "user", "assistant"]
+    parts: list[MutableToolPart | UIMessagePart]
 
 
 UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
@@ -782,9 +759,8 @@ def convert_model_messages_to_ui(
     Returns:
         List of UIMessage objects for the Vercel AI SDK
     """
-    raw_messages: list[dict[str, Any]] = []
-    tool_inputs: dict[str, Any] = {}
-    tool_ui_parts: dict[str, ToolUIPart] = {}
+    mutable_messages: list[MutableMessage] = []
+    tool_entries: dict[str, MutableToolPart] = {}
 
     for chat_message in messages:
         # Extract message data from the ChatMessage schema
@@ -796,76 +772,128 @@ def convert_model_messages_to_ui(
             "assistant" if message_data.kind == "response" else "user"
         )
 
-        # Convert all parts
-        ui_parts: list[UIMessagePart] = []
+        mutable_message = MutableMessage(id=message_id, role=role, parts=[])
+
         for part in message_data.parts:
-            tool_input: Any = UNSET
-            tool_call_id: str | None = None
-            part_kind: str | None = None
-
             match part:
-                case ToolCallPart(tool_call_id=tool_call_id):
+                case ToolCallPart(tool_name=tool_name, tool_call_id=tool_call_id):
                     tool_input = part.args_as_dict()
-                    tool_inputs[tool_call_id] = tool_input
-                    part_kind = "call"
-                case BuiltinToolCallPart(tool_call_id=tool_call_id):
-                    tool_input = part.args_as_dict()
-                    tool_inputs[tool_call_id] = tool_input
-                    part_kind = "call"
-                case ToolReturnPart(tool_call_id=tool_call_id):
-                    tool_input = tool_inputs.get(tool_call_id, UNSET)
-                    part_kind = "return"
-                case RetryPromptPart(tool_call_id=tool_call_id):
-                    tool_input = tool_inputs.get(tool_call_id, UNSET)
-                    part_kind = "retry"
-                case BuiltinToolReturnPart(tool_call_id=tool_call_id):
-                    tool_input = tool_inputs.get(tool_call_id, UNSET)
-                    part_kind = "return"
-                case _:
-                    tool_input = UNSET
-
-            converted_part = _convert_model_message_part_to_ui_part(
-                part, tool_input=tool_input
-            )
-            if converted_part is None:
-                continue
-
-            if part_kind == "call" and tool_call_id is not None:
-                tool_ui_parts[tool_call_id] = cast(ToolUIPart, converted_part)
-                ui_parts.append(converted_part)
-                continue
-
-            if part_kind in {"return", "retry"} and tool_call_id is not None:
-                existing_part = tool_ui_parts.get(tool_call_id)
-                if existing_part is not None:
-                    existing_part["state"] = converted_part["state"]  # type: ignore[index]
-                    if "input" in converted_part:
-                        existing_part["input"] = converted_part["input"]  # type: ignore[index]
-                    if "output" in converted_part:
-                        existing_part["output"] = converted_part["output"]  # type: ignore[index]
-                    else:
-                        existing_part.pop("output", None)
-                    if "errorText" in converted_part:
-                        existing_part["errorText"] = converted_part["errorText"]  # type: ignore[index]
-                    else:
-                        existing_part.pop("errorText", None)
+                    tool_part = MutableToolPart(
+                        type=f"tool-{tool_name}",
+                        tool_call_id=tool_call_id,
+                        state="input-available",
+                        input=tool_input,
+                    )
+                    mutable_message.parts.append(tool_part)
+                    tool_entries[tool_call_id] = tool_part
                     continue
 
-                tool_ui_parts[tool_call_id] = cast(ToolUIPart, converted_part)
-                ui_parts.append(converted_part)
-                continue
+                case BuiltinToolCallPart(
+                    tool_name=tool_name, tool_call_id=tool_call_id
+                ):
+                    tool_input = part.args_as_dict()
+                    tool_part = MutableToolPart(
+                        type=f"tool-{tool_name}",
+                        tool_call_id=tool_call_id,
+                        state="input-available",
+                        input=tool_input,
+                    )
+                    mutable_message.parts.append(tool_part)
+                    tool_entries[tool_call_id] = tool_part
+                    continue
 
-            ui_parts.append(converted_part)
+                case ToolReturnPart(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    content=content,
+                ):
+                    existing_part = tool_entries.get(tool_call_id)
+                    input_payload = existing_part.input if existing_part else {}
+                    if existing_part is not None:
+                        existing_part.state = "output-available"
+                        existing_part.output = content
+                        existing_part.error_text = None
+                    else:
+                        tool_part = MutableToolPart(
+                            type=f"tool-{tool_name}",
+                            tool_call_id=tool_call_id,
+                            state="output-available",
+                            input=input_payload,
+                            output=content,
+                        )
+                        mutable_message.parts.append(tool_part)
+                        tool_entries[tool_call_id] = tool_part
+                    continue
 
-        # Only create UIMessage if we have parts
-        if ui_parts:
-            raw_messages.append(
-                {
-                    "id": message_id,
-                    "role": role,
-                    "parts": ui_parts,
-                }
-            )
+                case BuiltinToolReturnPart(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    content=content,
+                ):
+                    existing_part = tool_entries.get(tool_call_id)
+                    input_payload = existing_part.input if existing_part else {}
+                    if existing_part is not None:
+                        existing_part.state = "output-available"
+                        existing_part.output = content
+                        existing_part.error_text = None
+                    else:
+                        tool_part = MutableToolPart(
+                            type=f"tool-{tool_name}",
+                            tool_call_id=tool_call_id,
+                            state="output-available",
+                            input=input_payload,
+                            output=content,
+                        )
+                        mutable_message.parts.append(tool_part)
+                        tool_entries[tool_call_id] = tool_part
+                    continue
+
+                case RetryPromptPart(
+                    tool_name=str(tool_name),
+                    tool_call_id=tool_call_id,
+                    content=content,
+                ):
+                    existing_part = tool_entries.get(tool_call_id)
+                    input_payload = existing_part.input if existing_part else {}
+                    error_text = content if isinstance(content, str) else str(content)
+                    if existing_part is not None:
+                        existing_part.state = "output-error"
+                        existing_part.output = None
+                        existing_part.error_text = error_text
+                    else:
+                        tool_part = MutableToolPart(
+                            type=f"tool-{tool_name}",
+                            tool_call_id=tool_call_id,
+                            state="output-error",
+                            input=input_payload,
+                            error_text=error_text,
+                        )
+                        mutable_message.parts.append(tool_part)
+                        tool_entries[tool_call_id] = tool_part
+                    continue
+
+            converted_part = _convert_model_message_part_to_ui_part(part)
+            if converted_part is not None:
+                mutable_message.parts.append(converted_part)
+
+        if mutable_message.parts:
+            mutable_messages.append(mutable_message)
+
+    raw_messages: list[dict[str, Any]] = []
+    for message in mutable_messages:
+        parts: list[UIMessagePart] = []
+        for part in message.parts:
+            if isinstance(part, MutableToolPart):
+                parts.append(part.to_ui_part())
+            else:
+                parts.append(part)
+        raw_messages.append(
+            {
+                "id": message.id,
+                "role": message.role,
+                "parts": parts,
+            }
+        )
 
     return UIMessagesTA.validate_python(raw_messages)
 
