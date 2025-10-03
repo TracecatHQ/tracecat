@@ -334,6 +334,16 @@ class RunActionInput(BaseModel):
     interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_deprecated_inputs_context(cls, data: Any):
+        """Drop legacy INPUTS execution context entries."""
+        if isinstance(data, dict):
+            exec_ctx = data.get("exec_context")
+            if isinstance(exec_ctx, dict) and "INPUTS" in exec_ctx:
+                exec_ctx.pop("INPUTS", None)
+        return data
+
 
 class DSLExecutionError(TypedDict, total=False):
     """A proxy for an exception.
