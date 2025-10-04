@@ -120,7 +120,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["python", "tracecat/dsl/worker.py"]
+    entrypoint: ["/app/.venv/bin/python", "/app/tracecat/dsl/worker.py"]
     depends_on:
       - api
       - temporal
@@ -164,7 +164,6 @@ services:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [
-        "python",
         "-m",
         "uvicorn",
         "tracecat.api.executor:app",
@@ -174,7 +173,7 @@ services:
         "8000",
       ]
     healthcheck:
-      test: ["CMD-SHELL", "check_tmp.py"]
+      test: ["CMD", "/app/.venv/bin/python", "/usr/local/bin/check_tmp.py"]
       interval: 30s
       timeout: 5s
       retries: 3
