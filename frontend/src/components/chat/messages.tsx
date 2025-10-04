@@ -152,11 +152,6 @@ export function Messages({
     }
   }, [messages, entityType, entityId, workspaceId, queryClient])
 
-  console.log({
-    messages,
-    isResponding,
-    streamingText,
-  })
   return (
     <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll p-4 relative">
       {messages.length === 0 && <NoMessages />}

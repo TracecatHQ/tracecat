@@ -239,18 +239,19 @@ function ChatBody({
     workspaceId,
   })
 
+  if (chatError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-red-500">Failed to load chat</span>
+      </div>
+    )
+  }
+
   // Render loading state while checking if chat is selected
   if (!chatId || chatReadyLoading || chatLoading || !chat) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
-      </div>
-    )
-  }
-  if (chatError) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <span className="text-red-500">Failed to load chat</span>
       </div>
     )
   }
