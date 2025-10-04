@@ -116,7 +116,7 @@ class AgentStream:
         self,
         request: Request,
         last_id: str,
-        format: StreamFormat | None = None,
+        format: StreamFormat,
     ) -> AsyncIterable[str]:
         match format:
             case "vercel":
