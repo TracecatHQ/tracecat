@@ -6228,7 +6228,7 @@ export type ChatStreamChatEventsData = {
   /**
    * Streaming format (e.g. 'vercel')
    */
-  format?: "vercel" | "basic" | null
+  format?: "vercel" | "basic"
   workspaceId: string
 }
 
