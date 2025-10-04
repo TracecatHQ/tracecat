@@ -180,7 +180,6 @@ export function useVercelChat({
       credentials: "include",
       prepareSendMessagesRequest: ({ messages }) => {
         // Send only the last message
-        // TODO: Make this dynamic
         const reqBody: VercelChatRequest = {
           format: "vercel",
           model: modelInfo?.name,
