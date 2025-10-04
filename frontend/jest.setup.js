@@ -6,7 +6,11 @@ global.TextEncoder = require("util").TextEncoder
 global.TextDecoder = require("util").TextDecoder
 
 // Add Web Streams API polyfills for AI SDK
-const { TransformStream, ReadableStream, WritableStream } = require("node:stream/web")
+const {
+  TransformStream,
+  ReadableStream,
+  WritableStream,
+} = require("node:stream/web")
 global.TransformStream = TransformStream
 global.ReadableStream = ReadableStream
 global.WritableStream = WritableStream
