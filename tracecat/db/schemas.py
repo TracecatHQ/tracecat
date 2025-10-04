@@ -503,11 +503,21 @@ class Schedule(Resource, table=True):
         description="ISO 8601 duration string",
         sa_column=Column(Interval(), nullable=True),
     )
-    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
-    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    offset: timedelta | None = Field(
+        default=None, description="ISO 8601 duration string"
+    )
+    start_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+        description="ISO 8601 datetime string",
+    )
+    end_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+        description="ISO 8601 datetime string",
+    )
     timeout: float | None = Field(
-        None,
+        default=None,
         description="The maximum number of seconds to wait for the workflow to complete",
     )
     # Relationships
