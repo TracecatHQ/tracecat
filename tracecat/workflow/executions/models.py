@@ -184,7 +184,11 @@ class EventGroup[T: EventInput](BaseModel):
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
         else:
-            action_input = RunActionInput(**activity_input_data)
+            try:
+                action_input = RunActionInput(**activity_input_data)
+            except Exception as e:
+                logger.warning("Error parsing run action input", error=e)
+                return None
         if action_input.task is None:
             # It's a utility action.
             return None
@@ -378,7 +382,11 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         if act_type in (UTILITY_ACTIONS | {"get_workflow_definition_activity"}):
             logger.trace("Utility action is not supported.", act_type=act_type)
             return None
-        action_input = RunActionInput(**activity_input_data)
+        try:
+            action_input = RunActionInput(**activity_input_data)
+        except Exception as e:
+            logger.warning("Error parsing run action input", error=e)
+            return None
         task = action_input.task
         if task is None:
             logger.debug("Action input is None", event_id=event.event_id)
