@@ -1,3 +1,4 @@
+@source "../node_modules/streamdown/dist/index.js";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

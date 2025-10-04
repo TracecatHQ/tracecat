@@ -1,3 +1,5 @@
+"use client"
+
 import { ChatInterface } from "@/components/chat/chat-interface"
 
 export function CaseChat({
@@ -7,9 +9,12 @@ export function CaseChat({
   caseId: string
   isChatOpen: boolean
 }) {
+  if (!isChatOpen) {
+    return null
+  }
   return (
-    <div className="h-full flex flex-col">
-      {isChatOpen && <ChatInterface entityType="case" entityId={caseId} />}
+    <div className="flex h-full flex-col">
+      <ChatInterface entityType="case" entityId={caseId} />
     </div>
   )
 }

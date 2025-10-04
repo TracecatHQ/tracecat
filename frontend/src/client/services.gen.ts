@@ -107,10 +107,14 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  ChatChatWithVercelStreamingData,
+  ChatChatWithVercelStreamingResponse,
   ChatCreateChatData,
   ChatCreateChatResponse,
   ChatGetChatData,
   ChatGetChatResponse,
+  ChatGetChatVercelData,
+  ChatGetChatVercelResponse,
   ChatListChatsData,
   ChatListChatsResponse,
   ChatStartChatTurnData,
@@ -5099,7 +5103,7 @@ export const caseRecordsUnlinkCaseRecord = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatCreateChat = (
@@ -5107,7 +5111,7 @@ export const chatCreateChat = (
 ): CancelablePromise<ChatCreateChatResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/chat/",
+    url: "/chat",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -5127,7 +5131,7 @@ export const chatCreateChat = (
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
  * @param data.limit Maximum number of chats to return
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatListChats = (
@@ -5135,7 +5139,7 @@ export const chatListChats = (
 ): CancelablePromise<ChatListChatsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/chat/",
+    url: "/chat",
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
@@ -5154,7 +5158,7 @@ export const chatListChats = (
  * @param data The data for the request.
  * @param data.chatId
  * @param data.workspaceId
- * @returns ChatWithMessages Successful Response
+ * @returns ChatRead Successful Response
  * @throws ApiError
  */
 export const chatGetChat = (
@@ -5182,7 +5186,7 @@ export const chatGetChat = (
  * @param data.chatId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ChatRead Successful Response
+ * @returns ChatReadMinimal Successful Response
  * @throws ApiError
  */
 export const chatUpdateChat = (
@@ -5239,6 +5243,69 @@ export const chatStartChatTurn = (
 }
 
 /**
+ * Get Chat Vercel
+ * Get a chat with its message history in Vercel format.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns ChatReadVercel Successful Response
+ * @throws ApiError
+ */
+export const chatGetChatVercel = (
+  data: ChatGetChatVercelData
+): CancelablePromise<ChatGetChatVercelResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}/vercel",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Chat With Vercel Streaming
+ * Vercel AI SDK compatible chat endpoint with streaming.
+ *
+ * This endpoint combines chat turn initiation with streaming response,
+ * compatible with Vercel's AI SDK useChat hook. It:
+ * 1. Accepts Vercel UI message format
+ * 2. Starts the agent execution
+ * 3. Streams the response back in Vercel's data protocol format
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const chatChatWithVercelStreaming = (
+  data: ChatChatWithVercelStreamingData
+): CancelablePromise<ChatChatWithVercelStreamingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/{chat_id}/vercel",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Stream Chat Events
  * Stream chat events via Server-Sent Events (SSE).
  *
@@ -5248,6 +5315,7 @@ export const chatStartChatTurn = (
  * @param data The data for the request.
  * @param data.chatId
  * @param data.workspaceId
+ * @param data.format Streaming format (e.g. 'vercel')
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -5261,6 +5329,7 @@ export const chatStreamChatEvents = (
       chat_id: data.chatId,
     },
     query: {
+      format: data.format,
       workspace_id: data.workspaceId,
     },
     errors: {

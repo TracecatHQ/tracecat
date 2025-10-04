@@ -9,7 +9,7 @@ export function Dots() {
   }
 
   return (
-    <div className="flex space-x-1 items-center">
+    <div className="flex space-x-1 items-center" data-testid="dots-loader">
       {[0, 1, 2].map((index) => (
         <motion.div
           key={index}
