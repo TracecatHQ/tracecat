@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
+from urllib.parse import urlparse
 
 import aiohttp
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage
@@ -150,10 +151,17 @@ class PersistentStreamWriter(StreamWriter):
 
 
 class HttpStreamWriter(StreamWriter):
-    def __init__(self, url: str = "http://localhost:1234/stream"):
+    def __init__(self, url: str = "https://localhost:1234/stream"):
         self.url = url
+        self._ensure_secure_url()
+
+    def _ensure_secure_url(self) -> None:
+        parsed = urlparse(self.url)
+        if parsed.scheme != "https":
+            raise ValueError("HttpStreamWriter requires an HTTPS endpoint")
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
+        self._ensure_secure_url()
         async with aiohttp.ClientSession() as session:
             async for event in events:
                 logger.warning("STREAM EVENT", event=event)

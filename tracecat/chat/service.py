@@ -159,7 +159,10 @@ class ChatService(BaseWorkspaceService):
             case _:
                 raise ValueError(f"Unsupported chat request: {request}")
 
-        logger.info("User prompt", user_prompt=user_prompt)
+        logger.info(
+            "Received user prompt",
+            prompt_length=len(user_prompt),
+        )
         # Prepare agent execution arguments
         instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
         model_info = ModelInfo(
@@ -406,7 +409,7 @@ class ChatService(BaseWorkspaceService):
                 "No messages in database, attempting Redis backfill",
                 chat_id=chat.id,
             )
-            # await self._backfill_from_redis(chat)
+            await self._backfill_from_redis(chat)
             # Re-fetch from database after backfill
             db_messages = await self.list_messages(chat.id)
 

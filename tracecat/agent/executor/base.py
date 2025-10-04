@@ -35,7 +35,7 @@ class BaseAgentExecutor(ABC):
         self.session = session
         self.role = role or ctx_role.get()
 
-        if self.role.workspace_id is None:
+        if self.role is None or self.role.workspace_id is None:
             raise TracecatAuthorizationError(
                 f"{self.__class__.__name__} requires workspace"
             )

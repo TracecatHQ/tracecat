@@ -301,8 +301,8 @@ async def stream_chat_events(
     role: WorkspaceUser,
     request: Request,
     chat_id: uuid.UUID,
-    format: StreamFormat | None = Query(
-        default=None, description="Streaming format (e.g. 'vercel')"
+    format: StreamFormat = Query(
+        default="basic", description="Streaming format (e.g. 'vercel')"
     ),
 ):
     """Stream chat events via Server-Sent Events (SSE).

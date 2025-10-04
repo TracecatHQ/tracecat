@@ -65,7 +65,8 @@ class StreamError:
     error: str
 
     def sse(self) -> str:
-        return f"event: error\ndata: {{'error': '{self.error}'}}\n\n"
+        payload = orjson.dumps({"error": self.error}).decode()
+        return f"event: error\ndata: {payload}\n\n"
 
 
 type StreamEvent = Annotated[

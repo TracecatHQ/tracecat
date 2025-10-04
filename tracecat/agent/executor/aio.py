@@ -129,7 +129,10 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                 )
                 message_history = []
 
-            logger.info("Message history", message_history=message_history)
+            logger.info(
+                "Loaded message history",
+                message_count=len(message_history),
+            )
 
             # 2. Prepare writer
             writer = await self._get_writer(args)
