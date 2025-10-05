@@ -13670,6 +13670,18 @@ export const $WorkflowRead = {
       ],
       title: "Expects",
     },
+    expects_schema: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expects Schema",
+    },
     returns: {
       title: "Returns",
     },

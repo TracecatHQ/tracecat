@@ -7,8 +7,8 @@ import { ArrowUpRight, ChevronsUpDown, PlayIcon } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { workflowsGetWorkflow } from "@/client"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
+import { workflowsGetWorkflow } from "@/client"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import {
   AlertDialog,
@@ -90,9 +90,7 @@ const deserializeEnumValue = (value: string): unknown => {
 }
 
 const formatLabel = (key: string): string =>
-  key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
 
 /**
  * Renders a workflow trigger section for a case.
@@ -206,7 +204,11 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     toast({
       title: "Workflow run started",
       description: (
-        <Link href={selectedWorkflowUrl} target="_blank" rel="noopener noreferrer">
+        <Link
+          href={selectedWorkflowUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <div className="flex items-center space-x-1">
             <ArrowUpRight className="size-3" />
             <span>View workflow run</span>
@@ -237,7 +239,12 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     })
     showExecutionStartedToast()
     setIsConfirmOpen(false)
-  }, [createExecution, fallbackInputs, selectedWorkflowId, showExecutionStartedToast])
+  }, [
+    createExecution,
+    fallbackInputs,
+    selectedWorkflowId,
+    showExecutionStartedToast,
+  ])
 
   // Loading state
   if (workflowsLoading) {
@@ -407,7 +414,9 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                 </div>
               </div>
               <AlertDialogFooter>
-                <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
+                <AlertDialogCancel className="text-xs">
+                  Cancel
+                </AlertDialogCancel>
                 <Button
                   type="button"
                   onClick={handleTriggerWithoutSchema}
@@ -554,14 +563,14 @@ function SchemaDrivenTriggerForm({
       ),
     [schema]
   )
-  const requiredFields = useMemo(
-    () => new Set(schema.required ?? []),
-    [schema]
-  )
+  const requiredFields = useMemo(() => new Set(schema.required ?? []), [schema])
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="mt-4 space-y-4">
+      <form
+        onSubmit={form.handleSubmit(handleSubmit)}
+        className="mt-4 space-y-4"
+      >
         <div className="flex flex-col gap-4">
           {properties.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -587,7 +596,9 @@ function SchemaDrivenTriggerForm({
                     <FormItem className="space-y-2">
                       <FormLabel className="text-xs font-medium">
                         {label}
-                        {isRequired && <span className="ml-1 text-red-500">*</span>}
+                        {isRequired && (
+                          <span className="ml-1 text-red-500">*</span>
+                        )}
                       </FormLabel>
                       <FormControl>
                         {enumOptions ? (
@@ -602,7 +613,9 @@ function SchemaDrivenTriggerForm({
                             }
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder={`Select ${label.toLowerCase()}...`} />
+                              <SelectValue
+                                placeholder={`Select ${label.toLowerCase()}...`}
+                              />
                             </SelectTrigger>
                             <SelectContent>
                               {enumOptions.map((option) => (
@@ -621,7 +634,8 @@ function SchemaDrivenTriggerForm({
                             checked={Boolean(field.value)}
                             onCheckedChange={(value) => field.onChange(value)}
                           />
-                        ) : fieldType === "number" || fieldType === "integer" ? (
+                        ) : fieldType === "number" ||
+                          fieldType === "integer" ? (
                           <Input
                             type="number"
                             value={
@@ -650,18 +664,25 @@ function SchemaDrivenTriggerForm({
                               const rawValue = jsonDrafts[fieldName] ?? ""
                               if (!rawValue.trim()) {
                                 field.onChange(undefined)
-                                form.clearErrors(fieldName as keyof TriggerFormValues)
+                                form.clearErrors(
+                                  fieldName as keyof TriggerFormValues
+                                )
                                 return
                               }
                               try {
                                 const parsed = JSON.parse(rawValue)
                                 field.onChange(parsed)
-                                form.clearErrors(fieldName as keyof TriggerFormValues)
+                                form.clearErrors(
+                                  fieldName as keyof TriggerFormValues
+                                )
                               } catch {
-                                form.setError(fieldName as keyof TriggerFormValues, {
-                                  type: "manual",
-                                  message: "Invalid JSON",
-                                })
+                                form.setError(
+                                  fieldName as keyof TriggerFormValues,
+                                  {
+                                    type: "manual",
+                                    message: "Invalid JSON",
+                                  }
+                                )
                               }
                             }}
                             className="font-mono text-xs"
@@ -674,7 +695,9 @@ function SchemaDrivenTriggerForm({
                                 ? ""
                                 : String(field.value)
                             }
-                            onChange={(event) => field.onChange(event.target.value)}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
                           />
                         )}
                       </FormControl>
