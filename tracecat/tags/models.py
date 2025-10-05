@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 
 from tracecat.identifiers import TagID
+from tracecat.tags.enums import TagScope
 
 
 class TagRead(BaseModel):
@@ -12,6 +13,7 @@ class TagRead(BaseModel):
         description="Slug-like identifier derived from name, used for API lookups"
     )
     color: str | None = Field(default=None, description="Hex color code")
+    scope: TagScope
 
 
 class TagCreate(BaseModel):
@@ -19,6 +21,7 @@ class TagCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=50)
     color: str | None = Field(default=None, description="Hex color code")
+    scope: TagScope
 
 
 class TagUpdate(BaseModel):
@@ -26,3 +29,4 @@ class TagUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=50)
     color: str | None = Field(default=None, description="Hex color code")
+    scope: TagScope | None = Field(default=None)

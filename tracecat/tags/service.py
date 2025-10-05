@@ -7,17 +7,39 @@ from sqlmodel import select
 from tracecat.db.schemas import Tag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseService
+from tracecat.tags.enums import TagScope
 from tracecat.tags.models import TagCreate, TagUpdate
+
+
+def _scopes_for_lookup(scope: TagScope) -> list[TagScope]:
+    """Return scopes considered equivalent for lookup operations."""
+
+    if scope == TagScope.BOTH:
+        return [TagScope.BOTH]
+    return [scope, TagScope.BOTH]
+
+
+def _scopes_for_overlap(scope: TagScope) -> list[TagScope]:
+    """Return scopes that should be treated as conflicting for uniqueness checks."""
+
+    if scope == TagScope.BOTH:
+        return [TagScope.BOTH, TagScope.WORKFLOW, TagScope.CASE]
+    return [scope, TagScope.BOTH]
 
 
 class TagsService(BaseService):
     service_name = "tags"
 
-    async def list_tags(self) -> Sequence[Tag]:
+    async def list_tags(self, scope: TagScope | None = None) -> Sequence[Tag]:
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
         statement = select(Tag).where(Tag.owner_id == workspace_id)
+        if scope is not None:
+            normalized_scope = TagScope(scope)
+            statement = statement.where(
+                Tag.scope.in_(_scopes_for_lookup(normalized_scope))
+            )
         result = await self.session.exec(statement)
         return result.all()
 
@@ -32,7 +54,7 @@ class TagsService(BaseService):
         result = await self.session.exec(statement)
         return result.one()
 
-    async def get_tag_by_ref(self, ref: str) -> Tag:
+    async def get_tag_by_ref(self, ref: str, scope: TagScope | None = None) -> Tag:
         """Get a tag by its ref."""
         workspace_id = self.role.workspace_id
         if workspace_id is None:
@@ -41,10 +63,19 @@ class TagsService(BaseService):
             Tag.owner_id == workspace_id,
             Tag.ref == ref,
         )
+        if scope is not None:
+            normalized_scope = TagScope(scope)
+            statement = statement.where(
+                Tag.scope.in_(_scopes_for_lookup(normalized_scope))
+            )
         result = await self.session.exec(statement)
         return result.one()
 
-    async def get_tag_by_ref_or_id(self, tag_identifier: str) -> Tag:
+    async def get_tag_by_ref_or_id(
+        self,
+        tag_identifier: str,
+        scope: TagScope | None = None,
+    ) -> Tag:
         """Get a tag by either ref or ID."""
         workspace_id = self.role.workspace_id
         if workspace_id is None:
@@ -53,10 +84,16 @@ class TagsService(BaseService):
         # Try UUID first
         try:
             uuid_obj = uuid.UUID(tag_identifier)
-            return await self.get_tag(uuid_obj)
+            tag = await self.get_tag(uuid_obj)
+            if scope is not None:
+                normalized_scope = TagScope(scope)
+                current_scope = TagScope(tag.scope)
+                if current_scope not in _scopes_for_lookup(normalized_scope):
+                    raise ValueError("Tag scope does not match requested scope")
+            return tag
         except ValueError:
             # Not a UUID, try ref
-            return await self.get_tag_by_ref(tag_identifier)
+            return await self.get_tag_by_ref(tag_identifier, scope=scope)
 
     async def create_tag(self, tag: TagCreate) -> Tag:
         workspace_id = self.role.workspace_id
@@ -66,14 +103,27 @@ class TagsService(BaseService):
         # Generate ref
         ref = slugify(tag.name)
 
+        normalized_scope = TagScope(tag.scope)
+        overlapping_scopes = _scopes_for_overlap(normalized_scope)
+
         # Check if ref already exists
         existing = await self.session.exec(
-            select(Tag).where(Tag.ref == ref, Tag.owner_id == workspace_id)
+            select(Tag).where(
+                Tag.ref == ref,
+                Tag.owner_id == workspace_id,
+                Tag.scope.in_(overlapping_scopes),
+            )
         )
         if existing.one_or_none():
             raise ValueError(f"Tag with slug '{ref}' already exists")
 
-        db_tag = Tag(name=tag.name, ref=ref, owner_id=workspace_id, color=tag.color)
+        db_tag = Tag(
+            name=tag.name,
+            ref=ref,
+            owner_id=workspace_id,
+            color=tag.color,
+            scope=normalized_scope,
+        )
         self.session.add(db_tag)
         await self.session.commit()
         return db_tag

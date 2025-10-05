@@ -9,12 +9,14 @@ from typing import Any
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import (
     TIMESTAMP,
+    CheckConstraint,
     Column,
     ForeignKey,
     Identity,
     Index,
     Integer,
     Interval,
+    String,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -40,6 +42,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.tags.enums import TagScope
 from tracecat.workspaces.models import WorkspaceSettings
 
 
@@ -1351,6 +1354,23 @@ class Tag(Resource, table=True):
     __table_args__ = (
         UniqueConstraint("name", "owner_id"),
         UniqueConstraint("ref", "owner_id", name="uq_tag_ref_owner"),
+        UniqueConstraint(
+            "owner_id",
+            "scope",
+            "ref",
+            name="uq_tag_owner_scope_ref",
+        ),
+        UniqueConstraint(
+            "owner_id",
+            "scope",
+            "name",
+            name="uq_tag_owner_scope_name",
+        ),
+        Index("ix_tag_owner_scope", "owner_id", "scope"),
+        CheckConstraint(
+            "scope IN ('workflow', 'case')",
+            name="ck_tag_scope_valid",
+        ),
     )
 
     id: UUID4 = Field(
@@ -1363,6 +1383,12 @@ class Tag(Resource, table=True):
     # ref is a slug-like identifier derived from the name, used for API lookups alongside UUID
     ref: str = Field(index=True, nullable=False)
     color: str | None = Field(default=None)
+    scope: TagScope = Field(
+        sa_column=Column(
+            String,
+            nullable=False,
+        ),
+    )
     # Relationships
     owner: "Workspace" = Relationship(back_populates="tags")
     workflows: list["Workflow"] = Relationship(

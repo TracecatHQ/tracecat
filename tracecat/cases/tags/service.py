@@ -6,6 +6,7 @@ from sqlmodel import select
 from tracecat.db.schemas import CaseTag, Tag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseWorkspaceService
+from tracecat.tags.enums import TagScope
 from tracecat.tags.service import TagsService
 
 
@@ -30,7 +31,9 @@ class CaseTagsService(BaseWorkspaceService):
         """Add a tag to a case by ID or ref."""
         # Resolve tag identifier to ID
         tags_service = TagsService(self.session, self.role)
-        tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+        tag = await tags_service.get_tag_by_ref_or_id(
+            tag_identifier, scope=TagScope.CASE
+        )
 
         # Check if already exists
         stmt = select(CaseTag).where(
@@ -53,7 +56,9 @@ class CaseTagsService(BaseWorkspaceService):
     async def remove_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> None:
         """Remove a tag from a case by ID or ref."""
         tags_service = TagsService(self.session, self.role)
-        tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+        tag = await tags_service.get_tag_by_ref_or_id(
+            tag_identifier, scope=TagScope.CASE
+        )
 
         case_tag = await self.get_case_tag(case_id, tag.id)
         if not case_tag:

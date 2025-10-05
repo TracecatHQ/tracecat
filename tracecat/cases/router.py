@@ -40,6 +40,7 @@ from tracecat.cases.service import (
 )
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
+from tracecat.tags.enums import TagScope
 from tracecat.tags.models import TagRead
 from tracecat.tags.service import TagsService
 from tracecat.types.auth import Role
@@ -108,7 +109,9 @@ async def list_cases(
         tags_service = TagsService(session, role)
         for tag_identifier in tags:
             try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+                tag = await tags_service.get_tag_by_ref_or_id(
+                    tag_identifier, scope=TagScope.CASE
+                )
                 tag_ids.append(tag.id)
             except NoResultFound:
                 # Skip tags that do not exist in the workspace
@@ -190,7 +193,9 @@ async def search_cases(
         tags_service = TagsService(session, role)
         for tag_identifier in tags:
             try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+                tag = await tags_service.get_tag_by_ref_or_id(
+                    tag_identifier, scope=TagScope.CASE
+                )
                 tag_ids.append(tag.id)
             except NoResultFound:
                 # Skip tags that do not exist in the workspace
