@@ -107,6 +107,16 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  CaseTagsCreateCaseTagData,
+  CaseTagsCreateCaseTagResponse,
+  CaseTagsDeleteCaseTagData,
+  CaseTagsDeleteCaseTagResponse,
+  CaseTagsGetCaseTagData,
+  CaseTagsGetCaseTagResponse,
+  CaseTagsListCaseTagsData,
+  CaseTagsListCaseTagsResponse,
+  CaseTagsUpdateCaseTagData,
+  CaseTagsUpdateCaseTagResponse,
   ChatChatWithVercelStreamingData,
   ChatChatWithVercelStreamingResponse,
   ChatCreateChatData,
@@ -4764,6 +4774,139 @@ export const casesRemoveTag = (
     path: {
       case_id: data.caseId,
       tag_identifier: data.tagIdentifier,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Tags
+ * List all case tags available in the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const caseTagsListCaseTags = (
+  data: CaseTagsListCaseTagsData
+): CancelablePromise<CaseTagsListCaseTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/case-tags",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Case Tag
+ * Create a new case tag definition.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const caseTagsCreateCaseTag = (
+  data: CaseTagsCreateCaseTagData
+): CancelablePromise<CaseTagsCreateCaseTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/case-tags",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case Tag
+ * Retrieve a single case tag by ID.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const caseTagsGetCaseTag = (
+  data: CaseTagsGetCaseTagData
+): CancelablePromise<CaseTagsGetCaseTagResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/case-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Case Tag
+ * Update an existing case tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const caseTagsUpdateCaseTag = (
+  data: CaseTagsUpdateCaseTagData
+): CancelablePromise<CaseTagsUpdateCaseTagResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/case-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Case Tag
+ * Delete a case tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseTagsDeleteCaseTag = (
+  data: CaseTagsDeleteCaseTagData
+): CancelablePromise<CaseTagsDeleteCaseTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/case-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
     },
     query: {
       workspace_id: data.workspaceId,

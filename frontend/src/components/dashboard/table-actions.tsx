@@ -30,7 +30,11 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
+import {
+  useOrgAppSettings,
+  useWorkflowManager,
+  useWorkflowTags,
+} from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
@@ -46,7 +50,7 @@ export function WorkflowActions({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const { tags } = useTags(workspaceId)
+  const { tags } = useWorkflowTags(workspaceId)
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false

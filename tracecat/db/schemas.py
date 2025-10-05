@@ -131,7 +131,11 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-    tags: list["Tag"] = Relationship(
+    workflow_tags: list["Tag"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    case_tags: list["CaseTag"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -768,8 +772,10 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
     case: "Case" = Relationship(back_populates="fields")
 
 
-class CaseTag(SQLModel, table=True):
-    """Link table for cases and tags with optional metadata."""
+class CaseTagLink(SQLModel, table=True):
+    """Link table for cases and case tags."""
+
+    __tablename__: str = "case_tag_link"
 
     case_id: uuid.UUID = Field(
         sa_column=Column(
@@ -778,8 +784,33 @@ class CaseTag(SQLModel, table=True):
     )
     tag_id: UUID4 = Field(
         sa_column=Column(
-            UUID, ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True
+            UUID, ForeignKey("case_tag.id", ondelete="CASCADE"), primary_key=True
         )
+    )
+
+
+class CaseTag(Resource, table=True):
+    """A tag for organizing and filtering cases."""
+
+    __tablename__: str = "case_tag"
+    __table_args__ = (
+        UniqueConstraint("name", "owner_id", name="uq_case_tag_name_owner"),
+        UniqueConstraint("ref", "owner_id", name="uq_case_tag_ref_owner"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(index=True, nullable=False)
+    ref: str = Field(index=True, nullable=False)
+    color: str | None = Field(default=None)
+    owner: "Workspace" = Relationship(back_populates="case_tags")
+    cases: list["Case"] = Relationship(
+        back_populates="tags",
+        link_model=CaseTagLink,
     )
 
 
@@ -874,9 +905,9 @@ class Case(Resource, table=True):
         back_populates="assigned_cases",
         sa_relationship_kwargs={"lazy": "selectin"},
     )
-    tags: list["Tag"] = Relationship(
+    tags: list["CaseTag"] = Relationship(
         back_populates="cases",
-        link_model=CaseTag,
+        link_model=CaseTagLink,
         sa_relationship_kwargs={"lazy": "selectin"},
     )
     runbooks: list["Runbook"] = Relationship(
@@ -1387,10 +1418,10 @@ class Runbook(Resource, table=True):
 
 
 class Tag(Resource, table=True):
-    """A tag for organizing and filtering entities."""
+    """A workflow tag for organizing and filtering workflows."""
 
     __table_args__ = (
-        UniqueConstraint("name", "owner_id"),
+        UniqueConstraint("name", "owner_id", name="uq_tag_name_owner"),
         UniqueConstraint("ref", "owner_id", name="uq_tag_ref_owner"),
     )
 
@@ -1405,14 +1436,10 @@ class Tag(Resource, table=True):
     ref: str = Field(index=True, nullable=False)
     color: str | None = Field(default=None)
     # Relationships
-    owner: "Workspace" = Relationship(back_populates="tags")
+    owner: "Workspace" = Relationship(back_populates="workflow_tags")
     workflows: list["Workflow"] = Relationship(
         back_populates="tags",
         link_model=WorkflowTag,
-    )
-    cases: list["Case"] = Relationship(
-        back_populates="tags",
-        link_model=CaseTag,
     )
 
 

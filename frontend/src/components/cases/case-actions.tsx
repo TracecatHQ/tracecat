@@ -16,7 +16,7 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useTags } from "@/lib/hooks"
+import { useCaseTagCatalog } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CaseActions({
@@ -27,7 +27,7 @@ export function CaseActions({
   setSelectedCase: (case_: CaseReadMinimal) => void
 }) {
   const workspaceId = useWorkspaceId()
-  const { tags } = useTags(workspaceId)
+  const { caseTags } = useCaseTagCatalog(workspaceId)
   const queryClient = useQueryClient()
 
   const handleTagToggle = async (tagId: string, hasTag: boolean) => {
@@ -39,7 +39,7 @@ export function CaseActions({
           tagIdentifier: tagId,
           workspaceId,
         })
-        const tag = tags?.find((t) => t.id === tagId)
+        const tag = caseTags?.find((t) => t.id === tagId)
         toast({
           title: "Tag removed",
           description: `Successfully removed tag "${tag?.name}" from case`,
@@ -53,7 +53,7 @@ export function CaseActions({
             tag_id: tagId,
           },
         })
-        const tag = tags?.find((t) => t.id === tagId)
+        const tag = caseTags?.find((t) => t.id === tagId)
         toast({
           title: "Tag added",
           description: `Successfully added tag "${tag?.name}" to case`,
@@ -89,7 +89,7 @@ export function CaseActions({
         </Link>
       </DropdownMenuItem>
 
-      {tags && tags.length > 0 ? (
+      {caseTags && caseTags.length > 0 ? (
         <DropdownMenuSub>
           <DropdownMenuSubTrigger
             className="text-xs"
@@ -100,7 +100,7 @@ export function CaseActions({
           </DropdownMenuSubTrigger>
           <DropdownMenuPortal>
             <DropdownMenuSubContent>
-              {tags.map((tag) => {
+              {caseTags.map((tag) => {
                 const hasTag = item.tags?.some((t) => t.id === tag.id)
                 return (
                   <DropdownMenuCheckboxItem

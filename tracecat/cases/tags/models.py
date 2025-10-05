@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 
-from tracecat.identifiers import TagID
+from tracecat.identifiers import CaseTagID
 
-TagIdentifier = TagID | str  # Can be UUID or ref
+TagIdentifier = CaseTagID | str  # Can be UUID or ref
 
 
 class CaseTagCreate(BaseModel):
@@ -16,7 +16,7 @@ class CaseTagCreate(BaseModel):
 class CaseTagRead(BaseModel):
     """Tag data."""
 
-    id: TagID
+    id: CaseTagID
     name: str
     ref: str
     color: str | None
