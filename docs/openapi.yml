@@ -8239,6 +8239,34 @@ components:
       type: object
       title: TableUpdate
       description: Update model for a table.
+    CaseTagRead:
+      properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
+        name:
+          type: string
+          minLength: 1
+          title: Name
+        ref:
+          type: string
+          minLength: 1
+          title: Ref
+        color:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Color
+          description: Hex color code
+      type: object
+      required:
+      - id
+      - name
+      - ref
+      - color
+      title: CaseTagRead
+      description: Tag data.
     TagCreate:
       properties:
         name:

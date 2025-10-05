@@ -1,7 +1,10 @@
 import uuid
 from collections.abc import Sequence
+from typing import cast
 
 from slugify import slugify
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import select
 
 from tracecat.db.schemas import CaseTag, CaseTagLink
@@ -53,8 +56,12 @@ class CaseTagsService(BaseWorkspaceService):
         """Get a case tag by either UUID or slug."""
         try:
             tag_uuid = uuid.UUID(tag_identifier)
-            return await self.get_tag(tag_uuid)
         except ValueError:
+            return await self.get_tag_by_ref(tag_identifier)
+
+        try:
+            return await self.get_tag(tag_uuid)
+        except NoResultFound:
             return await self.get_tag_by_ref(tag_identifier)
 
     async def create_tag(self, params: TagCreate) -> CaseTag:
@@ -85,7 +92,23 @@ class CaseTagsService(BaseWorkspaceService):
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
         if params.name and params.name != tag.name:
-            tag.ref = slugify(params.name)
+            new_ref = slugify(params.name)
+            if new_ref != tag.ref:
+                owner_id = tag.owner_id
+                if owner_id is None:
+                    raise ValueError("Case tag owner is required")
+
+                existing = await self.session.exec(
+                    select(CaseTag).where(
+                        CaseTag.owner_id == owner_id,
+                        CaseTag.ref == new_ref,
+                        CaseTag.id != tag.id,
+                    )
+                )
+                if existing.one_or_none():
+                    raise ValueError(f"Case tag with slug '{new_ref}' already exists")
+
+                tag.ref = new_ref
 
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(tag, key, value)
@@ -101,11 +124,9 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def list_tags_for_case(self, case_id: uuid.UUID) -> Sequence[CaseTag]:
         """List all tags attached to a specific case."""
-        stmt = (
-            select(CaseTag)
-            .join(CaseTagLink, CaseTagLink.tag_id == CaseTag.id)
-            .where(CaseTagLink.case_id == case_id)
-        )
+        onclause = cast(ColumnElement[bool], CaseTagLink.tag_id == CaseTag.id)
+        condition = cast(ColumnElement[bool], CaseTagLink.case_id == case_id)
+        stmt = select(CaseTag).join(CaseTagLink, onclause).where(condition)
         result = await self.session.exec(stmt)
         return result.all()
 
