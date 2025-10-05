@@ -61,6 +61,8 @@ describe("ChatSessionPane", () => {
       regenerate: jest.fn(),
       messages: [],
       status: undefined,
+      lastError: null,
+      clearError: jest.fn(),
       // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
     } as any)
 
@@ -102,6 +104,8 @@ describe("ChatSessionPane", () => {
       regenerate: jest.fn(),
       messages: [],
       status: "submitted",
+      lastError: null,
+      clearError: jest.fn(),
       // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
     } as any)
 
