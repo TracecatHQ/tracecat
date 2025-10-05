@@ -524,7 +524,6 @@ packages:
   '@biomejs/cli-darwin-arm64@2.2.4':
     resolution: {integrity: sha512-RJe2uiyaloN4hne4d2+qVj3d3gFJFbmrr5PYtkkjei1O9c+BjGXgpUPVbi8Pl8syumhzJjFsSIYkcLt2VlVLMA==}
     engines: {node: '>=14.21.3'}
-    cpu: [arm64]
     os: [darwin]
 
   '@biomejs/cli-darwin-x64@2.0.4':

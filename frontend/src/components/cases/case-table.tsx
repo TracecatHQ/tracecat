@@ -2,14 +2,17 @@
 
 import type { Row } from "@tanstack/react-table"
 import { useRouter } from "next/navigation"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CasePriority,
   CaseReadMinimal,
   CaseSeverity,
   CaseStatus,
+  CaseUpdate,
 } from "@/client"
+import { casesUpdateCase } from "@/client"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { createColumns } from "@/components/cases/case-table-columns"
 import { CaseTableFilters } from "@/components/cases/case-table-filters"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
@@ -30,6 +33,7 @@ export default function CaseTable() {
   const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
   const [clearSelectionTrigger, setClearSelectionTrigger] = useState(0)
   const router = useRouter()
+  const { updateSelection, resetSelection } = useCaseSelection()
 
   // Server-side filter states
   const [searchTerm, setSearchTerm] = useState<string>("")
@@ -70,6 +74,7 @@ export default function CaseTable() {
   })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false)
   const { deleteCase } = useDeleteCase({
     workspaceId,
   })
@@ -123,6 +128,86 @@ export default function CaseTable() {
   const handleBulkDelete = useCallback(async () => {
     await handleDeleteRows(selectedRows)
   }, [handleDeleteRows, selectedRows])
+
+  const handleBulkUpdate = useCallback(
+    async (
+      updates: Partial<CaseUpdate>,
+      options?: { successTitle?: string; successDescription?: string }
+    ) => {
+      if (selectedRows.length === 0) {
+        return
+      }
+
+      const caseIds = selectedRows.map((row) => row.original.id)
+
+      try {
+        setIsBulkUpdating(true)
+
+        await Promise.all(
+          caseIds.map((caseId) =>
+            casesUpdateCase({
+              workspaceId,
+              caseId,
+              requestBody: updates,
+            })
+          )
+        )
+
+        toast({
+          title:
+            options?.successTitle ||
+            `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
+          description:
+            options?.successDescription ||
+            "The selected cases have been updated successfully.",
+        })
+
+        await refetch()
+      } catch (error) {
+        console.error("Failed to update cases:", error)
+        toast({
+          variant: "destructive",
+          title: "Failed to update cases",
+          description: "Please try again.",
+        })
+      } finally {
+        setIsBulkUpdating(false)
+      }
+    },
+    [refetch, selectedRows, toast, workspaceId]
+  )
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedRows([])
+    setClearSelectionTrigger((value) => value + 1)
+  }, [setClearSelectionTrigger, setSelectedRows])
+
+  useEffect(() => {
+    if (selectedRows.length > 0) {
+      updateSelection({
+        selectedCount: selectedRows.length,
+        selectedCaseIds: selectedRows.map((row) => row.original.id),
+        clearSelection: handleClearSelection,
+        deleteSelected: handleBulkDelete,
+        bulkUpdateSelectedCases: handleBulkUpdate,
+        isDeleting,
+        isUpdating: isBulkUpdating,
+      })
+    } else {
+      resetSelection()
+    }
+  }, [
+    selectedRows,
+    handleClearSelection,
+    handleBulkDelete,
+    handleBulkUpdate,
+    isDeleting,
+    isBulkUpdating,
+    resetSelection,
+    updateSelection,
+  ])
+
+  useEffect(() => () => resetSelection(), [resetSelection])
 
   // Handle filter changes
   const handleSearchChange = useCallback(
@@ -186,9 +271,6 @@ export default function CaseTable() {
             onSeverityChange={handleSeverityChange}
             assigneeFilter={assigneeFilter}
             onAssigneeChange={handleAssigneeChange}
-            selectedCount={selectedRows.length}
-            onDeleteSelected={handleBulkDelete}
-            isDeleting={isDeleting}
           />
           <DataTable
             data={cases || []}

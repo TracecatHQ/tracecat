@@ -6,6 +6,7 @@ import Image from "next/image"
 import { useParams, usePathname } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
+import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -100,10 +101,12 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <div className="flex h-full flex-1 flex-col">
-          <ControlsHeader />
-          <div className="flex-1 overflow-y-scroll">{children}</div>
-        </div>
+        <CaseSelectionProvider>
+          <div className="flex h-full flex-1 flex-col">
+            <ControlsHeader />
+            <div className="flex-1 overflow-y-scroll">{children}</div>
+          </div>
+        </CaseSelectionProvider>
       </SidebarInset>
     </SidebarProvider>
   )
