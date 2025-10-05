@@ -68,7 +68,7 @@ def _normalize_filter_values(values: Any) -> list[Any]:
     """Ensure filter inputs are lists of unique values."""
     if values is None:
         return []
-    if isinstance(values, (str, bytes)):
+    if isinstance(values, str | bytes):
         return [values]
     if isinstance(values, Sequence):
         unique: list[Any] = []
