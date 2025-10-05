@@ -45,6 +45,7 @@ import {
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { getIcon } from "@/components/icons"
 import { Dots } from "@/components/loading/dots"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Tooltip,
   TooltipContent,
@@ -99,12 +100,13 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const { sendMessage, messages, status, regenerate } = useVercelChat({
-    chatId: chat.id,
-    workspaceId,
-    messages: uiMessages,
-    modelInfo,
-  })
+  const { sendMessage, messages, status, regenerate, lastError, clearError } =
+    useVercelChat({
+      chatId: chat.id,
+      workspaceId,
+      messages: uiMessages,
+      modelInfo,
+    })
 
   useEffect(() => {
     onMessagesChange?.(messages)
@@ -172,6 +174,7 @@ export function ChatSessionPane({
     }
 
     try {
+      clearError()
       sendMessage({
         text: message.text || "Sent with attachments",
         ...(message.files?.length ? { files: message.files } : {}),
@@ -188,6 +191,12 @@ export function ChatSessionPane({
       <div className="flex flex-1 min-h-0 flex-col">
         <Conversation className="flex-1">
           <ConversationContent>
+            {lastError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTitle>Unable to continue with this model</AlertTitle>
+                <AlertDescription>{lastError}</AlertDescription>
+              </Alert>
+            )}
             {messages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages.at(-1)?.id

@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 import orjson
 from pydantic import Discriminator, TypeAdapter
-from pydantic_ai.messages import AgentStreamEvent, ModelMessage
+from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
 
@@ -67,6 +67,16 @@ class StreamError:
     def sse(self) -> str:
         payload = orjson.dumps({"error": self.error}).decode()
         return f"event: error\ndata: {payload}\n\n"
+
+    @staticmethod
+    def format(err_msg: str) -> str:
+        return f"The agent could not complete the request: {err_msg.strip()}"
+
+    @staticmethod
+    def model_response(err_msg: str) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart(content=StreamError.format(err_msg))], finish_reason="error"
+        )
 
 
 type StreamEvent = Annotated[

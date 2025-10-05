@@ -1,7 +1,7 @@
 import * as aiSdk from "@ai-sdk/react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import {
   type ApiError,
   type ChatCreate,
@@ -17,8 +17,64 @@ import {
   chatUpdateChat,
   type VercelChatRequest,
 } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
 import type { ModelInfo } from "@/lib/chat"
+
+const DEFAULT_CHAT_ERROR_MESSAGE =
+  "The assistant couldn't complete that request. Please try again."
+
+function parseChatError(error: unknown): string {
+  if (!error) {
+    return DEFAULT_CHAT_ERROR_MESSAGE
+  }
+
+  if (typeof error === "string") {
+    return error
+  }
+
+  if (error instanceof Response) {
+    const statusLine = `${error.status} ${error.statusText || "Unexpected response"}`
+    return statusLine.trim()
+  }
+
+  if (error instanceof Error) {
+    const message = error.message?.trim()
+    if (message) {
+      try {
+        const parsed = JSON.parse(message)
+        if (parsed && typeof parsed === "object" && "errorText" in parsed) {
+          const parsedMessage = (parsed as { errorText?: unknown }).errorText
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
+          }
+        }
+      } catch {
+        // message wasn't JSON; fall through to raw text
+      }
+      return message
+    }
+  }
+
+  if (typeof error === "object") {
+    const candidate = error as {
+      errorText?: unknown
+      error?: unknown
+      message?: unknown
+    }
+    for (const value of [
+      candidate.errorText,
+      candidate.error,
+      candidate.message,
+    ]) {
+      if (typeof value === "string" && value.trim()) {
+        return value.trim()
+      }
+    }
+  }
+
+  return DEFAULT_CHAT_ERROR_MESSAGE
+}
 
 // Hook for creating a new chat
 export function useCreateChat(workspaceId: string) {
@@ -162,6 +218,7 @@ export function useVercelChat({
   modelInfo: ModelInfo
 }) {
   const queryClient = useQueryClient()
+  const [lastError, setLastError] = useState<string | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -172,7 +229,7 @@ export function useVercelChat({
   }, [chatId, workspaceId])
 
   // Use Vercel's useChat hook for streaming
-  return aiSdk.useChat({
+  const chat = aiSdk.useChat({
     id: chatId,
     messages,
     transport: new DefaultChatTransport({
@@ -192,13 +249,26 @@ export function useVercelChat({
       },
     }),
     onError: (error) => {
+      const friendlyMessage = parseChatError(error)
+      setLastError(friendlyMessage)
       console.error("Error in Vercel chat:", error)
+      toast({
+        title: "Chat error",
+        description: friendlyMessage,
+      })
     },
     onFinish: () => {
+      setLastError(null)
       queryClient.invalidateQueries({
         queryKey: ["chat", chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
   })
+
+  return {
+    ...chat,
+    lastError,
+    clearError: () => setLastError(null),
+  }
 }

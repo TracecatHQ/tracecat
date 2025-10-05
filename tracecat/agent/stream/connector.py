@@ -41,6 +41,11 @@ class AgentStream:
             approximate=True,
         )
 
+    async def error(self, error: str) -> None:
+        """Emit an error marker."""
+        logger.debug("Adding error marker", stream_key=self._stream_key)
+        await self.append({"kind": "error", "error": error})
+
     async def done(self) -> None:
         """Emit an end-of-turn marker."""
         logger.debug("Adding end-of-turn marker", stream_key=self._stream_key)
@@ -85,6 +90,13 @@ class AgentStream:
                                             "Stream event", kind=event_kind, event=event
                                         )
                                         yield StreamDelta(id=msg_id, event=event)
+                                    case {"kind": "error", "error": error_message}:
+                                        logger.warning(
+                                            "Stream error received",
+                                            error=error_message,
+                                            message_id=msg_id,
+                                        )
+                                        yield StreamError(error=error_message)
                                     case {"kind": kind}:
                                         logger.debug("Model message", kind=kind)
                                         message = ModelMessageTA.validate_python(data)

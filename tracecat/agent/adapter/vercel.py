@@ -955,8 +955,15 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     # They're just stored/logged
                     continue
                 case StreamError(error=error):
-                    # Stream error
-                    yield format_sse({"type": "error", "errorText": error})
+                    # Stream error - emit as text component
+                    error_part_id = f"msg_{uuid.uuid4().hex}"
+                    msg = StreamError.format(error)
+                    yield format_sse({"type": "text-start", "id": error_part_id})
+                    yield format_sse(
+                        {"type": "text-delta", "id": error_part_id, "delta": msg}
+                    )
+                    yield format_sse({"type": "text-end", "id": error_part_id})
+                    yield format_sse({"type": "error", "errorText": msg})
                     break
                 case StreamEnd():
                     # End of stream marker from Redis

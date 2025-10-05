@@ -8,6 +8,7 @@ import orjson
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelRequest,
+    ModelResponse,
     UserPromptPart,
 )
 from pydantic_ai.run import AgentRunResult
@@ -21,6 +22,7 @@ from tracecat.agent.runtime import (
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import (
     BasicStreamingAgentDeps,
     PersistentStreamWriter,
@@ -42,8 +44,10 @@ class AioAgentRunHandle[T](BaseAgentRunHandle):
         self._task: Final[asyncio.Task[T]] = task
 
     async def result(self) -> RunAgentResult:
-        raw = await self._task
-        output = AgentOutput.model_validate(raw)
+        res = await self._task
+        if res is None:
+            raise RuntimeError("Streaming agent run did not complete successfully.")
+        output = AgentOutput.model_validate(res)
         return RunAgentResult(messages=output.message_history)
 
     async def cancel(self) -> None:
@@ -107,10 +111,10 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
     async def start(self, args: RunAgentArgs) -> BaseAgentRunHandle:
         """Start an agentic run with streaming."""
         coro = self._start_agent(args)
-        task: asyncio.Task[AgentRunResult[str]] = asyncio.create_task(coro)
+        task: asyncio.Task[AgentRunResult[str] | None] = asyncio.create_task(coro)
         return AioAgentRunHandle(task, run_id=args.session_id)
 
-    async def _start_agent(self, args: RunAgentArgs) -> AgentRunResult[str]:
+    async def _start_agent(self, args: RunAgentArgs) -> AgentRunResult[str] | None:
         # Fire-and-forget execution using the agent function directly
         logger.info("Starting streaming agent")
 
@@ -144,6 +148,9 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
 
             deps = BasicStreamingAgentDeps(stream_writer=writer)
 
+            result: AgentRunResult[str] | None = None
+            new_messages: list[ModelRequest | ModelResponse] | None = None
+
             async with agent_svc.with_model_config() as model_config:
                 tools = await build_agent_tools(
                     actions=(args.tool_filters or ToolFilters.default()).actions or [],
@@ -156,15 +163,32 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                     deps_type=BasicStreamingAgentDeps,
                     tools=tools.tools,
                 )
-                result = await agent.run(
-                    args.user_prompt,
-                    output_type=str,
-                    deps=deps,
-                    message_history=message_history,
-                )
-            # Emit end-of-turn marker only once after the agent's run
-            await writer.stream.done()
+                try:
+                    result = await agent.run(
+                        args.user_prompt,
+                        output_type=str,
+                        deps=deps,
+                        message_history=message_history,
+                    )
+                    new_messages = result.new_messages()
+                except Exception as exc:
+                    error_message = str(exc)
+                    logger.error(
+                        "Streaming agent run failed",
+                        error=str(exc),
+                        chat_id=args.session_id,
+                    )
+                    await writer.stream.error(error_message)
+                    ## Don't update the message history with the error message
+                    new_messages = [
+                        user_message,
+                        StreamError.model_response(error_message),
+                    ]
+                finally:
+                    # Ensure we always close the stream so the client stops waiting.
+                    await writer.stream.done()
 
-        new_messages = result.new_messages()
-        await writer.store(new_messages)
+        if new_messages:
+            await writer.store(new_messages)
+
         return result
