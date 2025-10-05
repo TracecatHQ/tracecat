@@ -51,9 +51,9 @@ import { useToast } from "@/components/ui/use-toast"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
+  useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,
-  useTags,
   useUpdateCase,
 } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -85,7 +85,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   })
   const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
-  const { tags } = useTags(workspaceId)
+  const { caseTags } = useCaseTagCatalog(workspaceId)
   const { toast } = useToast()
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
@@ -251,7 +251,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   <div className="pt-2">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs">Tags</span>
-                      {tags && tags.length > 0 && (
+                      {caseTags && caseTags.length > 0 && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -263,7 +263,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="text-xs">
-                            {tags.map((tag) => {
+                            {caseTags.map((tag) => {
                               const hasTag = caseData.tags?.some(
                                 (t) => t.id === tag.id
                               )

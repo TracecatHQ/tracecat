@@ -738,7 +738,7 @@ export type CaseRead = {
   payload: {
     [key: string]: unknown
   } | null
-  tags?: Array<TagRead>
+  tags?: Array<CaseTagRead>
 }
 
 export type CaseReadMinimal = {
@@ -751,7 +751,7 @@ export type CaseReadMinimal = {
   priority: CasePriority
   severity: CaseSeverity
   assignee?: UserRead | null
-  tags?: Array<TagRead>
+  tags?: Array<CaseTagRead>
 }
 
 /**
@@ -6068,6 +6068,41 @@ export type CasesRemoveTagData = {
 
 export type CasesRemoveTagResponse = void
 
+export type CaseTagsListCaseTagsData = {
+  workspaceId: string
+}
+
+export type CaseTagsListCaseTagsResponse = Array<CaseTagRead>
+
+export type CaseTagsCreateCaseTagData = {
+  requestBody: TagCreate
+  workspaceId: string
+}
+
+export type CaseTagsCreateCaseTagResponse = CaseTagRead
+
+export type CaseTagsGetCaseTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsGetCaseTagResponse = CaseTagRead
+
+export type CaseTagsUpdateCaseTagData = {
+  requestBody: TagUpdate
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsUpdateCaseTagResponse = CaseTagRead
+
+export type CaseTagsDeleteCaseTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsDeleteCaseTagResponse = void
+
 export type CaseAttachmentsListAttachmentsData = {
   caseId: string
   workspaceId: string
@@ -8864,6 +8899,75 @@ export type $OpenApiTs = {
   "/cases/{case_id}/tags/{tag_identifier}": {
     delete: {
       req: CasesRemoveTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-tags": {
+    get: {
+      req: CaseTagsListCaseTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseTagsCreateCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-tags/{tag_id}": {
+    get: {
+      req: CaseTagsGetCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseTagsUpdateCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseTagsDeleteCaseTagData
       res: {
         /**
          * Successful Response

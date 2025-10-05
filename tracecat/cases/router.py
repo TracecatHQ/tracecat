@@ -38,10 +38,10 @@ from tracecat.cases.service import (
     CaseFieldsService,
     CasesService,
 )
+from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.tags.models import TagRead
-from tracecat.tags.service import TagsService
 from tracecat.types.auth import Role
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
@@ -105,7 +105,7 @@ async def list_cases(
     # Convert tag identifiers to IDs
     tag_ids = []
     if tags:
-        tags_service = TagsService(session, role)
+        tags_service = CaseTagsService(session, role)
         for tag_identifier in tags:
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
@@ -187,7 +187,7 @@ async def search_cases(
     # Convert tag identifiers to IDs
     tag_ids = []
     if tags:
-        tags_service = TagsService(session, role)
+        tags_service = CaseTagsService(session, role)
         for tag_identifier in tags:
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
@@ -211,7 +211,7 @@ async def search_cases(
     case_responses = []
     for case in cases:
         tag_reads = [
-            TagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+            CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
         ]
 
         case_responses.append(
@@ -267,7 +267,9 @@ async def get_case(
         )
 
     # Tags are already loaded via selectinload
-    tag_reads = [TagRead.model_validate(tag, from_attributes=True) for tag in case.tags]
+    tag_reads = [
+        CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+    ]
 
     # Match up the fields with the case field definitions
     return CaseRead(

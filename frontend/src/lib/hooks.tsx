@@ -45,6 +45,9 @@ import {
   type CasesListTagsData,
   type CaseTagCreate,
   type CaseTagRead,
+  type CaseTagsCreateCaseTagData,
+  type CaseTagsDeleteCaseTagData,
+  type CaseTagsUpdateCaseTagData,
   type CaseUpdate,
   caseRecordsCreateCaseRecord,
   caseRecordsDeleteCaseRecord,
@@ -65,6 +68,10 @@ import {
   casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
+  caseTagsCreateCaseTag,
+  caseTagsDeleteCaseTag,
+  caseTagsListCaseTags,
+  caseTagsUpdateCaseTag,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -1676,7 +1683,7 @@ export function useSessions() {
   }
 }
 
-export function useTags(
+export function useWorkflowTags(
   workspaceId: string,
   options: { enabled: boolean } = { enabled: true }
 ) {
@@ -1813,6 +1820,150 @@ export function useTags(
     deleteTag,
     deleteTagIsPending,
     deleteTagError,
+  }
+}
+
+export function useCaseTagCatalog(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: caseTags,
+    isLoading: caseTagsIsLoading,
+    error: caseTagsError,
+  } = useQuery<CaseTagRead[]>({
+    queryKey: ["case-tag-catalog", workspaceId],
+    queryFn: async () => await caseTagsListCaseTags({ workspaceId }),
+    enabled: options.enabled,
+  })
+
+  const {
+    mutateAsync: createCaseTag,
+    isPending: createCaseTagIsPending,
+    error: createCaseTagError,
+  } = useMutation({
+    mutationFn: async (params: CaseTagsCreateCaseTagData) =>
+      await caseTagsCreateCaseTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tag-catalog", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["case-tags"] })
+      toast({
+        title: "Created case tag",
+        description: (
+          <div className="flex items-center space-x-2">
+            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
+            <span>Case tag created successfully.</span>
+          </div>
+        ),
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Error creating case tag",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to create case tag", error)
+          toast({
+            title: "Failed to create case tag",
+            description: `An error occurred while creating the case tag: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  const {
+    mutateAsync: updateCaseTag,
+    isPending: updateCaseTagIsPending,
+    error: updateCaseTagError,
+  } = useMutation({
+    mutationFn: async (params: CaseTagsUpdateCaseTagData) =>
+      await caseTagsUpdateCaseTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tag-catalog", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["cases"] })
+      queryClient.invalidateQueries({ queryKey: ["case-tags"] })
+      toast({
+        title: "Updated case tag",
+        description: "Case tag updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Error updating case tag",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+      }
+    },
+  })
+
+  const {
+    mutateAsync: deleteCaseTag,
+    isPending: deleteCaseTagIsPending,
+    error: deleteCaseTagError,
+  } = useMutation({
+    mutationFn: async (params: CaseTagsDeleteCaseTagData) =>
+      await caseTagsDeleteCaseTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tag-catalog", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["cases"] })
+      queryClient.invalidateQueries({ queryKey: ["case-tags"] })
+      toast({
+        title: "Deleted case tag",
+        description: "Case tag deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    caseTags,
+    caseTagsIsLoading,
+    caseTagsError,
+    createCaseTag,
+    createCaseTagIsPending,
+    createCaseTagError,
+    updateCaseTag,
+    updateCaseTagIsPending,
+    updateCaseTagError,
+    deleteCaseTag,
+    deleteCaseTagIsPending,
+    deleteCaseTagError,
   }
 }
 

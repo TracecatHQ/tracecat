@@ -2374,7 +2374,7 @@ export const $CaseRead = {
     },
     tags: {
       items: {
-        $ref: "#/components/schemas/TagRead",
+        $ref: "#/components/schemas/CaseTagRead",
       },
       type: "array",
       title: "Tags",
@@ -2443,7 +2443,7 @@ export const $CaseReadMinimal = {
     },
     tags: {
       items: {
-        $ref: "#/components/schemas/TagRead",
+        $ref: "#/components/schemas/CaseTagRead",
       },
       type: "array",
       title: "Tags",

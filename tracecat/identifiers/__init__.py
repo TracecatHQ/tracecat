@@ -65,7 +65,9 @@ Owners can be Workspaces or the Organization.
 
 SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
 SessionID = UUID4
-TagID = UUID4
+WorkflowTagID = UUID4
+TagID = WorkflowTagID
+CaseTagID = UUID4
 TableID = UUID4
 TableColumnID = UUID4
 TableRowID = UUID4
@@ -94,6 +96,8 @@ __all__ = [
     "UserID",
     "WorkspaceID",
     "TagID",
+    "WorkflowTagID",
+    "CaseTagID",
     "SessionID",
     "id_factory",
     "action",

@@ -2256,6 +2256,220 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /case-tags:
+    get:
+      tags:
+      - case-tags
+      summary: List Case Tags
+      description: List all case tags for the current workspace.
+      operationId: case-tags-list_case_tags
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseTagRead'
+                title: Response Case-Tags-List Case Tags
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - case-tags
+      summary: Create Case Tag
+      description: Create a new case tag definition.
+      operationId: case-tags-create_case_tag
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseTagRead'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-tags/{tag_id}:
+    get:
+      tags:
+      - case-tags
+      summary: Get Case Tag
+      description: Retrieve a single case tag definition.
+      operationId: case-tags-get_case_tag
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: tag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Tag Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseTagRead'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - case-tags
+      summary: Update Case Tag
+      description: Update an existing case tag definition.
+      operationId: case-tags-update_case_tag
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: tag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Tag Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseTagRead'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - case-tags
+      summary: Delete Case Tag
+      description: Delete a case tag definition.
+      operationId: case-tags-delete_case_tag
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: tag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Tag Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     patch:
       tags:
       - tags
@@ -8025,6 +8239,34 @@ components:
       type: object
       title: TableUpdate
       description: Update model for a table.
+    CaseTagRead:
+      properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
+        name:
+          type: string
+          minLength: 1
+          title: Name
+        ref:
+          type: string
+          minLength: 1
+          title: Ref
+        color:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Color
+          description: Hex color code
+      type: object
+      required:
+      - id
+      - name
+      - ref
+      - color
+      title: CaseTagRead
+      description: Tag data.
     TagCreate:
       properties:
         name:

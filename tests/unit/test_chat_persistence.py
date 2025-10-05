@@ -237,7 +237,7 @@ async def test_get_chat_messages(
         assert isinstance(chat_msg, ChatMessage)
         assert chat_msg.id == str(idx)
         assert chat_msg.message is not None
-        assert isinstance(chat_msg.message, (ModelRequest, ModelResponse))
+        assert isinstance(chat_msg.message, ModelRequest | ModelResponse)
 
 
 @pytest.mark.anyio

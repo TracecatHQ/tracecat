@@ -38,6 +38,7 @@ from tracecat.cases.models import (
     StatusChangedEvent,
     UpdatedEvent,
 )
+from tracecat.cases.tags.models import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
 from tracecat.db.schemas import (
@@ -45,12 +46,11 @@ from tracecat.db.schemas import (
     CaseComment,
     CaseEvent,
     CaseFields,
-    CaseTag,
+    CaseTagLink,
     User,
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
@@ -68,7 +68,7 @@ def _normalize_filter_values(values: Any) -> list[Any]:
     """Ensure filter inputs are lists of unique values."""
     if values is None:
         return []
-    if isinstance(values, (str, bytes)):
+    if isinstance(values, str | bytes):
         return [values]
     if isinstance(values, Sequence):
         unique: list[Any] = []
@@ -190,7 +190,7 @@ class CasesService(BaseWorkspaceService):
             for tag_id in tag_ids:
                 stmt = stmt.where(
                     col(Case.id).in_(
-                        select(CaseTag.case_id).where(CaseTag.tag_id == tag_id)
+                        select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
                     )
                 )
 
@@ -256,7 +256,8 @@ class CasesService(BaseWorkspaceService):
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
-                TagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+                CaseTagRead.model_validate(tag, from_attributes=True)
+                for tag in case.tags
             ]
 
             case_items.append(
@@ -363,7 +364,7 @@ class CasesService(BaseWorkspaceService):
         if tag_ids:
             for tag_id in tag_ids:
                 # Self-join for each tag to ensure case has ALL specified tags
-                tag_alias = aliased(CaseTag)
+                tag_alias = aliased(CaseTagLink)
                 statement = statement.join(
                     tag_alias,
                     and_(tag_alias.case_id == Case.id, tag_alias.tag_id == tag_id),
