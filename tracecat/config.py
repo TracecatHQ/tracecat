@@ -353,9 +353,9 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
 
 # === Redis config === #
 REDIS_CHAT_TTL_SECONDS = int(
-    os.environ.get("REDIS_CHAT_TTL_SECONDS", 30 * 24 * 60 * 60)  # 30 days
+    os.environ.get("REDIS_CHAT_TTL_SECONDS", 3 * 24 * 60 * 60)  # 3 days
 )
-"""TTL for Redis chat history streams in seconds. Defaults to 30 days."""
+"""TTL for Redis chat history streams in seconds. Defaults to 3 days."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
