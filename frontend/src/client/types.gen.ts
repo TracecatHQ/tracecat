@@ -392,6 +392,39 @@ export type AuthSettingsUpdate = {
 }
 
 /**
+ * Simple request model for starting a chat with a text message.
+ */
+export type BasicChatRequest = {
+  format?: "basic"
+  /**
+   * User message to send to the agent
+   */
+  message: string
+  /**
+   * AI model to use
+   */
+  model_name?: string
+  /**
+   * AI model provider
+   */
+  model_provider?: string
+  /**
+   * Optional instructions for the agent
+   */
+  instructions?: string | null
+  /**
+   * Optional context data for the agent
+   */
+  context?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
+}
+
+/**
  * Binary content, e.g. an audio or image file.
  */
 export type BinaryContent = {
@@ -465,6 +498,14 @@ export type Body_workflows_create_workflow = {
 }
 
 /**
+ * An event indicating the start to a call to a built-in tool.
+ */
+export type BuiltinToolCallEvent = {
+  part: BuiltinToolCallPart
+  event_kind?: "builtin_tool_call"
+}
+
+/**
  * A tool call to a built-in tool.
  */
 export type BuiltinToolCallPart = {
@@ -478,6 +519,14 @@ export type BuiltinToolCallPart = {
   tool_call_id?: string
   provider_name?: string | null
   part_kind?: "builtin-tool-call"
+}
+
+/**
+ * An event indicating the result of a built-in tool call.
+ */
+export type BuiltinToolResultEvent = {
+  result: BuiltinToolReturnPart
+  event_kind?: "builtin_tool_result"
 }
 
 /**
@@ -931,7 +980,7 @@ export type ChatMessage = {
 }
 
 /**
- * Model for chat metadata without messages.
+ * Model for chat metadata with message history.
  */
 export type ChatRead = {
   /**
@@ -966,72 +1015,20 @@ export type ChatRead = {
    * When the chat was last updated
    */
   updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<ChatMessage>
 }
 
 /**
- * Request model for starting a chat with an AI agent.
+ * Model for chat metadata without messages.
  */
-export type ChatRequest = {
-  /**
-   * User message to send to the agent
-   */
-  message: string
-  /**
-   * AI model to use
-   */
-  model_name?: string
-  /**
-   * AI model provider
-   */
-  model_provider?: string
-  /**
-   * Optional instructions for the agent
-   */
-  instructions?: string | null
-  /**
-   * Optional context data for the agent
-   */
-  context?: {
-    [key: string]: unknown
-  } | null
-  /**
-   * Optional base URL for the model provider
-   */
-  base_url?: string | null
-}
-
-/**
- * Response model for chat initiation.
- */
-export type ChatResponse = {
-  /**
-   * URL to connect for SSE streaming
-   */
-  stream_url: string
-  /**
-   * Unique chat identifier
-   */
-  chat_id: string
-}
-
-/**
- * Request model for updating chat properties.
- */
-export type ChatUpdate = {
-  /**
-   * Tools available to the agent
-   */
-  tools?: Array<string> | null
-  /**
-   * Chat title
-   */
-  title?: string | null
-}
-
-/**
- * Model for chat metadata with message history.
- */
-export type ChatWithMessages = {
+export type ChatReadMinimal = {
   /**
    * Unique chat identifier
    */
@@ -1065,9 +1062,83 @@ export type ChatWithMessages = {
    */
   updated_at: string
   /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+}
+
+/**
+ * Model for chat metadata with message history in Vercel format.
+ */
+export type ChatReadVercel = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+  /**
    * Chat messages from Redis stream
    */
-  messages?: Array<ChatMessage>
+  messages?: Array<UIMessage>
+}
+
+/**
+ * Response model for chat initiation.
+ */
+export type ChatResponse = {
+  /**
+   * URL to connect for SSE streaming
+   */
+  stream_url: string
+  /**
+   * Unique chat identifier
+   */
+  chat_id: string
+}
+
+/**
+ * Request model for updating chat properties.
+ */
+export type ChatUpdate = {
+  /**
+   * Tools available to the agent
+   */
+  tools?: Array<string> | null
+  /**
+   * Chat title
+   */
+  title?: string | null
 }
 
 /**
@@ -1326,6 +1397,15 @@ export type DSLValidationResult = {
 }
 
 /**
+ * A custom data part, where type matches 'data-...'.
+ */
+export type DataUIPart = {
+  type: string
+  id?: string
+  data: unknown
+}
+
+/**
  * The URL of the document.
  */
 export type DocumentUrl = {
@@ -1340,6 +1420,62 @@ export type DocumentUrl = {
    * Return the media type of the file, based on the URL or the provided `media_type`.
    */
   readonly media_type: string
+}
+
+export type DynamicToolUIPartInputAvailable = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "input-available"
+  input: unknown
+  output?: null
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type DynamicToolUIPartInputStreaming = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "input-streaming"
+  input?: unknown
+  output?: null
+  errorText?: null
+}
+
+export type DynamicToolUIPartOutputAvailable = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "output-available"
+  input: unknown
+  output: unknown
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+  preliminary?: boolean
+}
+
+export type DynamicToolUIPartOutputError = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "output-error"
+  input: unknown
+  output?: null
+  errorText: string
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type EditorActionRead = {
@@ -1614,6 +1750,27 @@ export type FieldType =
   | "SELECT"
   | "MULTI_SELECT"
 
+/**
+ * A file part of a message.
+ */
+export type FileUIPart = {
+  type: "file"
+  mediaType: string
+  url: string
+  filename?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type FinalResultEvent = {
+  tool_name: string | null
+  tool_call_id: string | null
+  event_kind?: "final_result"
+}
+
 export type Float = {
   component_id?: "float"
   min_val?: number | null
@@ -1630,6 +1787,22 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+}
+
+/**
+ * An event indicating the start to a call to a function tool.
+ */
+export type FunctionToolCallEvent = {
+  part: ToolCallPart
+  event_kind?: "function_tool_call"
+}
+
+/**
+ * An event indicating the result of a function tool call.
+ */
+export type FunctionToolResultEvent = {
+  result: ToolReturnPart | RetryPromptPart
+  event_kind?: "function_tool_result"
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -2104,6 +2277,23 @@ export type OrgMemberRead = {
   last_login_at: string | null
 }
 
+export type PartDeltaEvent = {
+  index: number
+  delta: TextPartDelta | ThinkingPartDelta | ToolCallPartDelta
+  event_kind?: "part_delta"
+}
+
+export type PartStartEvent = {
+  index: number
+  part:
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+  event_kind?: "part_start"
+}
+
 /**
  * Event for when a case payload is changed.
  */
@@ -2315,6 +2505,22 @@ export type PullResult = {
   diagnostics: Array<PullDiagnostic>
   message: string
 }
+
+/**
+ * A reasoning part of a message.
+ */
+export type ReasoningUIPart = {
+  type: "reasoning"
+  text: string
+  state?: "streaming" | "done"
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type state = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
@@ -3242,6 +3448,37 @@ export type SeverityChangedEventRead = {
 }
 
 /**
+ * A document source part of a message.
+ */
+export type SourceDocumentUIPart = {
+  type: "source-document"
+  sourceId: string
+  mediaType: string
+  title: string
+  filename?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
+ * A source URL part of a message.
+ */
+export type SourceUrlUIPart = {
+  type: "source-url"
+  sourceId: string
+  url: string
+  title?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -3278,6 +3515,13 @@ export type StatusChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * A step boundary part of a message.
+ */
+export type StepStartUIPart = {
+  type: "step-start"
 }
 
 export type SyntaxToken = {
@@ -3639,6 +3883,28 @@ export type TextPart = {
 }
 
 /**
+ * A partial update (delta) for a `TextPart` to append new text content.
+ */
+export type TextPartDelta = {
+  content_delta: string
+  part_delta_kind?: "text"
+}
+
+/**
+ * A text part of a message.
+ */
+export type TextUIPart = {
+  type: "text"
+  text: string
+  state?: "streaming" | "done"
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
  * A thinking response from a model.
  */
 export type ThinkingPart = {
@@ -3647,6 +3913,13 @@ export type ThinkingPart = {
   signature?: string | null
   provider_name?: string | null
   part_kind?: "thinking"
+}
+
+export type ThinkingPartDelta = {
+  content_delta?: string | null
+  signature_delta?: string | null
+  provider_name?: string | null
+  part_delta_kind?: "thinking"
 }
 
 export type Toggle = {
@@ -3670,6 +3943,18 @@ export type ToolCallPart = {
   part_kind?: "tool-call"
 }
 
+export type ToolCallPartDelta = {
+  tool_name_delta?: string | null
+  args_delta?:
+    | string
+    | {
+        [key: string]: unknown
+      }
+    | null
+  tool_call_id?: string | null
+  part_delta_kind?: "tool_call"
+}
+
 /**
  * A tool return message, this encodes the result of running a tool.
  */
@@ -3680,6 +3965,63 @@ export type ToolReturnPart = {
   metadata?: unknown
   timestamp?: string
   part_kind?: "tool-return"
+}
+
+export type ToolUIPartInputAvailable = {
+  type: string
+  toolCallId: string
+  state: "input-available"
+  input: unknown
+  providerExecuted?: boolean
+  output?: null
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ToolUIPartInputStreaming = {
+  type: string
+  toolCallId: string
+  state: "input-streaming"
+  input?: unknown
+  providerExecuted?: boolean
+  output?: null
+  errorText?: null
+}
+
+export type ToolUIPartOutputAvailable = {
+  type: string
+  toolCallId: string
+  state: "output-available"
+  input: unknown
+  output: unknown
+  errorText?: null
+  providerExecuted?: boolean
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+  preliminary?: boolean
+}
+
+export type ToolUIPartOutputError = {
+  type: string
+  toolCallId: string
+  state: "output-error"
+  input?: unknown
+  rawInput?: unknown
+  output?: null
+  errorText: string
+  providerExecuted?: boolean
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type Trigger = {
@@ -3696,6 +4038,35 @@ export type type4 = "schedule" | "webhook"
  * Trigger type for a workflow execution.
  */
 export type TriggerType = "manual" | "scheduled" | "webhook"
+
+/**
+ * Pydantic model for AI SDK UI Messages, used for validation between
+ * frontend and backend.
+ */
+export type UIMessage = {
+  id: string
+  role: "system" | "user" | "assistant"
+  metadata?: unknown | null
+  parts: Array<
+    | TextUIPart
+    | ReasoningUIPart
+    | SourceUrlUIPart
+    | SourceDocumentUIPart
+    | FileUIPart
+    | StepStartUIPart
+    | DynamicToolUIPartInputStreaming
+    | DynamicToolUIPartInputAvailable
+    | DynamicToolUIPartOutputAvailable
+    | DynamicToolUIPartOutputError
+    | ToolUIPartInputStreaming
+    | ToolUIPartInputAvailable
+    | ToolUIPartOutputAvailable
+    | ToolUIPartOutputError
+    | DataUIPart
+  >
+}
+
+export type role = "system" | "user" | "assistant"
 
 /**
  * Event for when a case is updated.
@@ -3793,6 +4164,29 @@ export type ValidationResult =
   | ExprValidationResult
   | TemplateActionExprValidationResult
   | ActionValidationResult
+
+/**
+ * Vercel AI SDK format request with structured UI messages.
+ */
+export type VercelChatRequest = {
+  format?: "vercel"
+  /**
+   * User message in Vercel UI format
+   */
+  message: UIMessage
+  /**
+   * AI model to use
+   */
+  model?: string
+  /**
+   * AI model provider
+   */
+  model_provider?: string
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
+}
 
 /**
  * A URL to a video.
@@ -5771,7 +6165,7 @@ export type ChatCreateChatData = {
   workspaceId: string
 }
 
-export type ChatCreateChatResponse = ChatRead
+export type ChatCreateChatResponse = ChatReadMinimal
 
 export type ChatListChatsData = {
   /**
@@ -5789,14 +6183,14 @@ export type ChatListChatsData = {
   workspaceId: string
 }
 
-export type ChatListChatsResponse = Array<ChatRead>
+export type ChatListChatsResponse = Array<ChatReadMinimal>
 
 export type ChatGetChatData = {
   chatId: string
   workspaceId: string
 }
 
-export type ChatGetChatResponse = ChatWithMessages
+export type ChatGetChatResponse = ChatRead
 
 export type ChatUpdateChatData = {
   chatId: string
@@ -5804,22 +6198,49 @@ export type ChatUpdateChatData = {
   workspaceId: string
 }
 
-export type ChatUpdateChatResponse = ChatRead
+export type ChatUpdateChatResponse = ChatReadMinimal
 
 export type ChatStartChatTurnData = {
   chatId: string
-  requestBody: ChatRequest
+  requestBody: BasicChatRequest | VercelChatRequest
   workspaceId: string
 }
 
 export type ChatStartChatTurnResponse = ChatResponse
 
-export type ChatStreamChatEventsData = {
+export type ChatGetChatVercelData = {
   chatId: string
   workspaceId: string
 }
 
-export type ChatStreamChatEventsResponse = unknown
+export type ChatGetChatVercelResponse = ChatReadVercel
+
+export type ChatChatWithVercelStreamingData = {
+  chatId: string
+  requestBody: BasicChatRequest | VercelChatRequest
+  workspaceId: string
+}
+
+export type ChatChatWithVercelStreamingResponse = unknown
+
+export type ChatStreamChatEventsData = {
+  chatId: string
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: "vercel" | "basic"
+  workspaceId: string
+}
+
+export type ChatStreamChatEventsResponse = Array<
+  | PartStartEvent
+  | PartDeltaEvent
+  | FinalResultEvent
+  | FunctionToolCallEvent
+  | FunctionToolResultEvent
+  | BuiltinToolCallEvent
+  | BuiltinToolResultEvent
+>
 
 export type RunbookCreateRunbookData = {
   requestBody: RunbookCreate
@@ -8610,14 +9031,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/chat/": {
+  "/chat": {
     post: {
       req: ChatCreateChatData
       res: {
         /**
          * Successful Response
          */
-        200: ChatRead
+        200: ChatReadMinimal
         /**
          * Validation Error
          */
@@ -8630,7 +9051,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ChatRead>
+        200: Array<ChatReadMinimal>
         /**
          * Validation Error
          */
@@ -8645,7 +9066,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: ChatWithMessages
+        200: ChatRead
         /**
          * Validation Error
          */
@@ -8658,7 +9079,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: ChatRead
+        200: ChatReadMinimal
         /**
          * Validation Error
          */
@@ -8679,6 +9100,34 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/chat/{chat_id}/vercel": {
+    get: {
+      req: ChatGetChatVercelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ChatChatWithVercelStreamingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/chat/{chat_id}/stream": {
     get: {
       req: ChatStreamChatEventsData
@@ -8686,7 +9135,15 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: Array<
+          | PartStartEvent
+          | PartDeltaEvent
+          | FinalResultEvent
+          | FunctionToolCallEvent
+          | FunctionToolResultEvent
+          | BuiltinToolCallEvent
+          | BuiltinToolResultEvent
+        >
         /**
          * Validation Error
          */

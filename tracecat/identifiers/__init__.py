@@ -52,6 +52,7 @@ from tracecat.identifiers.workflow import (
     WorkflowExecutionSuffixID,
     WorkflowID,
     WorkflowRunID,
+    WorkflowUUID,
 )
 
 UserID = UUID4
@@ -85,6 +86,7 @@ __all__ = [
     "ActionKey",
     "ActionRef",
     "WorkflowID",
+    "WorkflowUUID",
     "WorkflowExecutionID",
     "WorkflowExecutionSuffixID",
     "WorkflowRunID",

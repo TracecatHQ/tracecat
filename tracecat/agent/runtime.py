@@ -13,10 +13,8 @@ from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
-    ModelRequest,
     ModelResponse,
     TextPart,
-    ToolCallPart,
     ToolReturnPart,
 )
 from pydantic_ai.settings import ModelSettings
@@ -28,12 +26,16 @@ from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
-from tracecat.agent.tokens import (
+from tracecat.agent.tools import (
+    build_agent_tools,
+    create_tool_call_message,
+    create_tool_return_message,
+)
+from tracecat.chat.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-from tracecat.agent.tools import build_agent_tools
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -370,7 +372,7 @@ async def run_agent(
                                     tool_fixed_args = fixed_arguments.get(
                                         denorm_tool_name
                                     )
-                                message = _create_tool_call_message(
+                                message = create_tool_call_message(
                                     tool_name=event.part.tool_name,
                                     tool_args=event.part.args or {},
                                     tool_call_id=event.part.tool_call_id,
@@ -379,7 +381,7 @@ async def run_agent(
                             elif isinstance(
                                 event, FunctionToolResultEvent
                             ) and isinstance(event.result, ToolReturnPart):
-                                message = _create_tool_return_message(
+                                message = create_tool_return_message(
                                     tool_name=event.result.tool_name,
                                     content=event.result.content,
                                     tool_call_id=event.tool_call_id,
@@ -393,7 +395,7 @@ async def run_agent(
                 elif Agent.is_end_node(node):
                     final = node.data
                     if final.tool_name:
-                        curr = _create_tool_return_message(
+                        curr = create_tool_return_message(
                             tool_name=final.tool_name,
                             content=final.output,
                             tool_call_id=final.tool_call_id or "",
@@ -445,48 +447,3 @@ async def run_agent(
             exc_msg=str(e),
             message_history=[to_jsonable_python(m) for m in message_nodes],
         ) from e
-
-
-def _create_tool_call_message(
-    tool_name: str,
-    tool_args: str | dict[str, Any],
-    tool_call_id: str,
-    fixed_args: dict[str, Any] | None = None,
-) -> ModelResponse:
-    """Build an assistant tool-call message (ModelResponse)."""
-    if isinstance(tool_args, str):
-        try:
-            args = orjson.loads(tool_args)
-        except Exception:
-            logger.warning("Failed to parse tool args", tool_args=tool_args)
-            args = {"args": tool_args}
-    else:
-        args = tool_args
-    if fixed_args:
-        args = {**fixed_args, **args}
-    return ModelResponse(
-        parts=[
-            ToolCallPart(
-                tool_name=tool_name,
-                args=args,
-                tool_call_id=tool_call_id,
-            )
-        ]
-    )
-
-
-def _create_tool_return_message(
-    tool_name: str,
-    content: Any,
-    tool_call_id: str,
-) -> ModelRequest:
-    """Build the matching tool-result message (ModelRequest)."""
-    return ModelRequest(
-        parts=[
-            ToolReturnPart(
-                tool_name=tool_name,
-                tool_call_id=tool_call_id,
-                content=content,
-            )
-        ]
-    )

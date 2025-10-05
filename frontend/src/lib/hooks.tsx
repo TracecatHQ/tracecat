@@ -238,6 +238,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
 
 import { getBaseUrl } from "@/lib/api"
+import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -4082,11 +4083,12 @@ export function useDeleteProviderCredentials() {
 
 /**
  * Are we ready to chat?
- * Returns { ready, reason, provider }
+ * Returns { ready, reason, modelInfo }
  *  ready   – boolean
  *  reason  – "no_model" | "no_credentials" | null
- *  provider – provider id that needs credentials (if any)
+ *  modelInfo – model info (if any)
  */
+
 export function useChatReadiness() {
   const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
   const { models, modelsLoading } = useAgentModels()
@@ -4096,33 +4098,52 @@ export function useChatReadiness() {
   const loading = defaultModelLoading || modelsLoading || statusLoading
 
   if (loading) {
-    return { ready: false, loading: true, reason: null, provider: null }
+    return {
+      ready: false,
+      loading: true,
+    }
   }
 
   /* no default model set */
   if (!defaultModel) {
-    return { ready: false, loading: false, reason: "no_model", provider: null }
+    return {
+      ready: false,
+      loading: false,
+      reason: "no_model",
+    }
   }
 
   /* unknown model name → treat as no model */
   const modelCfg = models?.[defaultModel]
   if (!modelCfg) {
-    return { ready: false, loading: false, reason: "no_model", provider: null }
+    return {
+      ready: false,
+      loading: false,
+      reason: "no_model",
+    }
   }
 
   /* check provider creds */
   const providerId = modelCfg.provider
   const hasCreds = providersStatus?.[providerId] ?? false
+  const modelInfo: ModelInfo = {
+    name: defaultModel,
+    provider: providerId,
+  }
   if (!hasCreds) {
     return {
       ready: false,
       loading: false,
       reason: "no_credentials",
-      provider: providerId,
+      modelInfo,
     }
   }
 
-  return { ready: true, loading: false, reason: null, provider: providerId }
+  return {
+    ready: true,
+    loading: false,
+    modelInfo,
+  }
 }
 
 interface UseDragDividerOptions {

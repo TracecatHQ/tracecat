@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from tracecat.agent.executor.aio import AioAgentExecutor
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
@@ -24,7 +24,7 @@ async def get_executor(
     """Get the appropriate agent execution service based on edition."""
     impl = load_ee_impl(
         "tracecat.agent.executor",
-        default=AioAgentExecutor,
+        default=AioStreamingAgentExecutor,
     )
     if not issubclass(impl, BaseAgentExecutor):
         raise RuntimeError(

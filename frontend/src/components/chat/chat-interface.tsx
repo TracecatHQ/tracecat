@@ -1,13 +1,12 @@
 "use client"
 
 import { formatDistanceToNow } from "date-fns"
-import { ChevronDown, ListTodo, MessageSquare, Plus } from "lucide-react"
+import { ChevronDown, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatEntity, ChatRead } from "@/client"
-import { RunbookDropdown } from "@/components/cases/runbook-dropdown"
-import { ChatInput } from "@/components/chat/chat-input"
-import { Messages } from "@/components/chat/messages"
+import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,9 +22,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
-import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
+import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import type { ModelInfo } from "@/lib/chat"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -57,29 +55,12 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  // Create prompt mutation
-  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
-  const { isFeatureEnabled } = useFeatureFlag()
-  const runbooksEnabled = isFeatureEnabled("runbooks")
-
-  // Fetch runbook data if entityType is "runbook"
-  const { data: runbookData } = useGetRunbook({
-    runbookId: entityType === "runbook" ? entityId : "",
-    workspaceId,
-    enabled: runbooksEnabled && entityType === "runbook",
-  })
-
-  const { sendMessage, isResponding, messages } = useChat({
-    chatId: selectedChatId,
-    workspaceId,
-  })
-
   /* chat readiness -------------------- */
   const {
     ready: chatReady,
     loading: chatReadyLoading,
     reason: chatReason,
-    provider,
+    modelInfo,
   } = useChatReadiness()
 
   // Set the first chat as selected when chats are loaded and no chat is selected
@@ -90,13 +71,6 @@ export function ChatInterface({
       onChatSelect?.(firstChatId)
     }
   }, [chats, selectedChatId, onChatSelect])
-
-  // Update selected chat when chatId prop changes
-  useEffect(() => {
-    if (chatId && chatId !== selectedChatId) {
-      setSelectedChatId(chatId)
-    }
-  }, [chatId, selectedChatId])
 
   const handleCreateChat = async () => {
     try {
@@ -115,64 +89,6 @@ export function ChatInterface({
   const handleSelectChat = (chatId: string) => {
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
-  }
-
-  const handleSaveAsPrompt = async () => {
-    if (!runbooksEnabled) {
-      return
-    }
-    if (!selectedChatId) {
-      console.warn("No chat selected")
-      return
-    }
-
-    // Check if chat has messages
-    if (!messages || messages.length === 0) {
-      console.warn("Cannot save empty chat as prompt")
-      return
-    }
-
-    try {
-      const runbook = await createRunbook({
-        chat_id: selectedChatId,
-      })
-
-      console.log(`Chat saved as prompt: "${runbook.title}"`)
-    } catch (error) {
-      console.error("Failed to save chat as prompt:", error)
-    }
-  }
-
-  const handleSendMessage = async (message: string) => {
-    if (!selectedChatId) return
-
-    try {
-      await sendMessage({
-        message,
-        // TODO: Make this dynamic
-        model_provider: "openai",
-        instructions:
-          entityType === "runbook"
-            ? `You are a helpful AI assistant helping with runbook editing.
-        The current runbook ID is: ${entityId}
-        ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
-        You can use the update_prompt tool to edit the runbook's title or instructions.
-        Be concise but thorough in your responses.`
-            : `You are a helpful AI assistant helping with ${entityType} management.
-        The current ${entityType} ID is: ${entityId}
-        If you need to use the ${entityType} ID in a tool call you should use the above ID.
-        Be concise but thorough in your responses.`,
-        context: {
-          chatId: selectedChatId,
-          workspaceId,
-          entityType,
-          entityId,
-        },
-      })
-    } catch (error) {
-      console.error("Failed to send message:", error)
-      // TODO: Add error handling state
-    }
   }
 
   // Show empty state if no chats exist
@@ -201,7 +117,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between">
@@ -209,7 +125,7 @@ export function ChatInterface({
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="px-0">
+                <Button size="sm" variant="ghost" className="px-2">
                   Conversations
                   <ChevronDown className="size-3 ml-1" />
                 </Button>
@@ -276,92 +192,111 @@ export function ChatInterface({
                 <TooltipContent side="bottom">New chat</TooltipContent>
               </Tooltip>
             </TooltipProvider>
-
-            {/* Generate runbook icon button with tooltip - only show for non-runbook entities */}
-            {runbooksEnabled && entityType !== "runbook" && (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="size-6 p-0"
-                      onClick={handleSaveAsPrompt}
-                      disabled={createRunbookPending || !messages?.length}
-                    >
-                      <ListTodo className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Generate runbook
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {runbooksEnabled && entityType === "case" && (
-              <RunbookDropdown
-                workspaceId={workspaceId}
-                entityType={entityType}
-                entityId={entityId}
-              />
-            )}
           </div>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <Messages
-        messages={messages}
-        isResponding={isResponding}
-        entityType={entityType}
-        entityId={entityId}
-        workspaceId={workspaceId}
-      />
-
-      {/* Chat Input */}
-      {selectedChatId && (
-        <>
-          {chatReady ? (
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              disabled={isResponding}
-              placeholder={
-                entityType === "runbook"
-                  ? "Ask about or edit this runbook..."
-                  : `Ask about this ${entityType}...`
-              }
-              chatId={selectedChatId}
-              entityType={entityType}
-            />
-          ) : chatReadyLoading ? (
-            <CenteredSpinner />
-          ) : (
-            /* Disabled notice with quick-fix button */
-            <Link
-              href="/organization/settings/agent"
-              className="pb-2 block border-t border-border bg-gradient-to-r from-muted/30 to-muted/50 backdrop-blur-sm hover:from-muted/40 hover:to-muted/60 transition-all duration-200"
-            >
-              <div className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-foreground mb-1">
-                      {chatReason === "no_model" && "No default model"}
-                      {chatReason === "no_credentials" && "Missing credentials"}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      {chatReason === "no_model" &&
-                        "Select a default model in agent settings to enable chat."}
-                      {chatReason === "no_credentials" &&
-                        `Configure ${provider} credentials in agent settings to enable chat.`}
-                    </p>
-                  </div>
-                  <ChevronDown className="size-4 text-muted-foreground rotate-[-90deg]" />
-                </div>
-              </div>
-            </Link>
-          )}
-        </>
-      )}
+      {/* Chat Body */}
+      <div className="flex flex-1 min-h-0 flex-col">
+        <ChatBody
+          chatId={selectedChatId}
+          workspaceId={workspaceId}
+          entityType={entityType}
+          entityId={entityId}
+          chatReady={chatReady}
+          chatReadyLoading={chatReadyLoading}
+          chatReason={chatReason}
+          modelInfo={modelInfo}
+        />
+      </div>
     </div>
+  )
+}
+
+interface ChatBodyProps {
+  chatId?: string
+  workspaceId: string
+  entityType: ChatEntity
+  entityId: string
+  chatReady: boolean
+  chatReadyLoading: boolean
+  chatReason?: string
+  modelInfo?: ModelInfo
+}
+
+function ChatBody({
+  chatId,
+  workspaceId,
+  entityType,
+  entityId,
+  chatReady,
+  chatReadyLoading,
+  chatReason,
+  modelInfo,
+}: ChatBodyProps) {
+  const { chat, chatLoading, chatError } = useGetChatVercel({
+    chatId,
+    workspaceId,
+  })
+
+  if (chatError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-red-500">Failed to load chat</span>
+      </div>
+    )
+  }
+
+  // Render loading state while checking if chat is selected
+  if (!chatId || chatReadyLoading || chatLoading || !chat) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
+  // Render active chat session when ready
+  if (!chatReady || !modelInfo) {
+    // Render configuration required state
+    return (
+      <>
+        <NoMessages />
+        <Link
+          href="/organization/settings/agent"
+          className="block rounded-md border border-border bg-gradient-to-r from-muted/30 to-muted/50 p-4 backdrop-blur-sm transition-all duration-200 hover:from-muted/40 hover:to-muted/60"
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <h4 className="mb-1 text-sm font-medium text-foreground">
+                  {chatReason === "no_model" && "No default model"}
+                  {chatReason === "no_credentials" && "Missing credentials"}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {chatReason === "no_model" &&
+                    "Select a default model in agent settings to enable chat."}
+                  {chatReason === "no_credentials" &&
+                    `Configure ${modelInfo?.provider || "model provider"} credentials in agent settings to enable chat.`}
+                </p>
+              </div>
+              <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
+            </div>
+          </div>
+        </Link>
+      </>
+    )
+  }
+
+  return (
+    <ChatSessionPane
+      chat={chat}
+      workspaceId={workspaceId}
+      entityType={entityType}
+      entityId={entityId}
+      placeholder={`Ask about this ${entityType}...`}
+      className="flex-1 min-h-0"
+      modelInfo={modelInfo}
+    />
   )
 }

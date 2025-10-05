@@ -7,8 +7,8 @@ from tracecat.agent.models import (
 # https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
     # Maps the pydantic-ai model name to the Tracecat model config
-    "gpt-5-mini": ModelConfig(
-        name="gpt-5-mini",
+    "gpt-4o-mini": ModelConfig(
+        name="gpt-4o-mini",
         provider="openai",
         org_secret_name="agent-openai-credentials",
         secrets={
