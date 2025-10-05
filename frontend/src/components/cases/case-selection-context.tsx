@@ -1,6 +1,12 @@
 "use client"
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react"
 import type { CaseUpdate } from "@/client"
 
 type CaseSelectionState = {
@@ -37,13 +43,10 @@ const defaultContextValue: CaseSelectionContextValue = {
   resetSelection: () => {},
 }
 
-const CaseSelectionContext = createContext<CaseSelectionContextValue>(
-  defaultContextValue
-)
+const CaseSelectionContext =
+  createContext<CaseSelectionContextValue>(defaultContextValue)
 
-export function CaseSelectionProvider({
-  children,
-}: React.PropsWithChildren) {
+export function CaseSelectionProvider({ children }: React.PropsWithChildren) {
   const [state, setState] = useState<CaseSelectionState>(initialState)
 
   const updateSelection = useCallback((next: Partial<CaseSelectionState>) => {

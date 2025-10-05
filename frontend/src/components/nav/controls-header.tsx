@@ -20,18 +20,18 @@ import { type ReactNode, useState } from "react"
 import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
 import { AddCustomField } from "@/components/cases/add-custom-field"
-import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import {
-  CasesViewMode,
-  CasesViewToggle,
-} from "@/components/cases/cases-view-toggle"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import {
+  CasesViewMode,
+  CasesViewToggle,
+} from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
   FolderViewToggle,
@@ -39,10 +39,20 @@ import {
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
 import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
+import { Spinner } from "@/components/loading/spinner"
 import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
-import { Spinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -59,38 +69,26 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
-import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import { getDisplayName } from "@/lib/auth"
-import { cn } from "@/lib/utils"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useCreateRunbook } from "@/hooks/use-runbook"
-import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
+import { getDisplayName } from "@/lib/auth"
 import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
@@ -99,6 +97,7 @@ import {
   useIntegrationProvider,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface PageConfig {
@@ -281,9 +280,7 @@ function CasesSelectionActionsBar() {
       <ButtonGroup className="max-w-full">
         <ButtonGroupText className="h-7 px-4 text-xs">
           <span className="font-medium">{selectedCount}</span>
-          <span>
-            selected {selectedCount === 1 ? "case" : "cases"}
-          </span>
+          <span>selected {selectedCount === 1 ? "case" : "cases"}</span>
           {clearSelection && (
             <button
               type="button"
@@ -494,8 +491,8 @@ function CasesSelectionActionsBar() {
             <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete {selectedCount} selected
-              {selectedCount === 1 ? " case" : " cases"}? This action cannot
-              be undone.
+              {selectedCount === 1 ? " case" : " cases"}? This action cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

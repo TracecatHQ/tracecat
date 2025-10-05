@@ -11,11 +11,11 @@ import type {
   CaseUpdate,
 } from "@/client"
 import { casesUpdateCase } from "@/client"
-import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { createColumns } from "@/components/cases/case-table-columns"
 import { CaseTableFilters } from "@/components/cases/case-table-filters"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
-import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { DataTable } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
