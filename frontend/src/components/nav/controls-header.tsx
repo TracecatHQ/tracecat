@@ -182,14 +182,24 @@ function TablesActions() {
 
 function CasesActions() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const view = pathname?.includes("/cases/custom-fields")
     ? CasesViewMode.CustomFields
-    : CasesViewMode.Cases
+    : searchParams?.get("view") === CasesViewMode.Tags
+      ? CasesViewMode.Tags
+      : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
+  const tagsHref = (() => {
+    if (!workspaceId || !casesHref) return undefined
+    const params = new URLSearchParams(searchParams?.toString())
+    params.set("view", CasesViewMode.Tags)
+    const queryString = params.toString()
+    return queryString ? `${casesHref}?${queryString}` : casesHref
+  })()
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined
@@ -199,6 +209,7 @@ function CasesActions() {
       <CasesViewToggle
         view={view}
         casesHref={casesHref}
+        tagsHref={tagsHref}
         customFieldsHref={customFieldsHref}
       />
       {view === CasesViewMode.CustomFields ? (

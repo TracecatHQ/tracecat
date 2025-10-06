@@ -1,7 +1,7 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CasePriority,
@@ -28,6 +28,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export default function CaseTable() {
   const { user } = useAuth()
   const workspaceId = useWorkspaceId()
+  const searchParams = useSearchParams()
+  const tagFilters = searchParams?.getAll("tag") ?? []
   const [pageSize, setPageSize] = useState(20)
   const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
@@ -71,6 +73,7 @@ export default function CaseTable() {
             value === UNASSIGNED ? "unassigned" : value
           )
         : null,
+    tags: tagFilters.length > 0 ? tagFilters : null,
   })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
