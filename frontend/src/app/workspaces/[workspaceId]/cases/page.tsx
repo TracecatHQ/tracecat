@@ -1,11 +1,11 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { useEffect } from "react"
 import CaseTable from "@/components/cases/case-table"
 import { CaseTagsSidebar } from "@/components/cases/case-tags-sidebar"
 import { CasesViewMode } from "@/components/cases/cases-view-toggle"
 import { useWorkspaceId } from "@/providers/workspace-id"
-import { useSearchParams } from "next/navigation"
 
 export default function CasesPage() {
   const searchParams = useSearchParams()

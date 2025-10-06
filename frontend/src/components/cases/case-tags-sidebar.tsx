@@ -114,7 +114,9 @@ export function CaseTagsSidebar({ workspaceId }: { workspaceId: string }) {
     }
     const queryString = params.toString()
     router.push(
-      queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname
+      queryString
+        ? `${window.location.pathname}?${queryString}`
+        : window.location.pathname
     )
   }
 
