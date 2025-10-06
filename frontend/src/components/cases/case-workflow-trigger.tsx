@@ -77,6 +77,7 @@ import {
 } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import type { TracecatJsonSchema } from "@/lib/schema"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseWorkflowTriggerProps {
@@ -741,26 +742,8 @@ function SchemaDrivenTriggerForm({
         className="mt-4 space-y-4"
       >
         {mappingDetails.length > 0 && (
-          <div className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+          <div className="flex w-full items-center justify-between gap-3 text-xs">
             <CaseMappingSummary details={mappingDetails} />
-            <TooltipProvider>
-              <Tooltip delayDuration={100}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
-                    onClick={resetToDefaults}
-                  >
-                    <RotateCcw className="size-4" aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                  Reset to case defaults
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
         )}
 
@@ -943,6 +926,26 @@ function SchemaDrivenTriggerForm({
         </div>
 
         <AlertDialogFooter>
+          <div className="flex items-center gap-2 mr-auto">
+            <TooltipProvider>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={resetToDefaults}
+                  >
+                    <RotateCcw className="size-3 mr-1" />
+                    Reset inputs
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  Reset to case defaults
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
           <Button type="submit" className="text-xs" disabled={isSubmitting}>
             <PlayIcon className="mr-1.5 h-3 w-3" />
@@ -997,74 +1000,28 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 
   const Icon = tone === "warning" ? AlertTriangle : CheckCircle2
 
-  const statusLabels: Record<MappingStatus, string> = {
-    case: "Case value",
-    "schema-default": "Schema default",
-    custom: "Custom value",
-    empty: "Missing",
-  }
-
-  const badgeClasses: Record<MappingStatus, string> = {
-    case: "border-transparent bg-emerald-50 text-emerald-700",
-    "schema-default": "border-transparent bg-slate-100 text-slate-700",
-    custom: "border-transparent bg-blue-50 text-blue-700",
-    empty: "border-transparent bg-amber-50 text-amber-700",
-  }
-
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${toneClasses[tone]}`}
-        >
-          <Icon className="size-3" />
-          <span className="font-semibold">
-            {autoMappedCount}/{total} inputs mapped
-          </span>
-          {tone === "warning" && (
-            <span className="text-[10px] text-amber-700">
-              • {requiredPending} required missing
-            </span>
-          )}
-          {tone === "info" && (
-            <span className="text-[10px] text-blue-700">
-              • {customCount} custom {customCount === 1 ? "value" : "values"}
-            </span>
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 space-y-3 text-xs">
-        <div className="font-medium">Input coverage</div>
-        <div className="space-y-2">
-          {details.map((detail) => (
-            <div
-              key={detail.fieldName}
-              className="flex items-start justify-between gap-3 rounded-md border border-border bg-background px-2 py-1.5"
-            >
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium">
-                  {detail.label}
-                  {detail.required && (
-                    <span className="ml-1 text-destructive">*</span>
-                  )}
-                </span>
-                <span className="truncate text-[11px] text-muted-foreground">
-                  {detail.valuePreview}
-                </span>
-              </div>
-              <Badge
-                variant="outline"
-                className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badgeClasses[detail.status]}`}
-              >
-                {statusLabels[detail.status]}
-              </Badge>
-            </div>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium",
+        toneClasses[tone]
+      )}
+    >
+      <Icon className="size-3" />
+      <span className="font-semibold">
+        {autoMappedCount}/{total} inputs mapped
+      </span>
+      {tone === "warning" && (
+        <span className="text-[10px] text-amber-700">
+          • {requiredPending} required missing
+        </span>
+      )}
+      {tone === "info" && (
+        <span className="text-[10px] text-blue-700">
+          • {customCount} custom {customCount === 1 ? "value" : "values"}
+        </span>
+      )}
+    </div>
   )
 }
 
