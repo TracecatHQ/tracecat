@@ -18,6 +18,10 @@ definition:
       type: dict[str, Any]
       description: The body of the landing page to create. Look at the Gophish API documentation for the expected body.
       required: true
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
   steps:
     - ref: create_landing_page
       action: core.http_request
@@ -27,4 +31,5 @@ definition:
         payload: ${{ inputs.payload }}
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
   returns: ${{ steps.create_landing_page.result.data }}
