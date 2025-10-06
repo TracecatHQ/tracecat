@@ -619,7 +619,6 @@ function SchemaDrivenTriggerForm({
 
       if (definition.default !== undefined) {
         defaults[key] = definition.default
-        continue
       }
 
       if (key === "case_id") {

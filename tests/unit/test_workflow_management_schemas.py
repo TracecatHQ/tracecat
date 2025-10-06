@@ -12,7 +12,8 @@ def test_build_trigger_inputs_schema_generates_json_schema():
 
     assert schema is not None
     assert schema["type"] == "object"
-    assert set(schema.get("required", [])) == {"case_id", "severity", "count"}
+    # Fields with defaults should NOT be required
+    assert set(schema.get("required", [])) == {"case_id", "severity"}
 
     properties = schema.get("properties", {})
     assert properties["case_id"]["type"] == "string"
