@@ -52,6 +52,7 @@ from tracecat.workflow.management.models import (
     WorkflowReadMinimal,
     WorkflowUpdate,
 )
+from tracecat.workflow.management.schemas import build_trigger_inputs_schema
 
 router = APIRouter(prefix="/workflows")
 
@@ -260,6 +261,7 @@ async def get_workflow(
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,
+        expects_schema=build_trigger_inputs_schema(workflow.expects),
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         object=workflow.object,

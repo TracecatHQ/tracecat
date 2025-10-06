@@ -4605,6 +4605,9 @@ export type WorkflowRead = {
   expects?: {
     [key: string]: ExpectedField
   } | null
+  expects_schema?: {
+    [key: string]: unknown
+  } | null
   returns: unknown
   config: DSLConfig_Output | null
   alias?: string | null

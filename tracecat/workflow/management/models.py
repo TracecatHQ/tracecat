@@ -34,6 +34,7 @@ class WorkflowRead(BaseModel):
     schedules: list[Schedule]
     entrypoint: str | None
     expects: dict[str, ExpectedField] | None = None
+    expects_schema: dict[str, Any] | None = None
     returns: Any
     config: DSLConfig | None
     alias: str | None = None
