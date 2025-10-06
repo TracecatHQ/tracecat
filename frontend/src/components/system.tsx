@@ -1,7 +1,7 @@
+import { ExternalLink } from "lucide-react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ExternalLink } from "lucide-react"
 
 const CONTACT_US_URL = "https://cal.com/team/tracecat"
 const SYSTEM_MSG_KINDS = ["beta-ee-contact-us"] as const
