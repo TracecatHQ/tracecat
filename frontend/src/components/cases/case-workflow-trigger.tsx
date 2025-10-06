@@ -706,9 +706,10 @@ function SchemaDrivenTriggerForm({
     properties.forEach(([fieldName, fieldSchema]) => {
       const currentValue = previewValues[fieldName]
       const defaultValue = computedDefaults[fieldName]
-      const caseFieldValue = (!groupCaseFields && fieldName in caseFields)
-        ? caseFields[fieldName]
-        : undefined
+      const caseFieldValue =
+        !groupCaseFields && fieldName in caseFields
+          ? caseFields[fieldName]
+          : undefined
 
       const matchesCaseId =
         fieldName === "case_id" && areValuesEqual(currentValue, caseId)
@@ -788,7 +789,7 @@ function SchemaDrivenTriggerForm({
                         <Tooltip delayDuration={100}>
                           <TooltipTrigger asChild>
                             <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              Custom field
+                              Matches custom field
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">
