@@ -10,6 +10,7 @@ import {
 	CheckCircle2,
 	PlayIcon,
 	RotateCcw,
+	Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -992,9 +993,11 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 		requiredPending > 0 ? "warning" : customCount > 0 ? "info" : "success";
 
 	const toneClasses: Record<"success" | "info" | "warning", string> = {
-		success: "border-emerald-200 bg-emerald-100/80 text-emerald-800 hover:bg-emerald-100",
+		success:
+			"border-emerald-200 bg-emerald-100/80 text-emerald-800 hover:bg-emerald-100",
 		info: "border-blue-200 bg-blue-100/80 text-blue-800 hover:bg-blue-100",
-		warning: "border-amber-200 bg-amber-100/80 text-amber-800 hover:bg-amber-100",
+		warning:
+			"border-amber-200 bg-amber-100/80 text-amber-800 hover:bg-amber-100",
 	};
 
 	const Icon = tone === "warning" ? AlertTriangle : CheckCircle2;
@@ -1022,7 +1025,9 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 					className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${toneClasses[tone]}`}
 				>
 					<Icon className="size-3" />
-					<span className="font-semibold">{autoMappedCount}/{total} inputs mapped</span>
+					<span className="font-semibold">
+						{autoMappedCount}/{total} inputs mapped
+					</span>
 					{tone === "warning" && (
 						<span className="text-[10px] text-amber-700">
 							• {requiredPending} required missing
@@ -1068,7 +1073,6 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 	);
 }
 
-
 interface CaseValueSelectorProps {
 	fieldName: string;
 	fieldSchema: TracecatJsonSchema;
@@ -1078,7 +1082,6 @@ interface CaseValueSelectorProps {
 	fieldType?: string | null;
 	onApply: (value: unknown | undefined) => void;
 }
-
 
 function CaseValueSelector({
 	fieldName,
@@ -1166,6 +1169,7 @@ function CaseValueSelector({
 					variant="ghost"
 					className="h-6 px-2 text-[11px] font-medium text-muted-foreground pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
 				>
+					<Plus className="size-3 mr-1" />
 					Add case value
 				</Button>
 			</PopoverTrigger>
