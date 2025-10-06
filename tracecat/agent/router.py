@@ -26,11 +26,20 @@ OrganizationAdminUserRole = Annotated[
     ),
 ]
 
+OrganizationUserRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+]
+
 
 @router.get("/models")
 async def list_models(
     *,
-    role: OrganizationAdminUserRole,
+    role: OrganizationUserRole,
     session: AsyncDBSession,
 ) -> dict[str, ModelConfig]:
     """List all available AI models."""
@@ -41,7 +50,7 @@ async def list_models(
 @router.get("/providers")
 async def list_providers(
     *,
-    role: OrganizationAdminUserRole,
+    role: OrganizationUserRole,
     session: AsyncDBSession,
 ) -> list[str]:
     """List all available AI model providers."""
@@ -52,7 +61,7 @@ async def list_providers(
 @router.get("/providers/status")
 async def get_providers_status(
     *,
-    role: OrganizationAdminUserRole,
+    role: OrganizationUserRole,
     session: AsyncDBSession,
 ) -> dict[str, bool]:
     """Get credential status for all providers."""
@@ -149,7 +158,7 @@ async def delete_provider_credentials(
 @router.get("/default-model")
 async def get_default_model(
     *,
-    role: OrganizationAdminUserRole,
+    role: OrganizationUserRole,
     session: AsyncDBSession,
 ) -> str | None:
     """Get the organization's default AI model."""
