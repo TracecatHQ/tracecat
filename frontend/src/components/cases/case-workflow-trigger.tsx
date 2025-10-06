@@ -1118,9 +1118,9 @@ function CaseValueSelector({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-6 px-2 text-[11px] font-medium"
+					className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
 				>
-					Case values
+					Add case value
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent align="end" className="w-64 p-0">
