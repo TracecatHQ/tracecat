@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import fuzzysort from "fuzzysort";
-import { ArrowUpRight, ChevronsUpDown, PlayIcon } from "lucide-react";
+import { ArrowUpRight, ChevronsUpDown, PlayIcon, Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -768,14 +768,24 @@ function SchemaDrivenTriggerForm({
 									const fieldType = Array.isArray(fieldSchema.type)
 										? fieldSchema.type[0]
 										: fieldSchema.type;
+									const fieldTypeLabel = Array.isArray(fieldSchema.type)
+										? fieldSchema.type.join(" | ")
+										: (fieldSchema.type ?? (enumOptions ? "enum" : undefined));
 
 									return (
-										<FormItem className="space-y-2">
+										<FormItem className="group space-y-2">
 											<div className="flex items-center justify-between gap-2">
-												<FormLabel className="text-xs font-medium">
-													{label}
-													{isRequired && (
-														<span className="ml-1 text-red-500">*</span>
+												<FormLabel className="flex items-center gap-2 text-xs font-medium">
+													<span className="flex items-center gap-1">
+														{label}
+														{isRequired && (
+															<span className="text-red-500">*</span>
+														)}
+													</span>
+													{fieldTypeLabel && (
+														<span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+															{fieldTypeLabel}
+														</span>
 													)}
 												</FormLabel>
 												<CaseValueSelector
@@ -1118,8 +1128,9 @@ function CaseValueSelector({
 				<Button
 					type="button"
 					variant="ghost"
-					className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
+					className="h-6 px-2 text-[11px] font-medium text-muted-foreground pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
 				>
+					<Plus className="size-3 mr-1" />
 					Add case value
 				</Button>
 			</PopoverTrigger>
