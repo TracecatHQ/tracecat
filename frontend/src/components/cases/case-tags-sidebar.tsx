@@ -107,11 +107,17 @@ export function CaseTagsSidebar({ workspaceId }: { workspaceId: string }) {
 
   const handleSelectTag = ({ ref }: CaseTagRead) => {
     const params = new URLSearchParams(window.location.search)
-    if (activeTagRefs.includes(ref)) {
-      params.delete("tag")
-    } else {
-      params.set("tag", ref)
-    }
+    const currentTags = params.getAll("tag")
+    const isActive = currentTags.includes(ref)
+    const nextTags = isActive
+      ? currentTags.filter((tagRef) => tagRef !== ref)
+      : Array.from(new Set([...currentTags, ref]))
+
+    params.delete("tag")
+    nextTags.forEach((tagRef) => {
+      params.append("tag", tagRef)
+    })
+
     const queryString = params.toString()
     router.push(
       queryString
