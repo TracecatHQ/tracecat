@@ -37,7 +37,7 @@ definition:
         url: https://management.azure.com/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents/${{ FN.url_encode(inputs.incident_id) }}/relations/${{ FN.url_encode(inputs.relation_name) }}
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel.MICROSOFT_SENTINEL_USER_TOKEN }}
         params:
           api-version: ${{ inputs.api_version }}
   returns: ${{ steps.get_relation.result.data }}

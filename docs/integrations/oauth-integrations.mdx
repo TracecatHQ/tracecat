@@ -20,8 +20,6 @@ This process is the same for both Authorization Code and Client Credentials flow
 3. **Obtain credentials** - Copy the client ID and client secret from your OAuth application
 4. **Set permissions** - Configure the required scopes and permissions for your use case
 
-Each provider has specific setup requirements. Tracecat provides direct links to setup guides in the configuration interface for each OAuth integration.
-
 ## Managing scopes
 
 <Note>
@@ -32,16 +30,6 @@ OAuth integrations use a two-tier scope system:
 
 1. **Base scopes** - Required permissions that every integration needs for basic functionality. These are automatically included and cannot be removed.
 2. **Additional scopes** - Optional permissions you can add for extended functionality. Use the scope input to add custom scopes beyond the base requirements.
-
-<Accordion title="Scope validation" icon="shield-check">
-  Each provider defines allowed scope patterns to prevent invalid or potentially dangerous permissions.
-  If you enter an invalid scope, you'll see a validation error with the expected patterns.
-
-  Common validation patterns:
-  - **Microsoft Graph**: `https://graph.microsoft.com/.default` or specific resource scopes
-  - **Google APIs**: Service-specific scopes like `https://www.googleapis.com/auth/drive.readonly`
-  - **GitHub**: Repository and organization permissions like `repo`, `read:org`
-</Accordion>
 
 ## Integration status
 
@@ -62,21 +50,62 @@ OAuth integrations have three possible states:
   </Step>
 </Steps>
 
-## Using in workflows
+## Using OAuth secrets in UDFs
 
-Once connected, OAuth integrations work seamlessly with action templates and Python UDFs.
-The integration handles token retrieval automatically - no need to manage credentials in your workflows.
+This is how you would retrieve an OAuth secret in an UDF:
 
-```yaml
-# Example: List files from Microsoft OneDrive
-- ref: list_files
-  action: tools.microsoft_graph.list_drive_files
-  args:
-    drive_id: "b!abc123"
-    folder_path: "/Documents"
+```python
+import requests
+from tracecat_registry import RegistryOAuthSecret, registry, secrets
+
+github_oauth_secret = RegistryOAuthSecret(
+    provider_id="github",
+    grant_type="authorization_code",
+)
+
+@registry.register(
+    description="List repositories",
+    namespace="tools.github",
+    secrets=[github_oauth_secret],
+)
+def list_repos():
+    # Retrieve the OAuth token to use
+    token = secrets.get(github_oauth_secret.token_name)
+    response = requests.get(
+      "https://api.github.com/user/repos",
+      headers={"Authorization": f"Bearer {token}"}
+    )
+    response.raise_for_status()
+    return response.json()
 ```
 
-The `tools.microsoft_graph.list_drive_files` action automatically uses your connected OAuth integration for authentication.
+## Using OAuth secrets in action templates
+
+This is how you would use an OAuth secret in an action template:
+
+```yaml
+type: action
+definition:
+  title: List repositories
+  description: List repositories from GitHub.
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest/repos/repos?apiVersion=2022-11-28#list-repositories-for-the-authenticated-user
+  namespace: tools.github
+  name: list_repos
+  secrets:
+    - type: oauth
+      provider_id: github
+      grant_type: authorization_code
+  expects:
+    - ref: list_repos
+      action: core.http_request
+      args:
+        url: https://api.github.com/user/repos
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.github.GITHUB_USER_TOKEN }}
+  returns: ${{ steps.list_repos.result.data }}
+```
 
 ## Troubleshooting
 

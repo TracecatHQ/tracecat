@@ -27,7 +27,7 @@ definition:
         url: https://graph.microsoft.com/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_teams.MICROSOFT_TEAMS_USER_TOKEN }}
           Content-Type: application/json
         payload:
           body:

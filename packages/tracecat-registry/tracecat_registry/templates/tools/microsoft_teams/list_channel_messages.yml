@@ -49,6 +49,6 @@ definition:
         url: https://graph.microsoft.com/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_teams.MICROSOFT_TEAMS_USER_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_messages.result.data }}
