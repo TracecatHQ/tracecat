@@ -4,9 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useQuery } from "@tanstack/react-query"
 import fuzzysort from "fuzzysort"
 import {
-  AlertTriangle,
   ArrowUpRight,
-  CheckCircle2,
   ChevronsUpDown,
   PlayIcon,
   Plus,
@@ -77,7 +75,6 @@ import {
 } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import type { TracecatJsonSchema } from "@/lib/schema"
-import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseWorkflowTriggerProps {
@@ -679,12 +676,12 @@ function SchemaDrivenTriggerForm({
   )
   const requiredFields = useMemo(() => new Set(schema.required ?? []), [schema])
 
-  const mappingDetails: MappingDetail[] = useMemo(() => {
-    return properties.map(([fieldName, fieldSchema]) => {
-      const label = fieldSchema.title ?? formatLabel(fieldName)
+  const fieldStatuses = useMemo(() => {
+    const statusMap = new Map<string, MappingStatus>()
+
+    properties.forEach(([fieldName, fieldSchema]) => {
       const currentValue = previewValues[fieldName]
       const defaultValue = computedDefaults[fieldName]
-      const isRequired = requiredFields.has(fieldName)
 
       const matchesCaseId =
         fieldName === "case_id" && areValuesEqual(currentValue, caseId)
@@ -711,19 +708,10 @@ function SchemaDrivenTriggerForm({
               ? "schema-default"
               : "custom"
 
-      return {
-        fieldName,
-        label,
-        required: isRequired,
-        status,
-        valuePreview:
-          currentValue === undefined
-            ? isRequired
-              ? "Required"
-              : "Optional"
-            : formatValuePreview(currentValue),
-      }
+      statusMap.set(fieldName, status)
     })
+
+    return statusMap
   }, [
     caseFields,
     caseId,
@@ -731,7 +719,6 @@ function SchemaDrivenTriggerForm({
     groupCaseFields,
     previewValues,
     properties,
-    requiredFields,
   ])
 
   return (
@@ -740,12 +727,6 @@ function SchemaDrivenTriggerForm({
         onSubmit={form.handleSubmit(handleSubmit)}
         className="mt-4 space-y-4"
       >
-        {mappingDetails.length > 0 && (
-          <div className="flex w-full items-center justify-between gap-3 text-xs">
-            <CaseMappingSummary details={mappingDetails} />
-          </div>
-        )}
-
         <div className="flex flex-col gap-4">
           {properties.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -769,23 +750,43 @@ function SchemaDrivenTriggerForm({
                   const fieldTypeLabel = Array.isArray(fieldSchema.type)
                     ? fieldSchema.type.join(" | ")
                     : (fieldSchema.type ?? (enumOptions ? "enum" : undefined))
+                  const fieldStatus = fieldStatuses.get(fieldName)
+
+                  const statusBadge =
+                    fieldStatus === "case" ? (
+                      <TooltipProvider>
+                        <Tooltip delayDuration={100}>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Custom field
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            Auto-filled from case data
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : null
 
                   return (
                     <FormItem className="group space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                          <span className="flex items-center gap-1">
-                            {label}
-                            {isRequired && (
-                              <span className="text-red-500">*</span>
-                            )}
-                          </span>
-                          {fieldTypeLabel && (
-                            <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                              {fieldTypeLabel}
+                        <div className="flex items-center gap-2">
+                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                            <span className="flex items-center gap-1">
+                              {label}
+                              {isRequired && (
+                                <span className="text-red-500">*</span>
+                              )}
                             </span>
-                          )}
-                        </FormLabel>
+                            {statusBadge}
+                            {fieldTypeLabel && (
+                              <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                {fieldTypeLabel}
+                              </span>
+                            )}
+                          </FormLabel>
+                        </div>
                         <CaseValueSelector
                           fieldName={fieldName}
                           fieldSchema={fieldSchema}
@@ -957,72 +958,6 @@ function SchemaDrivenTriggerForm({
 }
 
 type MappingStatus = "case" | "schema-default" | "custom" | "empty"
-
-interface MappingDetail {
-  fieldName: string
-  label: string
-  required: boolean
-  status: MappingStatus
-  valuePreview: string
-}
-
-interface CaseMappingSummaryProps {
-  details: MappingDetail[]
-}
-
-function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
-  if (details.length === 0) {
-    return null
-  }
-
-  const autoMappedCount = details.filter(
-    (detail) => detail.status === "case"
-  ).length
-  const customCount = details.filter(
-    (detail) => detail.status === "custom"
-  ).length
-  const total = details.length
-  const requiredPending = details.filter(
-    (detail) => detail.required && detail.status === "empty"
-  ).length
-
-  const tone: "success" | "info" | "warning" =
-    requiredPending > 0 ? "warning" : customCount > 0 ? "info" : "success"
-
-  const toneClasses: Record<"success" | "info" | "warning", string> = {
-    success:
-      "border-emerald-200 bg-emerald-100/80 text-emerald-800 hover:bg-emerald-100",
-    info: "border-blue-200 bg-blue-100/80 text-blue-800 hover:bg-blue-100",
-    warning:
-      "border-amber-200 bg-amber-100/80 text-amber-800 hover:bg-amber-100",
-  }
-
-  const Icon = tone === "warning" ? AlertTriangle : CheckCircle2
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium",
-        toneClasses[tone]
-      )}
-    >
-      <Icon className="size-3" />
-      <span className="font-semibold">
-        {autoMappedCount}/{total} inputs mapped
-      </span>
-      {tone === "warning" && (
-        <span className="text-[10px] text-amber-700">
-          • {requiredPending} required missing
-        </span>
-      )}
-      {tone === "info" && (
-        <span className="text-[10px] text-blue-700">
-          • {customCount} custom {customCount === 1 ? "value" : "values"}
-        </span>
-      )}
-    </div>
-  )
-}
 
 interface CaseValueSelectorProps {
   fieldName: string
