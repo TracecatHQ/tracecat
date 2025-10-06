@@ -646,11 +646,26 @@ function SchemaDrivenTriggerForm({
     setJsonDrafts(buildJsonDrafts(computedDefaults))
   }, [buildJsonDrafts, computedDefaults, form])
 
-  const sanitizeInputs = useCallback((values: TriggerFormValues) => {
-    return Object.fromEntries(
-      Object.entries(values ?? {}).filter(([, value]) => value !== undefined)
-    )
-  }, [])
+  const requiredFields = useMemo(() => new Set(schema.required ?? []), [schema])
+
+  const sanitizeInputs = useCallback(
+    (values: TriggerFormValues) => {
+      return Object.fromEntries(
+        Object.entries(values ?? {}).filter(([key, value]) => {
+          if (value === undefined) {
+            return false
+          }
+
+          if (value === null && !requiredFields.has(key)) {
+            return false
+          }
+
+          return true
+        })
+      )
+    },
+    [requiredFields]
+  )
 
   const handleSubmit = useCallback(
     async (values: TriggerFormValues) => {
@@ -674,7 +689,6 @@ function SchemaDrivenTriggerForm({
       ),
     [schema]
   )
-  const requiredFields = useMemo(() => new Set(schema.required ?? []), [schema])
 
   const fieldStatuses = useMemo(() => {
     const statusMap = new Map<string, MappingStatus>()
