@@ -3,6 +3,7 @@ from typing import Any, Annotated
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
+from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 
 
 notion_mcp_oauth_secret = RegistryOAuthSecret(
@@ -23,7 +24,7 @@ notion_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="Notion MCP",
     doc_url="https://developers.notion.com/docs/mcp",
     namespace="tools.notion",
-    secrets=[notion_mcp_oauth_secret],
+    secrets=[notion_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],

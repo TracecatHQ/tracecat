@@ -3,6 +3,7 @@ from typing import Any, Annotated
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
+from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 
 
 sentry_mcp_oauth_secret = RegistryOAuthSecret(
@@ -23,7 +24,7 @@ sentry_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="Sentry MCP",
     doc_url="https://docs.sentry.io/product/sentry-mcp/",
     namespace="tools.sentry",
-    secrets=[sentry_mcp_oauth_secret],
+    secrets=[sentry_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],

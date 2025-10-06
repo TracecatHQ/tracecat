@@ -2,6 +2,7 @@ from tracecat.agent.runtime import run_agent
 from typing import Any, Annotated
 from typing_extensions import Doc
 
+from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
 
 
@@ -23,7 +24,7 @@ github_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="GitHub MCP",
     doc_url="https://docs.github.com/en/copilot",
     namespace="tools.github",
-    secrets=[github_mcp_oauth_secret],
+    secrets=[github_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
