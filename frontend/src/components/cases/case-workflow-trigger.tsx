@@ -16,6 +16,7 @@ import { useForm } from "react-hook-form"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
 import { workflowsGetWorkflow } from "@/client"
 import { JsonViewWithControls } from "@/components/json-viewer"
+import { SystemInfoAlert } from "@/components/system"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -77,6 +78,7 @@ import { jsonSchemaToZod } from "@/lib/jsonschema"
 import type { TracecatJsonSchema } from "@/lib/schema"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const SHOW_BETA_ALERT = true
 interface CaseWorkflowTriggerProps {
   caseData: CaseRead
 }
@@ -486,6 +488,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                 : `Are you sure you want to trigger "${selectedWorkflow?.title ?? "this workflow"}" with the following inputs?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {SHOW_BETA_ALERT && <SystemInfoAlert kind="beta-ee-contact-us" />}
 
           {triggerSchema ? (
             <SchemaDrivenTriggerForm
