@@ -119,6 +119,9 @@ const areValuesEqual = (a: unknown, b: unknown): boolean => {
   return false
 }
 
+const isNullish = (value: unknown): value is null | undefined =>
+  value === null || value === undefined
+
 const formatValuePreview = (value: unknown): string => {
   if (value === undefined) {
     return ""
@@ -153,6 +156,10 @@ const isValueCompatible = (
   schema: TracecatJsonSchema,
   value: unknown
 ): boolean => {
+  if (isNullish(value)) {
+    return true
+  }
+
   const typeCandidates = schema.type
     ? Array.isArray(schema.type)
       ? schema.type
@@ -629,7 +636,10 @@ function SchemaDrivenTriggerForm({
       }
 
       if (!groupCaseFields && key in caseFields) {
-        defaults[key] = caseFields[key]
+        const caseFieldValue = caseFields[key]
+        if (!isNullish(caseFieldValue)) {
+          defaults[key] = caseFieldValue
+        }
       }
     }
 
@@ -696,25 +706,31 @@ function SchemaDrivenTriggerForm({
     properties.forEach(([fieldName, fieldSchema]) => {
       const currentValue = previewValues[fieldName]
       const defaultValue = computedDefaults[fieldName]
+      const caseFieldValue = (!groupCaseFields && fieldName in caseFields)
+        ? caseFields[fieldName]
+        : undefined
 
       const matchesCaseId =
         fieldName === "case_id" && areValuesEqual(currentValue, caseId)
       const matchesCaseFields =
         (!groupCaseFields &&
-          fieldName in caseFields &&
-          areValuesEqual(currentValue, caseFields[fieldName])) ||
+          !isNullish(caseFieldValue) &&
+          !isNullish(currentValue) &&
+          areValuesEqual(currentValue, caseFieldValue)) ||
         (groupCaseFields &&
           fieldName === "case_fields" &&
+          !isNullish(currentValue) &&
           areValuesEqual(currentValue, caseFields))
 
       const matchesDefault =
         !matchesCaseId &&
         !matchesCaseFields &&
-        defaultValue !== undefined &&
+        !isNullish(defaultValue) &&
+        !isNullish(currentValue) &&
         areValuesEqual(currentValue, defaultValue)
 
       const status: MappingStatus =
-        currentValue === undefined
+        currentValue === undefined || currentValue === null
           ? "empty"
           : matchesCaseId || matchesCaseFields
             ? "case"
