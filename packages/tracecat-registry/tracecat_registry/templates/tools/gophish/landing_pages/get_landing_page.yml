@@ -18,6 +18,10 @@ definition:
       type: int
       description: The ID of the landing page to get.
       required: true
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
   steps:
     - ref: get_landing_page
       action: core.http_request
@@ -26,4 +30,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
   returns: ${{ steps.get_landing_page.result.data }}
