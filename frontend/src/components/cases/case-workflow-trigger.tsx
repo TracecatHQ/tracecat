@@ -40,7 +40,6 @@ import {
 	FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
 	Popover,
 	PopoverContent,
@@ -286,6 +285,8 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 		return schema as TracecatJsonSchema;
 	}, [selectedWorkflowDetail]);
 
+	const effectiveGroupCaseFields = triggerSchema ? false : groupCaseFields;
+
 	const showExecutionStartedToast = useCallback(() => {
 		if (!selectedWorkflowId) {
 			return;
@@ -475,14 +476,27 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 							schema={triggerSchema}
 							caseId={caseData.id}
 							caseFields={caseFieldsRecord}
-							groupCaseFields={groupCaseFields}
-							onGroupCaseFieldsChange={setGroupCaseFields}
+							groupCaseFields={effectiveGroupCaseFields}
 							onSubmit={handleSchemaSubmit}
 							isSubmitting={createExecutionIsPending}
 						/>
 					) : (
 						<>
-							<div className="mt-4">
+							<div className="mt-4 space-y-3">
+								<div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2">
+									<div className="space-y-1 text-xs">
+										<div className="font-medium">Group case fields</div>
+										<p className="text-[11px] text-muted-foreground">
+											Send case data under a single <code>case_fields</code>{" "}
+											object.
+										</p>
+									</div>
+									<Switch
+										checked={groupCaseFields}
+										onCheckedChange={(value) => setGroupCaseFields(value)}
+										className="h-4 w-8"
+									/>
+								</div>
 								<TooltipProvider>
 									<JsonViewWithControls
 										src={fallbackInputs}
@@ -531,7 +545,6 @@ interface SchemaDrivenTriggerFormProps {
 	caseId: string;
 	caseFields: Record<string, unknown>;
 	groupCaseFields: boolean;
-	onGroupCaseFieldsChange: (value: boolean) => void;
 	onSubmit: (values: TriggerFormValues) => Promise<void>;
 	isSubmitting: boolean;
 }
@@ -541,7 +554,6 @@ function SchemaDrivenTriggerForm({
 	caseId,
 	caseFields,
 	groupCaseFields,
-	onGroupCaseFieldsChange,
 	onSubmit,
 	isSubmitting,
 }: SchemaDrivenTriggerFormProps) {
@@ -720,7 +732,7 @@ function SchemaDrivenTriggerForm({
 				onSubmit={form.handleSubmit(handleSubmit)}
 				className="mt-4 space-y-4"
 			>
-				<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+				<div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
 					{mappingDetails.length > 0 && (
 						<div className="flex items-center gap-2">
 							<CaseMappingSummary details={mappingDetails} />
@@ -734,18 +746,6 @@ function SchemaDrivenTriggerForm({
 							</Button>
 						</div>
 					)}
-					<div className="flex items-center space-x-2">
-						<Switch
-							checked={groupCaseFields}
-							onCheckedChange={(value) => {
-								onGroupCaseFieldsChange(value);
-							}}
-							className="h-4 w-8"
-						/>
-						<Label htmlFor="group-fields-schema" className="text-xs">
-							Group case fields
-						</Label>
-					</div>
 				</div>
 
 				<div className="flex flex-col gap-4">
