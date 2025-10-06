@@ -3,7 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import fuzzysort from "fuzzysort";
-import { ArrowUpRight, ChevronsUpDown, PlayIcon, Plus } from "lucide-react";
+import {
+	AlertTriangle,
+	ArrowUpRight,
+	ChevronsUpDown,
+	CheckCircle2,
+	PlayIcon,
+	RotateCcw,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -55,7 +62,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -732,21 +744,29 @@ function SchemaDrivenTriggerForm({
 				onSubmit={form.handleSubmit(handleSubmit)}
 				className="mt-4 space-y-4"
 			>
-				<div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
-					{mappingDetails.length > 0 && (
-						<div className="flex items-center gap-2">
-							<CaseMappingSummary details={mappingDetails} />
-							<Button
-								type="button"
-								variant="link"
-								className="h-auto px-0 text-xs"
-								onClick={resetToDefaults}
-							>
-								Reset to case defaults
-							</Button>
-						</div>
-					)}
-				</div>
+				{mappingDetails.length > 0 && (
+					<div className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+						<CaseMappingSummary details={mappingDetails} />
+						<TooltipProvider>
+							<Tooltip delayDuration={100}>
+								<TooltipTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+										onClick={resetToDefaults}
+									>
+										<RotateCcw className="size-4" aria-hidden />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side="top" className="text-xs">
+									Reset to case defaults
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					</div>
+				)}
 
 				<div className="flex flex-col gap-4">
 					{properties.length === 0 ? (
@@ -960,15 +980,24 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 	const autoMappedCount = details.filter(
 		(detail) => detail.status === "case",
 	).length;
+	const customCount = details.filter(
+		(detail) => detail.status === "custom",
+	).length;
 	const total = details.length;
 	const requiredPending = details.filter(
 		(detail) => detail.required && detail.status === "empty",
 	).length;
 
-	const buttonClasses =
-		requiredPending > 0
-			? "border-destructive/60 text-destructive hover:border-destructive"
-			: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50";
+	const tone: "success" | "info" | "warning" =
+		requiredPending > 0 ? "warning" : customCount > 0 ? "info" : "success";
+
+	const toneClasses: Record<"success" | "info" | "warning", string> = {
+		success: "border-emerald-200 bg-emerald-100/80 text-emerald-800 hover:bg-emerald-100",
+		info: "border-blue-200 bg-blue-100/80 text-blue-800 hover:bg-blue-100",
+		warning: "border-amber-200 bg-amber-100/80 text-amber-800 hover:bg-amber-100",
+	};
+
+	const Icon = tone === "warning" ? AlertTriangle : CheckCircle2;
 
 	const statusLabels: Record<MappingStatus, string> = {
 		case: "Case value",
@@ -978,10 +1007,10 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 	};
 
 	const badgeClasses: Record<MappingStatus, string> = {
-		case: "border-emerald-200 bg-emerald-50 text-emerald-700",
-		"schema-default": "border-slate-200 bg-slate-100 text-slate-700",
-		custom: "border-blue-200 bg-blue-50 text-blue-700",
-		empty: "border-destructive/40 bg-destructive/10 text-destructive",
+		case: "border-transparent bg-emerald-50 text-emerald-700",
+		"schema-default": "border-transparent bg-slate-100 text-slate-700",
+		custom: "border-transparent bg-blue-50 text-blue-700",
+		empty: "border-transparent bg-amber-50 text-amber-700",
 	};
 
 	return (
@@ -990,9 +1019,20 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 				<Button
 					type="button"
 					variant="outline"
-					className={`h-6 rounded-full px-3 text-[11px] font-medium ${buttonClasses}`}
+					className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${toneClasses[tone]}`}
 				>
-					{autoMappedCount}/{total} inputs auto-mapped
+					<Icon className="size-3" />
+					<span className="font-semibold">{autoMappedCount}/{total} inputs mapped</span>
+					{tone === "warning" && (
+						<span className="text-[10px] text-amber-700">
+							• {requiredPending} required missing
+						</span>
+					)}
+					{tone === "info" && (
+						<span className="text-[10px] text-blue-700">
+							• {customCount} custom {customCount === 1 ? "value" : "values"}
+						</span>
+					)}
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent align="start" className="w-72 space-y-3 text-xs">
@@ -1016,23 +1056,18 @@ function CaseMappingSummary({ details }: CaseMappingSummaryProps) {
 							</div>
 							<Badge
 								variant="outline"
-								className={`shrink-0 whitespace-nowrap text-[10px] ${badgeClasses[detail.status]}`}
+								className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${badgeClasses[detail.status]}`}
 							>
 								{statusLabels[detail.status]}
 							</Badge>
 						</div>
 					))}
 				</div>
-				{requiredPending > 0 && (
-					<div className="text-[11px] text-destructive">
-						{requiredPending} required input
-						{requiredPending > 1 ? "s are" : " is"} still missing.
-					</div>
-				)}
 			</PopoverContent>
 		</Popover>
 	);
 }
+
 
 interface CaseValueSelectorProps {
 	fieldName: string;
@@ -1043,6 +1078,7 @@ interface CaseValueSelectorProps {
 	fieldType?: string | null;
 	onApply: (value: unknown | undefined) => void;
 }
+
 
 function CaseValueSelector({
 	fieldName,
@@ -1130,7 +1166,6 @@ function CaseValueSelector({
 					variant="ghost"
 					className="h-6 px-2 text-[11px] font-medium text-muted-foreground pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
 				>
-					<Plus className="size-3 mr-1" />
 					Add case value
 				</Button>
 			</PopoverTrigger>
