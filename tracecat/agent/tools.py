@@ -29,6 +29,7 @@ from tracecat.executor.service import (
 )
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
+from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.secrets_manager import env_sandbox
 
@@ -365,7 +366,7 @@ def _sanitize_parameter_name(name: str) -> str:
     return name
 
 
-def _extract_action_metadata(bound_action) -> tuple[str, type]:
+def _extract_action_metadata(bound_action: BoundRegistryAction) -> tuple[str, type]:
     """Extract description and model class from a bound action.
 
     Args:
@@ -377,7 +378,7 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
     Raises:
         ValueError: If template action is not set or description is missing
     """
-    if bound_action.is_template:
+    if bound_action.type == "template":
         if not bound_action.template_action:
             raise ValueError("Template action is not set")
 
