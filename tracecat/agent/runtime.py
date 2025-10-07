@@ -176,6 +176,17 @@ async def run_agent_sync(
     max_requests: int,
     max_tools_calls: int | None = None,
 ) -> AgentOutput:
+    """Run an agent synchronously."""
+
+    if max_tools_calls and max_tools_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
+        raise ValueError(
+            f"Cannot request more than {TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls"
+        )
+    if max_requests > TRACECAT__AGENT_MAX_REQUESTS:
+        raise ValueError(
+            f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
+        )
+
     start_time = timeit()
     usage = UsageLimits(request_limit=max_requests, tool_calls_limit=max_tools_calls)
     result = await agent.run(user_prompt, usage_limits=usage)
