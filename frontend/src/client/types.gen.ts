@@ -175,6 +175,7 @@ export type AgentOutput = {
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage: RunUsage
+  session_id: string
   trace_id?: string | null
 }
 

@@ -10,7 +10,7 @@ import orjson
 from fastapi import Request
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.models import ModelMessageTA
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,

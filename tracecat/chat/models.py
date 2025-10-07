@@ -10,7 +10,7 @@ from pydantic import UUID4, BaseModel, Discriminator, Field
 from pydantic_ai.messages import ModelMessage
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.models import ModelMessageTA
 from tracecat.chat.enums import ChatEntity
 
 if TYPE_CHECKING:

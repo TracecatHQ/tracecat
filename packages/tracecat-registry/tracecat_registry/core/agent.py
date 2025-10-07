@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.runtime import build_agent, run_agent_sync
+from tracecat.agent.runtime import build_agent, run_agent, run_agent_sync
 
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
@@ -193,7 +193,8 @@ async def agent(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
-    agent = await build_agent(
+    output = await run_agent(
+        user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
         actions=actions,
@@ -204,14 +205,7 @@ async def agent(
         retries=retries,
         base_url=base_url,
     )
-    result = await run_agent_sync(
-        agent,
-        user_prompt,
-        max_tools_calls=max_tools_calls,
-        max_requests=max_requests,
-    )
-    return result.model_dump()
-
+    return output.model_dump(mode="json")
 
 @registry.register(
     default_title="AI action",

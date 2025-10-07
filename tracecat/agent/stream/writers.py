@@ -150,6 +150,22 @@ class PersistentStreamWriter(StreamWriter):
             await chat_svc.append_messages(self.chat_id, messages)
 
 
+class AgentNodeStreamWriter(PersistentStreamWriter):
+    def __init__(
+        self,
+        stream: AgentStream,
+        chat_id: uuid.UUID,
+        message_nodes: list[ModelMessage] | None = None,
+    ):
+        super().__init__(stream, chat_id)
+        # TODO: Figure out how to store discrete ModelMessage nodes
+        self.message_nodes = message_nodes
+
+    async def store(self, messages: list[ModelMessage]) -> None:
+        # Doesn't need to store messages
+        pass
+
+
 class HttpStreamWriter(StreamWriter):
     def __init__(self, url: str = "https://localhost:1234/stream"):
         self.url = url

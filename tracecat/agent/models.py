@@ -4,14 +4,13 @@ from __future__ import annotations as _annotations
 
 from typing import Literal, NotRequired, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai.messages import ModelMessage
 
-from tracecat.types.auth import Role
+ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
 
 class RunAgentArgs(BaseModel):
-    role: Role
     user_prompt: str
     tool_filters: ToolFilters | None = None
     """This is static over the lifetime of the workflow, as it's for 1 turn."""

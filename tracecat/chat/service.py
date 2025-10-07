@@ -8,8 +8,7 @@ from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.models import ModelInfo, ModelMessageTA, RunAgentArgs, ToolFilters
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
@@ -171,7 +170,6 @@ class ChatService(BaseWorkspaceService):
             base_url=base_url,
         )
         args = RunAgentArgs(
-            role=self.role,
             user_prompt=user_prompt,
             tool_filters=ToolFilters(actions=chat.tools),
             session_id=str(chat_id),
