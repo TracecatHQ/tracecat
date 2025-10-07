@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from unittest.mock import patch
 
 import aioboto3
 import pytest
@@ -664,15 +665,25 @@ async def test_worker_factory(
 
 
 @pytest.fixture
-def mock_openai_secrets():
+def mock_openai_secrets(monkeypatch: pytest.MonkeyPatch):
     """Set up env_sandbox with OpenAI API key from environment."""
+
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
         pytest.skip("OPENAI_API_KEY not found in environment")
 
-    # Use env_sandbox to set up the secret in the context
-    with secrets_manager.env_sandbox({"OPENAI_API_KEY": openai_key}):
-        yield
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"OPENAI_API_KEY": openai_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "OPENAI_API_KEY":
+                return openai_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
 
 
 ### Anthropic
@@ -685,9 +696,18 @@ def mock_anthropic_secrets():
     if not anthropic_key:
         pytest.skip("ANTHROPIC_API_KEY not found in environment")
 
-    # Use env_sandbox to set up the secret in the context
-    with secrets_manager.env_sandbox({"ANTHROPIC_API_KEY": anthropic_key}):
-        yield
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"ANTHROPIC_API_KEY": anthropic_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "ANTHROPIC_API_KEY":
+                return anthropic_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
 
 
 ### Bedrock
@@ -705,15 +725,28 @@ def mock_bedrock_secrets():
             "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY not found in environment"
         )
 
-    # Use env_sandbox to set up the secrets in the context
-    with secrets_manager.env_sandbox(
-        {
-            "AWS_ACCESS_KEY_ID": aws_access_key,
-            "AWS_SECRET_ACCESS_KEY": aws_secret_key,
-            "AWS_REGION": aws_region,
-        }
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox(
+            {
+                "AWS_ACCESS_KEY_ID": aws_access_key,
+                "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+                "AWS_REGION": aws_region,
+            }
+        ),
     ):
-        yield
+
+        def side_effect(key: str):
+            if key == "AWS_ACCESS_KEY_ID":
+                return aws_access_key
+            if key == "AWS_SECRET_ACCESS_KEY":
+                return aws_secret_key
+            if key == "AWS_REGION":
+                return aws_region
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
 
 
 ### Slack
@@ -721,11 +754,20 @@ def mock_bedrock_secrets():
 
 @pytest.fixture
 def mock_slack_secrets():
-    """Set up env_sandbox with Slack bot token from environment."""
+    """Mock Slack secrets lookups for direct SDK access while keeping env sandbox."""
     slack_token = os.getenv("SLACK_BOT_TOKEN")
     if not slack_token:
         pytest.skip("SLACK_BOT_TOKEN not found in environment")
 
-    # Use env_sandbox to set up the secret in the context
-    with secrets_manager.env_sandbox({"SLACK_BOT_TOKEN": slack_token}):
-        yield
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"SLACK_BOT_TOKEN": slack_token}),
+    ):
+
+        def side_effect(key: str):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
