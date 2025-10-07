@@ -39,7 +39,7 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
     return base_prompt
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
 async def test_agent_primitives(output_type):
@@ -85,7 +85,7 @@ async def test_agent_primitives(output_type):
         assert all(isinstance(x, str) and x for x in output)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
 async def test_agent_json_schema(output_type):
@@ -129,7 +129,7 @@ async def test_agent_json_schema(output_type):
     assert "summary" in output and isinstance(output["summary"], str)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
 async def test_action_primitives(output_type):
@@ -162,7 +162,7 @@ async def test_action_primitives(output_type):
         assert all(isinstance(x, str) and x for x in output)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
 async def test_action_json_schema(output_type):
