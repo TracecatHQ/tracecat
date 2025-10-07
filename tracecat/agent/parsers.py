@@ -6,7 +6,7 @@ from pydantic_core import from_json
 
 
 def try_parse_json(x: Any) -> Json[Any] | str:
-    if not isinstance(x, (str, bytes)):
+    if not isinstance(x, (str, bytes, bytearray)):
         return x
 
     try:
