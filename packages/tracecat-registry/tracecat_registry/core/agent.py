@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.runtime import run_agent
+from tracecat.agent.runtime import build_agent, run_agent_sync
 
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
@@ -192,9 +192,8 @@ async def agent(
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
-) -> Any:
-    return await run_agent(
-        user_prompt=user_prompt,
+) -> dict[str, Any]:
+    agent = await build_agent(
         model_name=model_name,
         model_provider=model_provider,
         actions=actions,
@@ -203,10 +202,15 @@ async def agent(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
-        max_tools_calls=max_tools_calls,
-        max_requests=max_requests,
         base_url=base_url,
     )
+    result = await run_agent_sync(
+        agent,
+        user_prompt,
+        max_tools_calls=max_tools_calls,
+        max_requests=max_requests,
+    )
+    return result.model_dump()
 
 
 @registry.register(
@@ -252,14 +256,14 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    return await run_agent(
-        user_prompt=user_prompt,
+    agent = await build_agent(
         model_name=model_name,
         model_provider=model_provider,
         instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
-        max_requests=max_requests,
         base_url=base_url,
     )
+    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
+    return result.model_dump()

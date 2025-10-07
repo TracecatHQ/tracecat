@@ -653,3 +653,79 @@ async def test_worker_factory(
         )
 
     yield create_worker
+
+
+# ---------------------------------------------------------------------------
+# 3rd party credentials
+# Loaded in either via dotenv or env vars into the mocked Tracecat secrets manager
+# ---------------------------------------------------------------------------
+
+### OpenAI
+
+
+@pytest.fixture
+def mock_openai_secrets():
+    """Set up env_sandbox with OpenAI API key from environment."""
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        pytest.skip("OPENAI_API_KEY not found in environment")
+
+    # Use env_sandbox to set up the secret in the context
+    with secrets_manager.env_sandbox({"OPENAI_API_KEY": openai_key}):
+        yield
+
+
+### Anthropic
+
+
+@pytest.fixture
+def mock_anthropic_secrets():
+    """Set up env_sandbox with Anthropic API key from environment."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
+
+    # Use env_sandbox to set up the secret in the context
+    with secrets_manager.env_sandbox({"ANTHROPIC_API_KEY": anthropic_key}):
+        yield
+
+
+### Bedrock
+
+
+@pytest.fixture
+def mock_bedrock_secrets():
+    """Set up env_sandbox with AWS credentials from environment for Bedrock."""
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+
+    if not aws_access_key or not aws_secret_key:
+        pytest.skip(
+            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY not found in environment"
+        )
+
+    # Use env_sandbox to set up the secrets in the context
+    with secrets_manager.env_sandbox(
+        {
+            "AWS_ACCESS_KEY_ID": aws_access_key,
+            "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+            "AWS_REGION": aws_region,
+        }
+    ):
+        yield
+
+
+### Slack
+
+
+@pytest.fixture
+def mock_slack_secrets():
+    """Set up env_sandbox with Slack bot token from environment."""
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not found in environment")
+
+    # Use env_sandbox to set up the secret in the context
+    with secrets_manager.env_sandbox({"SLACK_BOT_TOKEN": slack_token}):
+        yield

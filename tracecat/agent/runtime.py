@@ -170,6 +170,24 @@ async def build_agent(
     return agent
 
 
+async def run_agent_sync(
+    agent: Agent,
+    user_prompt: str,
+    max_requests: int,
+    max_tools_calls: int | None = None,
+) -> AgentOutput:
+    start_time = timeit()
+    usage = UsageLimits(request_limit=max_requests, tool_calls_limit=max_tools_calls)
+    result = await agent.run(user_prompt, usage_limits=usage)
+    end_time = timeit()
+    return AgentOutput(
+        output=try_parse_json(result.output),
+        message_history=result.all_messages(),
+        duration=end_time - start_time,
+        usage=result.usage(),
+    )
+
+
 @observe()
 async def run_agent(
     user_prompt: str,
