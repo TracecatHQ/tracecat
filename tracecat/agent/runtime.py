@@ -1,6 +1,6 @@
 """Pydantic AI agents with tool calling."""
 
-from timeit import timeit
+from timeit import default_timer
 from typing import Any, Literal, TypeVar
 
 import orjson
@@ -187,10 +187,10 @@ async def run_agent_sync(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
         )
 
-    start_time = timeit()
+    start_time = default_timer()
     usage = UsageLimits(request_limit=max_requests, tool_calls_limit=max_tools_calls)
     result = await agent.run(user_prompt, usage_limits=usage)
-    end_time = timeit()
+    end_time = default_timer()
     return AgentOutput(
         output=try_parse_json(result.output),
         message_history=result.all_messages(),
@@ -312,7 +312,7 @@ async def run_agent(
         base_url=base_url,
     )
 
-    start_time = timeit()
+    start_time = default_timer()
     # Set up Redis streaming if both parameters are provided
     redis_client = None
     stream_key = None
@@ -459,7 +459,7 @@ async def run_agent(
             except Exception as e:
                 logger.warning("Failed to add end-of-stream marker", error=str(e))
 
-        end_time = timeit()
+        end_time = default_timer()
         output = AgentOutput(
             output=try_parse_json(result.output),
             message_history=result.all_messages(),
