@@ -10,6 +10,7 @@ from pydantic_ai.messages import AgentStreamEvent
 from tracecat.agent.adapter import vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
+from tracecat.agent.stream.common import get_stream_headers
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.chat.models import (

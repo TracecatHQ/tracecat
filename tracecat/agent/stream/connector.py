@@ -68,7 +68,9 @@ class AgentStream:
                     last_stream_id=last_stream_id,
                 )
             else:
-                logger.warning("Chat not found", session_id=self.session_id)
+                # This is expected if we are streaming a session that
+                # was not created from a chat.
+                logger.debug("Chat not found", session_id=self.session_id)
 
     async def _stream_events(
         self, request: Request, last_id: str

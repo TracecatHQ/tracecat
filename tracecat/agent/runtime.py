@@ -23,6 +23,8 @@ from tracecat.agent.providers import get_model
 from tracecat.agent.stream.writers import AgentNodeStreamWriter
 from tracecat.agent.tools import build_agent_tools
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
+from tracecat.contexts import ctx_session_id
+from tracecat.logger import logger
 
 # Initialize Pydantic AI instrumentation for Langfuse
 Agent.instrument_all()
@@ -209,7 +211,6 @@ async def run_agent(
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
-    session_id: str | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -281,7 +282,8 @@ async def run_agent(
         )
 
     start_time = default_timer()
-    session_id = session_id or str(uuid.uuid4())
+
+    session_id = ctx_session_id.get() or str(uuid.uuid4())
     message_nodes: list[ModelMessage] = []
     executor = AioStreamingAgentExecutor(writer_cls=AgentNodeStreamWriter)
     try:
@@ -314,6 +316,7 @@ async def run_agent(
         )
 
     except Exception as e:
+        logger.exception("Error in agent run", error=e)
         raise AgentRunError(
             exc_cls=type(e),
             exc_msg=str(e),
