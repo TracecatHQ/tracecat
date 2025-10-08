@@ -116,7 +116,9 @@ export function ProviderConfigForm({
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512).nullish(),
     client_secret: z.string().max(512).optional(),
-    scopes: z.array(z.string()).optional(),
+    scopes: z
+      .array(z.string().min(1))
+      .min(1, { message: "At least one scope is required" }),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
