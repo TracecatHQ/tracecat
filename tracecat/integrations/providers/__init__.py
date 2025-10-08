@@ -7,6 +7,7 @@ from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft.azure import (
     AzureManagementACProvider,
+    AzureManagementCCProvider,
 )
 from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
@@ -14,9 +15,11 @@ from tracecat.integrations.providers.microsoft.graph import (
 )
 from tracecat.integrations.providers.microsoft.loganalytics import (
     AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
 )
 from tracecat.integrations.providers.microsoft.sentinel import (
     MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
 )
 from tracecat.integrations.providers.microsoft.teams import (
     MicrosoftTeamsACProvider,
@@ -28,10 +31,13 @@ from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
+    AzureManagementCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
     MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
     GitHubOAuthProvider,
