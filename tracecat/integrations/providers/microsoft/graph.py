@@ -45,7 +45,6 @@ def get_cc_setup_steps(service: str = "Microsoft Graph") -> list[str]:
 
 AC_DESCRIPTION = "OAuth provider for delegated user permissions"
 CC_DESCRIPTION = "OAuth provider for application permissions (service account)"
-CC_DEFAULT_SCOPES = ["https://graph.microsoft.com/.default"]
 
 
 class MicrosoftGraphOAuthConfig(BaseModel):
@@ -120,7 +119,9 @@ class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
 CC_SCOPES = ProviderScopes(
     # Client credentials flow requires .default scope.
     # App permissions are configured in Azure Portal.
-    default=CC_DEFAULT_SCOPES,
+    default=[
+        "https://graph.microsoft.com/.default",
+    ],
 )
 
 # Shared metadata for client credentials flow
