@@ -27,6 +27,8 @@ import type {
   AgentListProvidersResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentStreamAgentSessionData,
+  AgentStreamAgentSessionResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
@@ -3143,6 +3145,43 @@ export const agentSetDefaultModel = (
     url: "/agent/default-model",
     query: {
       model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Agent Session
+ * Stream agent session events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * using Server-Sent Events. It supports automatic reconnection via the
+ * Last-Event-ID header.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.format Streaming format (e.g. 'vercel')
+ * @param data.lastEventId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentStreamAgentSession = (
+  data: AgentStreamAgentSessionData
+): CancelablePromise<AgentStreamAgentSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
+    headers: {
+      "last-event-id": data.lastEventId,
+    },
+    query: {
+      format: data.format,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

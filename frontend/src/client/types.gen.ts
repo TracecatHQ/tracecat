@@ -5680,6 +5680,18 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentStreamAgentSessionData = {
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: "vercel" | "basic"
+  lastEventId?: string
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentStreamAgentSessionResponse = unknown
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -8156,6 +8168,21 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}": {
+    get: {
+      req: AgentStreamAgentSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */

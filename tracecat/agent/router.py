@@ -1,6 +1,8 @@
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 
 from tracecat.agent.models import (
     ModelConfig,
@@ -9,8 +11,14 @@ from tracecat.agent.models import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.stream.common import StreamKey, get_stream_headers
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.events import StreamFormat
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -188,3 +196,38 @@ async def set_default_model(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to set default model: {str(e)}",
         ) from e
+
+
+@router.get("/sessions/{session_id}")
+async def stream_agent_session(
+    *,
+    _role: WorkspaceUserRole,
+    session_id: uuid.UUID,
+    request: Request,
+    format: StreamFormat = Query(
+        default="vercel", description="Streaming format (e.g. 'vercel')"
+    ),
+    last_event_id: str = Header(default="0-0"),
+) -> StreamingResponse:
+    """Stream agent session events via Server-Sent Events (SSE).
+
+    This endpoint provides real-time streaming of AI agent execution steps
+    using Server-Sent Events. It supports automatic reconnection via the
+    Last-Event-ID header.
+    """
+    stream_key = StreamKey(session_id)
+    logger.info(
+        "Starting agent session",
+        stream_key=stream_key,
+        last_id=last_event_id,
+        session_id=session_id,
+        format=format,
+    )
+
+    stream = AgentStream(await get_redis_client(), session_id)
+    headers = get_stream_headers(format)
+    return StreamingResponse(
+        stream.sse(request, last_id=last_event_id, format=format),
+        media_type="text/event-stream",
+        headers=headers,
+    )
