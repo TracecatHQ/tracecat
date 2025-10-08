@@ -21,8 +21,8 @@ from tracecat.expressions.functions import tabulate
 
 
 @registry.register(
-    default_title="Lookup record",
-    description="Get a single record from a table corresponding to the given column and value.",
+    default_title="Lookup row",
+    description="Get a single row from a table corresponding to the given column and value.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -52,8 +52,8 @@ async def lookup(
 
 
 @registry.register(
-    default_title="Lookup many records",
-    description="Get multiple records from a table corresponding to the given column and values.",
+    default_title="Lookup many rows",
+    description="Get multiple rows from a table corresponding to the given column and values.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -91,8 +91,8 @@ async def lookup_many(
 
 
 @registry.register(
-    default_title="Search records",
-    description="Search for records in a table with optional filtering.",
+    default_title="Search rows",
+    description="Search for rows in a table with optional filtering.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -107,19 +107,19 @@ async def search_records(
     ] = None,
     start_time: Annotated[
         datetime | None,
-        Doc("Filter records created after this time."),
+        Doc("Filter rows created after this time."),
     ] = None,
     end_time: Annotated[
         datetime | None,
-        Doc("Filter records created before this time."),
+        Doc("Filter rows created before this time."),
     ] = None,
     updated_before: Annotated[
         datetime | None,
-        Doc("Filter records updated before this time."),
+        Doc("Filter rows updated before this time."),
     ] = None,
     updated_after: Annotated[
         datetime | None,
-        Doc("Filter records updated after this time."),
+        Doc("Filter rows updated after this time."),
     ] = None,
     offset: Annotated[
         int,
@@ -152,8 +152,8 @@ async def search_records(
 
 
 @registry.register(
-    default_title="Insert record",
-    description="Insert a record into a table.",
+    default_title="Insert row",
+    description="Insert a row into a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -179,8 +179,8 @@ async def insert_row(
 
 
 @registry.register(
-    default_title="Insert multiple records",
-    description="Insert multiple records into a table.",
+    default_title="Insert multiple rows",
+    description="Insert multiple rows into a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -207,8 +207,8 @@ async def insert_rows(
 
 
 @registry.register(
-    default_title="Update record",
-    description="Update a record in a table.",
+    default_title="Update row",
+    description="Update a row in a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -235,8 +235,8 @@ async def update_row(
 
 
 @registry.register(
-    default_title="Delete record",
-    description="Delete a record from a table.",
+    default_title="Delete row",
+    description="Delete a row from a table.",
     display_group="Tables",
     namespace="core.table",
 )
