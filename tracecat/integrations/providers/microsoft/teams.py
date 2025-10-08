@@ -56,8 +56,6 @@ class MicrosoftTeamsACProvider(MicrosoftGraphACProvider):
 CC_SCOPES = ProviderScopes(
     default=[
         "https://graph.microsoft.com/.default",
-        "https://graph.microsoft.com/ChatMessage.Read.All",
-        "https://graph.microsoft.com/ChatMessage.Send",
     ],
 )
 CC_METADATA = ProviderMetadata(
