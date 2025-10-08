@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import SecretStr
-from tracecat_registry import RegistryOAuthSecret, RegistrySecret
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecret,
+    RegistrySecretType,
+)
 
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.models import DispatchActionContext
@@ -282,7 +286,7 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
 async def test_get_action_secrets_skips_optional_oauth(mocker):
     """Ensure optional OAuth integrations do not raise when missing."""
 
-    action_secrets = {
+    action_secrets: set[RegistrySecretType] = {
         RegistryOAuthSecret(
             provider_id="azure_log_analytics",
             grant_type="authorization_code",
@@ -332,7 +336,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
 async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     """Ensure both delegated and service tokens are returned when available."""
 
-    action_secrets = {
+    action_secrets: set[RegistrySecretType] = {
         RegistryOAuthSecret(
             provider_id="azure_log_analytics",
             grant_type="authorization_code",
@@ -400,7 +404,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
 async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     """Required OAuth integrations should surface a credentials error."""
 
-    action_secrets = {
+    action_secrets: set[RegistrySecretType] = {
         RegistryOAuthSecret(
             provider_id="azure_log_analytics",
             grant_type="authorization_code",
