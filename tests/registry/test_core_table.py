@@ -16,7 +16,7 @@ from tracecat_registry.core.table import (
     list_tables,
     lookup,
     lookup_many,
-    search_records,
+    search_rows,
     update_row,
 )
 
@@ -410,25 +410,25 @@ class TestCoreCreateTable:
 
 @pytest.mark.anyio
 class TestCoreSearchRecords:
-    """Test cases for the search_records UDF."""
+    """Test cases for the search_rows UDF."""
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
-    async def test_search_records_basic(self, mock_with_session, mock_table, mock_row):
+    async def test_search_rows_basic(self, mock_with_session, mock_table, mock_row):
         """Test basic record search without date filters."""
         # Set up the mock service context manager
         mock_service = AsyncMock()
         mock_service.get_table_by_name.return_value = mock_table
         mock_service.search_rows.return_value = [
             mock_row
-        ]  # search_records calls search_rows, not list_rows
+        ]  # search_rows calls search_rows, not list_rows
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        # Call the search_records function
-        result = await search_records(
+        # Call the search_rows function
+        result = await search_rows(
             table="test_table",
             limit=50,
             offset=10,
@@ -455,7 +455,7 @@ class TestCoreSearchRecords:
         assert result[0]["age"] == mock_row["age"]
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
-    async def test_search_records_with_date_filters(
+    async def test_search_rows_with_date_filters(
         self, mock_with_session, mock_table, mock_row
     ):
         """Test record search with date filtering capabilities."""
@@ -464,7 +464,7 @@ class TestCoreSearchRecords:
         mock_service.get_table_by_name.return_value = mock_table
         mock_service.search_rows.return_value = [
             mock_row
-        ]  # search_records calls search_rows
+        ]  # search_rows calls search_rows
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -477,8 +477,8 @@ class TestCoreSearchRecords:
         updated_after = datetime.now(UTC) - timedelta(hours=1)
         updated_before = datetime.now(UTC) + timedelta(hours=1)
 
-        # Call the search_records function with date filters
-        result = await search_records(
+        # Call the search_rows function with date filters
+        result = await search_rows(
             table="test_table",
             limit=50,
             offset=10,
@@ -508,16 +508,16 @@ class TestCoreSearchRecords:
         assert result[0] == mock_row
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
-    async def test_search_records_limit_validation(self, mock_with_session):
-        """Test that search_records raises ValueError when limit exceeds maximum."""
+    async def test_search_rows_limit_validation(self, mock_with_session):
+        """Test that search_rows raises ValueError when limit exceeds maximum."""
         from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 
-        # Call search_records with limit exceeding maximum
+        # Call search_rows with limit exceeding maximum
         with pytest.raises(
             ValueError,
             match=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}",
         ):
-            await search_records(
+            await search_rows(
                 table="test_table",
                 limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1,
             )
