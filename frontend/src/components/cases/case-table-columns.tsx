@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { ColumnDef } from "@tanstack/react-table"
-import { format, formatDistanceToNow } from "date-fns"
+import { format } from "date-fns"
 import fuzzysort from "fuzzysort"
 import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
@@ -31,7 +31,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { User } from "@/lib/auth"
-import { capitalizeFirst } from "@/lib/utils"
+import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 
 const NO_DATA = "--" as const
 
@@ -177,18 +177,16 @@ export function createColumns(
         const dt = new Date(
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
         )
-        const timeAgo = capitalizeFirst(
-          formatDistanceToNow(dt, { addSuffix: true })
-        )
+        const shortTime = capitalizeFirst(shortTimeAgo(dt))
         const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
 
         return (
           <Tooltip>
             <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+              <span className="truncate text-xs">{shortTime}</span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
@@ -208,18 +206,16 @@ export function createColumns(
         const dt = new Date(
           row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
         )
-        const timeAgo = capitalizeFirst(
-          formatDistanceToNow(dt, { addSuffix: true })
-        )
+        const shortTime = capitalizeFirst(shortTimeAgo(dt))
         const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
 
         return (
           <Tooltip>
             <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+              <span className="truncate text-xs">{shortTime}</span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
