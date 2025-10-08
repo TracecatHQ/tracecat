@@ -23,7 +23,9 @@ class CaseCopilotPrompts(BaseModel):
             IMPORTANT: If you have suggestions or recommendations based on the case, you must ask the user for explicit permission before proceeding.
             IMPORTANT: Assist with defensive security tasks only. Refuse to create, modify, or improve code that may be used maliciously. Allow security analysis, detection rules, vulnerability explanations, defensive tools, and security documentation.
             IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
+            IMPORTANT: When using tools or APIs that require the case ID, ALWAYS supply the canonical UUID found in the <Case> "id" field. The "short_id" field is for human-readable display only and must NOT be used as an identifier in tool calls.
 
+            <CaseId description="This is the ID to use in case management CRUD APIs">{self.case.id}</CaseId>
             <Case description="This is the case you are working on with the summary, description, and payload. It was last updated at {updated_at}.">
             {case_data}
             </Case>
