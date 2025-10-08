@@ -22,13 +22,13 @@ export const GET = async (request: NextRequest) => {
         }
         console.error(
           "public_app_url missing from /info response",
-          public_app_url,
+          public_app_url
         )
       } else {
         console.error(
           "Failed to fetch /info for public app url",
           response.status,
-          response.statusText,
+          response.statusText
         )
       }
     } catch (error_) {
@@ -58,7 +58,7 @@ export const GET = async (request: NextRequest) => {
   if (!request.nextUrl.searchParams.get("code") || !state) {
     console.error("Missing code or state in request")
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl()),
+      new URL("/auth/error", await resolvePublicAppUrl())
     )
   }
 
@@ -69,7 +69,7 @@ export const GET = async (request: NextRequest) => {
   if (!cookie) {
     console.error("Missing cookie in request")
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl()),
+      new URL("/auth/error", await resolvePublicAppUrl())
     )
   }
 
@@ -84,7 +84,7 @@ export const GET = async (request: NextRequest) => {
   if (!isIntegrationOAuthCallback(cb)) {
     console.error("Invalid integration callback", cb)
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl()),
+      new URL("/auth/error", await resolvePublicAppUrl())
     )
   }
   const { redirect_url } = cb
