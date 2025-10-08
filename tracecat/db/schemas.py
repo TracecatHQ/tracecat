@@ -918,8 +918,6 @@ class Case(Resource, table=True):
         back_populates="case",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
-
-
 class CaseComment(Resource, table=True):
     """A comment on a case."""
 

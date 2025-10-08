@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
+
+if TYPE_CHECKING:
+    from tracecat.cases.durations.models import CaseDurationDefinition
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
@@ -21,6 +24,7 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
+    case_durations: NotRequired[list[CaseDurationDefinition] | None]
 
 
 # Schema
@@ -31,6 +35,7 @@ class WorkspaceSettingsRead(BaseModel):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
+    case_durations: list[CaseDurationDefinition] | None = None
 
     @computed_field
     @property
@@ -71,6 +76,10 @@ class WorkspaceSettingsUpdate(BaseModel):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    )
+    case_durations: list[CaseDurationDefinition] | None = Field(
+        default=None,
+        description="Workspace-defined case duration metrics computed from case events.",
     )
 
     @field_validator("git_repo_url", mode="before")
