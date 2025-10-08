@@ -85,12 +85,9 @@ class CaseDurationService(BaseWorkspaceService):
             if not updates:
                 return definition
 
-            if (
-                (new_name := updates.get("name"))
-                and any(
-                    other.name == new_name and other.id != duration_id
-                    for other in definitions
-                )
+            if (new_name := updates.get("name")) and any(
+                other.name == new_name and other.id != duration_id
+                for other in definitions
             ):
                 raise TracecatValidationError(
                     f"A duration named '{new_name}' already exists"
@@ -141,9 +138,7 @@ class CaseDurationService(BaseWorkspaceService):
             if started_at and ended_at and ended_at < started_at:
                 end_match = None
                 ended_at = None
-            duration = (
-                ended_at - started_at if started_at and ended_at else None
-            )
+            duration = ended_at - started_at if started_at and ended_at else None
 
             results.append(
                 CaseDurationComputation(
@@ -198,9 +193,7 @@ class CaseDurationService(BaseWorkspaceService):
         result = await self.session.exec(stmt)
         resolved = result.first()
         if resolved is None:
-            raise TracecatNotFoundError(
-                f"Case {case} not found in this workspace"
-            )
+            raise TracecatNotFoundError(f"Case {case} not found in this workspace")
         return resolved
 
     async def _list_case_events(self, case: Case) -> list[CaseEvent]:
@@ -242,9 +235,7 @@ class CaseDurationService(BaseWorkspaceService):
             return candidates[-1]
         return candidates[0]
 
-    def _matches_filters(
-        self, event: CaseEvent, filters: dict[str, Any]
-    ) -> bool:
+    def _matches_filters(self, event: CaseEvent, filters: dict[str, Any]) -> bool:
         for path, expected in filters.items():
             actual = self._resolve_field(event, path)
             if isinstance(actual, Enum):
