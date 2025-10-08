@@ -4,10 +4,12 @@ import "@blocknote/core/fonts/inter.css"
 import "@blocknote/shadcn/style.css"
 import "@/components/cases/editor.css"
 
+import { useChat } from "@ai-sdk/react"
 import { codeBlock } from "@blocknote/code-block"
 import type { BlockNoteEditor } from "@blocknote/core"
 import { useCreateBlockNote } from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
+import { DefaultChatTransport } from "ai"
 import {
   ChevronRightIcon,
   CircleDot,
@@ -16,7 +18,7 @@ import {
   RefreshCw,
   Undo2Icon,
 } from "lucide-react"
-import React, { useEffect } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import type {
   AgentOutput,
   EventFailure,
@@ -30,11 +32,18 @@ import type {
   ToolReturnPart,
   UserPromptPart,
 } from "@/client"
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation"
 import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
 import { CaseUserAvatar } from "@/components/cases/case-panel-common"
+import { renderPart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
+import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
@@ -53,7 +62,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import { parseChatError } from "@/hooks/use-chat"
+import { getBaseUrl } from "@/lib/api"
 import { SYSTEM_USER } from "@/lib/auth"
 import type { ModelMessage } from "@/lib/chat"
 import {
@@ -740,11 +752,7 @@ export function ActionEventDetails({
       case "STARTED": {
         // Start the action. If we need to stream it should be done here
         if (session_id) {
-          return (
-            <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-              <span>Agent is streaming output...</span>
-            </div>
-          )
+          return <ActionSessionStream sessionId={session_id} />
         }
         return (
           <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
@@ -821,6 +829,77 @@ export function ActionEventDetails({
   return actionEventsForRef.map((actionEvent) => (
     <div key={actionEvent.stream_id}>{renderEvent(actionEvent)}</div>
   ))
+}
+
+function ActionSessionStream({ sessionId }: { sessionId: string }) {
+  const { workspaceId } = useWorkflowBuilder()
+  // TODO: Surface error in UI
+  const [_lastError, setLastError] = useState<string | null>(null)
+
+  const transport = useMemo(() => {
+    return new DefaultChatTransport({
+      credentials: "include",
+      prepareReconnectToStreamRequest: ({ id }) => {
+        const url = new URL(`/api/agent/sessions/${id}`, getBaseUrl())
+        url.searchParams.set("workspace_id", workspaceId)
+        return {
+          api: url.toString(),
+          credentials: "include", // Include cookies/auth
+        }
+      },
+    })
+  }, [workspaceId])
+
+  const { messages, status } = useChat({
+    id: sessionId,
+    resume: true, // Force resume a stream on mount
+    transport,
+    onError: (error) => {
+      const friendlyMessage = parseChatError(error)
+      setLastError(friendlyMessage)
+      console.error("Error in Vercel chat:", error)
+      toast({
+        title: "Chat error",
+        description: friendlyMessage,
+      })
+    },
+  })
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-md border border-border/60 bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <MessageCircle className="size-3" />
+        <span>Agent Stream</span>
+        {status === "streaming" && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] font-medium normal-case text-muted-foreground">
+            <Spinner className="size-3" />
+            <span>Streaming…</span>
+          </span>
+        )}
+      </div>
+      <div className="flex min-h-[220px] max-h-80 flex-col">
+        {status === "submitted" ? (
+          <div className="flex flex-1 items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+            <Spinner className="size-3" />
+            <span>Connecting to agent…</span>
+          </div>
+        ) : (
+          <Conversation className="flex-1">
+            <ConversationContent>
+              {messages.map(({ id, role, parts }) => (
+                <div key={id}>
+                  {parts?.map((part, index) =>
+                    renderPart(part, index, id, role)
+                  )}
+                </div>
+              ))}
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function ErrorEvent({ failure }: { failure: EventFailure }) {
