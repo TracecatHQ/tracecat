@@ -5,7 +5,6 @@ from typing import ClassVar
 from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.microsoft.graph import (
     AC_DESCRIPTION,
-    CC_DEFAULT_SCOPES,
     CC_DESCRIPTION,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
@@ -55,7 +54,9 @@ class MicrosoftTeamsACProvider(MicrosoftGraphACProvider):
 
 
 CC_SCOPES = ProviderScopes(
-    default=CC_DEFAULT_SCOPES,
+    default=[
+        "https://graph.microsoft.com/.default",
+    ],
 )
 CC_METADATA = ProviderMetadata(
     id="microsoft_teams",

@@ -11,6 +11,7 @@ from tracecat.integrations.models import (
 )
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
+    ClientCredentialsOAuthProvider,
 )
 
 AUTHORIZATION_ENDPOINT = (
@@ -35,6 +36,10 @@ AC_DESCRIPTION = "OAuth provider for Azure Resource Manager delegated permission
 AC_DEFAULT_SCOPES = [
     "offline_access",
     "https://management.azure.com/user_impersonation",
+]
+CC_DESCRIPTION = "OAuth provider for Azure Resource Manager application permissions"
+CC_DEFAULT_SCOPES = [
+    "https://management.azure.com/.default",
 ]
 
 
@@ -101,3 +106,48 @@ class AzureManagementACProvider(AuthorizationCodeOAuthProvider):
             "response_mode": "query",
             "prompt": "select_account",
         }
+
+
+CC_SCOPES = ProviderScopes(
+    default=CC_DEFAULT_SCOPES,
+)
+
+
+CC_METADATA = ProviderMetadata(
+    id="azure_management",
+    name="Azure Management (Service Principal)",
+    description=f"Azure Management {CC_DESCRIPTION}",
+    setup_steps=get_azure_setup_steps(),
+    enabled=True,
+    api_docs_url="https://learn.microsoft.com/en-us/rest/api/azure/",
+    setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow",
+    troubleshooting_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/reference-aadsts-error-codes",
+)
+
+
+class AzureManagementCCProvider(ClientCredentialsOAuthProvider):
+    """Azure Management OAuth provider using client credentials flow for application permissions."""
+
+    id: ClassVar[str] = "azure_management"
+    _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
+    _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
+    scopes: ClassVar[ProviderScopes] = CC_SCOPES
+    config_model: ClassVar[type[BaseModel]] = AzureManagementOAuthConfig
+    metadata: ClassVar[ProviderMetadata] = CC_METADATA
+
+    def __init__(
+        self,
+        tenant_id: str,
+        **kwargs: Unpack[OAuthProviderKwargs],
+    ):
+        """Initialize the Azure Management client credentials provider."""
+        self.tenant_id = tenant_id
+        super().__init__(**kwargs)
+
+    @property
+    def authorization_endpoint(self) -> str:
+        return self._authorization_endpoint.format(tenant=self.tenant_id)
+
+    @property
+    def token_endpoint(self) -> str:
+        return self._token_endpoint.format(tenant=self.tenant_id)

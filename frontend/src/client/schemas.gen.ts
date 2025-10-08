@@ -8174,6 +8174,11 @@ export const $RegistryOAuthSecret_Input = {
       enum: ["authorization_code", "client_credentials"],
       title: "Grant Type",
     },
+    optional: {
+      type: "boolean",
+      title: "Optional",
+      default: false,
+    },
   },
   type: "object",
   required: ["provider_id", "grant_type"],
@@ -8197,6 +8202,11 @@ export const $RegistryOAuthSecret_Output = {
       type: "string",
       enum: ["authorization_code", "client_credentials"],
       title: "Grant Type",
+    },
+    optional: {
+      type: "boolean",
+      title: "Optional",
+      default: false,
     },
     name: {
       type: "string",
