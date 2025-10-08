@@ -27,6 +27,10 @@ definition:
     base_url:
       type: str
       description: Kibana endpoint URL (e.g. https://localhost:5601).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
   steps:
     - ref: search_query
       action: core.transform.reshape
@@ -47,6 +51,7 @@ definition:
       args:
         url: ${{ inputs.base_url }}/api/detection_engine/signals/search
         method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           kbn-xsrf: kibana
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

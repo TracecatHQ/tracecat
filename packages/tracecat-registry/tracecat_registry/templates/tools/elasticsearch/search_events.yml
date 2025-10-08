@@ -52,12 +52,17 @@ definition:
       type: list[str]
       description: Source fields to return (improves performance, reduces data exposure).
       default: []
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
   steps:
     - ref: search_request
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/${{ inputs.index }}/_search
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
           Content-Type: application/json
