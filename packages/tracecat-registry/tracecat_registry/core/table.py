@@ -96,7 +96,7 @@ async def lookup_many(
     display_group="Tables",
     namespace="core.table",
 )
-async def search_records(
+async def search_rows(
     table: Annotated[
         str,
         Doc("The table to search in."),
