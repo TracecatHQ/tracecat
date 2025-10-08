@@ -234,7 +234,7 @@ export function ChatSessionPane({
                     )}
 
                   {parts?.map((part, index) =>
-                    renderPart(part, index, id, role, isLastMessage)
+                    renderPart(part, index, id, role)
                   )}
                   {role === "assistant" && parts.length > 0 && (
                     // Render response actions for assistant messages and reveal them on hover for older messages.
@@ -347,12 +347,11 @@ export function ChatSessionPane({
   )
 }
 
-function renderPart(
+export function renderPart(
   part: UIMessagePart<UIDataTypes, UITools>,
   index: number,
   id: string,
-  role: UIMessage["role"],
-  isLatestMessage: boolean
+  role: UIMessage["role"]
 ) {
   if (part.type === "text") {
     return (
@@ -366,11 +365,7 @@ function renderPart(
 
   if (part.type === "reasoning") {
     return (
-      <Reasoning
-        key={`${id}-${index}`}
-        className="w-full"
-        isStreaming={isLatestMessage}
-      >
+      <Reasoning key={`${id}-${index}`} className="w-full">
         <ReasoningTrigger />
         <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
