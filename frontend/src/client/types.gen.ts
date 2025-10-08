@@ -2850,6 +2850,7 @@ export type RegistryOAuthSecret_Input = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
+  optional?: boolean
 }
 
 export type grant_type = "authorization_code" | "client_credentials"
@@ -2861,6 +2862,7 @@ export type RegistryOAuthSecret_Output = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
+  optional?: boolean
   readonly name: string
 }
 

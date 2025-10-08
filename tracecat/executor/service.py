@@ -57,6 +57,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    TracecatCredentialsError,
     TracecatException,
 )
 
@@ -277,11 +278,10 @@ async def get_action_secrets(
     oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     for secret in action_secrets:
         if secret.type == "oauth":
-            oauth_secrets[
-                ProviderKey(
-                    id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
-                )
-            ] = secret
+            key = ProviderKey(
+                id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
+            )
+            oauth_secrets[key] = secret
         elif secret.optional:
             optional_basic_secrets.add(secret.name)
         else:
@@ -310,36 +310,70 @@ async def get_action_secrets(
         secrets |= sandbox.secrets.copy()
 
     # Get oauth integrations
-    try:
-        if oauth_secrets:
+    if oauth_secrets:
+        try:
             async with IntegrationService.with_session() as service:
                 oauth_integrations = await service.list_integrations(
                     provider_keys=set(oauth_secrets.keys())
                 )
+                fetched_keys: set[ProviderKey] = set()
                 for integration in oauth_integrations:
+                    provider_key = ProviderKey(
+                        id=integration.provider_id,
+                        grant_type=integration.grant_type,
+                    )
+                    fetched_keys.add(provider_key)
                     await service.refresh_token_if_needed(integration)
                     try:
                         if access_token := await service.get_access_token(integration):
-                            secret = oauth_secrets[
-                                ProviderKey(
-                                    id=integration.provider_id,
-                                    grant_type=integration.grant_type,
-                                )
-                            ]
+                            secret = oauth_secrets[provider_key]
                             # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
                             # NOTE: We are overriding the provider_id key here assuming its unique
                             # <prefix> is the provider_id in uppercase.
-                            secrets[integration.provider_id] = {
-                                secret.token_name: access_token.get_secret_value()
-                            }
+                            provider_secrets = secrets.setdefault(
+                                integration.provider_id, {}
+                            )
+                            provider_secrets[secret.token_name] = (
+                                access_token.get_secret_value()
+                            )
                     except Exception as e:
                         logger.warning(
                             "Could not get oauth secret, skipping",
                             error=e,
                             integration=integration,
                         )
-    except Exception as e:
-        logger.warning("Could not get oauth secrets", error=e)
+                missing_keys = set(oauth_secrets.keys()) - fetched_keys
+                if missing_keys:
+                    missing_required = [
+                        key for key in missing_keys if not oauth_secrets[key].optional
+                    ]
+                    optional_missing = set(missing_keys) - set(missing_required)
+                    if optional_missing:
+                        logger.info(
+                            "Optional OAuth integrations not configured",
+                            providers=[
+                                {
+                                    "provider_id": key.id,
+                                    "grant_type": key.grant_type.value,
+                                }
+                                for key in optional_missing
+                            ],
+                        )
+                    if missing_required:
+                        raise TracecatCredentialsError(
+                            "Missing required OAuth integrations",
+                            detail=[
+                                {
+                                    "provider_id": key.id,
+                                    "grant_type": key.grant_type.value,
+                                }
+                                for key in missing_required
+                            ],
+                        )
+        except TracecatCredentialsError:
+            raise
+        except Exception as e:
+            logger.warning("Could not get oauth secrets", error=e)
     return secrets
 
 
