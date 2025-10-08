@@ -3173,6 +3173,7 @@ export type RunActionInput = {
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
+  session_id?: string | null
 }
 
 /**
@@ -4501,6 +4502,7 @@ export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   child_wf_count?: number
   loop_index?: number | null
   child_wf_wait_strategy?: WaitStrategy | null
+  session_id?: string | null
 }
 
 export type WorkflowExecutionEventStatus =

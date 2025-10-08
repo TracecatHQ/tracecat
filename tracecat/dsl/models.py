@@ -333,6 +333,8 @@ class RunActionInput(BaseModel):
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
+    session_id: str | None = None
+    """ID for a streamable session, if any."""
 
     @model_validator(mode="before")
     @classmethod

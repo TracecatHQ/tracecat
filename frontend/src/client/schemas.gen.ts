@@ -9015,6 +9015,17 @@ export const $RunActionInput = {
       title: "Stream Id",
       default: "<root>:0",
     },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
   },
   type: "object",
   required: ["task", "exec_context", "run_context"],
@@ -13285,6 +13296,17 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
           type: "null",
         },
       ],
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
     },
   },
   type: "object",

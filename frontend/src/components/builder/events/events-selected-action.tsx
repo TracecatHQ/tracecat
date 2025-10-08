@@ -727,64 +727,89 @@ export function ActionEventDetails({
     actionEvent: WorkflowExecutionEventCompact,
     streamIdPlaceholder?: string
   ) => {
-    if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
-      return (
-        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-          <span>Action is {actionEvent.status.toLowerCase()}...</span>
-        </div>
-      )
-    }
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <Badge variant="secondary" className="items-center gap-2">
-            {getWorkflowEventIcon(actionEvent.status, "size-4")}
-            <span className="text-xs font-semibold text-foreground/70">
-              Action {actionEvent.status.toLowerCase()}
-            </span>
-          </Badge>
-          {actionEvent.stream_id && !streamIdPlaceholder && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
-              {parseStreamId(actionEvent.stream_id)
-                .filter((part) => part.scope !== "<root>")
-                // Only sort if scope matches, otherwise preserve original order
-                .sort((a, b) => {
-                  if (a.scope === b.scope) {
-                    return Number(a.index) - Number(b.index)
-                  }
-                  // If scopes do not match, preserve original order (no sorting)
-                  return 0
-                })
-                // Insert a ">" separator between mapped elements, but not after the last one
-                .map((part, idx, arr) => (
-                  <div key={part.scope} className="flex items-center gap-1">
-                    <span className="flex items-center gap-1">
-                      <span>{part.scope}</span>
-                      <InlineDotSeparator />
-                      <span>{part.index}</span>
-                    </span>
-                    {idx < arr.length - 1 && (
-                      <ChevronRightIcon className="size-3" />
-                    )}
-                  </div>
-                ))}
+    const { status, session_id, stream_id, action_error } = actionEvent
+    switch (status) {
+      case "SCHEDULED": {
+        return (
+          <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+            <span>Action is scheduled...</span>
+          </div>
+        )
+      }
+      case "STARTED": {
+        // Start the action. If we need to stream it should be done here
+        if (session_id) {
+          return (
+            <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+              <span>Agent is streaming output...</span>
             </div>
-          )}
-          {streamIdPlaceholder && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
-              <span>{streamIdPlaceholder}</span>
+          )
+        }
+        return (
+          <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+            <span>Action is running...</span>
+          </div>
+        )
+      }
+      default: {
+        return (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Badge variant="secondary" className="items-center gap-2">
+                {getWorkflowEventIcon(actionEvent.status, "size-4")}
+                <span className="text-xs font-semibold text-foreground/70">
+                  Action {status.toLowerCase()}
+                </span>
+              </Badge>
+              {stream_id && !streamIdPlaceholder && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
+                  {parseStreamId(stream_id)
+                    .filter((part) => part.scope !== "<root>")
+                    // Only sort if scope matches, otherwise preserve original order
+                    .sort((a, b) => {
+                      if (a.scope === b.scope) {
+                        return Number(a.index) - Number(b.index)
+                      }
+                      // If scopes do not match, preserve original order (no sorting)
+                      return 0
+                    })
+                    // Insert a ">" separator between mapped elements, but not after the last one
+                    .map((part, idx, arr) => (
+                      <div key={part.scope} className="flex items-center gap-1">
+                        <span className="flex items-center gap-1">
+                          <span>{part.scope}</span>
+                          <InlineDotSeparator />
+                          <span>{part.index}</span>
+                        </span>
+                        {idx < arr.length - 1 && (
+                          <ChevronRightIcon className="size-3" />
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+              {streamIdPlaceholder && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
+                  <span>{streamIdPlaceholder}</span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {type === "result" && actionEvent.action_error ? (
-          <ErrorEvent failure={actionEvent.action_error} />
-        ) : (
-          <SuccessEvent event={actionEvent} type={type} eventRef={eventRef} />
-        )}
-      </div>
-    )
+            {type === "result" && action_error ? (
+              <ErrorEvent failure={action_error} />
+            ) : (
+              <SuccessEvent
+                event={actionEvent}
+                type={type}
+                eventRef={eventRef}
+              />
+            )}
+          </div>
+        )
+      }
+    }
   }
   if (type === "input") {
     // Inputs are identical for all events, so we can just render the first one

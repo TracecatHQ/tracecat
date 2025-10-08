@@ -337,10 +337,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     action_result: TResult | None = None
     action_error: EventFailure | None = None
     stream_id: StreamID = ROOT_STREAM
+    """The execution stream ID of the event, not to be confused with SSE streaming."""
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
     child_wf_wait_strategy: WaitStrategy | None = None
+    # SSE streaming for agents
+    session_id: str | None = None
 
     @staticmethod
     async def from_source_event(
@@ -401,6 +404,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             action_ref=task.ref,
             action_input=task.args,
             stream_id=action_input.stream_id,
+            session_id=action_input.session_id,
         )
 
     @staticmethod
