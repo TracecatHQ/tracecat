@@ -6,9 +6,8 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import TypeAdapter, ValidationError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,11 +15,17 @@ from tracecat.cases.durations.models import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
     CaseDurationCreate,
-    CaseDurationDefinition,
     CaseDurationEventAnchor,
+    CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.db.schemas import Case, CaseEvent, Workspace
+from tracecat.db.schemas import (
+    Case,
+    CaseEvent,
+)
+from tracecat.db.schemas import (
+    CaseDurationDefinition as CaseDurationDefinitionDB,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
@@ -30,88 +35,75 @@ from tracecat.types.exceptions import (
 
 
 class CaseDurationService(BaseWorkspaceService):
-    """Manage case duration definitions stored in workspace settings."""
+    """Manage case duration definitions stored in the database."""
 
     service_name = "case_durations"
-
-    _definitions_adapter = TypeAdapter(list[CaseDurationDefinition])
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
 
-    async def list_definitions(self) -> list[CaseDurationDefinition]:
+    async def list_definitions(self) -> list[CaseDurationRead]:
         """Return all duration definitions configured for the workspace."""
 
-        workspace = await self._get_workspace()
-        raw_definitions = workspace.settings.get("case_durations") or []
-        try:
-            return self._definitions_adapter.validate_python(raw_definitions)
-        except ValidationError as exc:
-            raise TracecatValidationError(
-                "Workspace case duration settings are invalid"
-            ) from exc
-
-    async def get_definition(self, duration_id: uuid.UUID) -> CaseDurationDefinition:
-        for definition in await self.list_definitions():
-            if definition.id == duration_id:
-                return definition
-        raise TracecatNotFoundError(
-            f"Case duration {duration_id} not found in this workspace"
+        stmt = (
+            select(CaseDurationDefinitionDB)
+            .where(CaseDurationDefinitionDB.owner_id == self.workspace_id)
+            .order_by(col(CaseDurationDefinitionDB.created_at).asc())
         )
+        result = await self.session.exec(stmt)
+        return [self._to_read_model(row) for row in result.all()]
+
+    async def get_definition(self, duration_id: uuid.UUID) -> CaseDurationRead:
+        entity = await self._get_definition_entity(duration_id)
+        return self._to_read_model(entity)
 
     async def create_definition(
         self, params: CaseDurationCreate
-    ) -> CaseDurationDefinition:
-        definitions = await self.list_definitions()
-        if any(defn.name == params.name for defn in definitions):
-            raise TracecatValidationError(
-                f"A duration named '{params.name}' already exists"
-            )
+    ) -> CaseDurationRead:
+        await self._ensure_unique_name(params.name)
 
-        definition = params.to_definition()
-        definitions.append(definition)
-        await self._persist_definitions(definitions)
-        return definition
+        entity = CaseDurationDefinitionDB(
+            owner_id=self.workspace_id,
+            name=params.name,
+            description=params.description,
+        )
+        self._apply_anchor(entity, params.start_anchor, "start")
+        self._apply_anchor(entity, params.end_anchor, "end")
+        self.session.add(entity)
+        await self.session.commit()
+        await self.session.refresh(entity)
+        return self._to_read_model(entity)
 
     async def update_definition(
         self, duration_id: uuid.UUID, params: CaseDurationUpdate
-    ) -> CaseDurationDefinition:
-        definitions = await self.list_definitions()
-        for index, definition in enumerate(definitions):
-            if definition.id != duration_id:
-                continue
+    ) -> CaseDurationRead:
+        entity = await self._get_definition_entity(duration_id)
+        updates = params.model_dump(exclude_unset=True)
+        if not updates:
+            return self._to_read_model(entity)
 
-            updates = params.model_dump(exclude_unset=True)
-            if not updates:
-                return definition
+        if (new_name := updates.get("name")) is not None:
+            await self._ensure_unique_name(new_name, exclude_id=entity.id)
+            entity.name = new_name
 
-            if (new_name := updates.get("name")) and any(
-                other.name == new_name and other.id != duration_id
-                for other in definitions
-            ):
-                raise TracecatValidationError(
-                    f"A duration named '{new_name}' already exists"
-                )
+        if "description" in updates:
+            entity.description = updates["description"]
 
-            updated_definition = definition.model_copy(update=updates)
-            definitions[index] = updated_definition
-            await self._persist_definitions(definitions)
-            return updated_definition
+        if (start_anchor := updates.get("start_anchor")) is not None:
+            self._apply_anchor(entity, start_anchor, "start")
 
-        raise TracecatNotFoundError(
-            f"Case duration {duration_id} not found in this workspace"
-        )
+        if (end_anchor := updates.get("end_anchor")) is not None:
+            self._apply_anchor(entity, end_anchor, "end")
+
+        self.session.add(entity)
+        await self.session.commit()
+        await self.session.refresh(entity)
+        return self._to_read_model(entity)
 
     async def delete_definition(self, duration_id: uuid.UUID) -> None:
-        definitions = await self.list_definitions()
-        for index, definition in enumerate(definitions):
-            if definition.id == duration_id:
-                definitions.pop(index)
-                await self._persist_definitions(definitions)
-                return
-        raise TracecatNotFoundError(
-            f"Case duration {duration_id} not found in this workspace"
-        )
+        entity = await self._get_definition_entity(duration_id)
+        await self.session.delete(entity)
+        await self.session.commit()
 
     async def compute_for_case(
         self, case: Case | uuid.UUID
@@ -155,28 +147,69 @@ class CaseDurationService(BaseWorkspaceService):
 
         return results
 
-    async def _persist_definitions(
-        self, definitions: Sequence[CaseDurationDefinition]
-    ) -> None:
-        workspace = await self._get_workspace()
-        settings = dict(workspace.settings or {})
-        settings["case_durations"] = [
-            definition.model_dump(mode="json") for definition in definitions
-        ]
-        workspace.settings = settings
-        self.session.add(workspace)
-        await self.session.commit()
-        await self.session.refresh(workspace)
-
-    async def _get_workspace(self) -> Workspace:
-        stmt = select(Workspace).where(Workspace.id == self.workspace_id)
+    async def _get_definition_entity(
+        self, duration_id: uuid.UUID
+    ) -> CaseDurationDefinitionDB:
+        stmt = select(CaseDurationDefinitionDB).where(
+            CaseDurationDefinitionDB.id == duration_id,
+            CaseDurationDefinitionDB.owner_id == self.workspace_id,
+        )
         result = await self.session.exec(stmt)
-        workspace = result.first()
-        if workspace is None:
+        entity = result.first()
+        if entity is None:
             raise TracecatNotFoundError(
-                f"Workspace {self.workspace_id} could not be found"
+                f"Case duration {duration_id} not found in this workspace"
             )
-        return workspace
+        return entity
+
+    async def _ensure_unique_name(
+        self, name: str, *, exclude_id: uuid.UUID | None = None
+    ) -> None:
+        stmt = select(CaseDurationDefinitionDB.id).where(
+            CaseDurationDefinitionDB.owner_id == self.workspace_id,
+            CaseDurationDefinitionDB.name == name,
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(CaseDurationDefinitionDB.id != exclude_id)
+        result = await self.session.exec(stmt)
+        if result.first() is not None:
+            raise TracecatValidationError(
+                f"A duration named '{name}' already exists"
+            )
+
+    def _to_read_model(
+        self, entity: CaseDurationDefinitionDB
+    ) -> CaseDurationRead:
+        return CaseDurationRead(
+            id=entity.id,
+            name=entity.name,
+            description=entity.description,
+            start_anchor=self._anchor_from_entity(entity, "start"),
+            end_anchor=self._anchor_from_entity(entity, "end"),
+        )
+
+    def _anchor_from_entity(
+        self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
+    ) -> CaseDurationEventAnchor:
+        return CaseDurationEventAnchor(
+            event_type=getattr(entity, f"{prefix}_event_type"),
+            timestamp_path=getattr(entity, f"{prefix}_timestamp_path"),
+            field_filters=dict(
+                getattr(entity, f"{prefix}_field_filters") or {}
+            ),
+            selection=getattr(entity, f"{prefix}_selection"),
+        )
+
+    def _apply_anchor(
+        self,
+        entity: CaseDurationDefinitionDB,
+        anchor: CaseDurationEventAnchor,
+        prefix: Literal["start", "end"],
+    ) -> None:
+        setattr(entity, f"{prefix}_event_type", anchor.event_type)
+        setattr(entity, f"{prefix}_timestamp_path", anchor.timestamp_path)
+        setattr(entity, f"{prefix}_field_filters", dict(anchor.field_filters))
+        setattr(entity, f"{prefix}_selection", anchor.selection)
 
     async def _resolve_case(self, case: Case | uuid.UUID) -> Case:
         if isinstance(case, Case):

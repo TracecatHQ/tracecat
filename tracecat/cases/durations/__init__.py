@@ -4,7 +4,6 @@ from .models import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
     CaseDurationCreate,
-    CaseDurationDefinition,
     CaseDurationEventAnchor,
     CaseDurationRead,
     CaseDurationUpdate,
@@ -13,7 +12,6 @@ from .models import (
 __all__ = [
     "CaseDurationComputation",
     "CaseDurationCreate",
-    "CaseDurationDefinition",
     "CaseDurationEventAnchor",
     "CaseDurationAnchorSelection",
     "CaseDurationRead",

@@ -67,17 +67,8 @@ class CaseDurationBase(BaseModel):
     )
 
 
-class CaseDurationDefinition(CaseDurationBase):
-    """Workspace-scoped definition for a case duration metric."""
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
-
-
 class CaseDurationCreate(CaseDurationBase):
     """Create payload for case duration definitions."""
-
-    def to_definition(self) -> CaseDurationDefinition:
-        return CaseDurationDefinition(**self.model_dump())
 
 
 class CaseDurationUpdate(BaseModel):
@@ -89,9 +80,10 @@ class CaseDurationUpdate(BaseModel):
     end_anchor: CaseDurationEventAnchor | None = None
 
 
-class CaseDurationRead(CaseDurationDefinition):
+class CaseDurationRead(CaseDurationBase):
     """Read model for case duration definitions."""
 
+    id: uuid.UUID = Field(...)
     model_config = ConfigDict(from_attributes=True)
 
 
