@@ -16,12 +16,17 @@ definition:
     template_name:
       type: str
       description: Name of the index template to retrieve.
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
   steps:
     - ref: get_index_template_request
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/_index_template/${{ inputs.template_name }}
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
   returns: ${{ steps.get_index_template_request.result.data }}
