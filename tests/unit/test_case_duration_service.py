@@ -83,7 +83,7 @@ async def test_duration_filters_match_event_payload(
                 event_type=CaseEventType.CASE_CREATED,
             ),
             end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.STATUS_CHANGED,
+                event_type=CaseEventType.CASE_CLOSED,
                 field_filters={"data.new": CaseStatus.CLOSED},
             ),
         )

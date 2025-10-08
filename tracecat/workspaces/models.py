@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
-
-if TYPE_CHECKING:
-    from tracecat.cases.durations.models import CaseDurationDefinition
+from tracecat.cases.durations.models import CaseDurationDefinition
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
@@ -133,6 +131,10 @@ class WorkspaceRead(BaseModel):
     name: str
     settings: WorkspaceSettingsRead | None = None
     owner_id: OwnerID
+
+
+WorkspaceSettingsRead.model_rebuild()
+WorkspaceSettingsUpdate.model_rebuild()
 
 
 # === Membership === #

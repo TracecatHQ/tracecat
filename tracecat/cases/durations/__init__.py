@@ -9,7 +9,6 @@ from .models import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from .service import CaseDurationService
 
 __all__ = [
     "CaseDurationComputation",
@@ -21,3 +20,11 @@ __all__ = [
     "CaseDurationService",
     "CaseDurationUpdate",
 ]
+
+
+def __getattr__(name: str):
+    if name == "CaseDurationService":
+        from .service import CaseDurationService
+
+        return CaseDurationService
+    raise AttributeError(name)
