@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _annotations
 
+import uuid
 from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -14,7 +15,7 @@ class RunAgentArgs(BaseModel):
     user_prompt: str
     tool_filters: ToolFilters | None = None
     """This is static over the lifetime of the workflow, as it's for 1 turn."""
-    session_id: str
+    session_id: uuid.UUID
     """Session ID for the agent execution."""
     instructions: str | None = None
     """Optional instructions for the agent. Defaults set in workflow."""

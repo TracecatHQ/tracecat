@@ -945,7 +945,7 @@ class DSLWorkflow:
 
         # Tells us where to get the redis stream
         session_id = (
-            str(workflow.uuid4()) if PlatformAction.is_streamable(task.action) else None
+            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
         )
 
         arg = RunActionInput(

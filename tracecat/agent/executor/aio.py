@@ -1,7 +1,6 @@
 """Public agent execution service (CE)."""
 
 import asyncio
-import uuid
 from typing import Any, Final
 
 from pydantic_ai import Agent
@@ -72,7 +71,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
     async def _get_writer(self, args: RunAgentArgs) -> PersistentStreamWriter:
         """Get the appropriate stream writer for the agent."""
         client = await get_redis_client()
-        session_id = uuid.UUID(args.session_id)
+        session_id = args.session_id
         return self._writer_cls(
             stream=AgentStream(client, session_id), chat_id=session_id
         )
@@ -83,7 +82,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
         """Start an agentic run with streaming."""
         coro = self._start_agent(args)
         task: asyncio.Task[AgentRunResult[str] | None] = asyncio.create_task(coro)
-        return AioAgentRunHandle(task, run_id=args.session_id)
+        return AioAgentRunHandle(task, run_id=str(args.session_id))
 
     async def _start_agent(self, args: RunAgentArgs) -> AgentRunResult[str] | None:
         # Fire-and-forget execution using the agent function directly
@@ -92,15 +91,15 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
         async with get_async_session_context_manager() as session:
             agent_svc = AgentManagementService(session, self.role)
             chat_svc = ChatService(session, self.role)
-            chat_id = uuid.UUID(args.session_id)
+            session_id = args.session_id
 
             try:
-                message_history = await chat_svc.list_messages(chat_id)
+                message_history = await chat_svc.list_messages(session_id)
             except Exception as e:
                 logger.warning(
                     "Failed to load message history from database, starting fresh",
                     error=str(e),
-                    session_id=args.session_id,
+                    session_id=session_id,
                 )
                 message_history = []
 
@@ -147,7 +146,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                     logger.error(
                         "Streaming agent run failed",
                         error=str(exc),
-                        chat_id=args.session_id,
+                        chat_id=session_id,
                     )
                     await writer.stream.error(error_message)
                     ## Don't update the message history with the error message

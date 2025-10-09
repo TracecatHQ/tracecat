@@ -1,53 +1,28 @@
 "use client"
 
-import "@blocknote/core/fonts/inter.css"
-import "@blocknote/shadcn/style.css"
-import "@/components/cases/editor.css"
-
 import { useChat } from "@ai-sdk/react"
-import { codeBlock } from "@blocknote/code-block"
-import type { BlockNoteEditor } from "@blocknote/core"
-import { useCreateBlockNote } from "@blocknote/react"
-import { BlockNoteView } from "@blocknote/shadcn"
 import { DefaultChatTransport } from "ai"
 import {
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
   MessageCircle,
-  RefreshCw,
-  Undo2Icon,
 } from "lucide-react"
-import React, { useEffect, useMemo, useState } from "react"
-import type {
-  AgentOutput,
-  EventFailure,
-  InteractionRead,
-  ModelRequest,
-  ModelResponse,
-  RetryPromptPart,
-  SystemPromptPart,
-  TextPart,
-  ToolCallPart,
-  ToolReturnPart,
-  UserPromptPart,
-} from "@/client"
+import { useMemo, useState } from "react"
+import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
-import { CaseUserAvatar } from "@/components/cases/case-panel-common"
 import { renderPart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
-import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -56,29 +31,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
 import { parseChatError } from "@/hooks/use-chat"
 import { getBaseUrl } from "@/lib/api"
-import { SYSTEM_USER } from "@/lib/auth"
-import type { ModelMessage } from "@/lib/chat"
 import {
   groupEventsByActionRef,
-  isAgentOutput,
   parseStreamId,
   refToLabel,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
-import { useGetRegistryAction } from "@/lib/hooks"
-import { getSpacedBlocks } from "@/lib/rich-text-editor"
-import { cn, reconstructActionType } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
@@ -217,490 +179,16 @@ export function SuccessEvent({
   type: Omit<TabType, "interaction">
   eventRef: string
 }) {
-  if (type === "result" && isAgentOutput(event.action_result)) {
-    return <AgentOutputEvent agentOutput={event.action_result} />
-  }
   return (
-    <JsonViewWithControls
-      src={type === "input" ? event.action_input : event.action_result}
-      defaultExpanded={true}
-      copyPrefix={`ACTIONS.${eventRef}.result`}
-    />
-  )
-}
-
-export function AgentOutputEvent({
-  agentOutput,
-}: {
-  agentOutput: AgentOutput
-}) {
-  return (
-    <div className="mb-16 mt-4 space-y-4">
-      <div className="space-y-4">
-        {agentOutput.message_history.map((m, index) => (
-          <div key={index}>
-            <ModelMessagePart part={m} />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-export function ModelMessagePart({ part }: { part: ModelMessage }) {
-  if (part.kind === "response") {
-    return <AgentResponsePart parts={part.parts} />
-  }
-  if (part.kind === "request") {
-    return <AgentRequestPart parts={part.parts} />
-  }
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Unknown model message kind: {part.kind}</span>
-      <JsonViewWithControls src={part} defaultExpanded={true} />
-    </div>
-  )
-}
-
-export function SystemPromptPartComponent({
-  part,
-  defaultExpanded = false,
-}: {
-  part: SystemPromptPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : JSON.stringify(part.content, null, 2)
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? content
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-start gap-2">
-        <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div
-          className={cn(
-            "flex-1 overflow-x-auto break-words",
-            isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"
-          )}
-        >
-          {displayContent}
-        </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={`ml-2 size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        )}
-      </div>
-    </Card>
-  )
-}
-
-export function UserPromptPartComponent({
-  part,
-  defaultExpanded = false,
-}: {
-  part: UserPromptPart
-  defaultExpanded?: boolean
-}) {
-  const { user } = useAuth()
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : JSON.stringify(part.content, null, 2)
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? content
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {user && <CaseUserAvatar user={user} size="sm" />}
-            {user && (
-              <span className="text-xs font-semibold text-foreground/80">
-                {user.firstName || user.email}
-              </span>
-            )}
-          </div>
-          {shouldTruncate && (
-            <ChevronRightIcon
-              className={`size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            />
-          )}
-        </div>
-        <div
-          className={`overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
-        >
-          {displayContent}
-        </div>
-      </div>
-    </Card>
-  )
-}
-
-export function RetryPromptPartComponent({
-  part,
-  defaultExpanded = false,
-}: {
-  part: RetryPromptPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : part.content.map((c) => c.msg).join(" ")
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? typeof part.content === "string"
-      ? part.content
-      : part.content.map((c) => {
-          return <span key={c.msg}>{c.msg}</span>
-        })
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="flex cursor-pointer flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <RefreshCw className="size-3 text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground/80">
-            Retry prompt
-          </span>
-        </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        )}
-      </div>
-      <div className={`${isExpanded ? "whitespace-pre-wrap" : "truncate"}`}>
-        {displayContent}
-      </div>
-    </Card>
-  )
-}
-
-export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
-  const [isExpanded, setIsExpanded] = React.useState(false)
-
-  const toolName = part.tool_name
-
-  // Always resolve action type so hooks are called consistently
-  const actionType = reconstructActionType(toolName)
-  // Call hook unconditionally; it will be disabled internally when actionType is undefined
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
-  // Case 1 – registry action
-  if (registryActionIsLoading) {
-    return <Skeleton className="h-16 w-full" />
-  }
-  if (registryAction && !registryActionError) {
-    return (
-      <div className="flex flex-col gap-2">
-        <Card
-          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
-          <div
-            className={cn(
-              "flex items-center gap-2 p-2",
-              isExpanded && "border-b-[0.5px]"
-            )}
-          >
-            <Tooltip>
-              <TooltipTrigger>
-                <div>
-                  {getIcon(actionType, {
-                    className: "size-4 p-[3px]",
-                  })}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="p-1">
-                <p>{registryAction.namespace}</p>
-              </TooltipContent>
-            </Tooltip>
-            <span className="text-xs font-semibold text-foreground/80">
-              {registryAction.default_title}
-            </span>
-            <Undo2Icon className="size-3" />
-            <ChevronRightIcon
-              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            />
-          </div>
-        </Card>
-        {isExpanded && (
-          <JsonViewWithControls
-            src={part.content}
-            defaultExpanded={true}
-            defaultTab="nested"
-            className="shadow-sm"
-          />
-        )}
-      </div>
-    )
-  }
-
-  // Case 2 – not found
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Action not found</span>
-    </div>
-  )
-}
-
-export function AgentRequestPart({ parts }: { parts: ModelRequest["parts"] }) {
-  return (
-    <div className="space-y-2">
-      {parts.map((p, index) => (
-        <div key={index} className="space-y-2 text-xs">
-          {p.part_kind === "system-prompt" && (
-            <SystemPromptPartComponent part={p} />
-          )}
-          {p.part_kind === "user-prompt" && (
-            <UserPromptPartComponent part={p} />
-          )}
-          {p.part_kind === "tool-return" && (
-            <ToolReturnPartComponent part={p} />
-          )}
-          {p.part_kind === "retry-prompt" && (
-            <RetryPromptPartComponent part={p} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export function AgentResponsePart({
-  parts,
-}: {
-  parts: ModelResponse["parts"]
-}) {
-  return (
-    <div className="space-y-2">
-      {parts.map((p, index) => (
-        <div key={index} className="space-y-2 text-xs">
-          {p.part_kind === "text" && <TextPartComponent text={p} />}
-          {p.part_kind === "tool-call" && (
-            <ToolCallPartComponent toolCall={p} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export function TextPartComponent({
-  text,
-  defaultExpanded = false,
-}: {
-  text: TextPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const editor = useCreateBlockNote({
-    animations: false,
-    codeBlock,
-  })
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = text.content.length > TRUNCATE_LIMIT
-  useEffect(() => {
-    if (text.content) {
-      let contentToLoad
-      if (isExpanded) {
-        contentToLoad = text.content
-      } else {
-        // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.trim()
-        contentToLoad = shouldTruncate
-          ? `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
-          : normalizedContent
-      }
-
-      loadInitialContent(editor, contentToLoad)
-    }
-  }, [text.content, editor, isExpanded, shouldTruncate])
-
-  return (
-    <div
-      className="flex cursor-pointer flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <MessageCircle className="size-3" />
-          <span className="text-xs font-semibold text-foreground/80">
-            Agent
-          </span>
-        </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={cn(
-              "size-4 transition-transform",
-              isExpanded && "rotate-90"
-            )}
-          />
-        )}
-      </div>
-
-      <BlockNoteView
-        editor={editor}
-        theme="light"
-        editable={false}
-        slashMenu={false}
-        style={{
-          height: "100%",
-          width: "100%",
-          whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          lineHeight: "1.5",
-        }}
+    <div className="flex flex-col gap-2">
+      {/* Show agent session stream if it exists */}
+      {event.session && <ActionSessionStream session={event.session} />}
+      <JsonViewWithControls
+        src={type === "input" ? event.action_input : event.action_result}
+        defaultExpanded={true}
+        defaultTab="nested"
+        copyPrefix={`ACTIONS.${eventRef}.result`}
       />
-    </div>
-  )
-}
-
-export function ToolCallPartComponent({
-  toolCall,
-  defaultExpanded = true,
-}: {
-  toolCall: ToolCallPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-
-  const toolName = toolCall.tool_name
-
-  // Always resolve action type so hooks are called consistently
-  const actionType = reconstructActionType(toolName)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
-  let args
-  try {
-    args =
-      typeof toolCall.args === "string"
-        ? JSON.parse(toolCall.args)
-        : toolCall.args
-  } catch {
-    args = toolCall.args
-  }
-
-  // Case 1 – registry action
-  if (registryActionIsLoading) {
-    return (
-      <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
-        <div className="flex items-center gap-2">
-          <Skeleton className="size-4 border-[0.5px] p-[3px]" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="ml-auto size-4 animate-pulse" />
-        </div>
-        {isExpanded && (
-          <div className="mt-2">
-            <Skeleton className="h-16 w-full" />
-          </div>
-        )}
-      </Card>
-    )
-  }
-  if (registryAction && !registryActionError) {
-    return (
-      <Card
-        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger>
-              <div>
-                {getIcon(actionType, {
-                  className: "size-4 p-[3px]",
-                })}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="p-1">
-              <p>{registryAction.namespace}</p>
-            </TooltipContent>
-          </Tooltip>
-          <span className="text-xs font-semibold text-foreground/80">
-            {registryAction.default_title}
-          </span>
-          <ChevronRightIcon
-            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        </div>
-        {isExpanded && (
-          <table className="mt-2 min-w-full text-xs">
-            <tbody>
-              {Object.entries(args).map(([key, value]) => (
-                <tr key={key}>
-                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
-                    {key}
-                  </td>
-                  <td className="break-all px-2 py-1 text-left align-top text-foreground/90">
-                    {typeof value === "string"
-                      ? value
-                      : JSON.stringify(value, null, 2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    )
-  }
-
-  // Case 2 – action not found
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Action not found</span>
     </div>
   )
 }
@@ -739,7 +227,7 @@ export function ActionEventDetails({
     actionEvent: WorkflowExecutionEventCompact,
     streamIdPlaceholder?: string
   ) => {
-    const { status, session_id, stream_id, action_error } = actionEvent
+    const { status, session, stream_id, action_error } = actionEvent
     switch (status) {
       case "SCHEDULED": {
         return (
@@ -750,9 +238,11 @@ export function ActionEventDetails({
         )
       }
       case "STARTED": {
-        // Start the action. If we need to stream it should be done here
-        if (session_id) {
-          return <ActionSessionStream sessionId={session_id} />
+        // If session_id exists, always use ActionSessionStream
+        // Works for both live streaming and completed states
+        // (backend converts completed AgentOutput to UIMessages automatically)
+        if (session) {
+          return <ActionSessionStream session={session} />
         }
         return (
           <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
@@ -771,6 +261,7 @@ export function ActionEventDetails({
                   Action {status.toLowerCase()}
                 </span>
               </Badge>
+              {/* Handle scatter/gather */}
               {stream_id && !streamIdPlaceholder && (
                 <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
                   {parseStreamId(stream_id)
@@ -805,6 +296,7 @@ export function ActionEventDetails({
               )}
             </div>
 
+            {/* Present result or error */}
             {type === "result" && action_error ? (
               <ErrorEvent failure={action_error} />
             ) : (
@@ -831,7 +323,7 @@ export function ActionEventDetails({
   ))
 }
 
-function ActionSessionStream({ sessionId }: { sessionId: string }) {
+function ActionSessionStream({ session }: { session: Session_Any_ }) {
   const { workspaceId } = useWorkflowBuilder()
   // TODO: Surface error in UI
   const [_lastError, setLastError] = useState<string | null>(null)
@@ -851,7 +343,7 @@ function ActionSessionStream({ sessionId }: { sessionId: string }) {
   }, [workspaceId])
 
   const { messages, status } = useChat({
-    id: sessionId,
+    id: session.id,
     resume: true, // Force resume a stream on mount
     transport,
     onError: (error) => {
@@ -866,7 +358,7 @@ function ActionSessionStream({ sessionId }: { sessionId: string }) {
   })
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-md border border-border/60 bg-card shadow-sm">
+    <div className="flex h-full flex-col overflow-hidden rounded-md border border-border/60 bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <MessageCircle className="size-3" />
         <span>Agent Stream</span>
@@ -877,7 +369,7 @@ function ActionSessionStream({ sessionId }: { sessionId: string }) {
           </span>
         )}
       </div>
-      <div className="flex min-h-[220px] max-h-80 flex-col">
+      <div className="flex min-h-[220px] flex-1 flex-col">
         {status === "submitted" ? (
           <div className="flex flex-1 items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
             <Spinner className="size-3" />
@@ -908,10 +400,4 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
       <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
-}
-
-async function loadInitialContent(editor: BlockNoteEditor, content: string) {
-  const blocks = await editor.tryParseMarkdownToBlocks(content)
-  const spacedBlocks = getSpacedBlocks(blocks)
-  editor.replaceBlocks(editor.document, spacedBlocks)
 }

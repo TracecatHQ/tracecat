@@ -172,7 +172,7 @@ class ChatService(BaseWorkspaceService):
         args = RunAgentArgs(
             user_prompt=user_prompt,
             tool_filters=ToolFilters(actions=chat.tools),
-            session_id=str(chat_id),
+            session_id=chat_id,
             instructions=instructions,
             model_info=model_info,
         )

@@ -47,7 +47,7 @@ class AgentOutput(BaseModel):
     message_history: list[ModelMessage]
     duration: float
     usage: RunUsage
-    session_id: str
+    session_id: uuid.UUID
     trace_id: str | None = None
 
 
@@ -283,7 +283,7 @@ async def run_agent(
 
     start_time = default_timer()
 
-    session_id = ctx_session_id.get() or str(uuid.uuid4())
+    session_id = ctx_session_id.get() or uuid.uuid4()
     message_nodes: list[ModelMessage] = []
     executor = AioStreamingAgentExecutor(writer_cls=AgentNodeStreamWriter)
     try:
@@ -308,7 +308,7 @@ async def run_agent(
         end_time = default_timer()
         return AgentOutput(
             output=result,
-            message_history=message_nodes,
+            message_history=result.all_messages(),
             duration=end_time - start_time,
             usage=result.usage(),
             trace_id=trace_id,

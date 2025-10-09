@@ -40,6 +40,7 @@ from tracecat.ee.interactions.models import (
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.sessions import Session
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
@@ -124,8 +125,10 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     )
 
 
-class WorkflowExecutionReadCompact[TInput: Any, TResult: Any](WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact[TInput, TResult]] = Field(
+class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any](
+    WorkflowExecutionBase
+):
+    events: list[WorkflowExecutionEventCompact[TInput, TResult, TSessionEvent]] = Field(
         ..., description="Compact events in the workflow execution"
     )
     interactions: list[InteractionRead] = Field(
@@ -320,7 +323,9 @@ class WorkflowExecutionEvent[T: EventInput](BaseModel):
     workflow_timeout: float | None = None
 
 
-class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
+class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: Any](
+    BaseModel
+):
     """A compact representation of a workflow execution event."""
 
     source_event_id: int
@@ -343,7 +348,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     loop_index: int | None = None
     child_wf_wait_strategy: WaitStrategy | None = None
     # SSE streaming for agents
-    session_id: str | None = None
+    session: Session[TSessionEvent] | None = None
 
     @staticmethod
     async def from_source_event(
@@ -395,6 +400,10 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             logger.debug("Action input is None", event_id=event.event_id)
             return None
 
+        session = None
+        if action_input.session_id is not None:
+            session = Session(id=action_input.session_id)  # No events
+
         return WorkflowExecutionEventCompact(
             source_event_id=event.event_id,
             schedule_time=event.event_time.ToDatetime(UTC),
@@ -404,7 +413,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             action_ref=task.ref,
             action_input=task.args,
             stream_id=action_input.stream_id,
-            session_id=action_input.session_id,
+            session=session,
         )
 
     @staticmethod

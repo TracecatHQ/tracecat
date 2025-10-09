@@ -714,6 +714,7 @@ export const $AgentOutput = {
     },
     session_id: {
       type: "string",
+      format: "uuid",
       title: "Session Id",
     },
     trace_id: {
@@ -9019,6 +9020,7 @@ export const $RunActionInput = {
       anyOf: [
         {
           type: "string",
+          format: "uuid",
         },
         {
           type: "null",
@@ -10246,6 +10248,32 @@ export const $SessionRead = {
   type: "object",
   required: ["id", "created_at", "user_id", "user_email"],
   title: "SessionRead",
+} as const
+
+export const $Session_Any_ = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    events: {
+      anyOf: [
+        {
+          items: {},
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Events",
+      description: "The events in the session.",
+    },
+  },
+  type: "object",
+  required: ["id"],
+  title: "Session[Any]",
 } as const
 
 export const $SeverityChangedEventRead = {
@@ -13179,7 +13207,7 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
+export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   properties: {
     source_event_id: {
       type: "integer",
@@ -13297,16 +13325,15 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
         },
       ],
     },
-    session_id: {
+    session: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/Session_Any_",
         },
         {
           type: "null",
         },
       ],
-      title: "Session Id",
     },
   },
   type: "object",
@@ -13318,7 +13345,7 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
     "action_name",
     "action_ref",
   ],
-  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any]]",
+  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
 } as const
 
 export const $WorkflowExecutionEventStatus = {
@@ -13454,7 +13481,7 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
+export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   properties: {
     id: {
       type: "string",
@@ -13541,7 +13568,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
     },
     events: {
       items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__",
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_",
       },
       type: "array",
       title: "Events",
@@ -13568,7 +13595,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
     "trigger_type",
     "events",
   ],
-  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any]]",
+  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
 } as const
 
 export const $WorkflowExecutionReadMinimal = {
