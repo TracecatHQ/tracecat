@@ -24,7 +24,6 @@ repos:
           - --fix
           - --show-fixes # Show what files were fixed
           - --verbose
-        exclude: ^alembic/versions/
       - id: ruff-format
         verbose: true
         exclude: ^alembic/versions/
