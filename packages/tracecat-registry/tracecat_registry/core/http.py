@@ -548,10 +548,17 @@ async def http_request(
     timeout: Timeout = 10.0,
     follow_redirects: FollowRedirects = False,
     max_redirects: MaxRedirects = 20,
+    ignore_status_codes: Annotated[
+        list[int] | None,
+        Doc(
+            "If specified, these status codes will not be treated as errors. Defaults to None."
+        ),
+    ] = None,
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
 
+    ignore_status_codes = ignore_status_codes or []
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
     try:
@@ -589,7 +596,10 @@ async def http_request(
                     data=form_data,
                     files=httpx_files_param,
                 )
-            if response.status_code >= 400:
+            if (
+                response.status_code >= 400
+                and response.status_code not in ignore_status_codes
+            ):
                 response.raise_for_status()
         except httpx.HTTPStatusError as e:
             error_message = _http_status_error_to_message(e)
