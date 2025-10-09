@@ -227,7 +227,7 @@ async def stream_agent_session(
     stream = AgentStream(await get_redis_client(), session_id)
     headers = get_stream_headers(format)
     return StreamingResponse(
-        stream.sse(request, last_id=last_event_id, format=format),
+        stream.sse(request.is_disconnected, last_id=last_event_id, format=format),
         media_type="text/event-stream",
         headers=headers,
     )
