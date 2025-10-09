@@ -29,8 +29,8 @@ definition:
       default: null
     base_url:
       type: str
-      description: Base URL for Ollama API.
-      default: http://localhost:11434
+      description: Base URL for Ollama Chat API
+      default: http://localhost:11434/v1
   steps:
     - ref: call_ollama
       action: ai.action

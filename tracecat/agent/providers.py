@@ -8,6 +8,7 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from tracecat_registry import secrets
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
@@ -52,6 +53,11 @@ def get_model(
                 provider=OpenAIProvider(
                     base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
                 ),
+            )
+        case "ollama":
+            model = OpenAIChatModel(
+                model_name=model_name,
+                provider=OllamaProvider(base_url=base_url),
             )
         case "openai_responses":
             model = OpenAIResponsesModel(
