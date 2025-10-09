@@ -3,8 +3,6 @@ import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useRef, useState } from "react"
-import type { CaseDurationRead } from "@/types/case-durations"
-import { listCaseDurations } from "@/lib/case-durations"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -245,12 +243,13 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
-
 import { getBaseUrl } from "@/lib/api"
+import { listCaseDurations } from "@/lib/case-durations"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import type { CaseDurationRead } from "@/types/case-durations"
 
 interface AppInfo {
   version: string

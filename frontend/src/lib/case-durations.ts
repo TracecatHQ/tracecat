@@ -1,8 +1,8 @@
+import { client } from "@/lib/api"
 import type {
   CaseDurationCreate,
   CaseDurationRead,
 } from "@/types/case-durations"
-import { client } from "@/lib/api"
 
 export async function listCaseDurations(
   workspaceId: string

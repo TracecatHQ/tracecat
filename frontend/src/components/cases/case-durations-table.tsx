@@ -2,8 +2,6 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
-
-import type { CaseDurationRead } from "@/types/case-durations"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
   getCaseEventOption,
@@ -32,6 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import type { CaseDurationRead } from "@/types/case-durations"
 
 interface CaseDurationsTableProps {
   durations: CaseDurationRead[]
@@ -134,14 +133,18 @@ export function CaseDurationsTable({
           },
           {
             id: "start_anchor",
-            header: () => <span className="text-xs font-semibold">From event</span>,
+            header: () => (
+              <span className="text-xs font-semibold">From event</span>
+            ),
             cell: ({ row }) => renderAnchor(row.original.start_anchor),
             enableSorting: false,
             enableHiding: false,
           },
           {
             id: "end_anchor",
-            header: () => <span className="text-xs font-semibold">To event</span>,
+            header: () => (
+              <span className="text-xs font-semibold">To event</span>
+            ),
             cell: ({ row }) => renderAnchor(row.original.end_anchor),
             enableSorting: false,
             enableHiding: false,

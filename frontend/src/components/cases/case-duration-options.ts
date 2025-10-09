@@ -105,7 +105,9 @@ export function getCaseEventOption(value: CaseEventType): CaseEventOption {
   return (
     CASE_EVENT_OPTIONS.find((option) => option.value === value) || {
       value,
-      label: value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+      label: value
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase()),
       icon: Database,
     }
   )

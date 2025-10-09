@@ -2,11 +2,9 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Plus, X } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import { Plus, X } from "lucide-react"
-
-import { createCaseDuration } from "@/lib/case-durations"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
   CASE_EVENT_OPTIONS,
@@ -40,6 +38,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { createCaseDuration } from "@/lib/case-durations"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const filterSchema = z.object({
@@ -122,7 +121,9 @@ export function AddCaseDurationDialog({
         throw new Error("Workspace ID is required")
       }
 
-      const transformFilters = (filters: CaseDurationFormValues["start"]["filters"]) =>
+      const transformFilters = (
+        filters: CaseDurationFormValues["start"]["filters"]
+      ) =>
         Object.fromEntries(filters.map((filter) => [filter.key, filter.value]))
 
       const payload = {
@@ -459,17 +460,18 @@ export function AddCaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                {renderFilters(
-                  "end",
-                  endFilterFields,
-                  removeEndFilter,
-                  () => appendEndFilter({ key: "", value: "" })
+                {renderFilters("end", endFilterFields, removeEndFilter, () =>
+                  appendEndFilter({ key: "", value: "" })
                 )}
               </div>
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={isPending}>
