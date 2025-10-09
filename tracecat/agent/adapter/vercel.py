@@ -58,6 +58,7 @@ from tracecat.agent.stream.events import (
     StreamEnd,
     StreamError,
     StreamEvent,
+    StreamKeepAlive,
     StreamMessage,
 )
 from tracecat.logger import logger
@@ -954,6 +955,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     # Model messages don't need processing through handle_event
                     # They're just stored/logged
                     continue
+                case StreamKeepAlive():
+                    yield StreamKeepAlive.sse()
                 case StreamError(error=error):
                     # Stream error - emit as text component
                     error_part_id = f"msg_{uuid.uuid4().hex}"

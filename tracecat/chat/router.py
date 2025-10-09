@@ -268,8 +268,10 @@ async def chat_with_vercel_streaming(
             stream.sse(http_request, last_id=start_id, format="vercel"),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-transform",
                 "Connection": "keep-alive",
+                "Keep-Alive": "timeout=120",
+                "Pragma": "no-cache",
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
                 "x-vercel-ai-ui-message-stream": "v1",
             },
@@ -333,8 +335,10 @@ async def stream_chat_events(
 
     stream = AgentStream(await get_redis_client(), chat_id)
     headers = {
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
+        "Keep-Alive": "timeout=120",
+        "Pragma": "no-cache",
         "X-Accel-Buffering": "no",  # Disable nginx buffering
     }
     if format == "vercel":

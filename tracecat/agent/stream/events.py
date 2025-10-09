@@ -79,8 +79,19 @@ class StreamError:
         )
 
 
+@dataclass(slots=True, kw_only=True)
+class StreamKeepAlive:
+    """Periodic keep-alive event to prevent proxy timeouts."""
+
+    kind: Literal["keepalive"] = "keepalive"
+
+    @staticmethod
+    def sse() -> str:
+        return ": keep-alive\n\n"
+
+
 type StreamEvent = Annotated[
-    StreamDelta | StreamMessage | StreamEnd | StreamError,
+    StreamDelta | StreamMessage | StreamEnd | StreamError | StreamKeepAlive,
     Discriminator("kind"),
 ]
 
