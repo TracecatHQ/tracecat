@@ -1,6 +1,6 @@
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.runtime import build_agent
+from tracecat.agent.factory import BuildAgentArgs, build_agent
 from tracecat.agent.service import AgentManagementService
 from tracecat.chat.models import ChatMessage
 from tracecat.db.schemas import Case, Runbook
@@ -48,9 +48,11 @@ async def generate_runbook_from_chat(
     svc = AgentManagementService(session, role)
     async with svc.with_model_config() as model_config:
         agent = await build_agent(
-            model_name=model_config.name,
-            model_provider=model_config.provider,
-            instructions=instructions,
+            BuildAgentArgs(
+                model_name=model_config.name,
+                model_provider=model_config.provider,
+                instructions=instructions,
+            )
         )
         response = await agent.run(user_prompt)
         instructions = _clean_runbook_text(response.output)
@@ -73,9 +75,11 @@ async def generate_runbook_title_from_chat(
     svc = AgentManagementService(session, role)
     async with svc.with_model_config() as model_config:
         agent = await build_agent(
-            model_name=model_config.name,
-            model_provider=model_config.provider,
-            instructions=instructions,
+            BuildAgentArgs(
+                model_name=model_config.name,
+                model_provider=model_config.provider,
+                instructions=instructions,
+            )
         )
         response = await agent.run(user_prompt)
         title = _clean_runbook_text(response.output)
@@ -98,9 +102,11 @@ async def execute_runbook_on_case(
     svc = AgentManagementService(session, role)
     async with svc.with_model_config() as model_config:
         agent = await build_agent(
-            model_name=model_config.name,
-            model_provider=model_config.provider,
-            instructions=instructions,
+            BuildAgentArgs(
+                model_name=model_config.name,
+                model_provider=model_config.provider,
+                instructions=instructions,
+            )
         )
         response = await agent.run(user_prompt)
         return response.output

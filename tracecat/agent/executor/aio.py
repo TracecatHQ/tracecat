@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, Final
 
-from pydantic_ai import Agent
+from pydantic_ai import UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import (
     ModelRequest,
@@ -13,6 +13,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResult
 
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
+from tracecat.agent.factory import AgentFactory, BuildAgentArgs, build_agent
 from tracecat.agent.models import RunAgentArgs, ToolFilters
 from tracecat.agent.providers import get_model
 from tracecat.agent.service import AgentManagementService
@@ -23,7 +24,6 @@ from tracecat.agent.stream.writers import (
     PersistentStreamWriter,
     event_stream_handler,
 )
-from tracecat.agent.tools import build_agent_tools
 from tracecat.chat.service import ChatService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
@@ -52,6 +52,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
             return
 
 
+# This is an execution harness for an agent that adds persistence + streaming
 class AioStreamingAgentExecutor(BaseAgentExecutor):
     """Execute an agent directly in an asyncio task."""
 
@@ -62,11 +63,13 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
         event_stream_handler: EventStreamHandler[
             BasicStreamingAgentDeps
         ] = event_stream_handler,
+        factory: AgentFactory[BasicStreamingAgentDeps] = build_agent,
         **kwargs: Any,
     ):
         super().__init__(role, **kwargs)
         self._writer_cls = writer_cls
         self._event_stream_handler = event_stream_handler
+        self._factory = factory
 
     async def _get_writer(self, args: RunAgentArgs) -> PersistentStreamWriter:
         """Get the appropriate stream writer for the agent."""
@@ -122,23 +125,34 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
             new_messages: list[ModelRequest | ModelResponse] | None = None
 
             async with agent_svc.with_model_config() as model_config:
-                tools = await build_agent_tools(
-                    actions=(args.tool_filters or ToolFilters.default()).actions or [],
+                agent = await self._factory(
+                    BuildAgentArgs(
+                        model_name=model_config.name,
+                        model_provider=model_config.provider,
+                        base_url=args.model_info.base_url,
+                        instructions=args.instructions,
+                        actions=(args.tool_filters or ToolFilters.default()).actions
+                        or [],
+                        deps_type=type(deps),
+                    )
                 )
-                agent = Agent(
-                    model=get_model(model_config.name, model_config.provider),
-                    instructions=args.instructions,
-                    output_type=str,
-                    event_stream_handler=self._event_stream_handler,
-                    deps_type=BasicStreamingAgentDeps,
-                    tools=tools.tools,
+                usage = UsageLimits(
+                    request_limit=args.max_steps or 50,
+                    tool_calls_limit=args.max_tool_calls,
                 )
                 try:
                     result = await agent.run(
-                        args.user_prompt,
+                        user_prompt=args.user_prompt,
                         output_type=str,
-                        deps=deps,
                         message_history=message_history,
+                        deps=deps,
+                        event_stream_handler=self._event_stream_handler,
+                        model=get_model(
+                            model_config.name,
+                            model_config.provider,
+                            args.model_info.base_url,
+                        ),
+                        usage_limits=usage,
                     )
                     new_messages = result.new_messages()
                 except Exception as exc:

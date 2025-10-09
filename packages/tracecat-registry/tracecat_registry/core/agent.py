@@ -1,9 +1,11 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.runtime import build_agent, run_agent, run_agent_sync
+from tracecat.agent.factory import BuildAgentArgs, OutputType, build_agent
+from tracecat.agent.runtime import run_agent, run_agent_sync
 
+from tracecat.agent.stream.writers import BasicStreamingAgentDeps
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 
@@ -167,18 +169,7 @@ async def agent(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -207,6 +198,7 @@ async def agent(
     )
     return output.model_dump(mode="json")
 
+
 @registry.register(
     default_title="AI action",
     description="Call an LLM with a given prompt and model.",
@@ -227,18 +219,7 @@ async def action(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -251,13 +232,16 @@ async def action(
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
     agent = await build_agent(
-        model_name=model_name,
-        model_provider=model_provider,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
+        BuildAgentArgs(
+            model_name=model_name,
+            model_provider=model_provider,
+            instructions=instructions,
+            output_type=output_type,
+            model_settings=model_settings,
+            retries=retries,
+            base_url=base_url,
+            deps_type=BasicStreamingAgentDeps,
+        )
     )
     result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
     return result.model_dump()

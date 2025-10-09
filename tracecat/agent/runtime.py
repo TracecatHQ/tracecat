@@ -5,23 +5,21 @@ from timeit import default_timer
 from typing import Any, Literal
 
 from langfuse import observe
-from pydantic import BaseModel
-from pydantic_ai import Agent, RunUsage, StructuredDict, Tool, UsageLimits
-from pydantic_ai.agent import EventStreamHandler
-from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelMessage
-from pydantic_ai.settings import ModelSettings
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
-from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+from tracecat.agent.models import (
+    AgentOutput,
+    ModelInfo,
+    RunAgentArgs,
+    ToolFilters,
+)
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
-from tracecat.agent.providers import get_model
 from tracecat.agent.stream.writers import AgentNodeStreamWriter
-from tracecat.agent.tools import build_agent_tools
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.contexts import ctx_session_id
 from tracecat.logger import logger
@@ -30,132 +28,8 @@ from tracecat.logger import logger
 Agent.instrument_all()
 
 
-SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
-    "bool": bool,
-    "float": float,
-    "int": int,
-    "str": str,
-    "list[bool]": list[bool],
-    "list[float]": list[float],
-    "list[int]": list[int],
-    "list[str]": list[str],
-}
-
-
-class AgentOutput(BaseModel):
-    output: Any
-    message_history: list[ModelMessage]
-    duration: float
-    usage: RunUsage
-    session_id: uuid.UUID
-    trace_id: str | None = None
-
-
-def _parse_output_type(
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None,
-) -> type[Any]:
-    if isinstance(output_type, str):
-        try:
-            return SUPPORTED_OUTPUT_TYPES[output_type]
-        except KeyError as e:
-            raise ValueError(
-                f"Unknown output type: {output_type}. Expected one of: {', '.join(SUPPORTED_OUTPUT_TYPES.keys())}"
-            ) from e
-    elif isinstance(output_type, dict):
-        schema_name = output_type.get("name") or output_type.get("title")
-        schema_description = output_type.get("description")
-        return StructuredDict(
-            output_type, name=schema_name, description=schema_description
-        )
-    else:
-        return str
-
-
-async def build_agent(
-    model_name: str,
-    model_provider: str,
-    base_url: str | None = None,
-    instructions: str | None = None,
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None = None,
-    actions: list[str] | None = None,
-    namespaces: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
-    mcp_server_url: str | None = None,
-    mcp_server_headers: dict[str, str] | None = None,
-    model_settings: dict[str, Any] | None = None,
-    retries: int = 3,
-    event_stream_handler: EventStreamHandler | None = None,
-) -> Agent:
-    agent_tools: list[Tool] = []
-    if actions:
-        tools = await build_agent_tools(
-            fixed_arguments=fixed_arguments,
-            namespaces=namespaces,
-            actions=actions,
-        )
-        agent_tools = tools.tools
-    _output_type = _parse_output_type(output_type)
-    _model_settings = ModelSettings(**model_settings) if model_settings else None
-    model = get_model(model_name, model_provider, base_url)
-
-    # Add verbosity prompt
-    verbosity_prompt = VerbosityPrompt()
-    instructions = f"{instructions}\n{verbosity_prompt.prompt}"
-
-    if actions:
-        tool_calling_prompt = ToolCallPrompt(
-            tools=tools.tools,
-            fixed_arguments=fixed_arguments,
-        )
-        instruction_parts = [instructions, tool_calling_prompt.prompt]
-        instructions = "\n".join(part for part in instruction_parts if part)
-
-    toolsets = None
-    if mcp_server_url:
-        mcp_server = MCPServerStreamableHTTP(
-            url=mcp_server_url,
-            headers=mcp_server_headers,
-        )
-        toolsets = [mcp_server]
-
-    agent = Agent(
-        model=model,
-        instructions=instructions,
-        output_type=_output_type,
-        model_settings=_model_settings,
-        retries=retries,
-        instrument=True,
-        tools=agent_tools,
-        toolsets=toolsets,
-        event_stream_handler=event_stream_handler,
-    )
-    return agent
-
-
 async def run_agent_sync(
-    agent: Agent,
+    agent: Agent[Any, Any],
     user_prompt: str,
     max_requests: int,
     max_tools_calls: int | None = None,

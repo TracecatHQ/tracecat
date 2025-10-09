@@ -3,9 +3,10 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, TypeAdapter
+from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
@@ -21,6 +22,10 @@ class RunAgentArgs(BaseModel):
     """Optional instructions for the agent. Defaults set in workflow."""
     model_info: ModelInfo
     """Model configuration."""
+    max_steps: int | None = None
+    """Maximum number of steps for the agent."""
+    max_tool_calls: int | None = None
+    """Maximum number of tool calls for the agent."""
 
 
 class RunAgentResult(BaseModel):
@@ -143,3 +148,27 @@ class ModelCredentialUpdate(BaseModel):
     credentials: dict[str, str] = Field(
         ..., description="Provider-specific credentials to update"
     )
+
+
+class AgentOutput(BaseModel):
+    output: Any
+    message_history: list[ModelMessage]
+    duration: float
+    usage: RunUsage
+    session_id: uuid.UUID
+    trace_id: str | None = None
+
+
+type OutputType = (
+    Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+)
