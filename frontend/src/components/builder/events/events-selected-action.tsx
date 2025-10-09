@@ -9,6 +9,7 @@ import {
   MessageCircle,
 } from "lucide-react"
 import { useMemo, useState } from "react"
+import type { ReactNode } from "react"
 import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
 import {
   Conversation,
@@ -42,6 +43,7 @@ import {
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { isUIMessageArray } from "@/lib/agents"
 
 type TabType = "input" | "result" | "interaction"
 
@@ -179,18 +181,31 @@ export function SuccessEvent({
   type: Omit<TabType, "interaction">
   eventRef: string
 }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {/* Show agent session stream if it exists */}
-      {event.session && <ActionSessionStream session={event.session} />}
-      <JsonViewWithControls
-        src={type === "input" ? event.action_input : event.action_result}
-        defaultExpanded={true}
-        defaultTab="nested"
-        copyPrefix={`ACTIONS.${eventRef}.result`}
-      />
-    </div>
-  )
+  switch (type) {
+    case "input":
+      return (
+        <JsonViewWithControls
+          src={event.action_input}
+          defaultExpanded={true}
+          defaultTab="nested"
+          copyPrefix={`ACTIONS.${eventRef}.input`}
+        />
+      )
+    case "result":
+      return (
+        <div className="flex flex-col gap-2">
+          {/* Show agent session stream if it exists */}
+          {event.session && <ActionSessionStream session={event.session} />}
+          <JsonViewWithControls
+            src={event.action_result}
+            defaultExpanded={true}
+            defaultTab="nested"
+            copyPrefix={`ACTIONS.${eventRef}.result`}
+          />
+        </div>
+      )
+  }
+  return null
 }
 
 export function ActionEventDetails({
@@ -238,7 +253,7 @@ export function ActionEventDetails({
         )
       }
       case "STARTED": {
-        // If session_id exists, always use ActionSessionStream
+        // If a session exists, always use ActionSessionStream
         // Works for both live streaming and completed states
         // (backend converts completed AgentOutput to UIMessages automatically)
         if (session) {
@@ -324,6 +339,29 @@ export function ActionEventDetails({
 }
 
 function ActionSessionStream({ session }: { session: Session_Any_ }) {
+  const messages = isUIMessageArray(session.events) ? session.events : undefined
+
+  if (messages && messages.length > 0) {
+    return (
+      <ActionSessionShell>
+        <Conversation className="flex-1">
+          <ConversationContent>
+            {messages.map(({ id, role, parts }) => (
+              <div key={id}>
+                {parts?.map((part, index) => renderPart(part, index, id, role))}
+              </div>
+            ))}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+      </ActionSessionShell>
+    )
+  }
+
+  return <ActionSessionLiveStream sessionId={session.id} />
+}
+
+function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
   const { workspaceId } = useWorkflowBuilder()
   // TODO: Surface error in UI
   const [_lastError, setLastError] = useState<string | null>(null)
@@ -343,7 +381,7 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
   }, [workspaceId])
 
   const { messages, status } = useChat({
-    id: session.id,
+    id: sessionId,
     resume: true, // Force resume a stream on mount
     transport,
     onError: (error) => {
@@ -357,11 +395,43 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
     },
   })
 
+  const headerStatus = status === "streaming" ? "streaming" : undefined
+
+  return (
+    <ActionSessionShell status={headerStatus}>
+      {status === "submitted" ? (
+        <div className="flex flex-1 items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          <span>Connecting to agent…</span>
+        </div>
+      ) : (
+        <Conversation className="flex-1">
+          <ConversationContent>
+            {messages.map(({ id, role, parts }) => (
+              <div key={id}>
+                {parts?.map((part, index) => renderPart(part, index, id, role))}
+              </div>
+            ))}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+      )}
+    </ActionSessionShell>
+  )
+}
+
+function ActionSessionShell({
+  status,
+  children,
+}: {
+  status?: string
+  children: ReactNode
+}) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-md border border-border/60 bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <MessageCircle className="size-3" />
-        <span>Agent Stream</span>
+        <span>Session</span>
         {status === "streaming" && (
           <span className="ml-auto flex items-center gap-1 text-[10px] font-medium normal-case text-muted-foreground">
             <Spinner className="size-3" />
@@ -369,27 +439,7 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
           </span>
         )}
       </div>
-      <div className="flex min-h-[220px] flex-1 flex-col">
-        {status === "submitted" ? (
-          <div className="flex flex-1 items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-            <Spinner className="size-3" />
-            <span>Connecting to agent…</span>
-          </div>
-        ) : (
-          <Conversation className="flex-1">
-            <ConversationContent>
-              {messages.map(({ id, role, parts }) => (
-                <div key={id}>
-                  {parts?.map((part, index) =>
-                    renderPart(part, index, id, role)
-                  )}
-                </div>
-              ))}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
-        )}
-      </div>
+      <div className="flex min-h-[220px] flex-1 flex-col">{children}</div>
     </div>
   )
 }
