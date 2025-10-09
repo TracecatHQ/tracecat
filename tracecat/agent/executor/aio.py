@@ -73,7 +73,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
         client = await get_redis_client()
         session_id = args.session_id
         return self._writer_cls(
-            stream=AgentStream(client, session_id), chat_id=session_id
+            stream=AgentStream(client, session_id), session_id=session_id
         )
 
     async def start(

@@ -137,9 +137,9 @@ async def event_stream_handler[StreamableDepsT: HasStreamWriter](
 
 
 class PersistentStreamWriter(StreamWriter):
-    def __init__(self, stream: AgentStream, chat_id: uuid.UUID):
+    def __init__(self, stream: AgentStream, session_id: uuid.UUID):
         self.stream = stream
-        self.chat_id = chat_id
+        self.session_id = session_id
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
@@ -147,17 +147,17 @@ class PersistentStreamWriter(StreamWriter):
 
     async def store(self, messages: list[ModelMessage]) -> None:
         async with ChatService.with_session() as chat_svc:
-            await chat_svc.append_messages(self.chat_id, messages)
+            await chat_svc.append_messages(self.session_id, messages)
 
 
 class AgentNodeStreamWriter(PersistentStreamWriter):
     def __init__(
         self,
         stream: AgentStream,
-        chat_id: uuid.UUID,
+        session_id: uuid.UUID,
         message_nodes: list[ModelMessage] | None = None,
     ):
-        super().__init__(stream, chat_id)
+        super().__init__(stream, session_id)
         # TODO: Figure out how to store discrete ModelMessage nodes
         self.message_nodes = message_nodes
 
