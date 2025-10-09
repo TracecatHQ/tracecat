@@ -1,7 +1,7 @@
 """create case duration definitions table
 
 Revision ID: d2a9f39458d3
-Revises: c2a4f8a5cf72
+Revises: 7f4c4a2130b8
 Create Date: 2025-10-15 00:00:00.000000
 
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "d2a9f39458d3"
-down_revision: str | None = "c2a4f8a5cf72"
+down_revision: str | None = "7f4c4a2130b8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -60,6 +60,9 @@ def upgrade() -> None:
                 "STATUS_CHANGED",
                 "FIELDS_CHANGED",
                 "ASSIGNEE_CHANGED",
+                "ATTACHMENT_CREATED",
+                "ATTACHMENT_DELETED",
+                "PAYLOAD_CHANGED",
                 name="caseeventtype",
                 create_type=False,
             ),
@@ -100,6 +103,9 @@ def upgrade() -> None:
                 "STATUS_CHANGED",
                 "FIELDS_CHANGED",
                 "ASSIGNEE_CHANGED",
+                "ATTACHMENT_CREATED",
+                "ATTACHMENT_DELETED",
+                "PAYLOAD_CHANGED",
                 name="caseeventtype",
                 create_type=False,
             ),
