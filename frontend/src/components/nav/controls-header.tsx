@@ -19,6 +19,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
+import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import {
   PRIORITIES,
@@ -188,9 +189,11 @@ function CasesActions() {
 
   const view = pathname?.includes("/cases/custom-fields")
     ? CasesViewMode.CustomFields
-    : searchParams?.get("view") === CasesViewMode.Tags
-      ? CasesViewMode.Tags
-      : CasesViewMode.Cases
+    : pathname?.includes("/cases/durations")
+      ? CasesViewMode.Durations
+      : searchParams?.get("view") === CasesViewMode.Tags
+        ? CasesViewMode.Tags
+        : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
   const tagsHref = (() => {
@@ -203,6 +206,9 @@ function CasesActions() {
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined
+  const durationsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/durations`
+    : undefined
 
   return (
     <>
@@ -211,9 +217,12 @@ function CasesActions() {
         casesHref={casesHref}
         tagsHref={tagsHref}
         customFieldsHref={customFieldsHref}
+        durationsHref={durationsHref}
       />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
+      ) : view === CasesViewMode.Durations ? (
+        <AddCaseDuration />
       ) : (
         <>
           <Button
@@ -916,7 +925,10 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
-    if (pagePath === "/cases/custom-fields") {
+    if (
+      pagePath === "/cases/custom-fields" ||
+      pagePath === "/cases/durations"
+    ) {
       return {
         title: "Cases",
         actions: <CasesActions />,

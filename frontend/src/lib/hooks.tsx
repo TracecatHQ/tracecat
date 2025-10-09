@@ -3,6 +3,8 @@ import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useRef, useState } from "react"
+import type { CaseDurationRead } from "@/types/case-durations"
+import { listCaseDurations } from "@/lib/case-durations"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -3262,6 +3264,24 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     deleteCase,
     deleteCaseIsPending,
     deleteCaseError,
+  }
+}
+
+export function useCaseDurations(workspaceId: string) {
+  const {
+    data: caseDurations,
+    isLoading: caseDurationsIsLoading,
+    error: caseDurationsError,
+  } = useQuery<CaseDurationRead[], Error>({
+    queryKey: ["case-durations", workspaceId],
+    queryFn: async () => await listCaseDurations(workspaceId),
+    enabled: Boolean(workspaceId),
+  })
+
+  return {
+    caseDurations,
+    caseDurationsIsLoading,
+    caseDurationsError,
   }
 }
 
