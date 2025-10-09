@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.models import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
+from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
@@ -89,6 +90,7 @@ class CasesService(BaseWorkspaceService):
         self.events = CaseEventsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
+        self.durations = CaseDurationService(session=self.session, role=self.role)
 
     async def list_cases(
         self,
@@ -881,6 +883,9 @@ class CaseEventsService(BaseWorkspaceService):
     """Service for managing case events."""
 
     service_name = "case_events"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
