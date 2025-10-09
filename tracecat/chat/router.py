@@ -8,8 +8,10 @@ from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import AgentStreamEvent
 
 from tracecat.agent.adapter import vercel
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
+from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.chat.models import (
@@ -222,7 +224,6 @@ async def chat_with_vercel_streaming(
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
     http_request: Request,
 ) -> StreamingResponse:
     """Vercel AI SDK compatible chat endpoint with streaming.
@@ -237,6 +238,8 @@ async def chat_with_vercel_streaming(
     try:
         svc = ChatService(session, role)
         # Start the chat turn (this will spawn the agent execution)
+        deps = await PersistableStreamingAgentDeps.new(chat_id, persistent=True)
+        executor = AioStreamingAgentExecutor(deps=deps)
         await svc.start_chat_turn(
             chat_id=chat_id,
             request=request,
@@ -265,9 +268,11 @@ async def chat_with_vercel_streaming(
         # Create stream and return with Vercel format
         # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-deployed
         # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-proxied
-        stream = AgentStream(await get_redis_client(), chat_id)
+        # stream = AgentStream(await get_redis_client(), chat_id)
         return StreamingResponse(
-            stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
+            deps.stream_writer.stream.sse(
+                http_request.is_disconnected, last_id=start_id, format="vercel"
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",

@@ -2,7 +2,7 @@
 
 import uuid
 from timeit import default_timer
-from typing import Any, Literal
+from typing import Any
 
 from langfuse import observe
 from pydantic_ai import Agent, UsageLimits
@@ -14,12 +14,13 @@ from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.models import (
     AgentOutput,
     ModelInfo,
+    OutputType,
     RunAgentArgs,
     ToolFilters,
 )
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.stream.writers import AgentNodeStreamWriter
+from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.contexts import ctx_session_id
 from tracecat.logger import logger
@@ -68,18 +69,7 @@ async def run_agent(
     mcp_server_url: str | None = None,
     mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None = None,
+    output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
     max_tools_calls: int = 5,
     max_requests: int = 20,
@@ -159,7 +149,9 @@ async def run_agent(
 
     session_id = ctx_session_id.get() or uuid.uuid4()
     message_nodes: list[ModelMessage] = []
-    executor = AioStreamingAgentExecutor(writer_cls=AgentNodeStreamWriter)
+
+    deps = await PersistableStreamingAgentDeps.new(session_id, persistent=False)
+    executor = AioStreamingAgentExecutor(deps=deps)
     try:
         model_info = ModelInfo(
             name=model_name,

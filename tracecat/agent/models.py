@@ -3,13 +3,27 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
+from tracecat.agent.stream.writers import StreamWriter
+
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
+
+
+class MessageStore(Protocol):
+    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
+    async def store(
+        self, session_id: uuid.UUID, messages: list[ModelMessage]
+    ) -> None: ...
+
+
+class StreamingAgentDeps(Protocol):
+    stream_writer: StreamWriter
+    message_store: MessageStore | None = None
 
 
 class RunAgentArgs(BaseModel):

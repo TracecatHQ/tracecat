@@ -1,11 +1,35 @@
-import uuid
+from __future__ import annotations
 
+import uuid
+from dataclasses import dataclass
+
+from tracecat.agent.models import MessageStore
+from tracecat.agent.persistence import DBMessageStore
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.stream.writers import AgentStreamWriter, StreamWriter
+from tracecat.redis.client import get_redis_client
 
 
 class StreamKey(str):
-    def __new__(cls, session_id: uuid.UUID | str) -> "StreamKey":
+    def __new__(cls, session_id: uuid.UUID | str) -> StreamKey:
         return super().__new__(cls, f"agent-stream:{str(session_id)}")
+
+
+@dataclass
+class PersistableStreamingAgentDeps:
+    stream_writer: StreamWriter
+    message_store: MessageStore | None = None
+
+    @classmethod
+    async def new(
+        cls, session_id: uuid.UUID, persistent: bool = True
+    ) -> PersistableStreamingAgentDeps:
+        client = await get_redis_client()
+        return cls(
+            stream_writer=AgentStreamWriter(stream=AgentStream(client, session_id)),
+            message_store=DBMessageStore() if persistent else None,
+        )
 
 
 def get_stream_headers(format: StreamFormat = "vercel") -> dict[str, str]:

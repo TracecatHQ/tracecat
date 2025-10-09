@@ -5,7 +5,6 @@ from tracecat_registry import registry, RegistrySecret
 from tracecat.agent.factory import BuildAgentArgs, OutputType, build_agent
 from tracecat.agent.runtime import run_agent, run_agent_sync
 
-from tracecat.agent.stream.writers import BasicStreamingAgentDeps
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 
@@ -240,7 +239,6 @@ async def action(
             model_settings=model_settings,
             retries=retries,
             base_url=base_url,
-            deps_type=BasicStreamingAgentDeps,
         )
     )
     result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
