@@ -64,9 +64,9 @@ class CaseDurationService(BaseWorkspaceService):
             owner_id=self.workspace_id,
             name=params.name,
             description=params.description,
+            **self._anchor_attributes(params.start_anchor, "start"),
+            **self._anchor_attributes(params.end_anchor, "end"),
         )
-        self._apply_anchor(entity, params.start_anchor, "start")
-        self._apply_anchor(entity, params.end_anchor, "end")
         self.session.add(entity)
         await self.session.commit()
         await self.session.refresh(entity)
@@ -192,16 +192,28 @@ class CaseDurationService(BaseWorkspaceService):
             selection=getattr(entity, f"{prefix}_selection"),
         )
 
+    def _anchor_attributes(
+        self, anchor: CaseDurationEventAnchor, prefix: Literal["start", "end"]
+    ) -> dict[str, Any]:
+        filters = {
+            key: self._json_compatible(value)
+            for key, value in anchor.field_filters.items()
+        }
+        return {
+            f"{prefix}_event_type": anchor.event_type,
+            f"{prefix}_timestamp_path": anchor.timestamp_path,
+            f"{prefix}_field_filters": filters,
+            f"{prefix}_selection": anchor.selection,
+        }
+
     def _apply_anchor(
         self,
         entity: CaseDurationDefinitionDB,
         anchor: CaseDurationEventAnchor,
         prefix: Literal["start", "end"],
     ) -> None:
-        setattr(entity, f"{prefix}_event_type", anchor.event_type)
-        setattr(entity, f"{prefix}_timestamp_path", anchor.timestamp_path)
-        setattr(entity, f"{prefix}_field_filters", dict(anchor.field_filters))
-        setattr(entity, f"{prefix}_selection", anchor.selection)
+        for attr, value in self._anchor_attributes(anchor, prefix).items():
+            setattr(entity, attr, value)
 
     async def _resolve_case(self, case: Case | uuid.UUID) -> Case:
         if isinstance(case, Case):
@@ -305,3 +317,12 @@ class CaseDurationService(BaseWorkspaceService):
                 return parsed.replace(tzinfo=UTC)
             return parsed.astimezone(UTC)
         return None
+
+    def _json_compatible(self, value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, dict):
+            return {key: self._json_compatible(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_compatible(item) for item in value]
+        return value
