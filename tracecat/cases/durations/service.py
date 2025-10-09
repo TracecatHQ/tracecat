@@ -57,9 +57,7 @@ class CaseDurationService(BaseWorkspaceService):
         entity = await self._get_definition_entity(duration_id)
         return self._to_read_model(entity)
 
-    async def create_definition(
-        self, params: CaseDurationCreate
-    ) -> CaseDurationRead:
+    async def create_definition(self, params: CaseDurationCreate) -> CaseDurationRead:
         await self._ensure_unique_name(params.name)
 
         entity = CaseDurationDefinitionDB(
@@ -173,13 +171,9 @@ class CaseDurationService(BaseWorkspaceService):
             stmt = stmt.where(CaseDurationDefinitionDB.id != exclude_id)
         result = await self.session.exec(stmt)
         if result.first() is not None:
-            raise TracecatValidationError(
-                f"A duration named '{name}' already exists"
-            )
+            raise TracecatValidationError(f"A duration named '{name}' already exists")
 
-    def _to_read_model(
-        self, entity: CaseDurationDefinitionDB
-    ) -> CaseDurationRead:
+    def _to_read_model(self, entity: CaseDurationDefinitionDB) -> CaseDurationRead:
         return CaseDurationRead(
             id=entity.id,
             name=entity.name,
@@ -194,9 +188,7 @@ class CaseDurationService(BaseWorkspaceService):
         return CaseDurationEventAnchor(
             event_type=getattr(entity, f"{prefix}_event_type"),
             timestamp_path=getattr(entity, f"{prefix}_timestamp_path"),
-            field_filters=dict(
-                getattr(entity, f"{prefix}_field_filters") or {}
-            ),
+            field_filters=dict(getattr(entity, f"{prefix}_field_filters") or {}),
             selection=getattr(entity, f"{prefix}_selection"),
         )
 
