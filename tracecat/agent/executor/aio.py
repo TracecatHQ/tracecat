@@ -128,7 +128,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                     error_message = str(exc)
                     logger.error(
                         "Streaming agent run failed",
-                        error=str(exc),
+                        error=error_message,
                         session_id=args.session_id,
                     )
                     await self.deps.stream_writer.stream.error(error_message)
