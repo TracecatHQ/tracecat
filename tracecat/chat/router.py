@@ -263,12 +263,16 @@ async def chat_with_vercel_streaming(
         )
 
         # Create stream and return with Vercel format
+        # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-deployed
+        # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-proxied
         stream = AgentStream(await get_redis_client(), chat_id)
         return StreamingResponse(
             stream.sse(http_request, last_id=start_id, format="vercel"),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none",
                 "Connection": "keep-alive",
                 "Keep-Alive": "timeout=120",
                 "Pragma": "no-cache",

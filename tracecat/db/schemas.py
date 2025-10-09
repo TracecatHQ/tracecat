@@ -24,6 +24,7 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
+from tracecat.cases.durations.models import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -138,6 +139,10 @@ class Workspace(Resource, table=True):
     case_tags: list["CaseTag"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    case_duration_definitions: list["CaseDurationDefinition"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
     folders: list["WorkflowFolder"] = Relationship(
         back_populates="owner",
@@ -812,6 +817,51 @@ class CaseTag(Resource, table=True):
         back_populates="tags",
         link_model=CaseTagLink,
     )
+
+
+class CaseDurationDefinition(Resource, table=True):
+    """Workspace-defined case duration metric anchored on case events."""
+
+    __tablename__: str = "case_duration_definition"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "name",
+            name="uq_case_duration_definition_owner_name",
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(..., max_length=255, index=True)
+    description: str | None = Field(default=None, max_length=1024)
+    start_event_type: CaseEventType = Field(...)
+    start_timestamp_path: str = Field(default="created_at", max_length=255)
+    start_field_filters: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False),
+    )
+    start_selection: CaseDurationAnchorSelection = Field(
+        default=CaseDurationAnchorSelection.FIRST
+    )
+    end_event_type: CaseEventType = Field(...)
+    end_timestamp_path: str = Field(default="created_at", max_length=255)
+    end_field_filters: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False),
+    )
+    end_selection: CaseDurationAnchorSelection = Field(
+        default=CaseDurationAnchorSelection.FIRST
+    )
+
+    owner: "Workspace" = Relationship(back_populates="case_duration_definitions")
 
 
 class RunbookCaseLink(SQLModel, table=True):
