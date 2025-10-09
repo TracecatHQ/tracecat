@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator
+from time import monotonic
 from typing import Any
 
 import orjson
@@ -18,6 +19,7 @@ from tracecat.agent.stream.events import (
     StreamError,
     StreamEvent,
     StreamFormat,
+    StreamKeepAlive,
     StreamMessage,
 )
 from tracecat.chat import tokens
@@ -27,6 +29,10 @@ from tracecat.redis.client import RedisClient
 
 
 class AgentStream:
+    """Stream adapter backed by Redis streams."""
+
+    KEEPALIVE_INTERVAL_SECONDS = 10
+
     def __init__(self, client: RedisClient, session_id: uuid.UUID):
         self.client = client
         self.session_id = session_id
@@ -68,6 +74,7 @@ class AgentStream:
         self, request: Request, last_id: str
     ) -> AsyncIterator[StreamEvent]:
         current_id = last_id
+        last_keepalive = monotonic()
         try:
             while not await request.is_disconnected():
                 try:
@@ -76,6 +83,7 @@ class AgentStream:
                         count=100,
                         block=1000,
                     ):
+                        last_keepalive = monotonic()
                         for _stream_name, messages in result:
                             for msg_id, fields in messages:
                                 data = orjson.loads(fields[tokens.DATA_KEY])
@@ -109,6 +117,15 @@ class AgentStream:
                                         )
 
                         await self._set_last_stream_id(current_id)
+
+                    now = monotonic()
+                    if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
+                        logger.debug(
+                            "Emitting keep-alive event",
+                            stream_key=self._stream_key,
+                        )
+                        yield StreamKeepAlive()
+                        last_keepalive = now
 
                     await asyncio.sleep(0)
 
@@ -145,6 +162,8 @@ class AgentStream:
             yield StreamConnected(id=last_id).sse()
             async for event in self._stream_events(request, last_id):
                 match event:
+                    case StreamKeepAlive():
+                        yield event.sse()
                     case StreamError(error=error):
                         yield event.sse()
                         if error == "Fatal stream error":
