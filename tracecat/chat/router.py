@@ -10,7 +10,6 @@ from pydantic_ai.messages import AgentStreamEvent
 from tracecat.agent.adapter import vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
-from tracecat.agent.stream.common import get_stream_headers
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.chat.models import (
@@ -268,7 +267,7 @@ async def chat_with_vercel_streaming(
         # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-proxied
         stream = AgentStream(await get_redis_client(), chat_id)
         return StreamingResponse(
-            stream.sse(http_request, last_id=start_id, format="vercel"),
+            stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",
@@ -349,7 +348,7 @@ async def stream_chat_events(
     if format == "vercel":
         headers["x-vercel-ai-ui-message-stream"] = "v1"
     return StreamingResponse(
-        stream.sse(request, last_id=start_id, format=format),
+        stream.sse(request.is_disconnected, last_id=start_id, format=format),
         media_type="text/event-stream",
         headers=headers,
     )
