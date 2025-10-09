@@ -8,7 +8,6 @@ from tracecat.agent.persistence import DBMessageStore
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.stream.writers import AgentStreamWriter, StreamWriter
-from tracecat.redis.client import get_redis_client
 
 
 class StreamKey(str):
@@ -25,9 +24,9 @@ class PersistableStreamingAgentDeps:
     async def new(
         cls, session_id: uuid.UUID, persistent: bool = True
     ) -> PersistableStreamingAgentDeps:
-        client = await get_redis_client()
+        stream = await AgentStream.new(session_id)
         return cls(
-            stream_writer=AgentStreamWriter(stream=AgentStream(client, session_id)),
+            stream_writer=AgentStreamWriter(stream=stream),
             message_store=DBMessageStore() if persistent else None,
         )
 

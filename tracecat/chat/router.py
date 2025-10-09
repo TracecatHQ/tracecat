@@ -27,7 +27,6 @@ from tracecat.chat.models import (
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -342,7 +341,7 @@ async def stream_chat_events(
         chat_id=chat_id,
     )
 
-    stream = AgentStream(await get_redis_client(), chat_id)
+    stream = await AgentStream.new(chat_id)
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",

@@ -24,7 +24,7 @@ from tracecat.agent.stream.events import (
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
-from tracecat.redis.client import RedisClient
+from tracecat.redis.client import RedisClient, get_redis_client
 
 
 class AgentStream:
@@ -36,6 +36,11 @@ class AgentStream:
         self.client = client
         self.session_id = session_id
         self._stream_key = f"agent-stream:{str(self.session_id)}"
+
+    @classmethod
+    async def new(cls, session_id: uuid.UUID) -> AgentStream:
+        client = await get_redis_client()
+        return cls(client, session_id)
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""
