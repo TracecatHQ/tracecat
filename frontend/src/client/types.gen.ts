@@ -623,6 +623,90 @@ export type CaseCustomFieldRead = {
 }
 
 /**
+ * Strategies for choosing which matching event should anchor a duration.
+ */
+export type CaseDurationAnchorSelection = "first" | "last"
+
+/**
+ * Create payload for case duration definitions.
+ */
+export type CaseDurationCreate = {
+  /**
+   * Human readable name for the metric.
+   */
+  name: string
+  /**
+   * Optional description providing more context.
+   */
+  description?: string | null
+  /**
+   * Event configuration that marks the start of the duration.
+   */
+  start_anchor: CaseDurationEventAnchor
+  /**
+   * Event configuration that marks the end of the duration.
+   */
+  end_anchor: CaseDurationEventAnchor
+}
+
+/**
+ * Selection criteria describing an event boundary for a duration.
+ */
+export type CaseDurationEventAnchor = {
+  /**
+   * Case event type that should be matched for this anchor.
+   */
+  event_type: CaseEventType
+  /**
+   * Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.
+   */
+  timestamp_path?: string
+  /**
+   * Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.
+   */
+  field_filters?: {
+    [key: string]: unknown
+  }
+  /**
+   * Whether to use the first or last matching event for this anchor. Defaults to the first match.
+   */
+  selection?: CaseDurationAnchorSelection
+}
+
+/**
+ * Read model for case duration definitions.
+ */
+export type CaseDurationRead = {
+  /**
+   * Human readable name for the metric.
+   */
+  name: string
+  /**
+   * Optional description providing more context.
+   */
+  description?: string | null
+  /**
+   * Event configuration that marks the start of the duration.
+   */
+  start_anchor: CaseDurationEventAnchor
+  /**
+   * Event configuration that marks the end of the duration.
+   */
+  end_anchor: CaseDurationEventAnchor
+  id: string
+}
+
+/**
+ * Patch payload for case duration definitions.
+ */
+export type CaseDurationUpdate = {
+  name?: string | null
+  description?: string | null
+  start_anchor?: CaseDurationEventAnchor | null
+  end_anchor?: CaseDurationEventAnchor | null
+}
+
+/**
  * Base read model for all event types.
  */
 export type CaseEventRead =
@@ -638,6 +722,23 @@ export type CaseEventRead =
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
   | PayloadChangedEventRead
+
+/**
+ * Case activity type values.
+ */
+export type CaseEventType =
+  | "case_created"
+  | "case_updated"
+  | "case_closed"
+  | "case_reopened"
+  | "priority_changed"
+  | "severity_changed"
+  | "status_changed"
+  | "fields_changed"
+  | "assignee_changed"
+  | "attachment_created"
+  | "attachment_deleted"
+  | "payload_changed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -6144,6 +6245,41 @@ export type CaseAttachmentsDeleteAttachmentData = {
 
 export type CaseAttachmentsDeleteAttachmentResponse = void
 
+export type CaseDurationsListCaseDurationsData = {
+  workspaceId: string
+}
+
+export type CaseDurationsListCaseDurationsResponse = Array<CaseDurationRead>
+
+export type CaseDurationsCreateCaseDurationData = {
+  requestBody: CaseDurationCreate
+  workspaceId: string
+}
+
+export type CaseDurationsCreateCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsGetCaseDurationData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsGetCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsUpdateCaseDurationData = {
+  durationId: string
+  requestBody: CaseDurationUpdate
+  workspaceId: string
+}
+
+export type CaseDurationsUpdateCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsDeleteCaseDurationData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsDeleteCaseDurationResponse = void
+
 export type CaseRecordsListCaseRecordsData = {
   caseId: string
   workspaceId: string
@@ -9029,6 +9165,75 @@ export type $OpenApiTs = {
     }
     delete: {
       req: CaseAttachmentsDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-durations": {
+    get: {
+      req: CaseDurationsListCaseDurationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDurationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseDurationsCreateCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-durations/{duration_id}": {
+    get: {
+      req: CaseDurationsGetCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseDurationsUpdateCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDurationsDeleteCaseDurationData
       res: {
         /**
          * Successful Response

@@ -14,10 +14,7 @@ import {
   UserRound,
 } from "lucide-react"
 
-import type {
-  CaseDurationAnchorSelection,
-  CaseEventType,
-} from "@/types/case-durations"
+import type { CaseDurationAnchorSelection, CaseEventType } from "@/client"
 
 export interface CaseEventOption {
   value: CaseEventType

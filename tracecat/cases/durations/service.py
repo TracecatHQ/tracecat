@@ -323,6 +323,6 @@ class CaseDurationService(BaseWorkspaceService):
             return value.value
         if isinstance(value, dict):
             return {key: self._json_compatible(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple, set)):
+        if isinstance(value, list | tuple | set):
             return [self._json_compatible(item) for item in value]
         return value

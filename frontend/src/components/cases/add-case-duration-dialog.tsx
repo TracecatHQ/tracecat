@@ -289,6 +289,7 @@ export function AddCaseDurationDialog({
                   <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea
+                      className="min-h-[100px] text-xs"
                       placeholder="Optional context for this metric"
                       {...field}
                     />

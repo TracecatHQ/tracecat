@@ -33,6 +33,7 @@ from tracecat.auth.users import (
     fastapi_users,
 )
 from tracecat.cases.attachments.router import router as case_attachments_router
+from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.records.router import router as case_records_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
@@ -226,6 +227,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
     app.include_router(case_attachments_router)
+    app.include_router(case_durations_router)
     app.include_router(case_records_router)
     app.include_router(chat_router)
     app.include_router(

@@ -2,6 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
+import type { CaseDurationRead } from "@/client"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
   getCaseEventOption,
@@ -30,7 +31,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { CaseDurationRead } from "@/types/case-durations"
 
 interface CaseDurationsTableProps {
   durations: CaseDurationRead[]

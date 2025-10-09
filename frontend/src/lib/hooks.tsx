@@ -244,12 +244,11 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
 import { getBaseUrl } from "@/lib/api"
-import { listCaseDurations } from "@/lib/case-durations"
+import { type CaseDurationRead, listCaseDurations } from "@/lib/case-durations"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
-import type { CaseDurationRead } from "@/types/case-durations"
 
 interface AppInfo {
   version: string
