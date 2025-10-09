@@ -180,7 +180,7 @@ async def run_agent_sync(
         message_history=result.all_messages(),
         duration=end_time - start_time,
         usage=result.usage(),
-        session_id=str(uuid.uuid4()),
+        session_id=uuid.uuid4(),
     )
 
 

@@ -53,7 +53,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
 
 
 class AioStreamingAgentExecutor(BaseAgentExecutor):
-    """Execute a workflow builder agent turn directly in an asyncio task."""
+    """Execute an agent directly in an asyncio task."""
 
     def __init__(
         self,
