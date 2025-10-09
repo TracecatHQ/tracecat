@@ -2,7 +2,10 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
-import type { CaseDurationRead } from "@/client"
+import type {
+  CaseDurationAnchorSelection,
+  CaseDurationRead,
+} from "@/client"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
   getCaseEventOption,
@@ -40,7 +43,7 @@ interface CaseDurationsTableProps {
 
 const SELECTION_LABELS = Object.fromEntries(
   CASE_DURATION_SELECTION_OPTIONS.map((option) => [option.value, option.label])
-) as Record<CaseDurationRead["start_anchor"]["selection"], string>
+) as Record<CaseDurationAnchorSelection, string>
 
 const defaultToolbarProps: DataTableToolbarProps<CaseDurationRead> = {
   filterProps: {
@@ -61,6 +64,8 @@ export function CaseDurationsTable({
     const { icon: Icon, label } = getCaseEventOption(anchor.event_type)
     const filters = Object.entries(anchor.field_filters ?? {})
 
+    const selection = anchor.selection ?? "first"
+
     return (
       <div className="flex flex-col gap-2 text-xs">
         <div className="flex items-center gap-2 text-foreground">
@@ -71,7 +76,7 @@ export function CaseDurationsTable({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <Badge variant="outline" className="border-dashed px-2 py-0.5">
-            {SELECTION_LABELS[anchor.selection] || anchor.selection}
+            {SELECTION_LABELS[selection]}
           </Badge>
           <Badge variant="secondary" className="px-2 py-0.5">
             Timestamp: {anchor.timestamp_path}
