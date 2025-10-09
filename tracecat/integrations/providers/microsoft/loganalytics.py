@@ -13,27 +13,27 @@ from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-
-AUTHORIZATION_ENDPOINT = (
-    "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+from tracecat.integrations.providers.microsoft.clouds import (
+    AzureCloud,
+    get_authorization_endpoint,
+    get_log_analytics_scopes,
+    get_token_endpoint,
+    map_log_analytics_scopes,
 )
-TOKEN_ENDPOINT = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+
 SETUP_STEPS = [
     "Register your application in Azure Portal",
     "Add the redirect URI shown above to 'Redirect URIs'",
     "Configure Azure Log Analytics API permissions for both delegated (user) and application (service principal) access",
     "Add Data.Read permission and grant consent for the scopes you plan to use",
     "Copy Client ID and Client Secret",
-    "Configure credentials in Tracecat with your tenant ID for the grant(s) you plan to use",
+    "Configure credentials in Tracecat with your tenant ID, selected cloud, and grant type",
 ]
 
 
 AC_DESCRIPTION = "OAuth provider for Azure Log Analytics KQL query execution"
 AC_SCOPES = ProviderScopes(
-    default=[
-        "offline_access",
-        "https://api.loganalytics.io/user_impersonation",
-    ],
+    default=get_log_analytics_scopes(AzureCloud.PUBLIC, delegated=True),
 )
 AC_METADATA = ProviderMetadata(
     id="azure_log_analytics",
@@ -47,9 +47,7 @@ AC_METADATA = ProviderMetadata(
 )
 
 CC_SCOPES = ProviderScopes(
-    default=[
-        "https://api.loganalytics.io/.default",
-    ],
+    default=get_log_analytics_scopes(AzureCloud.PUBLIC, delegated=False),
 )
 
 CC_METADATA = ProviderMetadata(
@@ -73,14 +71,16 @@ class AzureLogAnalyticsOAuthConfig(BaseModel):
         min_length=1,
         max_length=100,
     )
+    cloud: AzureCloud = Field(
+        default=AzureCloud.PUBLIC,
+        description="Azure cloud environment. Use 'public' or 'us_gov'.",
+    )
 
 
 class AzureLogAnalyticsACProvider(AuthorizationCodeOAuthProvider):
     """Azure Log Analytics OAuth provider for KQL query execution with delegated permissions."""
 
     id: ClassVar[str] = "azure_log_analytics"
-    _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
-    _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
     config_model: ClassVar[type[BaseModel]] = AzureLogAnalyticsOAuthConfig
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
@@ -88,19 +88,23 @@ class AzureLogAnalyticsACProvider(AuthorizationCodeOAuthProvider):
     def __init__(
         self,
         tenant_id: str,
+        cloud: AzureCloud = AzureCloud.PUBLIC,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
         """Initialize the Azure Log Analytics OAuth provider."""
         self.tenant_id = tenant_id
+        self.cloud = AzureCloud(cloud)
+        if kwargs.get("scopes") is None:
+            kwargs["scopes"] = map_log_analytics_scopes(self.scopes.default, self.cloud)
         super().__init__(**kwargs)
 
     @property
     def authorization_endpoint(self) -> str:
-        return self._authorization_endpoint.format(tenant=self.tenant_id)
+        return get_authorization_endpoint(self.cloud, self.tenant_id)
 
     @property
     def token_endpoint(self) -> str:
-        return self._token_endpoint.format(tenant=self.tenant_id)
+        return get_token_endpoint(self.cloud, self.tenant_id)
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Add Azure-specific authorization parameters."""
@@ -114,8 +118,6 @@ class AzureLogAnalyticsCCProvider(ClientCredentialsOAuthProvider):
     """Azure Log Analytics OAuth provider using service principal authentication."""
 
     id: ClassVar[str] = "azure_log_analytics"
-    _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
-    _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
     config_model: ClassVar[type[BaseModel]] = AzureLogAnalyticsOAuthConfig
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
@@ -123,16 +125,20 @@ class AzureLogAnalyticsCCProvider(ClientCredentialsOAuthProvider):
     def __init__(
         self,
         tenant_id: str,
+        cloud: AzureCloud = AzureCloud.PUBLIC,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
         """Initialize the Azure Log Analytics client credentials provider."""
         self.tenant_id = tenant_id
+        self.cloud = AzureCloud(cloud)
+        if kwargs.get("scopes") is None:
+            kwargs["scopes"] = map_log_analytics_scopes(self.scopes.default, self.cloud)
         super().__init__(**kwargs)
 
     @property
     def authorization_endpoint(self) -> str:
-        return self._authorization_endpoint.format(tenant=self.tenant_id)
+        return get_authorization_endpoint(self.cloud, self.tenant_id)
 
     @property
     def token_endpoint(self) -> str:
-        return self._token_endpoint.format(tenant=self.tenant_id)
+        return get_token_endpoint(self.cloud, self.tenant_id)
