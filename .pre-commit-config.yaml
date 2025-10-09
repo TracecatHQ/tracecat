@@ -27,7 +27,6 @@ repos:
         exclude: ^alembic/versions/
       - id: ruff-format
         verbose: true
-        exclude: ^alembic/versions/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:

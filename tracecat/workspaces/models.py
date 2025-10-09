@@ -126,6 +126,10 @@ class WorkspaceRead(BaseModel):
     owner_id: OwnerID
 
 
+WorkspaceSettingsRead.model_rebuild()
+WorkspaceSettingsUpdate.model_rebuild()
+
+
 # === Membership === #
 class WorkspaceMembershipCreate(BaseModel):
     user_id: UserID
