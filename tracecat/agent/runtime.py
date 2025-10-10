@@ -164,6 +164,7 @@ async def run_agent(
             session_id=session_id,
             instructions=instructions,
             model_info=model_info,
+            output_type=output_type,
         )
         handle = await executor.start(args)
         result = await handle.result()
@@ -173,7 +174,7 @@ async def run_agent(
             )
         end_time = default_timer()
         return AgentOutput(
-            output=result,
+            output=try_parse_json(result.output),
             message_history=result.all_messages(),
             duration=end_time - start_time,
             usage=result.usage(),

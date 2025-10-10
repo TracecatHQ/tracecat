@@ -100,6 +100,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                         model_provider=model_config.provider,
                         base_url=args.model_info.base_url,
                         instructions=args.instructions,
+                        output_type=args.output_type,
                         actions=(args.tool_filters or ToolFilters.default()).actions
                         or [],
                         deps_type=type(self.deps),
@@ -112,7 +113,6 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                 try:
                     result = await agent.run(
                         user_prompt=args.user_prompt,
-                        output_type=str,
                         message_history=message_history,
                         deps=self.deps,
                         event_stream_handler=self._event_stream_handler,

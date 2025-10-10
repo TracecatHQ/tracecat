@@ -40,6 +40,8 @@ class RunAgentArgs(BaseModel):
     """Maximum number of steps for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
+    output_type: OutputType | None = None
+    """Desired output type for the agent's response."""
 
 
 class RunAgentResult(BaseModel):
