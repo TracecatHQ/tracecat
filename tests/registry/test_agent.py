@@ -68,7 +68,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
         actions=[],
         instructions="Be concise and factual.",
         output_type=output_type,
-        max_tools_calls=0,
+        max_tool_calls=0,
         max_requests=3,
     )
 
@@ -116,7 +116,7 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
         actions=[],
         instructions="Be concise and factual.",
         output_type=output_type,
-        max_tools_calls=0,
+        max_tool_calls=0,
         max_requests=3,
     )
 

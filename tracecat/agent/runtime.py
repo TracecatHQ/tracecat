@@ -12,11 +12,10 @@ from pydantic_core import to_jsonable_python
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.models import (
+    AgentConfig,
     AgentOutput,
-    ModelInfo,
     OutputType,
     RunAgentArgs,
-    ToolFilters,
 )
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
@@ -65,13 +64,12 @@ async def run_agent(
     model_name: str,
     model_provider: str,
     actions: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
     mcp_server_url: str | None = None,
     mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
     output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
-    max_tools_calls: int = 5,
+    max_tool_calls: int = 5,
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
@@ -135,7 +133,7 @@ async def run_agent(
 
     trace_id = init_langfuse(model_name, model_provider)
 
-    if max_tools_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
+    if max_tool_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls"
         )
@@ -153,18 +151,24 @@ async def run_agent(
     deps = await PersistableStreamingAgentDeps.new(session_id, persistent=False)
     executor = AioStreamingAgentExecutor(deps=deps)
     try:
-        model_info = ModelInfo(
-            name=model_name,
-            provider=model_provider,
-            base_url=base_url,
-        )
         args = RunAgentArgs(
             user_prompt=user_prompt,
-            tool_filters=ToolFilters(actions=actions),
             session_id=session_id,
-            instructions=instructions,
-            model_info=model_info,
-            output_type=output_type,
+            config=AgentConfig(
+                model_name=model_name,
+                model_provider=model_provider,
+                base_url=base_url,
+                instructions=instructions,
+                output_type=output_type,
+                model_settings=model_settings,
+                retries=retries,
+                deps_type=type(deps),
+                mcp_server_url=mcp_server_url,
+                mcp_server_headers=mcp_server_headers,
+                actions=actions,
+            ),
+            max_requests=max_requests,
+            max_tool_calls=max_tool_calls,
         )
         handle = await executor.start(args)
         result = await handle.result()

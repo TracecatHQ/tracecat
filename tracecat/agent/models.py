@@ -3,13 +3,24 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    TypeVar,
+)
 
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
-from tracecat.agent.stream.writers import StreamWriter
+if TYPE_CHECKING:
+    from tracecat.agent.stream.writers import StreamWriter
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
@@ -26,49 +37,47 @@ class StreamingAgentDeps(Protocol):
     message_store: MessageStore | None = None
 
 
-class RunAgentArgs(BaseModel):
+DepsT = TypeVar("DepsT", bound=StreamingAgentDeps, covariant=True)
+
+
+@dataclass(kw_only=True, slots=True)
+class AgentConfig(Generic[DepsT]):  # noqa: UP046
+    """Configuration for an agent."""
+
+    # Model
+    model_name: str
+    model_provider: str
+    base_url: str | None = None
+    # Agent
+    instructions: str | None = None
+    output_type: OutputType | None = None
+    # Tools
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+    fixed_arguments: dict[str, dict[str, Any]] | None = None
+    # MCP
+    mcp_server_url: str | None = None
+    mcp_server_headers: dict[str, str] | None = None
+    model_settings: dict[str, Any] | None = None
+    retries: int = 3
+    deps_type: type[DepsT] | None = None
+
+
+class RunAgentArgs(Generic[DepsT], BaseModel):  # noqa: UP046
     user_prompt: str
-    tool_filters: ToolFilters | None = None
-    """This is static over the lifetime of the workflow, as it's for 1 turn."""
+    """User prompt for the agent."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
-    instructions: str | None = None
-    """Optional instructions for the agent. Defaults set in workflow."""
-    model_info: ModelInfo
-    """Model configuration."""
-    max_steps: int | None = None
-    """Maximum number of steps for the agent."""
+    config: AgentConfig[DepsT]
+    """Configuration for the agent."""
+    max_requests: int | None = None
+    """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
-    output_type: OutputType | None = None
-    """Desired output type for the agent's response."""
 
 
 class RunAgentResult(BaseModel):
     messages: list[ModelMessage]
-
-
-class ModelInfo(BaseModel):
-    name: str
-    provider: str
-    base_url: str | None = None
-
-
-class ToolFilters(BaseModel):
-    actions: list[str] | None = None
-    namespaces: list[str] | None = None
-
-    @staticmethod
-    def default() -> ToolFilters:
-        return ToolFilters(
-            actions=[
-                "core.cases.create_case",
-                "core.cases.get_case",
-                "core.cases.list_cases",
-                "core.cases.update_case",
-                "core.cases.list_cases",
-            ],
-        )
 
 
 class ModelConfig(BaseModel):

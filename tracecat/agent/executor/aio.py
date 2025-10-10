@@ -13,8 +13,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResult
 
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
-from tracecat.agent.factory import AgentFactory, BuildAgentArgs, build_agent
-from tracecat.agent.models import RunAgentArgs, StreamingAgentDeps, ToolFilters
+from tracecat.agent.factory import AgentFactory, build_agent
+from tracecat.agent.models import RunAgentArgs, StreamingAgentDeps
 from tracecat.agent.providers import get_model
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.stream.events import StreamError
@@ -46,7 +46,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
 
 
 # This is an execution harness for an agent that adds persistence + streaming
-class AioStreamingAgentExecutor(BaseAgentExecutor):
+class AioStreamingAgentExecutor[DepsT: StreamingAgentDeps](BaseAgentExecutor[DepsT]):
     """Execute an agent directly in an asyncio task."""
 
     def __init__(
@@ -65,14 +65,16 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
         self._factory = factory
 
     async def start(
-        self, args: RunAgentArgs
+        self, args: RunAgentArgs[StreamingAgentDeps]
     ) -> BaseAgentRunHandle[AgentRunResult[str] | None]:
         """Start an agentic run with streaming."""
         coro = self._start_agent(args)
         task: asyncio.Task[AgentRunResult[str] | None] = asyncio.create_task(coro)
         return AioAgentRunHandle(task, run_id=str(args.session_id))
 
-    async def _start_agent(self, args: RunAgentArgs) -> AgentRunResult[str] | None:
+    async def _start_agent(
+        self, args: RunAgentArgs[StreamingAgentDeps]
+    ) -> AgentRunResult[str] | None:
         # Fire-and-forget execution using the agent function directly
         logger.info("Starting streaming agent")
 
@@ -94,20 +96,9 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
             new_messages: list[ModelRequest | ModelResponse] | None = None
 
             async with agent_svc.with_model_config() as model_config:
-                agent = await self._factory(
-                    BuildAgentArgs(
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
-                        base_url=args.model_info.base_url,
-                        instructions=args.instructions,
-                        output_type=args.output_type,
-                        actions=(args.tool_filters or ToolFilters.default()).actions
-                        or [],
-                        deps_type=type(self.deps),
-                    )
-                )
+                agent = await self._factory(args.config)
                 usage = UsageLimits(
-                    request_limit=args.max_steps or 50,
+                    request_limit=args.max_requests or 50,
                     tool_calls_limit=args.max_tool_calls,
                 )
                 try:
@@ -119,7 +110,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor):
                         model=get_model(
                             model_config.name,
                             model_config.provider,
-                            args.model_info.base_url,
+                            args.config.base_url,
                         ),
                         usage_limits=usage,
                     )
