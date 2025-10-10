@@ -225,7 +225,9 @@ async def search_cases(
             updated_before=updated_before,
         )
     except ProgrammingError as exc:
-        logger.exception("Failed to search cases due to invalid filter parameters", exc_info=exc)
+        logger.exception(
+            "Failed to search cases due to invalid filter parameters", exc_info=exc
+        )
         await session.rollback()
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
