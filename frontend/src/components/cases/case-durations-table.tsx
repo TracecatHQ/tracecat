@@ -1,15 +1,13 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { Info } from "lucide-react"
 import { useState } from "react"
 import type {
   CaseDurationAnchorSelection,
   CaseDurationRead,
 } from "@/client"
-import {
-  CASE_DURATION_SELECTION_OPTIONS,
-  getCaseEventOption,
-} from "@/components/cases/case-duration-options"
+import { getCaseEventOption } from "@/components/cases/case-duration-options"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -34,6 +32,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface CaseDurationsTableProps {
   durations: CaseDurationRead[]
@@ -41,9 +44,10 @@ interface CaseDurationsTableProps {
   isDeleting?: boolean
 }
 
-const SELECTION_LABELS = Object.fromEntries(
-  CASE_DURATION_SELECTION_OPTIONS.map((option) => [option.value, option.label])
-) as Record<CaseDurationAnchorSelection, string>
+const SELECTION_LABELS: Record<CaseDurationAnchorSelection, string> = {
+  first: "First seen",
+  last: "Last seen",
+}
 
 const defaultToolbarProps: DataTableToolbarProps<CaseDurationRead> = {
   filterProps: {
@@ -62,38 +66,18 @@ export function CaseDurationsTable({
 
   const renderAnchor = (anchor: CaseDurationRead["start_anchor"]) => {
     const { icon: Icon, label } = getCaseEventOption(anchor.event_type)
-    const filters = Object.entries(anchor.field_filters ?? {})
 
     const selection = anchor.selection ?? "first"
 
     return (
-      <div className="flex flex-col gap-2 text-xs">
-        <div className="flex items-center gap-2 text-foreground">
-          <span className="flex size-6 items-center justify-center rounded-full bg-muted">
-            <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-          </span>
-          <span className="font-medium">{label}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <Badge variant="outline" className="border-dashed px-2 py-0.5">
-            {SELECTION_LABELS[selection]}
-          </Badge>
-          <Badge variant="secondary" className="px-2 py-0.5">
-            Timestamp: {anchor.timestamp_path}
-          </Badge>
-        </div>
-        {filters.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {filters.map(([key, value]) => (
-              <Badge key={key} variant="secondary" className="px-2 py-0.5">
-                <span className="font-medium">{key}</span>
-                <span className="text-muted-foreground">: {String(value)}</span>
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">No filters</p>
-        )}
+      <div className="flex items-center gap-2 text-xs text-foreground">
+        <Badge variant="outline" className="border-dashed px-2 py-0.5">
+          {SELECTION_LABELS[selection]}
+        </Badge>
+        <span className="flex size-6 items-center justify-center rounded-full bg-muted">
+          <Icon className="size-3.5 text-muted-foreground" aria-hidden />
+        </span>
+        <span className="font-medium">{label}</span>
       </div>
     )
   }
@@ -115,26 +99,28 @@ export function CaseDurationsTable({
               <DataTableColumnHeader column={column} title="Name" />
             ),
             cell: ({ row }) => (
-              <div className="text-xs font-medium text-foreground">
-                {row.getValue<CaseDurationRead["name"]>("name")}
+              <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                <span>{row.getValue<CaseDurationRead["name"]>("name")}</span>
+                {row.original.description ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-5 items-center justify-center rounded-full border border-muted-foreground/40 text-muted-foreground transition hover:bg-muted"
+                        aria-label="View duration description"
+                      >
+                        <Info className="size-3" aria-hidden />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[240px] text-xs">
+                      {row.original.description}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
               </div>
             ),
             enableSorting: true,
             enableHiding: false,
-          },
-          {
-            accessorKey: "description",
-            header: ({ column }) => (
-              <DataTableColumnHeader column={column} title="Description" />
-            ),
-            cell: ({ row }) => (
-              <div className="text-xs text-muted-foreground">
-                {row.getValue<CaseDurationRead["description"]>("description") ||
-                  "-"}
-              </div>
-            ),
-            enableSorting: false,
-            enableHiding: true,
           },
           {
             id: "start_anchor",

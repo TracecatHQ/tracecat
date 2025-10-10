@@ -94,8 +94,8 @@ export const CASE_DURATION_SELECTION_OPTIONS: Array<{
   value: CaseDurationAnchorSelection
   label: string
 }> = [
-  { value: "first", label: "First matching event" },
-  { value: "last", label: "Last matching event" },
+  { value: "first", label: "First seen" },
+  { value: "last", label: "Last seen" },
 ]
 
 export function getCaseEventOption(value: CaseEventType): CaseEventOption {

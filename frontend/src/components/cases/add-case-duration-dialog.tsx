@@ -2,8 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, X } from "lucide-react"
-import { useFieldArray, useForm } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
@@ -41,19 +40,9 @@ import { toast } from "@/components/ui/use-toast"
 import { createCaseDuration } from "@/lib/case-durations"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const filterSchema = z.object({
-  key: z.string().min(1, "Key is required"),
-  value: z.string().min(1, "Value is required"),
-})
-
 const anchorSchema = z.object({
   selection: z.enum(["first", "last"]),
   eventType: z.enum(CASE_EVENT_VALUES),
-  timestampPath: z
-    .string()
-    .min(1, "Timestamp path is required")
-    .max(255, "Timestamp path must be 255 characters or fewer"),
-  filters: z.array(filterSchema).default([]),
 })
 
 const formSchema = z.object({
@@ -91,29 +80,13 @@ export function AddCaseDurationDialog({
       start: {
         selection: "first",
         eventType: "case_created",
-        timestampPath: "created_at",
-        filters: [],
       },
       end: {
         selection: "first",
         eventType: "case_closed",
-        timestampPath: "created_at",
-        filters: [],
       },
     },
   })
-
-  const {
-    fields: startFilterFields,
-    append: appendStartFilter,
-    remove: removeStartFilter,
-  } = useFieldArray({ control: form.control, name: "start.filters" })
-
-  const {
-    fields: endFilterFields,
-    append: appendEndFilter,
-    remove: removeEndFilter,
-  } = useFieldArray({ control: form.control, name: "end.filters" })
 
   const { mutateAsync: handleCreate, isPending } = useMutation({
     mutationFn: async (values: CaseDurationFormValues) => {
@@ -121,25 +94,18 @@ export function AddCaseDurationDialog({
         throw new Error("Workspace ID is required")
       }
 
-      const transformFilters = (
-        filters: CaseDurationFormValues["start"]["filters"]
-      ) =>
-        Object.fromEntries(filters.map((filter) => [filter.key, filter.value]))
-
       const payload = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
         start_anchor: {
           event_type: values.start.eventType,
           selection: values.start.selection,
-          timestamp_path: values.start.timestampPath.trim(),
-          field_filters: transformFilters(values.start.filters),
+          timestamp_path: "created_at",
         },
         end_anchor: {
           event_type: values.end.eventType,
           selection: values.end.selection,
-          timestamp_path: values.end.timestampPath.trim(),
-          field_filters: transformFilters(values.end.filters),
+          timestamp_path: "created_at",
         },
       }
 
@@ -177,80 +143,6 @@ export function AddCaseDurationDialog({
 
   const onSubmit = (values: CaseDurationFormValues) => {
     void handleCreate(values)
-  }
-
-  const renderFilters = (
-    type: "start" | "end",
-    fields: typeof startFilterFields,
-    remove: (index: number) => void,
-    append: () => void
-  ) => {
-    const fieldName = `${type}.filters` as const
-
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <FormLabel className="text-xs font-medium text-muted-foreground">
-            Filters (optional)
-          </FormLabel>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={() => append()}
-          >
-            <Plus className="mr-1 size-3.5" />
-            Add filter
-          </Button>
-        </div>
-        {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Add key/value filters to match specific event payloads.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {fields.map((field, index) => (
-              <div key={field.id} className="flex items-start gap-2">
-                <FormField
-                  control={form.control}
-                  name={`${fieldName}.${index}.key`}
-                  render={({ field }) => (
-                    <FormItem className="flex-1">
-                      <FormControl>
-                        <Input placeholder="payload.path" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name={`${fieldName}.${index}.value`}
-                  render={({ field }) => (
-                    <FormItem className="flex-1">
-                      <FormControl>
-                        <Input placeholder="expected value" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="mt-0.5 text-muted-foreground"
-                  onClick={() => remove(index)}
-                >
-                  <X className="size-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
   }
 
   return (
@@ -362,28 +254,6 @@ export function AddCaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="start.timestampPath"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Timestamp field</FormLabel>
-                      <FormControl>
-                        <Input placeholder="created_at" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Path to the timestamp on the event payload.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {renderFilters(
-                  "start",
-                  startFilterFields,
-                  removeStartFilter,
-                  () => appendStartFilter({ key: "", value: "" })
-                )}
               </div>
 
               <div className="space-y-4 rounded-md border bg-muted/20 p-4">
@@ -445,25 +315,6 @@ export function AddCaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="end.timestampPath"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Timestamp field</FormLabel>
-                      <FormControl>
-                        <Input placeholder="created_at" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Path to the timestamp on the event payload.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {renderFilters("end", endFilterFields, removeEndFilter, () =>
-                  appendEndFilter({ key: "", value: "" })
-                )}
               </div>
             </div>
 
