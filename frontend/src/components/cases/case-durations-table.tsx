@@ -68,13 +68,11 @@ export function CaseDurationsTable({
 
     return (
       <div className="flex items-center gap-2 text-xs text-foreground">
+        <Icon className="size-3.5 text-muted-foreground" aria-hidden />
+        <span className="font-medium">{label}</span>
         <Badge variant="outline" className="border-dashed px-2 py-0.5">
           {SELECTION_LABELS[selection]}
         </Badge>
-        <span className="flex size-6 items-center justify-center rounded-full bg-muted">
-          <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-        </span>
-        <span className="font-medium">{label}</span>
       </div>
     )
   }
@@ -103,7 +101,7 @@ export function CaseDurationsTable({
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-5 items-center justify-center rounded-full border border-muted-foreground/40 text-muted-foreground transition hover:bg-muted"
+                        className="size-5 p-0 text-muted-foreground"
                         aria-label="View duration description"
                       >
                         <Info className="size-3" aria-hidden />
