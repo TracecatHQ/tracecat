@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { Timer, FlagTriangleRight } from "lucide-react"
 import {
   CASE_DURATION_SELECTION_OPTIONS,
   CASE_EVENT_OPTIONS,
@@ -195,14 +196,17 @@ export function AddCaseDurationDialog({
             />
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-4 rounded-md border bg-muted/20 p-4">
-                <h4 className="text-sm font-medium">From event</h4>
+              <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                <h4 className="flex items-center gap-2 text-sm font-medium">
+                  <Timer className="size-3.5 text-muted-foreground" />
+                  <span>From event</span>
+                </h4>
                 <FormField
                   control={form.control}
                   name="start.selection"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Occurrence</FormLabel>
+                      <FormLabel className="text-xs">Occurrence</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -229,7 +233,7 @@ export function AddCaseDurationDialog({
                   name="start.eventType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Event type</FormLabel>
+                      <FormLabel className="text-xs">Event type</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -256,14 +260,17 @@ export function AddCaseDurationDialog({
                 />
               </div>
 
-              <div className="space-y-4 rounded-md border bg-muted/20 p-4">
-                <h4 className="text-sm font-medium">To event</h4>
+              <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                <h4 className="flex items-center gap-2 text-sm font-medium">
+                  <FlagTriangleRight className="size-3.5 text-muted-foreground" />
+                  <span>To event</span>
+                </h4>
                 <FormField
                   control={form.control}
                   name="end.selection"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Occurrence</FormLabel>
+                      <FormLabel className="text-xs">Occurrence</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -290,7 +297,7 @@ export function AddCaseDurationDialog({
                   name="end.eventType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Event type</FormLabel>
+                      <FormLabel className="text-xs">Event type</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
