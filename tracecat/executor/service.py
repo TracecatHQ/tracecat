@@ -33,7 +33,6 @@ from tracecat.dsl.models import (
     RunActionInput,
     TaskResult,
 )
-from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
@@ -539,7 +538,9 @@ async def run_action_on_ray_cluster(
     obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
-        exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+        exec_result = await asyncio.wait_for(
+            coro, timeout=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+        )
     except TimeoutError as e:
         logger.error("Action timed out, cancelling task", error=e)
         ray.cancel(obj_ref, force=True)

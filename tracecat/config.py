@@ -23,11 +23,13 @@ TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 120.0
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0
 )
-"""Timeout for the executor client in seconds (default 120s).
+"""Timeout for the executor client in seconds (default 900s).
 
 The `httpx.Client` default is 5s, which doesn't work for long-running actions.
+This value is also used when waiting for Ray task execution so the outbound
+client timeout and Ray task await timeout remain aligned.
 """
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
@@ -180,11 +182,11 @@ TEMPORAL__CLUSTER_QUEUE = os.environ.get(
 )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
-TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
-"""RPC timeout for Temporal workflows in seconds."""
+TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT") or "900"
+"""RPC timeout for Temporal workflows in seconds (default 900 seconds)."""
 
-TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
-"""Temporal workflow task timeout in seconds (default 10 seconds)."""
+TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT") or "900"
+"""Temporal workflow task timeout in seconds (default 900 seconds)."""
 
 TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
