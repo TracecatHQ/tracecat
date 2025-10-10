@@ -3,10 +3,7 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Info } from "lucide-react"
 import { useState } from "react"
-import type {
-  CaseDurationAnchorSelection,
-  CaseDurationRead,
-} from "@/client"
+import type { CaseDurationAnchorSelection, CaseDurationRead } from "@/client"
 import { getCaseEventOption } from "@/components/cases/case-duration-options"
 import {
   DataTable,
