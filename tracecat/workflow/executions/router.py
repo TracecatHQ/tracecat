@@ -152,7 +152,7 @@ async def get_workflow_execution_compact(
     for event in compact_events:
         # Project AgentOutput to UIMessages only in the compact workflow execution view
         if event.session is not None and event.action_result is not None:
-            logger.trace("Transforming AgentOutput to UIMessages", event=event)
+            logger.trace("Transforming AgentOutput to UIMessages")
             try:
                 # Successful validation asserts this is an AgentOutput
                 output = AgentOutput.model_validate(event.action_result)
