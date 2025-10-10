@@ -4,7 +4,11 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Info } from "lucide-react"
 import { useState } from "react"
 import type { CaseDurationAnchorSelection, CaseDurationRead } from "@/client"
-import { getCaseEventOption } from "@/components/cases/case-duration-options"
+import {
+  CASE_EVENT_FILTER_OPTIONS,
+  getCaseEventOption,
+  isCaseEventFilterType,
+} from "@/components/cases/case-duration-options"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -46,6 +50,28 @@ const SELECTION_LABELS: Record<CaseDurationAnchorSelection, string> = {
   last: "Last seen",
 }
 
+const normalizeFilterValues = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string")
+  }
+
+  if (typeof value === "string") {
+    return [value]
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as { $in?: unknown }).$in)
+  ) {
+    return (value as { $in?: unknown }).$in.filter(
+      (item): item is string => typeof item === "string"
+    )
+  }
+
+  return []
+}
+
 const defaultToolbarProps: DataTableToolbarProps<CaseDurationRead> = {
   filterProps: {
     placeholder: "Filter durations...",
@@ -65,11 +91,34 @@ export function CaseDurationsTable({
     const { icon: Icon, label } = getCaseEventOption(anchor.event_type)
 
     const selection = anchor.selection ?? "first"
+    const valueLabels: string[] = []
+
+    if (isCaseEventFilterType(anchor.event_type)) {
+      const rawFilterValue = anchor.field_filters?.["data.new"]
+      const values = normalizeFilterValues(rawFilterValue)
+
+      for (const value of values) {
+        const option = CASE_EVENT_FILTER_OPTIONS[
+          anchor.event_type
+        ].options.find((filterOption) => filterOption.value === value)
+
+        valueLabels.push(option?.label ?? value)
+      }
+    }
 
     return (
       <div className="flex items-center gap-2 text-xs text-foreground">
         <Icon className="size-3.5 text-muted-foreground" aria-hidden />
         <span className="font-medium">{label}</span>
+        {valueLabels.map((displayValue, index) => (
+          <Badge
+            key={`${anchor.event_type}-${displayValue}-${index}`}
+            variant="secondary"
+            className="px-2 py-0.5"
+          >
+            {displayValue}
+          </Badge>
+        ))}
         <Badge variant="outline" className="border-dashed px-2 py-0.5">
           {SELECTION_LABELS[selection]}
         </Badge>

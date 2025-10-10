@@ -1,20 +1,18 @@
 import type { LucideIcon } from "lucide-react"
 import {
-  Braces,
   CircleCheck,
-  Database,
   FilePlus2,
   Flag,
   Flame,
   GitCompare,
-  Paperclip,
   PenSquare,
   RotateCcw,
-  Trash2,
   UserRound,
 } from "lucide-react"
 
 import type { CaseDurationAnchorSelection, CaseEventType } from "@/client"
+
+import { PRIORITIES, SEVERITIES, STATUSES } from "./case-categories"
 
 export interface CaseEventOption {
   value: CaseEventType
@@ -60,29 +58,9 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
     icon: GitCompare,
   },
   {
-    value: "fields_changed",
-    label: "Fields changed",
-    icon: Braces,
-  },
-  {
     value: "assignee_changed",
     label: "Assignee changed",
     icon: UserRound,
-  },
-  {
-    value: "attachment_created",
-    label: "Attachment added",
-    icon: Paperclip,
-  },
-  {
-    value: "attachment_deleted",
-    label: "Attachment removed",
-    icon: Trash2,
-  },
-  {
-    value: "payload_changed",
-    label: "Payload changed",
-    icon: Database,
   },
 ]
 
@@ -98,6 +76,52 @@ export const CASE_DURATION_SELECTION_OPTIONS: Array<{
   { value: "last", label: "Last seen" },
 ]
 
+type CaseEventFilterType = Extract<
+  CaseEventType,
+  "priority_changed" | "severity_changed" | "status_changed"
+>
+
+export interface CaseEventFilterOption {
+  value: string
+  label: string
+}
+
+export const CASE_EVENT_FILTER_OPTIONS = {
+  priority_changed: {
+    label: "Priority",
+    options: Object.values(PRIORITIES).map(({ value, label }) => ({
+      value,
+      label,
+    })),
+  },
+  severity_changed: {
+    label: "Severity",
+    options: Object.values(SEVERITIES).map(({ value, label }) => ({
+      value,
+      label,
+    })),
+  },
+  status_changed: {
+    label: "Status",
+    options: Object.values(STATUSES).map(({ value, label }) => ({
+      value,
+      label,
+    })),
+  },
+} as const satisfies Record<
+  CaseEventFilterType,
+  {
+    label: string
+    options: CaseEventFilterOption[]
+  }
+>
+
+export function isCaseEventFilterType(
+  value: CaseEventType
+): value is CaseEventFilterType {
+  return value in CASE_EVENT_FILTER_OPTIONS
+}
+
 export function getCaseEventOption(value: CaseEventType): CaseEventOption {
   return (
     CASE_EVENT_OPTIONS.find((option) => option.value === value) || {
@@ -105,7 +129,7 @@ export function getCaseEventOption(value: CaseEventType): CaseEventOption {
       label: value
         .replace(/_/g, " ")
         .replace(/\b\w/g, (char) => char.toUpperCase()),
-      icon: Database,
+      icon: FilePlus2,
     }
   )
 }
