@@ -15,11 +15,8 @@ from pydantic_ai.run import AgentRunResult
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.models import RunAgentArgs, StreamingAgentDeps
-from tracecat.agent.providers import get_model
-from tracecat.agent.service import AgentManagementService
 from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import event_stream_handler
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 
@@ -76,59 +73,49 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
         # Fire-and-forget execution using the agent function directly
         logger.info("Starting streaming agent")
 
-        async with get_async_session_context_manager() as session:
-            agent_svc = AgentManagementService(session, self.role)
-            if self.deps.message_store:
-                message_history = await self.deps.message_store.load(args.session_id)
-            else:
-                message_history = None
+        if self.deps.message_store:
+            message_history = await self.deps.message_store.load(args.session_id)
+        else:
+            message_history = None
 
-            # 2. Prepare writer
-            # Immediately stream the user's prompt to the client
-            user_message = ModelRequest(
-                parts=[UserPromptPart(content=args.user_prompt)]
+        # 2. Prepare writer
+        # Immediately stream the user's prompt to the client
+        user_message = ModelRequest(parts=[UserPromptPart(content=args.user_prompt)])
+        await self.deps.stream_writer.stream.append(user_message)
+
+        result: AgentRunResult[str] | None = None
+        new_messages: list[ModelRequest | ModelResponse] | None = None
+
+        agent = await self._factory(args.config)
+        usage = UsageLimits(
+            request_limit=args.max_requests or 50,
+            tool_calls_limit=args.max_tool_calls,
+        )
+        try:
+            result = await agent.run(
+                user_prompt=args.user_prompt,
+                message_history=message_history,
+                deps=self.deps,
+                event_stream_handler=self._event_stream_handler,
+                usage_limits=usage,
             )
-            await self.deps.stream_writer.stream.append(user_message)
-
-            result: AgentRunResult[str] | None = None
-            new_messages: list[ModelRequest | ModelResponse] | None = None
-
-            async with agent_svc.with_model_config() as model_config:
-                agent = await self._factory(args.config)
-                usage = UsageLimits(
-                    request_limit=args.max_requests or 50,
-                    tool_calls_limit=args.max_tool_calls,
-                )
-                try:
-                    result = await agent.run(
-                        user_prompt=args.user_prompt,
-                        message_history=message_history,
-                        deps=self.deps,
-                        event_stream_handler=self._event_stream_handler,
-                        model=get_model(
-                            model_config.name,
-                            model_config.provider,
-                            args.config.base_url,
-                        ),
-                        usage_limits=usage,
-                    )
-                    new_messages = result.new_messages()
-                except Exception as exc:
-                    error_message = str(exc)
-                    logger.error(
-                        "Streaming agent run failed",
-                        error=error_message,
-                        session_id=args.session_id,
-                    )
-                    await self.deps.stream_writer.stream.error(error_message)
-                    ## Don't update the message history with the error message
-                    new_messages = [
-                        user_message,
-                        StreamError.model_response(error_message),
-                    ]
-                finally:
-                    # Ensure we always close the stream so the client stops waiting.
-                    await self.deps.stream_writer.stream.done()
+            new_messages = result.new_messages()
+        except Exception as exc:
+            error_message = str(exc)
+            logger.error(
+                "Streaming agent run failed",
+                error=error_message,
+                session_id=args.session_id,
+            )
+            await self.deps.stream_writer.stream.error(error_message)
+            ## Don't update the message history with the error message
+            new_messages = [
+                user_message,
+                StreamError.model_response(error_message),
+            ]
+        finally:
+            # Ensure we always close the stream so the client stops waiting.
+            await self.deps.stream_writer.stream.done()
 
         if new_messages and self.deps.message_store:
             await self.deps.message_store.store(args.session_id, new_messages)

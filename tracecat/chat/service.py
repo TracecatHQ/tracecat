@@ -8,6 +8,7 @@ from sqlmodel import col, select
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.models import AgentConfig, ModelMessageTA, RunAgentArgs
+from tracecat.agent.service import AgentManagementService
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
@@ -122,9 +123,6 @@ class ChatService(BaseWorkspaceService):
         match request:
             case VercelChatRequest(
                 message=ui_message,
-                model=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
             ):
                 # Convert Vercel UI messages to pydantic-ai messages
                 [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
@@ -141,9 +139,6 @@ class ChatService(BaseWorkspaceService):
                         raise ValueError(f"Unsupported message: {message}")
             case BasicChatRequest(
                 message=user_prompt,
-                model_name=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
             ):
                 pass
             case _:
@@ -155,20 +150,22 @@ class ChatService(BaseWorkspaceService):
         )
         # Prepare agent execution arguments
         instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-        args = RunAgentArgs(
-            user_prompt=user_prompt,
-            session_id=chat_id,
-            config=AgentConfig(
-                instructions=instructions,
-                model_name=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
-                actions=chat.tools,
-            ),
-        )
 
         # Start agent execution
-        await executor.start(args)
+        agent_svc = AgentManagementService(self.session, self.role)
+        # TODO: Allow model to change per turn
+        async with agent_svc.with_model_config() as model_config:
+            args = RunAgentArgs(
+                user_prompt=user_prompt,
+                session_id=chat_id,
+                config=AgentConfig(
+                    instructions=instructions,
+                    model_name=model_config.name,
+                    model_provider=model_config.provider,
+                    actions=chat.tools,
+                ),
+            )
+            await executor.start(args)
 
         # Return response with stream URL
         stream_url = f"/api/chat/{chat_id}/stream"
