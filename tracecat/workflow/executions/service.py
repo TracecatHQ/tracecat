@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
 import temporalio.api.enums.v1
-from temporalio.api.enums.v1 import EventType
+from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     Client,
@@ -301,10 +301,20 @@ class WorkflowExecutionsService:
                         activity_id=act.activity_id,
                     )
                     continue
-                source.curr_event_type = WorkflowEventType.ACTIVITY_TASK_STARTED
-                source.status = WorkflowExecutionEventStatus.STARTED
-                if act.last_started_time:
-                    source.start_time = act.last_started_time.ToDatetime(datetime.UTC)
+                if act.state == PendingActivityState.PENDING_ACTIVITY_STATE_STARTED:
+                    source.curr_event_type = WorkflowEventType.ACTIVITY_TASK_STARTED
+                    source.status = WorkflowExecutionEventStatus.STARTED
+                    if act.last_started_time:
+                        source.start_time = act.last_started_time.ToDatetime(
+                            datetime.UTC
+                        )
+                else:
+                    state_name = PendingActivityState.Name(act.state)
+                    logger.trace(
+                        "Skipping pending activity state update",
+                        activity_id=act.activity_id,
+                        pending_state=state_name,
+                    )
             else:
                 logger.trace(
                     "Pending activity without matching source event",
