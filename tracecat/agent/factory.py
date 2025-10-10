@@ -7,14 +7,12 @@ from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
-from tracecat.agent.models import AgentConfig, DepsT, OutputType, StreamingAgentDeps
+from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tools import build_agent_tools
 
-type AgentFactory[DepsT: StreamingAgentDeps] = Callable[
-    [AgentConfig[DepsT]], Awaitable[AbstractAgent[DepsT, Any]]
-]
+type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
 SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
@@ -47,10 +45,10 @@ def _parse_output_type(output_type: OutputType) -> type[Any]:
         return str
 
 
-async def build_agent(config: AgentConfig[DepsT]) -> Agent[DepsT, Any]:
+async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
-    agent_tools: list[Tool[DepsT | None]] = []
+    agent_tools: list[Tool[Any | None]] = []
     if config.actions:
         tools = await build_agent_tools(
             fixed_arguments=config.fixed_arguments,

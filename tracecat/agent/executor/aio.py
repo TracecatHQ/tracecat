@@ -46,7 +46,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
 
 
 # This is an execution harness for an agent that adds persistence + streaming
-class AioStreamingAgentExecutor[DepsT: StreamingAgentDeps](BaseAgentExecutor[DepsT]):
+class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
     """Execute an agent directly in an asyncio task."""
 
     def __init__(
@@ -56,7 +56,7 @@ class AioStreamingAgentExecutor[DepsT: StreamingAgentDeps](BaseAgentExecutor[Dep
         event_stream_handler: EventStreamHandler[
             StreamingAgentDeps
         ] = event_stream_handler,
-        factory: AgentFactory[StreamingAgentDeps] = build_agent,
+        factory: AgentFactory = build_agent,
         **kwargs: Any,
     ):
         super().__init__(role, **kwargs)
@@ -65,16 +65,14 @@ class AioStreamingAgentExecutor[DepsT: StreamingAgentDeps](BaseAgentExecutor[Dep
         self._factory = factory
 
     async def start(
-        self, args: RunAgentArgs[StreamingAgentDeps]
+        self, args: RunAgentArgs
     ) -> BaseAgentRunHandle[AgentRunResult[str] | None]:
         """Start an agentic run with streaming."""
         coro = self._start_agent(args)
         task: asyncio.Task[AgentRunResult[str] | None] = asyncio.create_task(coro)
         return AioAgentRunHandle(task, run_id=str(args.session_id))
 
-    async def _start_agent(
-        self, args: RunAgentArgs[StreamingAgentDeps]
-    ) -> AgentRunResult[str] | None:
+    async def _start_agent(self, args: RunAgentArgs) -> AgentRunResult[str] | None:
         # Fire-and-forget execution using the agent function directly
         logger.info("Starting streaming agent")
 

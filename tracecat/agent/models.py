@@ -4,16 +4,7 @@ from __future__ import annotations as _annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Literal,
-    NotRequired,
-    Protocol,
-    TypedDict,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai import RunUsage
@@ -37,11 +28,8 @@ class StreamingAgentDeps(Protocol):
     message_store: MessageStore | None = None
 
 
-DepsT = TypeVar("DepsT", bound=StreamingAgentDeps, covariant=True)
-
-
 @dataclass(kw_only=True, slots=True)
-class AgentConfig(Generic[DepsT]):  # noqa: UP046
+class AgentConfig:
     """Configuration for an agent."""
 
     # Model
@@ -60,15 +48,15 @@ class AgentConfig(Generic[DepsT]):  # noqa: UP046
     mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
     retries: int = 3
-    deps_type: type[DepsT] | None = None
+    deps_type: type[StreamingAgentDeps] | type[None] | None = None
 
 
-class RunAgentArgs(Generic[DepsT], BaseModel):  # noqa: UP046
+class RunAgentArgs(BaseModel):
     user_prompt: str
     """User prompt for the agent."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
-    config: AgentConfig[DepsT]
+    config: AgentConfig
     """Configuration for the agent."""
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
