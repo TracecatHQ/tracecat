@@ -9,6 +9,8 @@ import {
   caseDurationsUpdateCaseDuration,
 } from "@/client"
 
+export type { CaseDurationRead, CaseDurationCreate, CaseDurationUpdate }
+
 export async function listCaseDurations(
   workspaceId: string
 ): Promise<CaseDurationRead[]> {

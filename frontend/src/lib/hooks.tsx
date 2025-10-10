@@ -32,6 +32,7 @@ import {
   type CaseCommentRead,
   type CaseCommentUpdate,
   type CaseCreate,
+  type CaseDurationRead,
   type CaseEventsWithUsers,
   type CaseFieldRead,
   type CaseRead,
@@ -244,7 +245,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
 import { getBaseUrl } from "@/lib/api"
-import { type CaseDurationRead, listCaseDurations } from "@/lib/case-durations"
+import { listCaseDurations } from "@/lib/case-durations"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"

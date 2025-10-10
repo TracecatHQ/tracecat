@@ -62,11 +62,10 @@ const normalizeFilterValues = (value: unknown): string[] => {
   if (
     value &&
     typeof value === "object" &&
-    Array.isArray((value as { $in?: unknown }).$in)
+    Array.isArray((value as { $in?: unknown[] }).$in)
   ) {
-    return (value as { $in?: unknown }).$in.filter(
-      (item): item is string => typeof item === "string"
-    )
+    const inArray = (value as { $in: unknown[] }).$in
+    return inArray.filter((item): item is string => typeof item === "string")
   }
 
   return []
