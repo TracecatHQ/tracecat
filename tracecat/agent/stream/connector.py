@@ -21,6 +21,7 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
+from tracecat.agent.types import StreamKey
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
@@ -35,7 +36,7 @@ class AgentStream:
     def __init__(self, client: RedisClient, session_id: uuid.UUID):
         self.client = client
         self.session_id = session_id
-        self._stream_key = f"agent-stream:{str(self.session_id)}"
+        self._stream_key = StreamKey(session_id)
 
     @classmethod
     async def new(cls, session_id: uuid.UUID) -> AgentStream:

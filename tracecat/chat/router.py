@@ -14,6 +14,7 @@ from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.types import StreamKey
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -321,7 +322,7 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = f"agent-stream:{chat_id}"
+    stream_key = StreamKey(chat_id)
 
     async with ChatService.with_session(role=role) as chat_svc:
         chat = await chat_svc.get_chat(chat_id)

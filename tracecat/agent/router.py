@@ -11,14 +11,14 @@ from tracecat.agent.models import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.stream.common import StreamKey, get_stream_headers
+from tracecat.agent.stream.common import get_stream_headers
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -224,7 +224,7 @@ async def stream_agent_session(
         format=format,
     )
 
-    stream = AgentStream(await get_redis_client(), session_id)
+    stream = await AgentStream.new(session_id)
     headers = get_stream_headers(format)
     return StreamingResponse(
         stream.sse(request.is_disconnected, last_id=last_event_id, format=format),

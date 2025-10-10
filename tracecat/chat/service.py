@@ -1,7 +1,6 @@
 import uuid
 from collections.abc import Sequence
 
-import orjson
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
@@ -19,19 +18,11 @@ from tracecat.chat.models import (
     ChatResponse,
     VercelChatRequest,
 )
-from tracecat.chat.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-    SCHEMA_KEY,
-    STREAM_SCHEMA_ID,
-)
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Case, Chat, Runbook
 from tracecat.db.schemas import ChatMessage as DBChatMessage
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.runbook.prompts import RunbookCopilotPrompts
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -325,92 +316,10 @@ class ChatService(BaseWorkspaceService):
             messages.append(validated_msg)
         return messages
 
-    async def _backfill_from_redis(self, chat: Chat) -> None:
-        """Backfill messages from Redis stream into the database."""
-        try:
-            redis_client = await get_redis_client()
-            stream_key = f"agent-stream:{chat.id}"
-
-            # Read all messages from Redis
-            redis_messages = await redis_client.xrange(
-                stream_key, min_id="-", max_id="+"
-            )
-
-            if not redis_messages:
-                logger.info(
-                    "No messages to backfill from Redis",
-                    chat_id=chat.id,
-                )
-                return
-
-            # Process and persist non-delta messages
-            for _, fields in redis_messages:
-                try:
-                    data = orjson.loads(fields[DATA_KEY])
-
-                    schema = data.get(SCHEMA_KEY)
-                    if schema == STREAM_SCHEMA_ID:
-                        # New streaming payloads do not contain full ModelMessage data.
-                        logger.debug(
-                            "Skipping Vercel stream payload during backfill",
-                            chat_id=chat.id,
-                            schema=schema,
-                        )
-                        continue
-
-                    # Skip legacy end-of-stream markers and deltas
-                    if (
-                        data.get(END_TOKEN) == END_TOKEN_VALUE
-                        or data.get("t") == "delta"
-                    ):
-                        continue
-
-                    # Validate and persist the message
-                    validated_msg = ModelMessageTA.validate_python(data)
-                    await self.append_message(
-                        chat_id=chat.id,
-                        message=validated_msg,
-                        kind=MessageKind.CHAT_MESSAGE,
-                    )
-
-                except Exception as e:
-                    logger.warning(
-                        "Failed to backfill message from Redis",
-                        error=str(e),
-                        data=data if "data" in locals() else None,
-                    )
-                    continue
-
-            # Mark chat as backfilled (we can store this in chat metadata or a separate flag)
-            # For now, we'll just log it
-            logger.info(
-                "Successfully backfilled messages from Redis",
-                chat_id=chat.id,
-                count=len(redis_messages),
-            )
-
-        except Exception as e:
-            logger.error(
-                "Failed to backfill messages from Redis",
-                chat_id=chat.id,
-                error=str(e),
-            )
-
     async def get_chat_messages(self, chat: Chat) -> list[ChatMessage]:
         """Get chat messages from database, with Redis backfill if needed."""
         # First, try to get messages from the database
         db_messages = await self.list_messages(chat.id)
-
-        # If no messages in database, attempt to backfill from Redis
-        if not db_messages:
-            logger.info(
-                "No messages in database, attempting Redis backfill",
-                chat_id=chat.id,
-            )
-            await self._backfill_from_redis(chat)
-            # Re-fetch from database after backfill
-            db_messages = await self.list_messages(chat.id)
-
         # Convert to ChatMessage format for API compatibility
         parsed_messages: list[ChatMessage] = []
         for idx, msg in enumerate(db_messages):

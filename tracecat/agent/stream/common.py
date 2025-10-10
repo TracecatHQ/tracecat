@@ -10,11 +10,6 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.stream.writers import AgentStreamWriter, StreamWriter
 
 
-class StreamKey(str):
-    def __new__(cls, session_id: uuid.UUID | str) -> StreamKey:
-        return super().__new__(cls, f"agent-stream:{str(session_id)}")
-
-
 @dataclass
 class PersistableStreamingAgentDeps:
     stream_writer: StreamWriter
