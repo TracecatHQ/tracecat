@@ -98,6 +98,7 @@
     "react-syntax-highlighter": "^15.6.6",
     "react18-json-view": "0.2.9-canary.11",
     "sharp": "^0.33.5",
+    "shiki": "^3.13.0",
     "streamdown": "^1.3.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

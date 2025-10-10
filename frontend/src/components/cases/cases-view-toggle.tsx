@@ -1,6 +1,6 @@
 "use client"
 
-import { BracesIcon, SquareStackIcon, TagIcon } from "lucide-react"
+import { BracesIcon, SquareStackIcon, TagIcon, Timer } from "lucide-react"
 import Link from "next/link"
 import {
   Tooltip,
@@ -14,6 +14,7 @@ export enum CasesViewMode {
   Cases = "cases",
   Tags = "tags",
   CustomFields = "custom-fields",
+  Durations = "durations",
 }
 
 interface CasesViewToggleProps {
@@ -23,6 +24,7 @@ interface CasesViewToggleProps {
   casesHref?: string
   tagsHref?: string
   customFieldsHref?: string
+  durationsHref?: string
 }
 
 export function CasesViewToggle({
@@ -32,6 +34,7 @@ export function CasesViewToggle({
   casesHref,
   tagsHref,
   customFieldsHref,
+  durationsHref,
 }: CasesViewToggleProps) {
   const handleViewChange = (view: CasesViewMode) => {
     onViewChange?.(view)
@@ -58,6 +61,13 @@ export function CasesViewToggle({
       tooltip: "Custom fields",
       href: customFieldsHref,
       ariaLabel: "Custom fields view",
+    },
+    {
+      mode: CasesViewMode.Durations,
+      icon: Timer,
+      tooltip: "Durations",
+      href: durationsHref,
+      ariaLabel: "Durations view",
     },
   ] as const
 
