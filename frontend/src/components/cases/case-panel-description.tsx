@@ -88,10 +88,10 @@ export function CasePanelDescription({
     }
   }
 
-  // Setup keyboard shortcut for saving (Cmd+Enter or Ctrl+Enter)
+  // Setup keyboard shortcut for saving (Cmd+S or Ctrl+S)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault()
         form.handleSubmit(handleSave)()
       }
@@ -155,13 +155,7 @@ export function CasePanelDescription({
                       <span className="my-px ml-auto flex items-center space-x-2">
                         <div className="mx-1 my-0 flex items-center space-x-1 rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs text-muted-foreground/80">
                           <SaveIcon className="size-3 text-muted-foreground/70" />
-                          <p>
-                            {typeof navigator.userAgent !== "undefined"
-                              ? /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
-                                ? "⌘+Enter"
-                                : "Ctrl+Enter"
-                              : "Ctrl+Enter"}
-                          </p>
+                          <p>Ctrl+S</p>
                         </div>
                       </span>
                     </>

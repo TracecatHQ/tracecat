@@ -1,13 +1,5 @@
 "use client"
 
-import "@blocknote/core/fonts/inter.css"
-import "@blocknote/shadcn/style.css"
-import "@/components/cases/editor.css"
-
-import { codeBlock } from "@blocknote/code-block"
-import type { BlockNoteEditor } from "@blocknote/core"
-import { useCreateBlockNote } from "@blocknote/react"
-import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronRightIcon,
   CircleDot,
@@ -16,7 +8,7 @@ import {
   RefreshCw,
   Undo2Icon,
 } from "lucide-react"
-import React, { useEffect } from "react"
+import React from "react"
 import type {
   AgentOutput,
   EventFailure,
@@ -65,9 +57,9 @@ import {
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { useGetRegistryAction } from "@/lib/hooks"
-import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn, reconstructActionType } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 
 type TabType = "input" | "result" | "interaction"
 
@@ -529,34 +521,26 @@ export function TextPartComponent({
   defaultExpanded?: boolean
 }) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const editor = useCreateBlockNote({
-    animations: false,
-    codeBlock,
-  })
-
   const TRUNCATE_LIMIT = 200
   const shouldTruncate = text.content.length > TRUNCATE_LIMIT
-  useEffect(() => {
-    if (text.content) {
-      let contentToLoad
-      if (isExpanded) {
-        contentToLoad = text.content
-      } else {
-        // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.trim()
-        contentToLoad = shouldTruncate
-          ? `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
-          : normalizedContent
-      }
-
-      loadInitialContent(editor, contentToLoad)
+  const normalizedContent = React.useMemo(
+    () => text.content.trim(),
+    [text.content]
+  )
+  const displayContent = React.useMemo(() => {
+    if (isExpanded || !shouldTruncate) {
+      return normalizedContent
     }
-  }, [text.content, editor, isExpanded, shouldTruncate])
+    return `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
+  }, [isExpanded, normalizedContent, shouldTruncate])
 
   return (
     <div
-      className="flex cursor-pointer flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30"
-      onClick={() => setIsExpanded(!isExpanded)}
+      className={cn(
+        "flex cursor-pointer flex-col gap-2 rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30",
+        isExpanded ? "max-h-96 overflow-auto" : "overflow-hidden"
+      )}
+      onClick={() => setIsExpanded((prev) => !prev)}
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
@@ -575,19 +559,10 @@ export function TextPartComponent({
         )}
       </div>
 
-      <BlockNoteView
-        editor={editor}
-        theme="light"
+      <SimpleEditor
+        value={displayContent}
         editable={false}
-        slashMenu={false}
-        style={{
-          height: "100%",
-          width: "100%",
-          whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          lineHeight: "1.5",
-        }}
+        className="border-0 bg-transparent text-xs"
       />
     </div>
   )
@@ -804,10 +779,4 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
       <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
-}
-
-async function loadInitialContent(editor: BlockNoteEditor, content: string) {
-  const blocks = await editor.tryParseMarkdownToBlocks(content)
-  const spacedBlocks = getSpacedBlocks(blocks)
-  editor.replaceBlocks(editor.document, spacedBlocks)
 }

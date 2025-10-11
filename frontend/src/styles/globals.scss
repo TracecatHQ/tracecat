@@ -1,3 +1,6 @@
+@import "./_variables.scss";
+@import "./_keyframe-animations.scss";
+
 @source "../node_modules/streamdown/dist/index.js";
 @tailwind base;
 @tailwind components;
