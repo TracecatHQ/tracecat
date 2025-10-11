@@ -29,6 +29,7 @@ import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
+import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import {
@@ -59,7 +60,6 @@ import {
 import { useGetRegistryAction } from "@/lib/hooks"
 import { cn, reconstructActionType } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 
 type TabType = "input" | "result" | "interaction"
 
