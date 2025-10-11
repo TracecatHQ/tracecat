@@ -95,7 +95,6 @@ export const UndoRedoButton = React.forwardRef<
         data-style="ghost"
         data-disabled={!canExecute}
         role="button"
-        tabIndex={-1}
         aria-label={label}
         tooltip={label}
         onClick={handleClick}

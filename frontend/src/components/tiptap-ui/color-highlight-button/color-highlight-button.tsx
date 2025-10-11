@@ -109,7 +109,6 @@ export const ColorHighlightButton = React.forwardRef<
         data-style="ghost"
         data-active-state={isActive ? "on" : "off"}
         role="button"
-        tabIndex={-1}
         disabled={!canColorHighlight}
         data-disabled={!canColorHighlight}
         aria-label={label}

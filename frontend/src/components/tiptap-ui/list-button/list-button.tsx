@@ -95,7 +95,6 @@ export const ListButton = React.forwardRef<HTMLButtonElement, ListButtonProps>(
         data-style="ghost"
         data-active-state={isActive ? "on" : "off"}
         role="button"
-        tabIndex={-1}
         disabled={!canToggle}
         data-disabled={!canToggle}
         aria-label={label}

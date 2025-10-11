@@ -69,7 +69,6 @@ export const ColorHighlightPopoverButton = React.forwardRef<
     data-style="ghost"
     data-appearance="default"
     role="button"
-    tabIndex={-1}
     aria-label="Highlight text"
     tooltip="Highlight"
     ref={ref}

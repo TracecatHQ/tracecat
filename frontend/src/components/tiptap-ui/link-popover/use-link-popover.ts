@@ -119,9 +119,15 @@ export function useLinkHandler(props: LinkHandlerProps) {
     const { selection } = editor.state
     const isEmpty = selection.empty
 
+    // Sanitize URL to prevent XSS attacks (e.g., javascript: protocol)
+    const safeUrl = sanitizeUrl(url, window.location.href)
+
+    // Don't set invalid URLs
+    if (safeUrl === "#") return
+
     let chain = editor.chain().focus()
 
-    chain = chain.extendMarkRange("link").setLink({ href: url })
+    chain = chain.extendMarkRange("link").setLink({ href: safeUrl })
 
     if (isEmpty) {
       chain = chain.insertContent({ type: "text", text: url })

@@ -94,7 +94,6 @@ export const ImageUploadButton = React.forwardRef<
         data-style="ghost"
         data-active-state={isActive ? "on" : "off"}
         role="button"
-        tabIndex={-1}
         disabled={!canInsert}
         data-disabled={!canInsert}
         aria-label={label}
