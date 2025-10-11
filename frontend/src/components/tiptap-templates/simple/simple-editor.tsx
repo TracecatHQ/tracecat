@@ -480,12 +480,6 @@ export function SimpleEditor({
       if (key === "enter") {
         event.preventDefault()
         event.stopPropagation()
-        return
-      }
-
-      if (key === "s") {
-        event.preventDefault()
-        event.stopPropagation()
 
         if (!editor.isEditable) {
           return

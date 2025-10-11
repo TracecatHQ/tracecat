@@ -1,0 +1,92 @@
+.simple-editor-wrapper {
+  width: 100%;
+  height: auto;
+}
+
+.simple-editor-toolbar {
+  position: relative;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+
+  .tiptap-toolbar-group {
+    gap: 0.25rem;
+  }
+
+  .tiptap-button {
+    border-radius: var(--tt-radius-xs);
+    background: transparent;
+    box-shadow: none;
+
+    &[data-active-state="on"],
+    &[data-state="open"],
+    &:hover:not([disabled]),
+    &[data-highlighted]:not([data-highlighted="false"]) {
+      background-color: hsl(var(--muted));
+    }
+  }
+
+  &[data-variant="floating"] {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+
+    &::after {
+      content: "";
+      position: absolute;
+      inset-inline: 0;
+      bottom: 0;
+      height: 1px;
+      background: hsl(var(--border));
+    }
+  }
+
+  &[data-variant="fixed"] {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: hsl(var(--background));
+    border-bottom: 1px solid hsl(var(--border));
+
+    &::after {
+      display: none;
+    }
+  }
+}
+
+.simple-editor-toolbar + .tiptap-toolbar-group,
+.simple-editor-toolbar + .simple-editor-content {
+  margin-top: 0;
+}
+
+.simple-editor-content {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor {
+  flex: 1;
+  min-height: 12rem;
+  padding: 1rem 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor ::selection {
+  background: hsl(var(--primary) / 0.15);
+}
