@@ -21,8 +21,9 @@ from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
-from tracecat.contexts import ctx_session_id
+from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.logger import logger
+from tracecat.types.exceptions import TracecatAuthorizationError
 
 # Initialize Pydantic AI instrumentation for Langfuse
 Agent.instrument_all()
@@ -148,8 +149,14 @@ async def run_agent(
     session_id = ctx_session_id.get() or uuid.uuid4()
     message_nodes: list[ModelMessage] = []
 
-    deps = await PersistableStreamingAgentDeps.new(session_id, persistent=False)
-    executor = AioStreamingAgentExecutor(deps=deps)
+    role = ctx_role.get()
+    if role is None or role.workspace_id is None:
+        raise TracecatAuthorizationError("Workspace context required for agent run")
+
+    deps = await PersistableStreamingAgentDeps.new(
+        session_id, role.workspace_id, persistent=False
+    )
+    executor = AioStreamingAgentExecutor(deps=deps, role=role)
     try:
         args = RunAgentArgs(
             user_prompt=user_prompt,

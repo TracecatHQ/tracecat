@@ -201,7 +201,7 @@ async def set_default_model(
 @router.get("/sessions/{session_id}")
 async def stream_agent_session(
     *,
-    _role: WorkspaceUserRole,
+    role: WorkspaceUserRole,
     session_id: uuid.UUID,
     request: Request,
     format: StreamFormat = Query(
@@ -215,7 +215,14 @@ async def stream_agent_session(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = StreamKey(session_id)
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, session_id)
     logger.info(
         "Starting agent session",
         stream_key=stream_key,
@@ -224,7 +231,7 @@ async def stream_agent_session(
         format=format,
     )
 
-    stream = await AgentStream.new(session_id)
+    stream = await AgentStream.new(session_id, workspace_id)
     headers = get_stream_headers(format)
     return StreamingResponse(
         stream.sse(request.is_disconnected, last_id=last_event_id, format=format),

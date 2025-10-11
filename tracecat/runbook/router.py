@@ -244,7 +244,14 @@ async def stream_runbook_execution(
             detail="Case not found or access denied",
         )
 
-    stream_key = StreamKey(case_id)
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, case_uuid)
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(

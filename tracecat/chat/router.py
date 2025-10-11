@@ -203,7 +203,16 @@ async def chat_with_vercel_streaming(
     try:
         svc = ChatService(session, role)
         # Start the chat turn (this will spawn the agent execution)
-        deps = await PersistableStreamingAgentDeps.new(chat_id, persistent=True)
+        workspace_id = role.workspace_id
+        if workspace_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Workspace access required",
+            )
+
+        deps = await PersistableStreamingAgentDeps.new(
+            chat_id, workspace_id, persistent=True, namespace="chat"
+        )
         executor = AioStreamingAgentExecutor(deps=deps)
         await svc.start_chat_turn(
             chat_id=chat_id,
@@ -287,7 +296,14 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = StreamKey(chat_id)
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, chat_id, namespace="chat")
 
     async with ChatService.with_session(role=role) as chat_svc:
         chat = await chat_svc.get_chat(chat_id)
@@ -307,7 +323,7 @@ async def stream_chat_events(
         chat_id=chat_id,
     )
 
-    stream = await AgentStream.new(chat_id)
+    stream = await AgentStream.new(chat_id, workspace_id, namespace="chat")
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",

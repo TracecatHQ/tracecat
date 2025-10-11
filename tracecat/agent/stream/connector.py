@@ -33,15 +33,26 @@ class AgentStream:
 
     KEEPALIVE_INTERVAL_SECONDS = 10
 
-    def __init__(self, client: RedisClient, session_id: uuid.UUID):
+    def __init__(
+        self,
+        client: RedisClient,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        *,
+        namespace: str = "agent",
+    ):
         self.client = client
+        self.workspace_id = workspace_id
         self.session_id = session_id
-        self._stream_key = StreamKey(session_id)
+        self.namespace = namespace
+        self._stream_key = StreamKey(workspace_id, session_id, namespace=namespace)
 
     @classmethod
-    async def new(cls, session_id: uuid.UUID) -> AgentStream:
+    async def new(
+        cls, session_id: uuid.UUID, workspace_id: uuid.UUID, *, namespace: str = "agent"
+    ) -> AgentStream:
         client = await get_redis_client()
-        return cls(client, session_id)
+        return cls(client, workspace_id, session_id, namespace=namespace)
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""

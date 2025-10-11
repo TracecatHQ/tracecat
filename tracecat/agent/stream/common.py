@@ -17,9 +17,14 @@ class PersistableStreamingAgentDeps:
 
     @classmethod
     async def new(
-        cls, session_id: uuid.UUID, persistent: bool = True
+        cls,
+        session_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        *,
+        persistent: bool = True,
+        namespace: str = "agent",
     ) -> PersistableStreamingAgentDeps:
-        stream = await AgentStream.new(session_id)
+        stream = await AgentStream.new(session_id, workspace_id, namespace=namespace)
         return cls(
             stream_writer=AgentStreamWriter(stream=stream),
             message_store=DBMessageStore() if persistent else None,
