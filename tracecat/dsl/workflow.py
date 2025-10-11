@@ -943,12 +943,18 @@ class DSLWorkflow:
                 update={"environment": evaluated_env}
             )
 
+        # Tells us where to get the redis stream
+        session_id = (
+            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
+        )
+
         arg = RunActionInput(
             task=task,
             run_context=run_context,
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
+            session_id=session_id,
         )
 
         return await workflow.execute_activity(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -333,6 +334,8 @@ class RunActionInput(BaseModel):
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
+    session_id: uuid.UUID | None = None
+    """ID for a streamable session, if any."""
 
     @model_validator(mode="before")
     @classmethod

@@ -1,7 +1,15 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { getToolName, isToolUIPart, type UIMessage } from "ai"
+import {
+  type ChatStatus,
+  getToolName,
+  isToolUIPart,
+  type UIDataTypes,
+  type UIMessage,
+  type UIMessagePart,
+  type UITools,
+} from "ai"
 import { CopyIcon, HammerIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -199,7 +207,7 @@ export function ChatSessionPane({
             )}
             {messages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
-              const isLastMessage = id === messages.at(-1)?.id
+              const isLastMessage = id === messages[messages.length - 1].id
 
               return (
                 <div key={id} className="group relative">
@@ -226,60 +234,17 @@ export function ChatSessionPane({
                       </Sources>
                     )}
 
-                  {parts?.map((part, index) => {
-                    if (part.type === "text") {
-                      return (
-                        <Message key={`${id}-${index}`} from={role}>
-                          <MessageContent variant="flat">
-                            <Response>{part.text}</Response>
-                          </MessageContent>
-                        </Message>
-                      )
-                    }
-
-                    if (part.type === "reasoning") {
-                      const isLatestMessage =
-                        status === "streaming" &&
-                        index === (parts?.length || 0) - 1 &&
-                        id === messages.at(-1)?.id
-
-                      return (
-                        <Reasoning
-                          key={`${id}-${index}`}
-                          className="w-full"
-                          isStreaming={isLatestMessage}
-                        >
-                          <ReasoningTrigger />
-                          <ReasoningContent>{part.text}</ReasoningContent>
-                        </Reasoning>
-                      )
-                    }
-
-                    if (isToolUIPart(part)) {
-                      const toolName = getToolName(part).replaceAll("__", ".")
-                      return (
-                        <Tool key={`${id}-${index}`}>
-                          <ToolHeader
-                            title={toolName}
-                            type={part.type}
-                            state={part.state}
-                            icon={getIcon(toolName, {
-                              className: "size-4 p-[3px]",
-                            })}
-                          />
-                          <ToolContent>
-                            <ToolInput input={part.input} />
-                            <ToolOutput
-                              output={part.output}
-                              errorText={part.errorText}
-                            />
-                          </ToolContent>
-                        </Tool>
-                      )
-                    }
-
-                    return null
-                  })}
+                  {parts?.map((part, partIdx) => (
+                    <MessagePart
+                      key={`${id}-${partIdx}`}
+                      part={part}
+                      partIdx={partIdx}
+                      id={id}
+                      role={role}
+                      status={status}
+                      isLastMessage={isLastMessage}
+                    />
+                  ))}
                   {role === "assistant" && parts.length > 0 && (
                     // Render response actions for assistant messages and reveal them on hover for older messages.
                     <Actions
@@ -389,4 +354,65 @@ export function ChatSessionPane({
       </div>
     </div>
   )
+}
+
+export function MessagePart({
+  part,
+  partIdx,
+  id,
+  role,
+  status,
+  isLastMessage,
+}: {
+  part: UIMessagePart<UIDataTypes, UITools>
+  partIdx: number
+  id: string
+  role: UIMessage["role"]
+  status?: ChatStatus
+  isLastMessage: boolean
+}) {
+  if (part.type === "text") {
+    return (
+      <Message key={`${id}-${partIdx}`} from={role}>
+        <MessageContent variant="flat">
+          <Response>{part.text}</Response>
+        </MessageContent>
+      </Message>
+    )
+  }
+
+  if (part.type === "reasoning") {
+    return (
+      <Reasoning
+        key={`${id}-${partIdx}`}
+        className="w-full"
+        isStreaming={status === "streaming" && isLastMessage}
+      >
+        <ReasoningTrigger />
+        <ReasoningContent>{part.text}</ReasoningContent>
+      </Reasoning>
+    )
+  }
+
+  if (isToolUIPart(part)) {
+    const toolName = getToolName(part).replaceAll("__", ".")
+    return (
+      <Tool key={`${id}-${partIdx}`}>
+        <ToolHeader
+          title={toolName}
+          type={part.type}
+          state={part.state}
+          icon={getIcon(toolName, {
+            className: "size-4 p-[3px]",
+          })}
+        />
+        <ToolContent>
+          <ToolInput input={part.input} />
+          <ToolOutput output={part.output} errorText={part.errorText} />
+        </ToolContent>
+      </Tool>
+    )
+  }
+
+  return null
 }

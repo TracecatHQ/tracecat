@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from time import monotonic
 from typing import Any
 
 import orjson
-from fastapi import Request
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.models import ModelMessageTA
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -22,10 +21,11 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
+from tracecat.agent.types import StreamKey
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
-from tracecat.redis.client import RedisClient
+from tracecat.redis.client import RedisClient, get_redis_client
 
 
 class AgentStream:
@@ -33,10 +33,26 @@ class AgentStream:
 
     KEEPALIVE_INTERVAL_SECONDS = 10
 
-    def __init__(self, client: RedisClient, session_id: uuid.UUID):
+    def __init__(
+        self,
+        client: RedisClient,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        *,
+        namespace: str = "agent",
+    ):
         self.client = client
+        self.workspace_id = workspace_id
         self.session_id = session_id
-        self._stream_key = f"agent-stream:{str(self.session_id)}"
+        self.namespace = namespace
+        self._stream_key = StreamKey(workspace_id, session_id, namespace=namespace)
+
+    @classmethod
+    async def new(
+        cls, session_id: uuid.UUID, workspace_id: uuid.UUID, *, namespace: str = "agent"
+    ) -> AgentStream:
+        client = await get_redis_client()
+        return cls(client, workspace_id, session_id, namespace=namespace)
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""
@@ -68,15 +84,39 @@ class AgentStream:
                     last_stream_id=last_stream_id,
                 )
             else:
-                logger.warning("Chat not found", session_id=self.session_id)
+                # This is expected if we are streaming a session that
+                # was not created from a chat.
+                logger.debug("Chat not found", session_id=self.session_id)
 
     async def _stream_events(
-        self, request: Request, last_id: str
+        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
     ) -> AsyncIterator[StreamEvent]:
+        """Stream events from Redis until a stop condition is met.
+
+        Continuously reads messages from the Redis stream and yields them as
+        StreamEvent objects. Handles different event types including agent events,
+        model messages, errors, and end-of-stream markers.
+
+        Args:
+            stop_condition: Async callable that returns True when streaming should stop
+                          (e.g., when client disconnects).
+            last_id: The Redis stream ID to start reading from. Use "0-0" to read
+                    from the beginning, or a specific ID to resume from that point.
+
+        Yields:
+            StreamEvent: One of StreamDelta (agent events), StreamMessage (model messages),
+                        StreamError (error events), or StreamEnd (end-of-stream marker).
+
+        Note:
+            - Periodically updates the chat's last_stream_id for reconnection support
+            - Implements exponential backoff on errors (1s sleep)
+            - Blocks for up to 1 second waiting for new messages
+            - Processes up to 100 messages per read operation
+        """
         current_id = last_id
         last_keepalive = monotonic()
         try:
-            while not await request.is_disconnected():
+            while not await stop_condition():
                 try:
                     if result := await self.client.xread(
                         streams={self._stream_key: current_id},
@@ -143,7 +183,7 @@ class AgentStream:
 
     def sse(
         self,
-        request: Request,
+        stop_condition: Callable[[], Awaitable[bool]],
         last_id: str,
         format: StreamFormat,
     ) -> AsyncIterable[str]:
@@ -151,16 +191,18 @@ class AgentStream:
             case "vercel":
                 from tracecat.agent.adapter.vercel import sse_vercel
 
-                return sse_vercel(self._stream_events(request, last_id))
+                return sse_vercel(self._stream_events(stop_condition, last_id))
             case "basic":
-                return self.simple_sse(request, last_id)
+                return self.simple_sse(stop_condition, last_id)
             case _:
                 raise ValueError(f"Invalid format: {format}")
 
-    async def simple_sse(self, request: Request, last_id: str) -> AsyncIterable[str]:
+    async def simple_sse(
+        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+    ) -> AsyncIterable[str]:
         try:
             yield StreamConnected(id=last_id).sse()
-            async for event in self._stream_events(request, last_id):
+            async for event in self._stream_events(stop_condition, last_id):
                 match event:
                     case StreamKeepAlive():
                         yield event.sse()

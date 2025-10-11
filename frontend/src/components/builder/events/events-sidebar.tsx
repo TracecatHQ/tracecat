@@ -9,7 +9,7 @@ import {
 import { useEffect, useState } from "react"
 import type { ImperativePanelHandle } from "react-resizable-panels"
 import { $TriggerType, type TriggerType } from "@/client"
-import { ActionEvent } from "@/components/builder/events/events-selected-action"
+import { ActionEventPane } from "@/components/builder/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
 import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
 import {
@@ -199,13 +199,13 @@ function BuilderSidebarEventsList({
       value: "action-input",
       label: "Input",
       icon: FileInputIcon,
-      content: <ActionEvent execution={execution} type="input" />,
+      content: <ActionEventPane execution={execution} type="input" />,
     },
     {
       value: "action-result",
       label: "Result",
       icon: ShapesIcon,
-      content: <ActionEvent execution={execution} type="result" />,
+      content: <ActionEventPane execution={execution} type="result" />,
     },
   ]
   if (appSettings?.app_interactions_enabled) {
@@ -213,7 +213,7 @@ function BuilderSidebarEventsList({
       value: "action-interaction",
       label: "Interaction",
       icon: MessagesSquare,
-      content: <ActionEvent execution={execution} type="interaction" />,
+      content: <ActionEventPane execution={execution} type="interaction" />,
     })
   }
 

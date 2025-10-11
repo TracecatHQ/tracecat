@@ -36,7 +36,7 @@ async def mcp(
     token = secrets.get(github_mcp_oauth_secret.token_name)
     mcp_server_url = "https://api.githubcopilot.com/mcp"
     mcp_server_headers = {"Authorization": f"Bearer {token}"}
-    return await run_agent(
+    output = await run_agent(
         user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
@@ -44,3 +44,4 @@ async def mcp(
         mcp_server_url=mcp_server_url,
         mcp_server_headers=mcp_server_headers,
     )
+    return output.model_dump(mode="json")

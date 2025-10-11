@@ -11,16 +11,19 @@ Objectives
 """
 
 import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from temporalio.api.enums.v1 import EventType
+from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.client import Client, WorkflowHandle
 
 from tracecat.db.schemas import Workspace
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.types.auth import Role
-from tracecat.workflow.executions.enums import WorkflowExecutionEventStatus
+from tracecat.workflow.executions.enums import (
+    WorkflowEventType,
+    WorkflowExecutionEventStatus,
+)
 from tracecat.workflow.executions.models import (
     EventFailure,
     WorkflowExecutionEventCompact,
@@ -171,6 +174,9 @@ class TestWorkflowExecutionEvents:
             yield failure_event
 
         mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
         workflow_executions_service._client.get_workflow_handle_for = Mock(
             return_value=mock_handle
         )
@@ -243,6 +249,9 @@ class TestWorkflowExecutionEvents:
             yield completed_event
 
         mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
         workflow_executions_service._client.get_workflow_handle_for = Mock(
             return_value=mock_handle
         )
@@ -583,6 +592,139 @@ class TestWorkflowExecutionEvents:
             if event.action_error:
                 assert event.action_error.message == "Database operation failed"
                 assert event.action_error.cause == complex_cause
+
+    async def test_pending_activity_marks_started(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that pending activities from describe mark the event as started."""
+
+        scheduled_event = create_mock_history_event(
+            event_id=10,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="action-42",
+            activity_name="pending_action",
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+
+        pending_activity = Mock()
+        pending_activity.activity_id = "action-42"
+        pending_activity.scheduled_event_id = 10
+        pending_activity.state = PendingActivityState.PENDING_ACTIVITY_STATE_STARTED
+        pending_activity.last_started_time = Mock()
+        pending_activity.last_started_time.ToDatetime.return_value = (
+            datetime.datetime.fromtimestamp(1640995300, tz=datetime.UTC)
+        )
+
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(
+                raw_description=Mock(pending_activities=[pending_activity])
+            )
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            compact = Mock(spec=WorkflowExecutionEventCompact)
+            compact.action_ref = "action-42"
+            compact.stream_id = None
+            compact.child_wf_count = 0
+            compact.loop_index = None
+            compact.action_result = None
+            compact.child_wf_wait_strategy = None
+            compact.schedule_time = datetime.datetime.fromtimestamp(
+                1640995290, tz=datetime.UTC
+            )
+            compact.start_time = None
+            compact.close_time = None
+            compact.status = WorkflowExecutionEventStatus.SCHEDULED
+            mock_from_source.return_value = compact
+
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+            assert len(events) == 1
+            event = events[0]
+            assert event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_STARTED
+            assert event.status == WorkflowExecutionEventStatus.STARTED
+            assert event.start_time == datetime.datetime.fromtimestamp(
+                1640995300, tz=datetime.UTC
+            )
+
+    async def test_pending_activity_not_started_keeps_scheduled_state(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Pending activities that are not started must remain scheduled."""
+        scheduled_event = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="action-99",
+            activity_name="pending_action",
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+
+        pending_activity = Mock()
+        pending_activity.activity_id = "action-99"
+        pending_activity.scheduled_event_id = 11
+        pending_activity.state = PendingActivityState.PENDING_ACTIVITY_STATE_SCHEDULED
+        pending_activity.last_started_time = None
+
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(
+                raw_description=Mock(pending_activities=[pending_activity])
+            )
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            compact = Mock(spec=WorkflowExecutionEventCompact)
+            compact.action_ref = "action-99"
+            compact.stream_id = None
+            compact.child_wf_count = 0
+            compact.loop_index = None
+            compact.action_result = None
+            compact.child_wf_wait_strategy = None
+            compact.schedule_time = datetime.datetime.fromtimestamp(
+                1640995290, tz=datetime.UTC
+            )
+            compact.start_time = None
+            compact.close_time = None
+            compact.status = WorkflowExecutionEventStatus.SCHEDULED
+            compact.curr_event_type = WorkflowEventType.ACTIVITY_TASK_SCHEDULED
+            mock_from_source.return_value = compact
+
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+            assert len(events) == 1
+            event = events[0]
+            assert event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_SCHEDULED
+            assert event.status == WorkflowExecutionEventStatus.SCHEDULED
+            assert event.start_time is None
 
 
 # === Timeout Resolution Tests ===

@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from tracecat_registry.core.agent import action, agent
 
+from tracecat.types.auth import Role
+
 requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
 
 
@@ -42,7 +44,7 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
 @pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
-async def test_agent_primitives(output_type):
+async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
     # Import here to avoid any accidental test-time patching/import shenanigans
 
     user_prompt = _prompt_for_output_type(
@@ -66,7 +68,7 @@ async def test_agent_primitives(output_type):
         actions=[],
         instructions="Be concise and factual.",
         output_type=output_type,
-        max_tools_calls=0,
+        max_tool_calls=0,
         max_requests=3,
     )
 
@@ -88,7 +90,7 @@ async def test_agent_primitives(output_type):
 @pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
-async def test_agent_json_schema(output_type):
+async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
     # Import here to avoid any accidental test-time patching/import shenanigans
 
     user_prompt = _prompt_for_output_type(
@@ -114,7 +116,7 @@ async def test_agent_json_schema(output_type):
         actions=[],
         instructions="Be concise and factual.",
         output_type=output_type,
-        max_tools_calls=0,
+        max_tool_calls=0,
         max_requests=3,
     )
 
@@ -132,7 +134,7 @@ async def test_agent_json_schema(output_type):
 @pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
-async def test_action_primitives(output_type):
+async def test_action_primitives(output_type: Any, test_role: Role) -> None:
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",
@@ -165,7 +167,7 @@ async def test_action_primitives(output_type):
 @pytest.mark.anyio
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
-async def test_action_json_schema(output_type):
+async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",

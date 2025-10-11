@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlparse
 
 import aiohttp
-from pydantic_ai.messages import AgentStreamEvent, ModelMessage
+from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
 from tracecat.agent.stream.events import AgentStreamEventTA
-from tracecat.chat.service import ChatService
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -20,18 +18,13 @@ if TYPE_CHECKING:
 
 
 class StreamWriter(Protocol):
+    stream: AgentStream
+
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None: ...
 
 
 class HasStreamWriter(Protocol):
     stream_writer: StreamWriter
-
-
-@dataclass
-class BasicStreamingAgentDeps:
-    stream_writer: StreamWriter
-
-    async def store(self, events: AgentStreamEvent) -> None: ...
 
 
 class BroadcastStreamWriter(StreamWriter):
@@ -136,18 +129,13 @@ async def event_stream_handler[StreamableDepsT: HasStreamWriter](
         raise e
 
 
-class PersistentStreamWriter(StreamWriter):
-    def __init__(self, stream: AgentStream, chat_id: uuid.UUID):
-        self.stream = stream
-        self.chat_id = chat_id
+@dataclass
+class AgentStreamWriter:
+    stream: AgentStream
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
             await self.stream.append(event)
-
-    async def store(self, messages: list[ModelMessage]) -> None:
-        async with ChatService.with_session() as chat_svc:
-            await chat_svc.append_messages(self.chat_id, messages)
 
 
 class HttpStreamWriter(StreamWriter):
