@@ -13,6 +13,15 @@
 
   .tiptap-toolbar-group {
     gap: 0.25rem;
+    padding-inline: 0.1875rem;
+
+    &:first-of-type {
+      padding-inline-start: 0;
+    }
+
+    &:last-of-type {
+      padding-inline-end: 0;
+    }
   }
 
   .tiptap-button {
@@ -35,6 +44,18 @@
     box-shadow: none;
     background: transparent;
 
+    .tiptap-toolbar-group {
+      padding-inline: 0.375rem;
+
+      &:first-of-type {
+        padding-inline-start: 0;
+      }
+
+      &:last-of-type {
+        padding-inline-end: 0;
+      }
+    }
+
     &::after {
       content: "";
       position: absolute;
@@ -51,6 +72,18 @@
     box-shadow: none;
     background: hsl(var(--background));
     border-bottom: 1px solid hsl(var(--border));
+
+    .tiptap-toolbar-group {
+      padding-inline: 0.375rem;
+
+      &:first-of-type {
+        padding-inline-start: 0;
+      }
+
+      &:last-of-type {
+        padding-inline-end: 0;
+      }
+    }
 
     &::after {
       display: none;
