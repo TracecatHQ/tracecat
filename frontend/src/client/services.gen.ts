@@ -27,6 +27,8 @@ import type {
   AgentListProvidersResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentStreamAgentSessionData,
+  AgentStreamAgentSessionResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
@@ -137,8 +139,6 @@ import type {
   ChatGetChatVercelResponse,
   ChatListChatsData,
   ChatListChatsResponse,
-  ChatStartChatTurnData,
-  ChatStartChatTurnResponse,
   ChatStreamChatEventsData,
   ChatStreamChatEventsResponse,
   ChatUpdateChatData,
@@ -1409,7 +1409,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ Successful Response
+ * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (
@@ -3143,6 +3143,43 @@ export const agentSetDefaultModel = (
     url: "/agent/default-model",
     query: {
       model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Agent Session
+ * Stream agent session events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * using Server-Sent Events. It supports automatic reconnection via the
+ * Last-Event-ID header.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.format Streaming format (e.g. 'vercel')
+ * @param data.lastEventId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentStreamAgentSession = (
+  data: AgentStreamAgentSessionData
+): CancelablePromise<AgentStreamAgentSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
+    headers: {
+      "last-event-id": data.lastEventId,
+    },
+    query: {
+      format: data.format,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -5480,39 +5517,6 @@ export const chatUpdateChat = (
 ): CancelablePromise<ChatUpdateChatResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/chat/{chat_id}",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Start Chat Turn
- * Start a new chat turn with an AI agent.
- *
- * This endpoint initiates an AI agent execution and returns a stream URL
- * for real-time streaming of the agent's processing steps.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns ChatResponse Successful Response
- * @throws ApiError
- */
-export const chatStartChatTurn = (
-  data: ChatStartChatTurnData
-): CancelablePromise<ChatStartChatTurnResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
     url: "/chat/{chat_id}",
     path: {
       chat_id: data.chatId,

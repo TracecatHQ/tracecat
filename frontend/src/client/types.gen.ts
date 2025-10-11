@@ -175,6 +175,7 @@ export type AgentOutput = {
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage: RunUsage
+  session_id: string
   trace_id?: string | null
 }
 
@@ -1212,20 +1213,6 @@ export type ChatReadVercel = {
    * Chat messages from Redis stream
    */
   messages?: Array<UIMessage>
-}
-
-/**
- * Response model for chat initiation.
- */
-export type ChatResponse = {
-  /**
-   * URL to connect for SSE streaming
-   */
-  stream_url: string
-  /**
-   * Unique chat identifier
-   */
-  chat_id: string
 }
 
 /**
@@ -3172,6 +3159,7 @@ export type RunActionInput = {
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
+  session_id?: string | null
 }
 
 /**
@@ -3527,6 +3515,14 @@ export type SessionRead = {
   created_at: string
   user_id: string
   user_email: string
+}
+
+export type Session_Any_ = {
+  id: string
+  /**
+   * The events in the session.
+   */
+  events?: Array<unknown> | null
 }
 
 /**
@@ -4483,7 +4479,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -4500,6 +4496,7 @@ export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   child_wf_count?: number
   loop_index?: number | null
   child_wf_wait_strategy?: WaitStrategy | null
+  session?: Session_Any_ | null
 }
 
 export type WorkflowExecutionEventStatus =
@@ -4569,7 +4566,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -4609,7 +4606,7 @@ export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -5165,7 +5162,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -5676,6 +5673,18 @@ export type AgentSetDefaultModelData = {
 export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
+
+export type AgentStreamAgentSessionData = {
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: "vercel" | "basic"
+  lastEventId?: string
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentStreamAgentSessionResponse = unknown
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -6375,14 +6384,6 @@ export type ChatUpdateChatData = {
 }
 
 export type ChatUpdateChatResponse = ChatReadMinimal
-
-export type ChatStartChatTurnData = {
-  chatId: string
-  requestBody: BasicChatRequest | VercelChatRequest
-  workspaceId: string
-}
-
-export type ChatStartChatTurnResponse = ChatResponse
 
 export type ChatGetChatVercelData = {
   chatId: string
@@ -7218,7 +7219,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
         /**
          * Validation Error
          */
@@ -8153,6 +8154,21 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}": {
+    get: {
+      req: AgentStreamAgentSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */
@@ -9394,19 +9410,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChatReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: ChatStartChatTurnData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatResponse
         /**
          * Validation Error
          */

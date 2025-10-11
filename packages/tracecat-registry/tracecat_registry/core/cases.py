@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 from sqlmodel import col, select
 from typing_extensions import Doc
 
@@ -433,6 +434,10 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
+    ] = None,
     limit: Annotated[
         int,
         Doc("Maximum number of cases to return."),
@@ -444,19 +449,34 @@ async def search_cases(
         )
 
     async with CasesService.with_session() as service:
-        cases = await service.search_cases(
-            search_term=search_term,
-            status=CaseStatus(status) if status else None,
-            priority=CasePriority(priority) if priority else None,
-            severity=CaseSeverity(severity) if severity else None,
-            limit=limit,
-            order_by=order_by,
-            sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-        )
+        tag_ids: list[UUID] = []
+        if tags:
+            for tag_identifier in tags:
+                try:
+                    tag = await service.tags.get_tag_by_ref_or_id(tag_identifier)
+                except NoResultFound:
+                    continue
+                tag_ids.append(tag.id)
+
+        try:
+            cases = await service.search_cases(
+                search_term=search_term,
+                status=CaseStatus(status) if status else None,
+                priority=CasePriority(priority) if priority else None,
+                severity=CaseSeverity(severity) if severity else None,
+                tag_ids=tag_ids or None,
+                limit=limit,
+                order_by=order_by,
+                sort=sort,
+                start_time=start_time,
+                end_time=end_time,
+                updated_before=updated_before,
+                updated_after=updated_after,
+            )
+        except ProgrammingError as exc:
+            raise ValueError(
+                "Invalid filter parameters supplied for case search"
+            ) from exc
     return [
         CaseReadMinimal(
             id=case.id,

@@ -495,6 +495,7 @@ class TestCasesService:
         # Verify fields were updated
         assert updated_case.summary == "Updated Test Case"
         fields = await cases_service.fields.get_fields(updated_case)
+        assert fields is not None
         assert fields["field1"] == "updated_value"
         assert fields["field2"] == 2
 

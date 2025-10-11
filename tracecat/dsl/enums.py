@@ -5,6 +5,12 @@ class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
     TRANSFORM_SCATTER = "core.transform.scatter"
     TRANSFORM_GATHER = "core.transform.gather"
+    AI_AGENT = "ai.agent"
+    AI_ACTION = "ai.action"
+
+    @classmethod
+    def is_streamable(cls, action: str) -> bool:
+        return action == cls.AI_AGENT or action == cls.AI_ACTION
 
 
 class FailStrategy(StrEnum):

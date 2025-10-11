@@ -23,6 +23,7 @@ from typing import (
 )
 
 import pydantic
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
     AgentStreamEvent,
     AudioUrl,
@@ -652,23 +653,29 @@ class VercelStreamContext:
                             "delta": delta.content_delta,
                         }
                     )
-            elif (
-                isinstance(delta, ToolCallPartDelta)
-                and self.current_tool_call
-                and delta.args_delta
-            ):
-                delta_str = (
-                    delta.args_delta
-                    if isinstance(delta.args_delta, str)
-                    else json.dumps(delta.args_delta)
-                )
-                yield format_sse(
-                    {
-                        "type": "tool-input-delta",
-                        "toolCallId": self.current_tool_call.tool_call_id,
-                        "inputTextDelta": delta_str,
-                    }
-                )
+            elif isinstance(delta, ToolCallPartDelta) and self.current_tool_call:
+                try:
+                    updated_tool_call = delta.apply(self.current_tool_call)
+                except (UnexpectedModelBehavior, ValueError):
+                    logger.exception(
+                        "Failed to apply tool call delta",
+                        tool_call_id=self.current_tool_call.tool_call_id,
+                    )
+                else:
+                    self.current_tool_call = updated_tool_call
+                    if delta.args_delta:
+                        delta_str = (
+                            delta.args_delta
+                            if isinstance(delta.args_delta, str)
+                            else json.dumps(delta.args_delta)
+                        )
+                        yield format_sse(
+                            {
+                                "type": "tool-input-delta",
+                                "toolCallId": self.current_tool_call.tool_call_id,
+                                "inputTextDelta": delta_str,
+                            }
+                        )
 
         # Handle Tool Call and Result Events
         elif isinstance(event, FunctionToolResultEvent):

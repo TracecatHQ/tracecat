@@ -24,7 +24,7 @@ import type { ModelInfo } from "@/lib/chat"
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
 
-function parseChatError(error: unknown): string {
+export function parseChatError(error: unknown): string {
   if (!error) {
     return DEFAULT_CHAT_ERROR_MESSAGE
   }

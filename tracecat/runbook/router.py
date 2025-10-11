@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 
+from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.service import CasesService
 from tracecat.chat.tokens import (
@@ -243,7 +244,14 @@ async def stream_runbook_execution(
             detail="Case not found or access denied",
         )
 
-    stream_key = f"agent-stream:{case_id}"
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, case_uuid)
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(

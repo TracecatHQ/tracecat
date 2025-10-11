@@ -1,8 +1,11 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.runtime import build_agent, run_agent_sync
+from tracecat.agent.models import AgentConfig, OutputType
+from tracecat.agent.runtime import run_agent, run_agent_sync
+from tracecat.agent.factory import build_agent
+
 
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
@@ -156,29 +159,11 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
-    fixed_arguments: Annotated[
-        dict[str, dict[str, Any]] | None,
-        Doc(
-            "Fixed action arguments: keys are action names, values are keyword arguments. "
-            "E.g. {'tools.slack.post_message': {'channel_id': 'C123456789', 'text': 'Hello, world!'}}"
-        ),
-    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -186,31 +171,27 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    max_tools_calls: Annotated[
+    max_tool_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
-    agent = await build_agent(
+    output = await run_agent(
+        user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
         actions=actions,
-        fixed_arguments=fixed_arguments,
         instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
-    )
-    result = await run_agent_sync(
-        agent,
-        user_prompt,
-        max_tools_calls=max_tools_calls,
+        max_tool_calls=max_tool_calls,
         max_requests=max_requests,
+        base_url=base_url,
+        retries=retries,
     )
-    return result.model_dump()
+    return output.model_dump(mode="json")
 
 
 @registry.register(
@@ -233,18 +214,7 @@ async def action(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -257,13 +227,15 @@ async def action(
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
     agent = await build_agent(
-        model_name=model_name,
-        model_provider=model_provider,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
+        AgentConfig(
+            model_name=model_name,
+            model_provider=model_provider,
+            instructions=instructions,
+            output_type=output_type,
+            model_settings=model_settings,
+            retries=retries,
+            base_url=base_url,
+        )
     )
     result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
     return result.model_dump()

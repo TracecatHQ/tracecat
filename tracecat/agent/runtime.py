@@ -1,177 +1,36 @@
 """Pydantic AI agents with tool calling."""
 
+import uuid
 from timeit import default_timer
-from typing import Any, Literal, TypeVar
+from typing import Any
 
-import orjson
 from langfuse import observe
-from pydantic import BaseModel, TypeAdapter
-from pydantic_ai import Agent, RunUsage, StructuredDict, Tool
-from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.mcp import MCPServerStreamableHTTP
-from pydantic_ai.messages import (
-    FunctionToolCallEvent,
-    FunctionToolResultEvent,
-    ModelMessage,
-    ModelResponse,
-    TextPart,
-    ToolReturnPart,
-)
-from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.messages import ModelMessage
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.models import (
+    AgentConfig,
+    AgentOutput,
+    OutputType,
+    RunAgentArgs,
+)
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt, VerbosityPrompt
-from tracecat.agent.providers import get_model
-from tracecat.agent.tools import (
-    build_agent_tools,
-    create_tool_call_message,
-    create_tool_return_message,
-)
-from tracecat.chat.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-)
+from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
+from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
+from tracecat.types.exceptions import TracecatAuthorizationError
 
 # Initialize Pydantic AI instrumentation for Langfuse
 Agent.instrument_all()
 
 
-AgentDepsT = TypeVar("AgentDepsT")
-
-
-ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
-
-SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
-    "bool": bool,
-    "float": float,
-    "int": int,
-    "str": str,
-    "list[bool]": list[bool],
-    "list[float]": list[float],
-    "list[int]": list[int],
-    "list[str]": list[str],
-}
-
-
-class AgentOutput(BaseModel):
-    output: Any
-    message_history: list[ModelMessage]
-    duration: float
-    usage: RunUsage
-    trace_id: str | None = None
-
-
-def _parse_output_type(
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None,
-) -> type[Any]:
-    if isinstance(output_type, str):
-        try:
-            return SUPPORTED_OUTPUT_TYPES[output_type]
-        except KeyError as e:
-            raise ValueError(
-                f"Unknown output type: {output_type}. Expected one of: {', '.join(SUPPORTED_OUTPUT_TYPES.keys())}"
-            ) from e
-    elif isinstance(output_type, dict):
-        schema_name = output_type.get("name") or output_type.get("title")
-        schema_description = output_type.get("description")
-        return StructuredDict(
-            output_type, name=schema_name, description=schema_description
-        )
-    else:
-        return str
-
-
-async def build_agent(
-    model_name: str,
-    model_provider: str,
-    base_url: str | None = None,
-    instructions: str | None = None,
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None = None,
-    actions: list[str] | None = None,
-    namespaces: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
-    mcp_server_url: str | None = None,
-    mcp_server_headers: dict[str, str] | None = None,
-    model_settings: dict[str, Any] | None = None,
-    retries: int = 3,
-) -> Agent:
-    agent_tools: list[Tool] = []
-    if actions:
-        tools = await build_agent_tools(
-            fixed_arguments=fixed_arguments,
-            namespaces=namespaces,
-            actions=actions,
-        )
-        agent_tools = tools.tools
-    _output_type = _parse_output_type(output_type)
-    _model_settings = ModelSettings(**model_settings) if model_settings else None
-    model = get_model(model_name, model_provider, base_url)
-
-    # Add verbosity prompt
-    verbosity_prompt = VerbosityPrompt()
-    instructions = f"{instructions}\n{verbosity_prompt.prompt}"
-
-    if actions:
-        tool_calling_prompt = ToolCallPrompt(
-            tools=tools.tools,
-            fixed_arguments=fixed_arguments,
-        )
-        instruction_parts = [instructions, tool_calling_prompt.prompt]
-        instructions = "\n".join(part for part in instruction_parts if part)
-
-    toolsets = None
-    if mcp_server_url:
-        mcp_server = MCPServerStreamableHTTP(
-            url=mcp_server_url,
-            headers=mcp_server_headers,
-        )
-        toolsets = [mcp_server]
-
-    agent = Agent(
-        model=model,
-        instructions=instructions,
-        output_type=_output_type,
-        model_settings=_model_settings,
-        retries=retries,
-        instrument=True,
-        tools=agent_tools,
-        toolsets=toolsets,
-    )
-    return agent
-
-
 async def run_agent_sync(
-    agent: Agent,
+    agent: Agent[Any, Any],
     user_prompt: str,
     max_requests: int,
     max_tools_calls: int | None = None,
@@ -196,6 +55,7 @@ async def run_agent_sync(
         message_history=result.all_messages(),
         duration=end_time - start_time,
         usage=result.usage(),
+        session_id=uuid.uuid4(),
     )
 
 
@@ -205,29 +65,16 @@ async def run_agent(
     model_name: str,
     model_provider: str,
     actions: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
     mcp_server_url: str | None = None,
     mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
-    output_type: Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-    | None = None,
+    output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
-    max_tools_calls: int = 5,
+    max_tool_calls: int = 5,
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
-    stream_id: str | None = None,
-) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
     This function creates and executes a Tracecat AI agent with the provided
@@ -287,7 +134,7 @@ async def run_agent(
 
     trace_id = init_langfuse(model_name, model_provider)
 
-    if max_tools_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
+    if max_tool_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls"
         )
@@ -297,182 +144,59 @@ async def run_agent(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
         )
 
-    # Create the agent with enhanced instructions
-    agent = await build_agent(
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=actions,
-        fixed_arguments=fixed_arguments,
-        mcp_server_url=mcp_server_url,
-        mcp_server_headers=mcp_server_headers,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
-    )
-
     start_time = default_timer()
-    # Set up Redis streaming if both parameters are provided
-    redis_client = None
-    stream_key = None
-    conversation_history: list[ModelMessage] = []
 
-    # Use async version since this function is already async
-    async def write_to_redis(msg: ModelMessage):
-        # Stream to Redis if enabled
-        if redis_client and stream_key:
-            logger.debug("Streaming message to Redis", stream_key=stream_key)
-            try:
-                await redis_client.xadd(
-                    stream_key,
-                    {DATA_KEY: orjson.dumps(msg, default=to_jsonable_python).decode()},
-                    maxlen=10000,
-                    approximate=True,
-                )
-            except Exception as e:
-                logger.warning("Failed to stream message to Redis", error=str(e))
-
-    if stream_id:
-        stream_key = f"agent-stream:{stream_id}"
-        try:
-            redis_client = await get_redis_client()
-            logger.debug("Redis streaming enabled", stream_key=stream_key)
-
-            messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
-            # Load previous messages (if any) and validate
-            for _, fields in messages:
-                try:
-                    data = orjson.loads(fields[DATA_KEY])
-                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
-                        # This is an end-of-stream marker, skip
-                        continue
-
-                    validated_msg = ModelMessageTA.validate_python(data)
-                    conversation_history.append(validated_msg)
-                except Exception as e:
-                    logger.warning("Failed to load message", error=str(e))
-
-        except Exception as e:
-            logger.warning(
-                "Failed to initialize Redis client, continuing without streaming",
-                error=str(e),
-            )
-
+    session_id = ctx_session_id.get() or uuid.uuid4()
     message_nodes: list[ModelMessage] = []
+
+    role = ctx_role.get()
+    if role is None or role.workspace_id is None:
+        raise TracecatAuthorizationError("Workspace context required for agent run")
+
+    deps = await PersistableStreamingAgentDeps.new(
+        session_id, role.workspace_id, persistent=False
+    )
+    executor = AioStreamingAgentExecutor(deps=deps, role=role)
     try:
-        # Pass conversation history to the agent
-        message_history_prompt = MessageHistoryPrompt(
-            message_history=conversation_history
-        )
-        async with agent.iter(
+        args = RunAgentArgs(
             user_prompt=user_prompt,
-            message_history=message_history_prompt.to_message_history(),
-            usage_limits=UsageLimits(
-                request_limit=max_requests,
-                tool_calls_limit=max_tools_calls,
+            session_id=session_id,
+            config=AgentConfig(
+                model_name=model_name,
+                model_provider=model_provider,
+                base_url=base_url,
+                instructions=instructions,
+                output_type=output_type,
+                model_settings=model_settings,
+                retries=retries,
+                deps_type=type(deps),
+                mcp_server_url=mcp_server_url,
+                mcp_server_headers=mcp_server_headers,
+                actions=actions,
             ),
-        ) as run:
-            async for node in run:
-                curr: ModelMessage
-                if Agent.is_user_prompt_node(node):
-                    continue
-
-                # 1️⃣  Model request (may be a normal user/tool-return message)
-                elif Agent.is_model_request_node(node):
-                    curr = node.request
-
-                    # If this request is ONLY a tool-return we have
-                    # already streamed it via FunctionToolResultEvent.
-                    if any(isinstance(p, ToolReturnPart) for p in curr.parts):
-                        message_nodes.append(curr)  # keep history
-                        continue  # ← skip duplicate stream
-                # assistant tool-call + tool-return events
-                elif Agent.is_call_tools_node(node):
-                    curr = node.model_response
-                    async with node.stream(run.ctx) as stream:
-                        async for event in stream:
-                            if isinstance(event, FunctionToolCallEvent):
-                                denorm_tool_name = event.part.tool_name.replace(
-                                    "__", "."
-                                )
-                                tool_fixed_args = {}
-                                if fixed_arguments:
-                                    tool_fixed_args = fixed_arguments.get(
-                                        denorm_tool_name
-                                    )
-                                message = create_tool_call_message(
-                                    tool_name=event.part.tool_name,
-                                    tool_args=event.part.args or {},
-                                    tool_call_id=event.part.tool_call_id,
-                                    fixed_args=tool_fixed_args,
-                                )
-                            elif isinstance(
-                                event, FunctionToolResultEvent
-                            ) and isinstance(event.result, ToolReturnPart):
-                                message = create_tool_return_message(
-                                    tool_name=event.result.tool_name,
-                                    content=event.result.content,
-                                    tool_call_id=event.tool_call_id,
-                                )
-                            else:
-                                continue
-
-                            message_nodes.append(message)
-                            await write_to_redis(message)
-                    continue
-                elif Agent.is_end_node(node):
-                    final = node.data
-                    if final.tool_name:
-                        curr = create_tool_return_message(
-                            tool_name=final.tool_name,
-                            content=final.output,
-                            tool_call_id=final.tool_call_id or "",
-                        )
-                    else:
-                        # Plain text output
-                        curr = ModelResponse(
-                            parts=[
-                                TextPart(content=final.output),
-                            ]
-                        )
-                else:
-                    raise ValueError(f"Unknown node type: {node}")
-
-                message_nodes.append(curr)
-                await write_to_redis(curr)
-
-            result = run.result
-            if not isinstance(result, AgentRunResult):
-                raise ValueError("No output returned from agent run.")
-
-        # Add end-of-stream marker if streaming is enabled
-        if redis_client and stream_key:
-            try:
-                await redis_client.xadd(
-                    stream_key,
-                    {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
-                    maxlen=10000,
-                    approximate=True,
-                )
-                logger.debug("Added end-of-stream marker", stream_key=stream_key)
-            except Exception as e:
-                logger.warning("Failed to add end-of-stream marker", error=str(e))
-
+            max_requests=max_requests,
+            max_tool_calls=max_tool_calls,
+        )
+        handle = await executor.start(args)
+        result = await handle.result()
+        if result is None:
+            raise RuntimeError(
+                "Action: Streaming agent run did not complete successfully."
+            )
         end_time = default_timer()
-        output = AgentOutput(
+        return AgentOutput(
             output=try_parse_json(result.output),
             message_history=result.all_messages(),
             duration=end_time - start_time,
             usage=result.usage(),
             trace_id=trace_id,
+            session_id=session_id,
         )
 
-        return output.model_dump()
-
     except Exception as e:
+        logger.exception("Error in agent run", error=e)
         raise AgentRunError(
             exc_cls=type(e),
             exc_msg=str(e),
-            message_history=[to_jsonable_python(m) for m in message_nodes],
+            message_history=to_jsonable_python(message_nodes),
         ) from e

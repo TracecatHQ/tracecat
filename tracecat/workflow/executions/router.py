@@ -6,9 +6,11 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+import tracecat.agent.adapter.vercel
 from tracecat.agent.runtime import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
+from tracecat.chat.models import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
@@ -135,7 +137,7 @@ async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
     session: AsyncDBSession,
-) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any]:
+) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any, Any]:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -146,6 +148,24 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
+
+    for event in compact_events:
+        # Project AgentOutput to UIMessages only in the compact workflow execution view
+        if event.session is not None and event.action_result is not None:
+            logger.trace("Transforming AgentOutput to UIMessages")
+            try:
+                # Successful validation asserts this is an AgentOutput
+                output = AgentOutput.model_validate(event.action_result)
+                messages = [
+                    ChatMessage(id=f"{output.session_id}-msg-{i}", message=msg)
+                    for i, msg in enumerate(output.message_history)
+                ]
+                event.session.events = (
+                    tracecat.agent.adapter.vercel.convert_model_messages_to_ui(messages)
+                )
+            except Exception as e:
+                logger.error("Error transforming AgentOutput to UIMessages", error=e)
+
     interactions = await _list_interactions(session, execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,

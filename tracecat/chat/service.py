@@ -1,15 +1,14 @@
 import uuid
 from collections.abc import Sequence
 
-import orjson
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
-from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.models import AgentConfig, ModelMessageTA, RunAgentArgs
+from tracecat.agent.service import AgentManagementService
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
@@ -20,19 +19,11 @@ from tracecat.chat.models import (
     ChatResponse,
     VercelChatRequest,
 )
-from tracecat.chat.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-    SCHEMA_KEY,
-    STREAM_SCHEMA_ID,
-)
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Case, Chat, Runbook
 from tracecat.db.schemas import ChatMessage as DBChatMessage
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.runbook.prompts import RunbookCopilotPrompts
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -132,9 +123,6 @@ class ChatService(BaseWorkspaceService):
         match request:
             case VercelChatRequest(
                 message=ui_message,
-                model=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
             ):
                 # Convert Vercel UI messages to pydantic-ai messages
                 [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
@@ -151,9 +139,6 @@ class ChatService(BaseWorkspaceService):
                         raise ValueError(f"Unsupported message: {message}")
             case BasicChatRequest(
                 message=user_prompt,
-                model_name=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
             ):
                 pass
             case _:
@@ -165,22 +150,22 @@ class ChatService(BaseWorkspaceService):
         )
         # Prepare agent execution arguments
         instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-        model_info = ModelInfo(
-            name=model_name,
-            provider=model_provider,
-            base_url=base_url,
-        )
-        args = RunAgentArgs(
-            role=self.role,
-            user_prompt=user_prompt,
-            tool_filters=ToolFilters(actions=chat.tools),
-            session_id=str(chat_id),
-            instructions=instructions,
-            model_info=model_info,
-        )
 
         # Start agent execution
-        await executor.start(args)
+        agent_svc = AgentManagementService(self.session, self.role)
+        # TODO: Allow model to change per turn
+        async with agent_svc.with_model_config() as model_config:
+            args = RunAgentArgs(
+                user_prompt=user_prompt,
+                session_id=chat_id,
+                config=AgentConfig(
+                    instructions=instructions,
+                    model_name=model_config.name,
+                    model_provider=model_config.provider,
+                    actions=chat.tools,
+                ),
+            )
+            await executor.start(args)
 
         # Return response with stream URL
         stream_url = f"/api/chat/{chat_id}/stream"
@@ -327,92 +312,10 @@ class ChatService(BaseWorkspaceService):
             messages.append(validated_msg)
         return messages
 
-    async def _backfill_from_redis(self, chat: Chat) -> None:
-        """Backfill messages from Redis stream into the database."""
-        try:
-            redis_client = await get_redis_client()
-            stream_key = f"agent-stream:{chat.id}"
-
-            # Read all messages from Redis
-            redis_messages = await redis_client.xrange(
-                stream_key, min_id="-", max_id="+"
-            )
-
-            if not redis_messages:
-                logger.info(
-                    "No messages to backfill from Redis",
-                    chat_id=chat.id,
-                )
-                return
-
-            # Process and persist non-delta messages
-            for _, fields in redis_messages:
-                try:
-                    data = orjson.loads(fields[DATA_KEY])
-
-                    schema = data.get(SCHEMA_KEY)
-                    if schema == STREAM_SCHEMA_ID:
-                        # New streaming payloads do not contain full ModelMessage data.
-                        logger.debug(
-                            "Skipping Vercel stream payload during backfill",
-                            chat_id=chat.id,
-                            schema=schema,
-                        )
-                        continue
-
-                    # Skip legacy end-of-stream markers and deltas
-                    if (
-                        data.get(END_TOKEN) == END_TOKEN_VALUE
-                        or data.get("t") == "delta"
-                    ):
-                        continue
-
-                    # Validate and persist the message
-                    validated_msg = ModelMessageTA.validate_python(data)
-                    await self.append_message(
-                        chat_id=chat.id,
-                        message=validated_msg,
-                        kind=MessageKind.CHAT_MESSAGE,
-                    )
-
-                except Exception as e:
-                    logger.warning(
-                        "Failed to backfill message from Redis",
-                        error=str(e),
-                        data=data if "data" in locals() else None,
-                    )
-                    continue
-
-            # Mark chat as backfilled (we can store this in chat metadata or a separate flag)
-            # For now, we'll just log it
-            logger.info(
-                "Successfully backfilled messages from Redis",
-                chat_id=chat.id,
-                count=len(redis_messages),
-            )
-
-        except Exception as e:
-            logger.error(
-                "Failed to backfill messages from Redis",
-                chat_id=chat.id,
-                error=str(e),
-            )
-
     async def get_chat_messages(self, chat: Chat) -> list[ChatMessage]:
         """Get chat messages from database, with Redis backfill if needed."""
         # First, try to get messages from the database
         db_messages = await self.list_messages(chat.id)
-
-        # If no messages in database, attempt to backfill from Redis
-        if not db_messages:
-            logger.info(
-                "No messages in database, attempting Redis backfill",
-                chat_id=chat.id,
-            )
-            await self._backfill_from_redis(chat)
-            # Re-fetch from database after backfill
-            db_messages = await self.list_messages(chat.id)
-
         # Convert to ChatMessage format for API compatibility
         parsed_messages: list[ChatMessage] = []
         for idx, msg in enumerate(db_messages):

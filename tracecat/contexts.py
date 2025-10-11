@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
@@ -29,6 +30,8 @@ ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
+ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
+"""ID for a streamable session, if any."""
 
 
 @asynccontextmanager

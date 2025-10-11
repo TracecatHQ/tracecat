@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.exc import DBAPIError, NoResultFound
+from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -180,6 +181,18 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
+    ),
 ) -> list[CaseReadMinimal]:
     """Search cases based on various criteria."""
     service = CasesService(session, role)
@@ -196,16 +209,30 @@ async def search_cases(
                 # Skip tags that do not exist in the workspace
                 continue
 
-    cases = await service.search_cases(
-        search_term=search_term,
-        status=status,
-        priority=priority,
-        severity=severity,
-        tag_ids=tag_ids,
-        limit=limit,
-        order_by=order_by,
-        sort=sort,
-    )
+    try:
+        cases = await service.search_cases(
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            tag_ids=tag_ids,
+            limit=limit,
+            order_by=order_by,
+            sort=sort,
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+    except ProgrammingError as exc:
+        logger.exception(
+            "Failed to search cases due to invalid filter parameters", exc_info=exc
+        )
+        await session.rollback()
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Invalid filter parameters supplied for case search",
+        ) from exc
 
     # Build case responses with tags (tags are already loaded via selectinload)
     case_responses = []

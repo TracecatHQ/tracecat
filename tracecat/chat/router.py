@@ -3,15 +3,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import AgentStreamEvent
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.executor.deps import WorkspaceUser, get_executor
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.types import StreamKey
+from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -19,16 +21,24 @@ from tracecat.chat.models import (
     ChatReadMinimal,
     ChatReadVercel,
     ChatRequest,
-    ChatResponse,
     ChatUpdate,
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
 
 
 @router.post("")
@@ -173,56 +183,12 @@ async def update_chat(
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
-@router.post("/{chat_id}")
-async def start_chat_turn(
-    chat_id: uuid.UUID,
-    request: ChatRequest,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
-) -> ChatResponse:
-    """Start a new chat turn with an AI agent.
-
-    This endpoint initiates an AI agent execution and returns a stream URL
-    for real-time streaming of the agent's processing steps.
-    """
-    chat_service = ChatService(session, role)
-
-    try:
-        return await chat_service.start_chat_turn(
-            chat_id=chat_id,
-            request=request,
-            executor=executor,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Failed to start chat turn",
-            chat_id=chat_id,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start chat turn: {str(e)}",
-        ) from e
-
-
 @router.post("/{chat_id}/vercel")
 async def chat_with_vercel_streaming(
     chat_id: uuid.UUID,
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
     http_request: Request,
 ) -> StreamingResponse:
     """Vercel AI SDK compatible chat endpoint with streaming.
@@ -237,6 +203,17 @@ async def chat_with_vercel_streaming(
     try:
         svc = ChatService(session, role)
         # Start the chat turn (this will spawn the agent execution)
+        workspace_id = role.workspace_id
+        if workspace_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Workspace access required",
+            )
+
+        deps = await PersistableStreamingAgentDeps.new(
+            chat_id, workspace_id, persistent=True, namespace="chat"
+        )
+        executor = AioStreamingAgentExecutor(deps=deps)
         await svc.start_chat_turn(
             chat_id=chat_id,
             request=request,
@@ -265,9 +242,11 @@ async def chat_with_vercel_streaming(
         # Create stream and return with Vercel format
         # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-deployed
         # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-proxied
-        stream = AgentStream(await get_redis_client(), chat_id)
+        # stream = AgentStream(await get_redis_client(), chat_id)
         return StreamingResponse(
-            stream.sse(http_request, last_id=start_id, format="vercel"),
+            deps.stream_writer.stream.sse(
+                http_request.is_disconnected, last_id=start_id, format="vercel"
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",
@@ -317,7 +296,14 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = f"agent-stream:{chat_id}"
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, chat_id, namespace="chat")
 
     async with ChatService.with_session(role=role) as chat_svc:
         chat = await chat_svc.get_chat(chat_id)
@@ -337,7 +323,7 @@ async def stream_chat_events(
         chat_id=chat_id,
     )
 
-    stream = AgentStream(await get_redis_client(), chat_id)
+    stream = await AgentStream.new(chat_id, workspace_id, namespace="chat")
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
@@ -348,7 +334,7 @@ async def stream_chat_events(
     if format == "vercel":
         headers["x-vercel-ai-ui-message-stream"] = "v1"
     return StreamingResponse(
-        stream.sse(request, last_id=start_id, format=format),
+        stream.sse(request.is_disconnected, last_id=start_id, format=format),
         media_type="text/event-stream",
         headers=headers,
     )

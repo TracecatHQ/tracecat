@@ -712,6 +712,11 @@ export const $AgentOutput = {
     usage: {
       $ref: "#/components/schemas/RunUsage",
     },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
     trace_id: {
       anyOf: [
         {
@@ -725,7 +730,7 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "message_history", "duration", "usage"],
+  required: ["output", "message_history", "duration", "usage", "session_id"],
   title: "AgentOutput",
 } as const
 
@@ -3355,26 +3360,6 @@ export const $ChatReadVercel = {
   ],
   title: "ChatReadVercel",
   description: "Model for chat metadata with message history in Vercel format.",
-} as const
-
-export const $ChatResponse = {
-  properties: {
-    stream_url: {
-      type: "string",
-      title: "Stream Url",
-      description: "URL to connect for SSE streaming",
-    },
-    chat_id: {
-      type: "string",
-      format: "uuid",
-      title: "Chat Id",
-      description: "Unique chat identifier",
-    },
-  },
-  type: "object",
-  required: ["stream_url", "chat_id"],
-  title: "ChatResponse",
-  description: "Response model for chat initiation.",
 } as const
 
 export const $ChatUpdate = {
@@ -9011,6 +8996,18 @@ export const $RunActionInput = {
       title: "Stream Id",
       default: "<root>:0",
     },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
   },
   type: "object",
   required: ["task", "exec_context", "run_context"],
@@ -10231,6 +10228,32 @@ export const $SessionRead = {
   type: "object",
   required: ["id", "created_at", "user_id", "user_email"],
   title: "SessionRead",
+} as const
+
+export const $Session_Any_ = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    events: {
+      anyOf: [
+        {
+          items: {},
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Events",
+      description: "The events in the session.",
+    },
+  },
+  type: "object",
+  required: ["id"],
+  title: "Session[Any]",
 } as const
 
 export const $SeverityChangedEventRead = {
@@ -13164,7 +13187,7 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
+export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   properties: {
     source_event_id: {
       type: "integer",
@@ -13282,6 +13305,16 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
         },
       ],
     },
+    session: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Session_Any_",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -13292,7 +13325,7 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
     "action_name",
     "action_ref",
   ],
-  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any]]",
+  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
 } as const
 
 export const $WorkflowExecutionEventStatus = {
@@ -13428,7 +13461,7 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
+export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   properties: {
     id: {
       type: "string",
@@ -13515,7 +13548,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
     },
     events: {
       items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__",
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_",
       },
       type: "array",
       title: "Events",
@@ -13542,7 +13575,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
     "trigger_type",
     "events",
   ],
-  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any]]",
+  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
 } as const
 
 export const $WorkflowExecutionReadMinimal = {

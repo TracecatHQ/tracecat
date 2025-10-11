@@ -80,6 +80,15 @@ def _normalize_filter_values(values: Any) -> list[Any]:
     return [values]
 
 
+def _normalize_datetime(dt: datetime | None) -> datetime | None:
+    """Ensure datetimes are timezone-aware and normalised to UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
@@ -373,14 +382,21 @@ class CasesService(BaseWorkspaceService):
                 )
 
         # Apply date filters
-        if start_time:
-            statement = statement.where(Case.created_at >= start_time)
-        if end_time:
-            statement = statement.where(Case.created_at <= end_time)
-        if updated_after:
-            statement = statement.where(Case.updated_at >= updated_after)
-        if updated_before:
-            statement = statement.where(Case.updated_at <= updated_before)
+        normalized_start = _normalize_datetime(start_time)
+        if normalized_start is not None:
+            statement = statement.where(Case.created_at >= normalized_start)
+
+        normalized_end = _normalize_datetime(end_time)
+        if normalized_end is not None:
+            statement = statement.where(Case.created_at <= normalized_end)
+
+        normalized_updated_after = _normalize_datetime(updated_after)
+        if normalized_updated_after is not None:
+            statement = statement.where(Case.updated_at >= normalized_updated_after)
+
+        normalized_updated_before = _normalize_datetime(updated_before)
+        if normalized_updated_before is not None:
+            statement = statement.where(Case.updated_at <= normalized_updated_before)
 
         # Apply limit
         if limit is not None:

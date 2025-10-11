@@ -2,9 +2,10 @@
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -840,6 +841,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -884,6 +886,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -924,6 +927,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.IN_PROGRESS
         assert call_args["priority"] is None
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -964,6 +968,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -1004,6 +1009,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] is None
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -1021,6 +1027,60 @@ class TestCoreSearchCases:
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
         assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_tags(self, mock_with_session, mock_case):
+        """Test searching cases using tag identifiers."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        tag_one = MagicMock()
+        tag_one.id = uuid.uuid4()
+        tag_two = MagicMock()
+        tag_two.id = uuid.uuid4()
+
+        tags_service = AsyncMock()
+        tags_service.get_tag_by_ref_or_id = AsyncMock(
+            side_effect=[tag_one, NoResultFound(), tag_two]
+        )
+        mock_service.tags = tags_service
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await search_cases(tags=["tag-one", "missing-tag", str(tag_two.id)])
+
+        assert len(result) == 1
+        tags_service.get_tag_by_ref_or_id.assert_has_calls(
+            [
+                call("tag-one"),
+                call("missing-tag"),
+                call(str(tag_two.id)),
+            ]
+        )
+
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["tag_ids"] == [tag_one.id, tag_two.id]
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_programming_error(self, mock_with_session):
+        """Test that SQL programming errors are surfaced as user-friendly errors."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.side_effect = ProgrammingError(
+            "SELECT", {}, Exception("boom")
+        )
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        with pytest.raises(
+            ValueError, match="Invalid filter parameters supplied for case search"
+        ):
+            await search_cases(search_term="bad")
+
+        mock_service.search_cases.assert_called_once()
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_limit(self, mock_with_session, mock_case):
@@ -1043,6 +1103,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=5,
             order_by=None,
             sort=None,
@@ -1082,6 +1143,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by="created_at",
             sort="desc",
@@ -1132,6 +1194,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
@@ -1171,6 +1234,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -1383,6 +1447,7 @@ class TestCoreSearchCasesWithDateFilters:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"

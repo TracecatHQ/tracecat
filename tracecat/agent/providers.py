@@ -2,7 +2,7 @@ import orjson
 from google.oauth2 import service_account
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.bedrock import BedrockConverseModel
+from pydantic_ai.models.bedrock import BedrockConverseModel, BedrockModelSettings
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -88,9 +88,17 @@ def get_model(
         case "bedrock":
             session = get_sync_session()
             client = session.client(service_name="bedrock-runtime")
+            settings = None
+            if "anthropic" in model_name:
+                settings = BedrockModelSettings(
+                    bedrock_additional_model_requests_fields={
+                        "thinking": {"type": "enabled", "budget_tokens": 1024}
+                    }
+                )
             model = BedrockConverseModel(
                 model_name=model_name,
                 provider=BedrockProvider(bedrock_client=client),
+                settings=settings,
             )
         case _:
             raise ValueError(
