@@ -27,6 +27,16 @@ class CaseReadMinimal(BaseModel):
     severity: CaseSeverity
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    merged_case_count: int = 0
+    merged_into_case_id: uuid.UUID | None = None
+    is_merged: bool = False
+
+
+class CaseRelationSummary(BaseModel):
+    id: uuid.UUID
+    short_id: str
+    summary: str
+    status: CaseStatus
 
 
 class CaseRead(BaseModel):
@@ -43,6 +53,9 @@ class CaseRead(BaseModel):
     assignee: UserRead | None = None
     payload: dict[str, Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    similar_cases: list[CaseRelationSummary] = Field(default_factory=list)
+    merged_cases: list[CaseRelationSummary] = Field(default_factory=list)
+    merged_into_case: CaseRelationSummary | None = None
 
 
 class CaseCreate(BaseModel):
@@ -127,6 +140,14 @@ class CaseCommentCreate(BaseModel):
 class CaseCommentUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=5_000)
     parent_id: uuid.UUID | None = Field(default=None)
+
+
+class CaseRelationMutation(BaseModel):
+    related_case_id: uuid.UUID
+
+
+class CaseMergeMutation(BaseModel):
+    target_case_id: uuid.UUID
 
 
 # Case Events

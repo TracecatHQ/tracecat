@@ -5,7 +5,8 @@ from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import exists
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -27,6 +28,7 @@ from tracecat.cases.models import (
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseReadMinimal,
+    CaseRelationSummary,
     CaseUpdate,
     ClosedEvent,
     CreatedEvent,
@@ -47,6 +49,8 @@ from tracecat.db.schemas import (
     CaseComment,
     CaseEvent,
     CaseFields,
+    CaseMerge,
+    CaseRelation,
     CaseTagLink,
     User,
 )
@@ -92,6 +96,270 @@ class CasesService(BaseWorkspaceService):
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.durations = CaseDurationService(session=self.session, role=self.role)
 
+    @staticmethod
+    def _format_short_id(case: Case) -> str:
+        if case.case_number is not None:
+            return f"CASE-{case.case_number:04d}"
+        return f"CASE-{case.id}"  # Fallback for safety
+
+    async def _get_cases_or_raise(
+        self, case_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, Case]:
+        unique_ids = list(dict.fromkeys(case_ids))
+        stmt = (
+            select(Case)
+            .where(Case.owner_id == self.workspace_id)
+            .where(col(Case.id).in_(unique_ids))
+        )
+        result = await self.session.exec(stmt)
+        cases = {case.id: case for case in result.all()}
+        missing = [case_id for case_id in unique_ids if case_id not in cases]
+        if missing:
+            raise TracecatNotFoundError(
+                f"Case(s) not found in workspace: {', '.join(map(str, missing))}"
+            )
+        return cases
+
+    async def _get_merge_parent(self, case_id: uuid.UUID) -> CaseMerge | None:
+        stmt = (
+            select(CaseMerge)
+            .where(CaseMerge.owner_id == self.workspace_id)
+            .where(CaseMerge.merged_case_id == case_id)
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def _get_merge_children(self, case_id: uuid.UUID) -> list[CaseMerge]:
+        stmt = (
+            select(CaseMerge)
+            .where(CaseMerge.owner_id == self.workspace_id)
+            .where(CaseMerge.primary_case_id == case_id)
+        )
+        result = await self.session.exec(stmt)
+        return result.all()
+
+    async def get_case_relations(
+        self, case_id: uuid.UUID
+    ) -> tuple[
+        list[CaseRelationSummary],
+        list[CaseRelationSummary],
+        CaseRelationSummary | None,
+    ]:
+        similar_stmt = (
+            select(CaseRelation)
+            .where(CaseRelation.owner_id == self.workspace_id)
+            .where(
+                or_(
+                    CaseRelation.case_id == case_id,
+                    CaseRelation.related_case_id == case_id,
+                )
+            )
+        )
+        similar_result = await self.session.exec(similar_stmt)
+        similar_pairs = similar_result.all()
+        related_ids: list[uuid.UUID] = []
+        for relation in similar_pairs:
+            if relation.case_id == case_id:
+                related_ids.append(relation.related_case_id)
+            else:
+                related_ids.append(relation.case_id)
+
+        similar_cases: list[CaseRelationSummary] = []
+        if related_ids:
+            cases_stmt = (
+                select(Case)
+                .where(Case.owner_id == self.workspace_id)
+                .where(col(Case.id).in_(related_ids))
+            )
+            cases_result = await self.session.exec(cases_stmt)
+            for related_case in cases_result:
+                similar_cases.append(
+                    CaseRelationSummary(
+                        id=related_case.id,
+                        short_id=self._format_short_id(related_case),
+                        summary=related_case.summary,
+                        status=related_case.status,
+                    )
+                )
+
+        merge_links = await self._get_merge_children(case_id)
+        merged_ids = [merge.merged_case_id for merge in merge_links]
+        merged_cases: list[CaseRelationSummary] = []
+        if merged_ids:
+            merged_stmt = (
+                select(Case)
+                .where(Case.owner_id == self.workspace_id)
+                .where(col(Case.id).in_(merged_ids))
+            )
+            merged_result = await self.session.exec(merged_stmt)
+            for secondary_case in merged_result:
+                merged_cases.append(
+                    CaseRelationSummary(
+                        id=secondary_case.id,
+                        short_id=self._format_short_id(secondary_case),
+                        summary=secondary_case.summary,
+                        status=secondary_case.status,
+                    )
+                )
+
+        primary_merge = await self._get_merge_parent(case_id)
+        merged_into: CaseRelationSummary | None = None
+        if primary_merge:
+            primary_cases = await self._get_cases_or_raise([primary_merge.primary_case_id])
+            primary_case = primary_cases[primary_merge.primary_case_id]
+            merged_into = CaseRelationSummary(
+                id=primary_case.id,
+                short_id=self._format_short_id(primary_case),
+                summary=primary_case.summary,
+                status=primary_case.status,
+            )
+
+        return similar_cases, merged_cases, merged_into
+
+    async def add_similar_case(
+        self, case_id: uuid.UUID, related_case_id: uuid.UUID
+    ) -> None:
+        if case_id == related_case_id:
+            raise TracecatException("Cannot mark a case as similar to itself.")
+
+        await self._get_cases_or_raise([case_id, related_case_id])
+
+        ordered = sorted([case_id, related_case_id], key=lambda value: value.hex)
+        relation = CaseRelation(
+            owner_id=self.workspace_id,
+            case_id=ordered[0],
+            related_case_id=ordered[1],
+        )
+        self.session.add(relation)
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise TracecatException("Cases are already marked as similar.") from exc
+
+    async def remove_similar_case(
+        self, case_id: uuid.UUID, related_case_id: uuid.UUID
+    ) -> None:
+        ordered = sorted([case_id, related_case_id], key=lambda value: value.hex)
+        stmt = (
+            select(CaseRelation)
+            .where(CaseRelation.owner_id == self.workspace_id)
+            .where(CaseRelation.case_id == ordered[0])
+            .where(CaseRelation.related_case_id == ordered[1])
+        )
+        result = await self.session.exec(stmt)
+        relation = result.first()
+        if relation is None:
+            return
+        await self.session.delete(relation)
+        await self.session.commit()
+
+    async def merge_case(
+        self, primary_case_id: uuid.UUID, merged_case_id: uuid.UUID
+    ) -> None:
+        if primary_case_id == merged_case_id:
+            raise TracecatException("Cannot merge a case into itself.")
+
+        cases = await self._get_cases_or_raise([primary_case_id, merged_case_id])
+        primary_case = cases[primary_case_id]
+        secondary_case = cases[merged_case_id]
+
+        if await self._get_merge_parent(merged_case_id):
+            raise TracecatException("This case is already merged into another case.")
+
+        if await self._get_merge_parent(primary_case_id):
+            raise TracecatException(
+                "Cannot merge into a case that is itself merged into another case."
+            )
+
+        existing_stmt = (
+            select(CaseMerge)
+            .where(CaseMerge.owner_id == self.workspace_id)
+            .where(CaseMerge.primary_case_id == primary_case_id)
+            .where(CaseMerge.merged_case_id == merged_case_id)
+        )
+        existing_result = await self.session.exec(existing_stmt)
+        if existing_result.first():
+            raise TracecatException("These cases are already merged together.")
+
+        merge_link = CaseMerge(
+            owner_id=self.workspace_id,
+            primary_case_id=primary_case_id,
+            merged_case_id=merged_case_id,
+        )
+        self.session.add(merge_link)
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        try:
+            await self.session.flush()
+
+            if secondary_case.status != primary_case.status:
+                old_status = secondary_case.status
+                secondary_case.status = primary_case.status
+                if primary_case.status == CaseStatus.CLOSED:
+                    event = ClosedEvent(
+                        old=old_status, new=primary_case.status, wf_exec_id=wf_exec_id
+                    )
+                elif old_status == CaseStatus.CLOSED:
+                    event = ReopenedEvent(
+                        old=old_status, new=primary_case.status, wf_exec_id=wf_exec_id
+                    )
+                else:
+                    event = StatusChangedEvent(
+                        old=old_status, new=primary_case.status, wf_exec_id=wf_exec_id
+                    )
+                await self.events.create_event(case=secondary_case, event=event)
+
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise TracecatException("Failed to merge cases due to a constraint violation.") from exc
+
+    async def unmerge_case(
+        self, primary_case_id: uuid.UUID, merged_case_id: uuid.UUID
+    ) -> None:
+        stmt = (
+            select(CaseMerge)
+            .where(CaseMerge.owner_id == self.workspace_id)
+            .where(CaseMerge.primary_case_id == primary_case_id)
+            .where(CaseMerge.merged_case_id == merged_case_id)
+        )
+        result = await self.session.exec(stmt)
+        merge_link = result.first()
+        if merge_link is None:
+            raise TracecatException("Cases are not merged.")
+
+        await self.session.delete(merge_link)
+        await self.session.commit()
+
+    async def _propagate_status_to_secondaries(
+        self, primary_case: Case, new_status: CaseStatus, wf_exec_id: str | None
+    ) -> None:
+        merges = await self._get_merge_children(primary_case.id)
+        if not merges:
+            return
+
+        secondary_ids = [merge.merged_case_id for merge in merges]
+        stmt = (
+            select(Case)
+            .where(Case.owner_id == self.workspace_id)
+            .where(col(Case.id).in_(secondary_ids))
+        )
+        result = await self.session.exec(stmt)
+        for secondary in result:
+            if secondary.status == new_status:
+                continue
+            old_status = secondary.status
+            secondary.status = new_status
+            if new_status == CaseStatus.CLOSED:
+                event = ClosedEvent(old=old_status, new=new_status, wf_exec_id=wf_exec_id)
+            elif old_status == CaseStatus.CLOSED:
+                event = ReopenedEvent(old=old_status, new=new_status, wf_exec_id=wf_exec_id)
+            else:
+                event = StatusChangedEvent(old=old_status, new=new_status, wf_exec_id=wf_exec_id)
+            await self.events.create_event(case=secondary, event=event)
     async def list_cases(
         self,
         limit: int | None = None,
@@ -123,6 +391,7 @@ class CasesService(BaseWorkspaceService):
         assignee_ids: Sequence[uuid.UUID] | None = None,
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
+        include_merged: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
@@ -138,6 +407,14 @@ class CasesService(BaseWorkspaceService):
             .options(selectinload(Case.assignee))  # type: ignore
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
+
+        if not include_merged:
+            stmt = stmt.where(
+                ~exists().where(
+                    CaseMerge.owner_id == self.workspace_id,
+                    CaseMerge.merged_case_id == Case.id,
+                )
+            )
 
         # Apply search term filter
         if search_term:
@@ -253,8 +530,31 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
-        # Convert to CaseReadMinimal objects with tags
+        # Map merge relationships for the current page of cases
         case_items = []
+        case_ids = [case.id for case in cases]
+        merged_parent_map: dict[uuid.UUID, uuid.UUID] = {}
+        merged_children_map: dict[uuid.UUID, list[uuid.UUID]] = {}
+
+        if case_ids:
+            merge_stmt = (
+                select(CaseMerge)
+                .where(CaseMerge.owner_id == self.workspace_id)
+                .where(
+                    or_(
+                        col(CaseMerge.primary_case_id).in_(case_ids),
+                        col(CaseMerge.merged_case_id).in_(case_ids),
+                    )
+                )
+            )
+            merge_result = await self.session.exec(merge_stmt)
+            for merge in merge_result:
+                merged_children_map.setdefault(merge.primary_case_id, []).append(
+                    merge.merged_case_id
+                )
+                merged_parent_map[merge.merged_case_id] = merge.primary_case_id
+
+        # Convert to CaseReadMinimal objects with tags
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
@@ -267,7 +567,7 @@ class CasesService(BaseWorkspaceService):
                     id=case.id,
                     created_at=case.created_at,
                     updated_at=case.updated_at,
-                    short_id=f"CASE-{case.case_number:04d}",
+                    short_id=self._format_short_id(case),
                     summary=case.summary,
                     status=case.status,
                     priority=case.priority,
@@ -278,6 +578,9 @@ class CasesService(BaseWorkspaceService):
                     if case.assignee
                     else None,
                     tags=tag_reads,
+                    merged_case_count=len(merged_children_map.get(case.id, [])),
+                    merged_into_case_id=merged_parent_map.get(case.id),
+                    is_merged=merged_parent_map.get(case.id) is not None,
                 )
             )
 
@@ -305,6 +608,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
         limit: int | None = None,
+        include_merged: bool = False,
     ) -> Sequence[Case]:
         """Search cases based on various criteria.
 
@@ -329,6 +633,14 @@ class CasesService(BaseWorkspaceService):
             .where(Case.owner_id == self.workspace_id)
             .options(selectinload(Case.tags))  # type: ignore
         )
+
+        if not include_merged:
+            statement = statement.where(
+                ~exists().where(
+                    CaseMerge.owner_id == self.workspace_id,
+                    CaseMerge.merged_case_id == Case.id,
+                )
+            )
 
         # Apply search term filter (search in summary and description)
         if search_term:
@@ -480,6 +792,11 @@ class CasesService(BaseWorkspaceService):
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
 
+        if "status" in set_fields and await self._get_merge_parent(case.id):
+            raise TracecatException(
+                "Cannot change the status of a merged case directly. Unmerge it first."
+            )
+
         # Check for status changes
         if new_status := set_fields.pop("status", None):
             old_status = case.status
@@ -499,6 +816,9 @@ class CasesService(BaseWorkspaceService):
                         old=old_status, new=new_status, wf_exec_id=wf_exec_id
                     )
                 await self.events.create_event(case=case, event=event)
+                await self._propagate_status_to_secondaries(
+                    case, new_status, wf_exec_id
+                )
 
         # Check for priority changes
         if new_priority := set_fields.pop("priority", None):

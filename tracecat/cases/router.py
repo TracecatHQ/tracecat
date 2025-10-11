@@ -31,7 +31,9 @@ from tracecat.cases.models import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
+    CaseRelationMutation,
     CaseUpdate,
+    CaseMergeMutation,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -43,6 +45,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatException
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -98,6 +101,10 @@ async def list_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
+    include_merged: bool = Query(
+        False,
+        description="Include cases that have been merged into another case",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with cursor-based pagination and filtering."""
     service = CasesService(session, role)
@@ -146,6 +153,7 @@ async def list_cases(
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
+            include_merged=include_merged,
         )
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
@@ -180,6 +188,10 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_merged: bool = Query(
+        False,
+        description="Include cases that have been merged into another case",
+    ),
 ) -> list[CaseReadMinimal]:
     """Search cases based on various criteria."""
     service = CasesService(session, role)
@@ -205,6 +217,7 @@ async def search_cases(
         limit=limit,
         order_by=order_by,
         sort=sort,
+        include_merged=include_merged,
     )
 
     # Build case responses with tags (tags are already loaded via selectinload)
@@ -214,12 +227,18 @@ async def search_cases(
             CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
         ]
 
+        short_id = (
+            f"CASE-{case.case_number:04d}"
+            if case.case_number is not None
+            else f"CASE-{case.id}"
+        )
+
         case_responses.append(
             CaseReadMinimal(
                 id=case.id,
                 created_at=case.created_at,
                 updated_at=case.updated_at,
-                short_id=f"CASE-{case.case_number:04d}",
+                short_id=short_id,
                 summary=case.summary,
                 status=case.status,
                 priority=case.priority,
@@ -271,10 +290,20 @@ async def get_case(
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
     ]
 
+    similar_cases, merged_cases, merged_into_case = await service.get_case_relations(
+        case.id
+    )
+
+    short_id = (
+        f"CASE-{case.case_number:04d}"
+        if case.case_number is not None
+        else f"CASE-{case.id}"
+    )
+
     # Match up the fields with the case field definitions
     return CaseRead(
         id=case.id,
-        short_id=f"CASE-{case.case_number:04d}",
+        short_id=short_id,
         created_at=case.created_at,
         updated_at=case.updated_at,
         summary=case.summary,
@@ -288,6 +317,9 @@ async def get_case(
         fields=final_fields,
         payload=case.payload,
         tags=tag_reads,
+        similar_cases=similar_cases,
+        merged_cases=merged_cases,
+        merged_into_case=merged_into_case,
     )
 
 
@@ -328,6 +360,65 @@ async def update_case(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         ) from e
+
+
+@cases_router.post("/{case_id}/similar", status_code=HTTP_201_CREATED)
+async def add_similar_case(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    payload: CaseRelationMutation,
+) -> None:
+    service = CasesService(session, role)
+    try:
+        await service.add_similar_case(case_id, payload.related_case_id)
+    except TracecatException as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@cases_router.delete("/{case_id}/similar/{related_case_id}", status_code=HTTP_204_NO_CONTENT)
+async def remove_similar_case(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    related_case_id: uuid.UUID,
+) -> None:
+    service = CasesService(session, role)
+    await service.remove_similar_case(case_id, related_case_id)
+
+
+@cases_router.post("/{case_id}/merge", status_code=HTTP_200_OK)
+async def merge_case(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    payload: CaseMergeMutation,
+) -> None:
+    service = CasesService(session, role)
+    try:
+        await service.merge_case(case_id, payload.target_case_id)
+    except TracecatException as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@cases_router.delete(
+    "/{case_id}/merge/{merged_case_id}", status_code=HTTP_204_NO_CONTENT
+)
+async def unmerge_case(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    merged_case_id: uuid.UUID,
+) -> None:
+    service = CasesService(session, role)
+    try:
+        await service.unmerge_case(case_id, merged_case_id)
+    except TracecatException as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @cases_router.delete("/{case_id}", status_code=HTTP_204_NO_CONTENT)

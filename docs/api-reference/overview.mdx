@@ -8,3 +8,12 @@ title: Overview
 
 The REST API provides programmatic access to Tracecat data and functionality.
 Run and manage workflows, create and manage secrets, all via the API.
+
+## Case relations and merges
+
+The cases API now exposes dedicated endpoints for managing relational workflows:
+
+- `POST /cases/{case_id}/similar` and `DELETE /cases/{case_id}/similar/{related_case_id}` to annotate two records as similar.
+- `POST /cases/{case_id}/merge` and `DELETE /cases/{case_id}/merge/{merged_case_id}` to fold duplicate investigations into a single primary.
+
+Merged cases inherit their primary's lifecycle. By default, listing endpoints hide merged secondaries—pass the `include_merged=true` query parameter to surface them when required.

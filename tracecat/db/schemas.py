@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import (
     TIMESTAMP,
+    CheckConstraint,
     Column,
     ForeignKey,
     Identity,
@@ -967,6 +968,81 @@ class Case(Resource, table=True):
     record_links: list["CaseRecord"] = Relationship(
         back_populates="case",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    merged_case_links: list["CaseMerge"] = Relationship(
+        back_populates="primary_case",
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "cascade": "all, delete-orphan",
+        },
+    )
+    merged_into_link: "CaseMerge" | None = Relationship(
+        back_populates="merged_case",
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "uselist": False,
+        },
+    )
+
+
+class CaseRelation(Resource, table=True):
+    __tablename__ = "case_relations"
+    __table_args__ = (
+        CheckConstraint(
+            "case_id <> related_case_id",
+            name="ck_case_relations_no_self",
+        ),
+        CheckConstraint(
+            "case_id < related_case_id",
+            name="ck_case_relations_ordered",
+        ),
+        UniqueConstraint("case_id", "related_case_id", name="uq_case_relations_pair"),
+        Index("ix_case_relations_case_id", "case_id"),
+        Index("ix_case_relations_related_case_id", "related_case_id"),
+    )
+
+    case_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
+        nullable=False,
+    )
+    related_case_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
+        nullable=False,
+    )
+
+
+class CaseMerge(Resource, table=True):
+    __tablename__ = "case_merges"
+    __table_args__ = (
+        CheckConstraint(
+            "primary_case_id <> merged_case_id",
+            name="ck_case_merges_no_self",
+        ),
+        UniqueConstraint("merged_case_id", name="uq_case_merges_secondary"),
+        UniqueConstraint(
+            "primary_case_id",
+            "merged_case_id",
+            name="uq_case_merges_pair",
+        ),
+        Index("ix_case_merges_primary_case_id", "primary_case_id"),
+        Index("ix_case_merges_merged_case_id", "merged_case_id"),
+    )
+
+    primary_case_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
+        nullable=False,
+    )
+    merged_case_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
+        nullable=False,
+    )
+    primary_case: Case = Relationship(
+        back_populates="merged_case_links",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    merged_case: Case = Relationship(
+        back_populates="merged_into_link",
+        sa_relationship_kwargs={"lazy": "selectin"},
     )
 
 
