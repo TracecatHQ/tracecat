@@ -1,0 +1,38 @@
+.tiptap.ProseMirror {
+  h1,
+  h2,
+  h3,
+  h4 {
+    position: relative;
+    color: inherit;
+    font-style: inherit;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  h1 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin-top: 3em;
+  }
+
+  h2 {
+    font-size: 1.25em;
+    font-weight: 700;
+    margin-top: 2.5em;
+  }
+
+  h3 {
+    font-size: 1.125em;
+    font-weight: 600;
+    margin-top: 2em;
+  }
+
+  h4 {
+    font-size: 1em;
+    font-weight: 600;
+    margin-top: 2em;
+  }
+}

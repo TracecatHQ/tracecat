@@ -3,6 +3,9 @@
 @tailwind components;
 @tailwind utilities;
 
+@import "./_variables.scss";
+@import "./_keyframe-animations.scss";
+
 @layer base {
   :root {
     --background: 0 0% 100%;

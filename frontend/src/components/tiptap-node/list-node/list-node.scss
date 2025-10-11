@@ -1,0 +1,160 @@
+.tiptap.ProseMirror {
+  --tt-checklist-bg-color: var(--tt-gray-light-a-100);
+  --tt-checklist-bg-active-color: var(--tt-gray-light-a-900);
+  --tt-checklist-border-color: var(--tt-gray-light-a-200);
+  --tt-checklist-border-active-color: var(--tt-gray-light-a-900);
+  --tt-checklist-check-icon-color: var(--white);
+  --tt-checklist-text-active: var(--tt-gray-light-a-500);
+
+  .dark & {
+    --tt-checklist-bg-color: var(--tt-gray-dark-a-100);
+    --tt-checklist-bg-active-color: var(--tt-gray-dark-a-900);
+    --tt-checklist-border-color: var(--tt-gray-dark-a-200);
+    --tt-checklist-border-active-color: var(--tt-gray-dark-a-900);
+    --tt-checklist-check-icon-color: var(--black);
+    --tt-checklist-text-active: var(--tt-gray-dark-a-500);
+  }
+}
+
+/* =====================
+     LISTS
+     ===================== */
+.tiptap.ProseMirror {
+  // Common list styles
+  ol,
+  ul {
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+    padding-left: 1.5em;
+
+    &:first-child {
+      margin-top: 0;
+    }
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    ol,
+    ul {
+      margin-top: 0;
+      margin-bottom: 0;
+    }
+  }
+
+  li {
+    p {
+      margin-top: 0;
+      line-height: 1.6;
+    }
+  }
+
+  // Ordered lists
+  ol {
+    list-style: decimal;
+
+    ol {
+      list-style: lower-alpha;
+
+      ol {
+        list-style: lower-roman;
+      }
+    }
+  }
+
+  // Unordered lists
+  ul:not([data-type="taskList"]) {
+    list-style: disc;
+
+    ul {
+      list-style: circle;
+
+      ul {
+        list-style: square;
+      }
+    }
+  }
+
+  // Task lists
+  ul[data-type="taskList"] {
+    padding-left: 0.25em;
+
+    li {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+
+      &:not(:has(> p:first-child)) {
+        list-style-type: none;
+      }
+
+      &[data-checked="true"] {
+        > div > p {
+          opacity: 0.5;
+          text-decoration: line-through;
+        }
+
+        > div > p span {
+          text-decoration: line-through;
+        }
+      }
+
+      label {
+        position: relative;
+        padding-top: 0.375rem;
+        padding-right: 0.5rem;
+
+        input[type="checkbox"] {
+          position: absolute;
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        span {
+          display: block;
+          width: 1em;
+          height: 1em;
+          border: 1px solid var(--tt-checklist-border-color);
+          border-radius: var(--tt-radius-xs, 0.25rem);
+          position: relative;
+          cursor: pointer;
+          background-color: var(--tt-checklist-bg-color);
+          transition:
+            background-color 80ms ease-out,
+            border-color 80ms ease-out;
+
+          &::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 0.75em;
+            height: 0.75em;
+            background-color: var(--tt-checklist-check-icon-color);
+            opacity: 0;
+            -webkit-mask: url("data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22currentColor%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20clip-rule%3D%22evenodd%22%20d%3D%22M21.4142%204.58579C22.1953%205.36683%2022.1953%206.63317%2021.4142%207.41421L10.4142%2018.4142C9.63317%2019.1953%208.36684%2019.1953%207.58579%2018.4142L2.58579%2013.4142C1.80474%2012.6332%201.80474%2011.3668%202.58579%2010.5858C3.36683%209.80474%204.63317%209.80474%205.41421%2010.5858L9%2014.1716L18.5858%204.58579C19.3668%203.80474%2020.6332%203.80474%2021.4142%204.58579Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E")
+              center/contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22currentColor%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20clip-rule%3D%22evenodd%22%20d%3D%22M21.4142%204.58579C22.1953%205.36683%2022.1953%206.63317%2021.4142%207.41421L10.4142%2018.4142C9.63317%2019.1953%208.36684%2019.1953%207.58579%2018.4142L2.58579%2013.4142C1.80474%2012.6332%201.80474%2011.3668%202.58579%2010.5858C3.36683%209.80474%204.63317%209.80474%205.41421%2010.5858L9%2014.1716L18.5858%204.58579C19.3668%203.80474%2020.6332%203.80474%2021.4142%204.58579Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E")
+              center/contain no-repeat;
+          }
+        }
+
+        input[type="checkbox"]:checked + span {
+          background: var(--tt-checklist-bg-active-color);
+          border-color: var(--tt-checklist-border-active-color);
+
+          &::before {
+            opacity: 1;
+          }
+        }
+      }
+
+      div {
+        flex: 1 1 0%;
+        min-width: 0;
+      }
+    }
+  }
+}
