@@ -318,7 +318,7 @@ class WorkflowExecutionsService:
             else:
                 logger.trace(
                     "Pending activity without matching source event",
-                    scheduled_event_id=act.activity_id,
+                    activity_id=act.activity_id,
                 )
 
         task2events: dict[Task, WorkflowExecutionEventCompact] = {}
