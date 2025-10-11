@@ -42,7 +42,7 @@ dependencies = [
     "lark==1.1.9",
     "loguru==0.7.2",
     "minio==7.2.18",
-    "authlib==1.6.4",
+    "authlib==1.6.5",
     "orjson==3.10.3",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
