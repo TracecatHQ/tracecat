@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  type ChatStatus,
   getToolName,
   isToolUIPart,
   type UIDataTypes,
@@ -206,7 +207,7 @@ export function ChatSessionPane({
             )}
             {messages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
-              const isLastMessage = id === messages.at(-1)?.id
+              const isLastMessage = id === messages[messages.length - 1].id
 
               return (
                 <div key={id} className="group relative">
@@ -233,9 +234,17 @@ export function ChatSessionPane({
                       </Sources>
                     )}
 
-                  {parts?.map((part, index) =>
-                    renderPart(part, index, id, role)
-                  )}
+                  {parts?.map((part, partIdx) => (
+                    <MessagePart
+                      key={`${id}-${partIdx}`}
+                      part={part}
+                      partIdx={partIdx}
+                      id={id}
+                      role={role}
+                      status={status}
+                      isLastMessage={isLastMessage}
+                    />
+                  ))}
                   {role === "assistant" && parts.length > 0 && (
                     // Render response actions for assistant messages and reveal them on hover for older messages.
                     <Actions
@@ -347,15 +356,24 @@ export function ChatSessionPane({
   )
 }
 
-export function renderPart(
-  part: UIMessagePart<UIDataTypes, UITools>,
-  index: number,
-  id: string,
+export function MessagePart({
+  part,
+  partIdx,
+  id,
+  role,
+  status,
+  isLastMessage,
+}: {
+  part: UIMessagePart<UIDataTypes, UITools>
+  partIdx: number
+  id: string
   role: UIMessage["role"]
-) {
+  status?: ChatStatus
+  isLastMessage: boolean
+}) {
   if (part.type === "text") {
     return (
-      <Message key={`${id}-${index}`} from={role}>
+      <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
           <Response>{part.text}</Response>
         </MessageContent>
@@ -365,7 +383,11 @@ export function renderPart(
 
   if (part.type === "reasoning") {
     return (
-      <Reasoning key={`${id}-${index}`} className="w-full">
+      <Reasoning
+        key={`${id}-${partIdx}`}
+        className="w-full"
+        isStreaming={status === "streaming" && isLastMessage}
+      >
         <ReasoningTrigger />
         <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
@@ -375,7 +397,7 @@ export function renderPart(
   if (isToolUIPart(part)) {
     const toolName = getToolName(part).replaceAll("__", ".")
     return (
-      <Tool key={`${id}-${index}`}>
+      <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
           title={toolName}
           type={part.type}

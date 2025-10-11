@@ -17,7 +17,7 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
-import { renderPart } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
@@ -48,7 +48,7 @@ import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
 
-export function ActionEvent({
+export function ActionEventPane({
   execution,
   type,
 }: {
@@ -249,12 +249,17 @@ function StreamDetails({
   )
 }
 
-function renderEvent(
-  actionEvent: WorkflowExecutionEventCompact,
-  type: Omit<TabType, "interaction">,
-  eventRef: string,
+function ActionEventContent({
+  actionEvent,
+  type,
+  eventRef,
+  streamIdPlaceholder,
+}: {
+  actionEvent: WorkflowExecutionEventCompact
+  type: Omit<TabType, "interaction">
+  eventRef: string
   streamIdPlaceholder?: string
-) {
+}) {
   const { status, session, stream_id, action_error } = actionEvent
   switch (status) {
     case "SCHEDULED": {
@@ -382,16 +387,22 @@ export function ActionEventDetails({
   }
   if (type === "input") {
     // Inputs are identical for all events, so we can just render the first one
-    return renderEvent(
-      actionEventsForRef[0],
-      type,
-      eventRef,
-      "Input is the same for all events"
+    return (
+      <ActionEventContent
+        actionEvent={actionEventsForRef[0]}
+        type={type}
+        eventRef={eventRef}
+        streamIdPlaceholder="Input is the same for all events"
+      />
     )
   }
   return actionEventsForRef.map((actionEvent) => (
     <div key={actionEvent.stream_id}>
-      {renderEvent(actionEvent, type, eventRef)}
+      <ActionEventContent
+        actionEvent={actionEvent}
+        type={type}
+        eventRef={eventRef}
+      />
     </div>
   ))
 }
@@ -406,7 +417,15 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
           <ConversationContent>
             {messages.map(({ id, role, parts }) => (
               <div key={id}>
-                {parts?.map((part, index) => renderPart(part, index, id, role))}
+                {parts?.map((part, partIdx) => (
+                  <MessagePart
+                    part={part}
+                    partIdx={partIdx}
+                    id={id}
+                    role={role}
+                    isLastMessage={id === messages[messages.length - 1].id}
+                  />
+                ))}
               </div>
             ))}
           </ConversationContent>
@@ -467,7 +486,17 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
           <ConversationContent>
             {messages.map(({ id, role, parts }) => (
               <div key={id}>
-                {parts?.map((part, index) => renderPart(part, index, id, role))}
+                {parts?.map((part, partIdx) => (
+                  <MessagePart
+                    key={`${id}-${partIdx}`}
+                    part={part}
+                    partIdx={partIdx}
+                    id={id}
+                    role={role}
+                    status={status}
+                    isLastMessage={id === messages[messages.length - 1].id}
+                  />
+                ))}
               </div>
             ))}
           </ConversationContent>
