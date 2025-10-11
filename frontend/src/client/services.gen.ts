@@ -139,8 +139,6 @@ import type {
   ChatGetChatVercelResponse,
   ChatListChatsData,
   ChatListChatsResponse,
-  ChatStartChatTurnData,
-  ChatStartChatTurnResponse,
   ChatStreamChatEventsData,
   ChatStreamChatEventsResponse,
   ChatUpdateChatData,
@@ -5519,39 +5517,6 @@ export const chatUpdateChat = (
 ): CancelablePromise<ChatUpdateChatResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/chat/{chat_id}",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Start Chat Turn
- * Start a new chat turn with an AI agent.
- *
- * This endpoint initiates an AI agent execution and returns a stream URL
- * for real-time streaming of the agent's processing steps.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns ChatResponse Successful Response
- * @throws ApiError
- */
-export const chatStartChatTurn = (
-  data: ChatStartChatTurnData
-): CancelablePromise<ChatStartChatTurnResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
     url: "/chat/{chat_id}",
     path: {
       chat_id: data.chatId,

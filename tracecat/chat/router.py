@@ -3,18 +3,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import AgentStreamEvent
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
-from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
+from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -22,15 +21,24 @@ from tracecat.chat.models import (
     ChatReadMinimal,
     ChatReadVercel,
     ChatRequest,
-    ChatResponse,
     ChatUpdate,
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
 
 
 @router.post("")
@@ -173,49 +181,6 @@ async def update_chat(
         title=request.title,
     )
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
-
-
-@router.post("/{chat_id}")
-async def start_chat_turn(
-    chat_id: uuid.UUID,
-    request: ChatRequest,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
-) -> ChatResponse:
-    """Start a new chat turn with an AI agent.
-
-    This endpoint initiates an AI agent execution and returns a stream URL
-    for real-time streaming of the agent's processing steps.
-    """
-    chat_service = ChatService(session, role)
-
-    try:
-        return await chat_service.start_chat_turn(
-            chat_id=chat_id,
-            request=request,
-            executor=executor,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except Exception as e:
-        logger.error(
-            "Failed to start chat turn",
-            chat_id=chat_id,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start chat turn: {str(e)}",
-        ) from e
 
 
 @router.post("/{chat_id}/vercel")

@@ -3362,26 +3362,6 @@ export const $ChatReadVercel = {
   description: "Model for chat metadata with message history in Vercel format.",
 } as const
 
-export const $ChatResponse = {
-  properties: {
-    stream_url: {
-      type: "string",
-      title: "Stream Url",
-      description: "URL to connect for SSE streaming",
-    },
-    chat_id: {
-      type: "string",
-      format: "uuid",
-      title: "Chat Id",
-      description: "Unique chat identifier",
-    },
-  },
-  type: "object",
-  required: ["stream_url", "chat_id"],
-  title: "ChatResponse",
-  description: "Response model for chat initiation.",
-} as const
-
 export const $ChatUpdate = {
   properties: {
     tools: {

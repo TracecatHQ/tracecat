@@ -1216,20 +1216,6 @@ export type ChatReadVercel = {
 }
 
 /**
- * Response model for chat initiation.
- */
-export type ChatResponse = {
-  /**
-   * URL to connect for SSE streaming
-   */
-  stream_url: string
-  /**
-   * Unique chat identifier
-   */
-  chat_id: string
-}
-
-/**
  * Request model for updating chat properties.
  */
 export type ChatUpdate = {
@@ -6399,14 +6385,6 @@ export type ChatUpdateChatData = {
 
 export type ChatUpdateChatResponse = ChatReadMinimal
 
-export type ChatStartChatTurnData = {
-  chatId: string
-  requestBody: BasicChatRequest | VercelChatRequest
-  workspaceId: string
-}
-
-export type ChatStartChatTurnResponse = ChatResponse
-
 export type ChatGetChatVercelData = {
   chatId: string
   workspaceId: string
@@ -9432,19 +9410,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChatReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: ChatStartChatTurnData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatResponse
         /**
          * Validation Error
          */
