@@ -1,24 +1,24 @@
 "use client"
 
-import * as React from "react"
 import {
-  useFloating,
   autoUpdate,
-  offset,
+  FloatingDelayGroup,
+  FloatingPortal,
   flip,
+  offset,
+  type Placement,
+  type ReferenceType,
   shift,
-  useHover,
-  useFocus,
+  type UseFloatingReturn,
   useDismiss,
-  useRole,
+  useFloating,
+  useFocus,
+  useHover,
   useInteractions,
   useMergeRefs,
-  FloatingPortal,
-  type Placement,
-  type UseFloatingReturn,
-  type ReferenceType,
-  FloatingDelayGroup,
+  useRole,
 } from "@floating-ui/react"
+import * as React from "react"
 import "@/components/tiptap-ui-primitive/tooltip/tooltip.scss"
 
 interface TooltipProviderProps {
@@ -159,10 +159,8 @@ export const TooltipTrigger = React.forwardRef<
   const context = useTooltipContext()
   const childrenRef = React.isValidElement(children)
     ? parseInt(React.version, 10) >= 19
-      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (children as { props: { ref?: React.Ref<any> } }).props.ref
-      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (children as any).ref
+      ? (children as { props: { ref?: React.Ref<unknown> } }).props.ref
+      : (children as { ref?: React.Ref<unknown> }).ref
     : undefined
   const ref = useMergeRefs([context.refs.setReference, propRef, childrenRef])
 

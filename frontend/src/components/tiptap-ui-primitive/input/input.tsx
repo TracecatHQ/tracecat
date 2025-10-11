@@ -1,6 +1,6 @@
 "use client"
 
-import * as React from "react"
+import type * as React from "react"
 import { cn } from "@/lib/tiptap-utils"
 import "@/components/tiptap-ui-primitive/input/input.scss"
 

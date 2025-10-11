@@ -1,13 +1,11 @@
 "use client"
 
-import * as React from "react"
 import type { Editor } from "@tiptap/react"
-
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
-
+import * as React from "react"
 // --- Icons ---
 import { LinkIcon } from "@/components/tiptap-icons/link-icon"
+// --- Hooks ---
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 
 // --- Lib ---
 import { isMarkInSchema, sanitizeUrl } from "@/lib/tiptap-utils"

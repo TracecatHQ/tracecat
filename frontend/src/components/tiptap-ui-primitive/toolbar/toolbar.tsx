@@ -3,9 +3,9 @@
 import * as React from "react"
 import { Separator } from "@/components/tiptap-ui-primitive/separator"
 import "@/components/tiptap-ui-primitive/toolbar/toolbar.scss"
-import { cn } from "@/lib/tiptap-utils"
-import { useMenuNavigation } from "@/hooks/use-menu-navigation"
 import { useComposedRef } from "@/hooks/use-composed-ref"
+import { useMenuNavigation } from "@/hooks/use-menu-navigation"
+import { cn } from "@/lib/tiptap-utils"
 
 type BaseProps = React.HTMLAttributes<HTMLDivElement>
 

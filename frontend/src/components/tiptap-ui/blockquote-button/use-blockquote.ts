@@ -1,14 +1,12 @@
 "use client"
 
-import * as React from "react"
-import type { Editor } from "@tiptap/react"
 import { NodeSelection, TextSelection } from "@tiptap/pm/state"
-
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
-
+import type { Editor } from "@tiptap/react"
+import * as React from "react"
 // --- Icons ---
 import { BlockquoteIcon } from "@/components/tiptap-icons/blockquote-icon"
+// --- Hooks ---
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 
 // --- UI Utils ---
 import {

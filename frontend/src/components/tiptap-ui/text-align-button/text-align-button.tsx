@@ -1,13 +1,6 @@
 "use client"
 
 import * as React from "react"
-
-// --- Lib ---
-import { parseShortcutKeys } from "@/lib/tiptap-utils"
-
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
-
 // --- Tiptap UI ---
 import type {
   TextAlign,
@@ -17,11 +10,14 @@ import {
   TEXT_ALIGN_SHORTCUT_KEYS,
   useTextAlign,
 } from "@/components/tiptap-ui/text-align-button"
-
+import { Badge } from "@/components/tiptap-ui-primitive/badge"
 // --- UI Primitives ---
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button"
 import { Button } from "@/components/tiptap-ui-primitive/button"
-import { Badge } from "@/components/tiptap-ui-primitive/badge"
+// --- Hooks ---
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
+// --- Lib ---
+import { parseShortcutKeys } from "@/lib/tiptap-utils"
 
 type IconProps = React.SVGProps<SVGSVGElement>
 type IconComponent = ({ className, ...props }: IconProps) => React.ReactElement

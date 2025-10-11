@@ -8,17 +8,14 @@ import {
   BLOCKQUOTE_SHORTCUT_KEY,
   useBlockquote,
 } from "@/components/tiptap-ui/blockquote-button"
-
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
-
-// --- Lib ---
-import { parseShortcutKeys } from "@/lib/tiptap-utils"
-
+import { Badge } from "@/components/tiptap-ui-primitive/badge"
 // --- UI Primitives ---
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button"
 import { Button } from "@/components/tiptap-ui-primitive/button"
-import { Badge } from "@/components/tiptap-ui-primitive/badge"
+// --- Hooks ---
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
+// --- Lib ---
+import { parseShortcutKeys } from "@/lib/tiptap-utils"
 
 export interface BlockquoteButtonProps
   extends Omit<ButtonProps, "type">,
