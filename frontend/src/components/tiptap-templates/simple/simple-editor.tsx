@@ -1,12 +1,10 @@
 "use client"
 
-import * as React from "react"
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
+import { Placeholder } from "@tiptap/extension-placeholder"
 import { EditorContent, useEditor } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
-import { Markdown } from "tiptap-markdown-3"
-import { Placeholder } from "@tiptap/extension-placeholder"
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
-import { createLowlight, common } from "lowlight"
+import { common, createLowlight } from "lowlight"
 import {
   Bold,
   Braces,
@@ -22,6 +20,8 @@ import {
   Strikethrough,
   Undo,
 } from "lucide-react"
+import * as React from "react"
+import { Markdown } from "tiptap-markdown-3"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -103,11 +103,15 @@ export function SimpleEditor({
     ],
     onCreate({ editor }) {
       // tiptap-markdown-3 attaches 'markdown' to storage, but types don't include it
-      const markdownApi = (editor.storage as unknown as { markdown: { getMarkdown: () => string } }).markdown
+      const markdownApi = (
+        editor.storage as unknown as { markdown: { getMarkdown: () => string } }
+      ).markdown
       lastSyncedMarkdown.current = markdownApi.getMarkdown()
     },
     onUpdate({ editor }) {
-      const markdownApi = (editor.storage as unknown as { markdown: { getMarkdown: () => string } }).markdown
+      const markdownApi = (
+        editor.storage as unknown as { markdown: { getMarkdown: () => string } }
+      ).markdown
       const markdown = markdownApi.getMarkdown()
       lastSyncedMarkdown.current = markdown
       onChangeRef.current?.(markdown)
@@ -346,7 +350,9 @@ export function SimpleEditor({
             className={TOOLBAR_BUTTON_CLASSES}
             disabled={!editor.can().chain().focus().undo().run()}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={createToggleHandler(() => editor.chain().focus().undo().run())}
+            onClick={createToggleHandler(() =>
+              editor.chain().focus().undo().run()
+            )}
           >
             <Undo className="h-4 w-4" />
           </Button>
@@ -357,7 +363,9 @@ export function SimpleEditor({
             className={TOOLBAR_BUTTON_CLASSES}
             disabled={!editor.can().chain().focus().redo().run()}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={createToggleHandler(() => editor.chain().focus().redo().run())}
+            onClick={createToggleHandler(() =>
+              editor.chain().focus().redo().run()
+            )}
           >
             <Redo className="h-4 w-4" />
           </Button>
