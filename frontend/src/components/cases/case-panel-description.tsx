@@ -31,11 +31,25 @@ interface CasePanelDescriptionProps {
   updateCase: (caseData: CaseUpdate) => Promise<void>
 }
 
+function SaveShortcut({ isMac }: { isMac: boolean }) {
+  const shortcutLabel = isMac ? "⌘+S" : "Ctrl+S"
+
+  return (
+    <span className="my-px ml-auto flex items-center space-x-2">
+      <div className="mx-1 my-0 flex items-center space-x-1 rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs text-muted-foreground/80">
+        <SaveIcon className="size-3 text-muted-foreground/70" />
+        <p>{shortcutLabel}</p>
+      </div>
+    </span>
+  )
+}
+
 export function CasePanelDescription({
   caseData,
   updateCase,
 }: CasePanelDescriptionProps) {
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
+  const [isMacPlatform, setIsMacPlatform] = useState(false)
 
   const form = useForm<DescriptionFormSchema>({
     resolver: zodResolver(descriptionFormSchema),
@@ -88,18 +102,35 @@ export function CasePanelDescription({
     }
   }
 
-  // Setup keyboard shortcut for saving (Cmd+Enter or Ctrl+Enter)
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return
+    }
+
+    setIsMacPlatform(/Mac|iPod|iPhone|iPad/.test(navigator.userAgent))
+  }, [])
+
+  // Setup keyboard shortcut for saving with platform-specific modifier
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault()
-        form.handleSubmit(handleSave)()
+      const shouldHandle =
+        (isMacPlatform && e.metaKey) || (!isMacPlatform && e.ctrlKey)
+
+      if (!shouldHandle) {
+        return
       }
+
+      if (e.key.toLowerCase() !== "s") {
+        return
+      }
+
+      e.preventDefault()
+      form.handleSubmit(handleSave)()
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [form, handleSave])
+  }, [form, handleSave, isMacPlatform])
 
   return (
     <div className="relative">
@@ -152,18 +183,7 @@ export function CasePanelDescription({
                       <span className="text-xs text-muted-foreground">
                         Unsaved
                       </span>
-                      <span className="my-px ml-auto flex items-center space-x-2">
-                        <div className="mx-1 my-0 flex items-center space-x-1 rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs text-muted-foreground/80">
-                          <SaveIcon className="size-3 text-muted-foreground/70" />
-                          <p>
-                            {typeof navigator.userAgent !== "undefined"
-                              ? /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
-                                ? "⌘+Enter"
-                                : "Ctrl+Enter"
-                              : "Ctrl+Enter"}
-                          </p>
-                        </div>
-                      </span>
+                      <SaveShortcut isMac={isMacPlatform} />
                     </>
                   )}
                   {saveState === SaveState.SAVING && (

@@ -1,0 +1,54 @@
+.tiptap.ProseMirror {
+  --tt-inline-code-bg-color: var(--tt-gray-light-a-100);
+  --tt-inline-code-text-color: var(--tt-gray-light-a-700);
+  --tt-inline-code-border-color: var(--tt-gray-light-a-200);
+  --tt-codeblock-bg: var(--tt-gray-light-a-50);
+  --tt-codeblock-text: var(--tt-gray-light-a-800);
+  --tt-codeblock-border: var(--tt-gray-light-a-200);
+
+  .dark & {
+    --tt-inline-code-bg-color: var(--tt-gray-dark-a-100);
+    --tt-inline-code-text-color: var(--tt-gray-dark-a-700);
+    --tt-inline-code-border-color: var(--tt-gray-dark-a-200);
+    --tt-codeblock-bg: var(--tt-gray-dark-a-50);
+    --tt-codeblock-text: var(--tt-gray-dark-a-800);
+    --tt-codeblock-border: var(--tt-gray-dark-a-200);
+  }
+}
+
+/* =====================
+   CODE FORMATTING
+   ===================== */
+.tiptap.ProseMirror {
+  // Inline code
+  code {
+    background-color: var(--tt-inline-code-bg-color);
+    color: var(--tt-inline-code-text-color);
+    border: 1px solid var(--tt-inline-code-border-color);
+    font-family: "JetBrains Mono NL", monospace;
+    font-size: 0.875em;
+    line-height: 1.4;
+    border-radius: 6px/0.375rem;
+    padding: 0.1em 0.2em;
+  }
+
+  // Code blocks
+  pre {
+    background-color: var(--tt-codeblock-bg);
+    color: var(--tt-codeblock-text);
+    border: 1px solid var(--tt-codeblock-border);
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+    padding: 1em;
+    font-size: 1rem;
+    border-radius: 6px/0.375rem;
+
+    code {
+      background-color: transparent;
+      border: none;
+      border-radius: 0;
+      -webkit-text-fill-color: inherit;
+      color: inherit;
+    }
+  }
+}
