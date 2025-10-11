@@ -45,13 +45,14 @@
   display: none;
 }
 
-.case-comment-viewer .simple-editor-content .simple-editor {
+.case-comment-viewer .simple-editor-content .tiptap.ProseMirror.simple-editor {
   padding: 0;
   min-height: unset;
   background: transparent;
   border: none;
   font-size: 0.875rem;
   line-height: 1.6;
+  height: auto;
 }
 
 .text-part-editor .simple-editor-content .simple-editor {
