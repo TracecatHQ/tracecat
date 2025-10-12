@@ -3,9 +3,9 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
+import pydantic
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
@@ -28,7 +28,7 @@ class StreamingAgentDeps(Protocol):
     message_store: MessageStore | None = None
 
 
-@dataclass(kw_only=True, slots=True)
+@pydantic.dataclasses.dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
 
