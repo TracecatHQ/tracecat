@@ -4384,6 +4384,10 @@ export const casesCreateCase = (
  * @param data.limit Maximum number of cases to return
  * @param data.orderBy Field to order the cases by
  * @param data.sort Direction to sort (asc or desc)
+ * @param data.startTime Return cases created at or after this timestamp
+ * @param data.endTime Return cases created at or before this timestamp
+ * @param data.updatedAfter Return cases updated at or after this timestamp
+ * @param data.updatedBefore Return cases updated at or before this timestamp
  * @returns CaseReadMinimal Successful Response
  * @throws ApiError
  */
@@ -4402,6 +4406,10 @@ export const casesSearchCases = (
       limit: data.limit,
       order_by: data.orderBy,
       sort: data.sort,
+      start_time: data.startTime,
+      end_time: data.endTime,
+      updated_after: data.updatedAfter,
+      updated_before: data.updatedBefore,
       workspace_id: data.workspaceId,
     },
     errors: {

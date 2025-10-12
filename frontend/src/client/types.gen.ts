@@ -6029,6 +6029,10 @@ export type CasesCreateCaseResponse = unknown
 
 export type CasesSearchCasesData = {
   /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
+  /**
    * Maximum number of cases to return
    */
   limit?: number | null
@@ -6059,6 +6063,10 @@ export type CasesSearchCasesData = {
    */
   sort?: "asc" | "desc" | null
   /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
    * Filter by case status
    */
   status?: Array<CaseStatus> | null
@@ -6066,6 +6074,14 @@ export type CasesSearchCasesData = {
    * Filter by tag IDs or slugs (AND logic)
    */
   tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
   workspaceId: string
 }
 
