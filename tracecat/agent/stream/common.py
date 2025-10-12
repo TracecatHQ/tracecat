@@ -53,8 +53,8 @@ class PersistableStreamingAgentDepsSpec(BaseModel):
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    persistent: bool = True
-    namespace: str = "agent"
+    persistent: bool
+    namespace: str
 
     async def build(self) -> PersistableStreamingAgentDeps:
         """Reconstruct dependencies from this spec."""
