@@ -1,118 +1,93 @@
-#!/bin/bash
-
-# Bash "strict mode", to help catch problems and bugs in the shell
-# script. Every bash script you write should include this. See
-# http://redsymbol.net/articles/unofficial-bash-strict-mode/ for details.
+#!/usr/bin/env bash
+# install-packages.sh
 set -euo pipefail
 
-export DEBIAN_FRONTEND=noninteractive
-export DENO_VERSION=2.3.5
-export PYODIDE_VERSION=0.27.6
+# ---- Versions (override via build args/env if needed) ----
+: "${DENO_VERSION:=2.3.5}"
+: "${PYODIDE_VERSION:=0.27.6}"
 
-# Detect architecture
-ARCH=$(uname -m)
-case ${ARCH} in
-    x86_64)
-        DENO_ARCH="x86_64-unknown-linux-gnu"
-        ;;
-    aarch64|arm64)
-        DENO_ARCH="aarch64-unknown-linux-gnu"
-        ;;
-    *)
-        echo "Unsupported architecture: ${ARCH}"
-        exit 1
-        ;;
+# ---- Arch detection for Deno artifact ----
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64)          DENO_ARCH="x86_64-unknown-linux-gnu" ;;
+  aarch64|arm64)   DENO_ARCH="aarch64-unknown-linux-gnu" ;;
+  *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;;
 esac
 
-# Update package lists
-apt-get update
+DENO_ZIP="deno-${DENO_ARCH}.zip"
+BASE_URL="https://github.com/denoland/deno/releases/download/v${DENO_VERSION}"
+CHECKSUM_URL="${BASE_URL}/${DENO_ZIP}.sha256sum"
+DENO_URL="${BASE_URL}/${DENO_ZIP}"
 
-# Install base packages including curl (needed for kubectl installation)
-apt-get install -y \
-  acl \
-  git \
-  xmlsec1 \
-  libmagic1 \
-  curl \
-  apt-transport-https \
-  ca-certificates \
-  gnupg \
-  unzip
+# ---- Cleanup on exit ----
+cleanup() {
+  rm -f "${DENO_ZIP}.partial" || true
+}
+trap cleanup EXIT
 
-# Verify curl is installed and in PATH
-which curl || { echo "ERROR: curl not found after installation"; exit 1; }
-echo "curl version: $(curl --version | head -n 1)"
+# ---- wget helpers (quiet, with a few retries) ----
+if ! wget --version >/dev/null 2>&1; then
+  echo "ERROR: wget not installed." >&2
+  exit 1
+fi
+
+wget_stdout() { wget -q --tries=3 --timeout=20 -O- "$1"; }
+wget_to()     { wget -q --tries=3 --timeout=20 "$1" -O "$2"; }
+
+echo "Installing Deno v${DENO_VERSION} for ${ARCH} …"
+echo "Fetching checksum: ${CHECKSUM_URL}"
+DENO_SHA256="$(wget_stdout "${CHECKSUM_URL}" | awk '{print $1}' || true)"
+
+echo "Downloading: ${DENO_URL}"
+# Download to a temp name to avoid half-written files if interrupted
+wget_to "${DENO_URL}" "${DENO_ZIP}.partial"
+mv "${DENO_ZIP}.partial" "${DENO_ZIP}"
+
+# Require checksum verification
+if [[ -z "${DENO_SHA256}" ]]; then
+  echo "ERROR: checksum not provided; refusing to install unverified binary." >&2
+  exit 1
+fi
+
+# Verify checksum
+if ! echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -; then
+  echo "ERROR: checksum verification failed." >&2
+  rm -f "${DENO_ZIP}"
+  exit 1
+fi
 
 # Install Deno
-echo "Installing Deno v${DENO_VERSION} for architecture ${ARCH}..."
-DENO_ZIP="deno-${DENO_ARCH}.zip"
-
-# Fetch the SHA256 checksum from the official release
-CHECKSUM_URL="https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}.sha256sum"
-echo "Fetching SHA256 checksum from ${CHECKSUM_URL}"
-DENO_SHA256=$(curl -sSL "${CHECKSUM_URL}" | awk '{print $1}')
-
-if [ -z "${DENO_SHA256}" ]; then
-  echo "WARNING: Failed to fetch SHA256 checksum, skipping verification"
-  curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}" -o "${DENO_ZIP}"
-else
-  echo "Using SHA256 checksum: ${DENO_SHA256}"
-  curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}" -o "${DENO_ZIP}"
-  echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -
-fi
-
-# Install deno
 unzip -o "${DENO_ZIP}" -d /usr/local/bin/
-rm "${DENO_ZIP}"
 chmod +x /usr/local/bin/deno
+rm -f "${DENO_ZIP}"
 
-# Verify deno installation
-if ! deno --version; then
-    echo "ERROR: Failed to install deno"
-    exit 1
+# Verify install
+if ! deno --version >/dev/null 2>&1; then
+  echo "ERROR: Deno failed to install." >&2
+  exit 1
 fi
-echo "Deno installed successfully"
+echo "Deno installed successfully."
 
-# Pre-cache pyodide and dependencies using deno cache
-echo "Pre-caching Pyodide v${PYODIDE_VERSION}..."
+# ---- Pre-cache Pyodide with Deno (builder layer only) ----
+echo "Pre-caching Pyodide v${PYODIDE_VERSION} …"
 
-# Create ALL cache directories that apiuser will need
-# This consolidates directory creation in one place
-# Note: Permissions will be set in Dockerfile after user creation
+# Create runtime dirs that the final image expects (ownership fixed later)
 mkdir -p \
-    /home/apiuser/.cache/deno \
-    /home/apiuser/.cache/uv \
-    /home/apiuser/.cache/pyodide-packages \
-    /home/apiuser/.cache/s3 \
-    /home/apiuser/.local \
-    /home/apiuser/.local/lib/node_modules \
-    /app/.scripts
+  /home/nonroot/.cache/deno \
+  /home/nonroot/.cache/uv \
+  /home/nonroot/.cache/pyodide-packages \
+  /home/nonroot/.cache/s3 \
+  /home/nonroot/.cache/tmp \
+  /home/nonroot/.local/lib/node_modules \
+  /app/.scripts
 
-# Set DENO_DIR for caching during build (use root-owned location)
+# Use a root-owned build cache for Deno in the builder layer
 export DENO_DIR="/opt/deno-cache"
-mkdir -p "$DENO_DIR"
+mkdir -p "${DENO_DIR}"
 
-# Use deno cache to download pyodide module and its dependencies
-# This runs as root and creates root-owned cache that will be copied later
-# Note: node_modules will be created automatically in the current directory
-cd /opt
+# Place node_modules under /opt so we can selectively COPY to final if needed
+pushd /opt >/dev/null
 deno cache --node-modules-dir=auto "npm:pyodide@${PYODIDE_VERSION}"
+popd >/dev/null
 
-echo "Deno and Pyodide installation complete"
-
-# Apply security updates
-apt-get -y upgrade
-
-# Remove install only dependencies
-apt-get purge -y curl gnupg apt-transport-https unzip
-apt-get autoremove -y
-
-# Check if git is installed by checking the version
-if ! git --version &> /dev/null; then
-    echo "ERROR: Failed to install git"
-    exit 1
-fi
-
-# Clean up
-apt-get clean
-rm -rf /var/lib/apt/lists/*
+echo "Deno + Pyodide setup complete."
