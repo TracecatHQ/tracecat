@@ -98,7 +98,7 @@ import {
   useIntegrationProvider,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
-import { cn } from "@/lib/utils"
+import { capitalizeFirst, cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface PageConfig {
@@ -740,18 +740,18 @@ function CaseTimestamp({
     <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
       <span className="hidden sm:flex items-center gap-1 min-w-0">
         <Calendar className="h-3 w-3 flex-shrink-0" />
-        <span className="hidden lg:inline flex-shrink-0">Created</span>
         <span className="truncate min-w-0">
-          {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+          {capitalizeFirst(formatDistanceToNow(new Date(caseData.created_at), {
+            addSuffix: true,
+          }))}
         </span>
       </span>
       <span className="hidden sm:inline flex-shrink-0">•</span>
       <span className="flex items-center gap-1 min-w-0">
-        <span className="hidden sm:inline flex-shrink-0">Updated</span>
         <span className="truncate min-w-0">
-          {formatDistanceToNow(new Date(caseData.updated_at), {
+          {capitalizeFirst(formatDistanceToNow(new Date(caseData.updated_at), {
             addSuffix: true,
-          })}
+          }))}
         </span>
       </span>
     </div>
