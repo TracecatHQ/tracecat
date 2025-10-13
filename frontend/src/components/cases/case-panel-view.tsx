@@ -202,51 +202,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 onOpenChange={setPropertiesOpen}
               >
                 <div className="space-y-4">
-                  {/* Assign */}
-                  <CasePropertyRow
-                    label="Assignee"
-                    value={
-                      <AssigneeSelect
-                        assignee={caseData.assignee}
-                        workspaceMembers={members ?? []}
-                        onValueChange={handleAssigneeChange}
-                      />
-                    }
-                  />
-
-                  {/* Status */}
-                  <CasePropertyRow
-                    label="Status"
-                    value={
-                      <StatusSelect
-                        status={caseData.status}
-                        onValueChange={handleStatusChange}
-                      />
-                    }
-                  />
-
-                  {/* Priority */}
-                  <CasePropertyRow
-                    label="Priority"
-                    value={
-                      <PrioritySelect
-                        priority={caseData.priority || "unknown"}
-                        onValueChange={handlePriorityChange}
-                      />
-                    }
-                  />
-
-                  {/* Severity */}
-                  <CasePropertyRow
-                    label="Severity"
-                    value={
-                      <SeveritySelect
-                        severity={caseData.severity || "unknown"}
-                        onValueChange={handleSeverityChange}
-                      />
-                    }
-                  />
-
                   {/* Tags */}
                   <div className="pt-2">
                     <div className="flex items-center justify-between mb-2">
@@ -368,7 +323,30 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="h-full overflow-auto min-w-0">
             <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
               {/* Header with Chat Toggle */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-6">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4 text-sm">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <PrioritySelect
+                      priority={caseData.priority || "unknown"}
+                      onValueChange={handlePriorityChange}
+                    />
+                    <SeveritySelect
+                      severity={caseData.severity || "unknown"}
+                      onValueChange={handleSeverityChange}
+                    />
+                    <AssigneeSelect
+                      assignee={caseData.assignee}
+                      workspaceMembers={members ?? []}
+                      onValueChange={handleAssigneeChange}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusSelect
+                      status={caseData.status}
+                      onValueChange={handleStatusChange}
+                    />
+                  </div>
+                </div>
                 <div className="flex-1">
                   {/* Case Summary */}
                   <CasePanelSummary
