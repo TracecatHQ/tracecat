@@ -13,9 +13,9 @@ import {
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useParams } from "next/navigation"
-import { useEffect, useRef } from "react"
+import { useParams, usePathname } from "next/navigation"
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {

@@ -4,14 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
-  ClockPlus,
   ChevronDown,
+  ClockPlus,
   Flag,
   Flame,
   PanelRight,
+  PenLine,
   Plus,
   Trash2,
-  PenLine,
   User,
   X,
 } from "lucide-react"
@@ -742,18 +742,22 @@ function CaseTimestamp({
       <span className="hidden sm:flex items-center gap-1 min-w-0">
         <ClockPlus className="h-3 w-3 flex-shrink-0" />
         <span className="truncate min-w-0">
-          {capitalizeFirst(formatDistanceToNow(new Date(caseData.created_at), {
-            addSuffix: true,
-          }))}
+          {capitalizeFirst(
+            formatDistanceToNow(new Date(caseData.created_at), {
+              addSuffix: true,
+            })
+          )}
         </span>
       </span>
       <span className="hidden sm:inline flex-shrink-0">•</span>
       <span className="flex items-center gap-1 min-w-0">
         <PenLine className="h-3 w-3 flex-shrink-0" />
         <span className="truncate min-w-0">
-          {capitalizeFirst(formatDistanceToNow(new Date(caseData.updated_at), {
-            addSuffix: true,
-          }))}
+          {capitalizeFirst(
+            formatDistanceToNow(new Date(caseData.updated_at), {
+              addSuffix: true,
+            })
+          )}
         </span>
       </span>
     </div>

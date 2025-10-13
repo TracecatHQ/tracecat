@@ -415,16 +415,21 @@ export function SimpleEditor({
     return renderer
   }, [])
 
-  const toHtml = React.useCallback((markdown: string): string => {
-    const source = markdown ?? ""
-    if (!source.trim()) {
-      return ""
-    }
-    return (
-      (marked.parse(source, { async: false, renderer: markedRenderer }) as string) ??
-      ""
-    )
-  }, [markedRenderer])
+  const toHtml = React.useCallback(
+    (markdown: string): string => {
+      const source = markdown ?? ""
+      if (!source.trim()) {
+        return ""
+      }
+      return (
+        (marked.parse(source, {
+          async: false,
+          renderer: markedRenderer,
+        }) as string) ?? ""
+      )
+    },
+    [markedRenderer]
+  )
 
   const toMarkdown = React.useCallback(
     (html: string): string => {
