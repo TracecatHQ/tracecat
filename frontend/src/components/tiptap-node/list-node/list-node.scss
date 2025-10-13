@@ -82,7 +82,7 @@
     li {
       display: flex;
       flex-direction: row;
-      align-items: flex-start;
+      align-items: center;
 
       &:not(:has(> p:first-child)) {
         list-style-type: none;
@@ -101,8 +101,10 @@
 
       label {
         position: relative;
-        padding-top: 0.375rem;
-        padding-right: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0.5rem 0 0;
 
         input[type="checkbox"] {
           position: absolute;

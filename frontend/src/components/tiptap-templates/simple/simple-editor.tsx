@@ -285,6 +285,20 @@ export function SimpleEditor({
       bulletListMarker: "-",
     })
 
+    const asElement = (node: TurndownService.Node): HTMLElement | null => {
+      if (
+        node &&
+        typeof node === "object" &&
+        "nodeType" in node &&
+        // 1 === Node.ELEMENT_NODE
+        (node as Node).nodeType === 1 &&
+        "getAttribute" in (node as Element)
+      ) {
+        return node as HTMLElement
+      }
+      return null
+    }
+
     service.addRule("codeBlockLanguage", {
       filter: (node: HTMLElement) =>
         node.nodeName === "PRE" &&
@@ -310,16 +324,112 @@ export function SimpleEditor({
       },
     })
 
+    service.addRule("taskItemLabel", {
+      filter: (node: TurndownService.Node) => {
+        const element = asElement(node)
+        return (
+          !!element &&
+          element.nodeName === "LABEL" &&
+          element.parentElement?.getAttribute("data-type") === "taskItem"
+        )
+      },
+      replacement: () => "",
+    })
+
+    service.addRule("taskItem", {
+      filter: (node: TurndownService.Node) => {
+        const element = asElement(node)
+        return (
+          !!element &&
+          element.nodeName === "LI" &&
+          element.getAttribute("data-type") === "taskItem"
+        )
+      },
+      replacement: (content: string, node: TurndownService.Node) => {
+        const element = asElement(node)
+        if (!element) {
+          return content
+        }
+
+        const isChecked = element.getAttribute("data-checked") === "true"
+        const prefix = `- [${isChecked ? "x" : " "}] `
+        const normalized = content.replace(/^\n+/, "").replace(/\n+$/, "")
+        const lines = normalized.split("\n")
+        const formatted = lines
+          .map((line, index) => {
+            if (index === 0) return line
+            if (!line.trim()) return line
+            return " ".repeat(prefix.length) + line
+          })
+          .join("\n")
+        const suffix = element.nextSibling ? "\n" : ""
+        return `${prefix}${formatted}${suffix}`
+      },
+    })
+
     return service
   }, [])
 
-  const toHtml = React.useCallback((markdown: string): string => {
-    const source = markdown ?? ""
-    if (!source.trim()) {
-      return ""
+  const markedRenderer = React.useMemo(() => {
+    const renderer = new marked.Renderer()
+    const originalList = renderer.list.bind(renderer)
+    const originalListItem = renderer.listitem.bind(renderer)
+
+    let renderingTaskList = false
+
+    renderer.list = function (token) {
+      if (token.items.length === 0) {
+        return originalList(token)
+      }
+
+      const isTaskList = token.items.every((item) => item.task)
+      if (!isTaskList) {
+        return originalList(token)
+      }
+
+      const previous = renderingTaskList
+      renderingTaskList = true
+      try {
+        const body = token.items.map((item) => this.listitem(item)).join("")
+        return `<ul data-type="taskList">\n${body}</ul>\n`
+      } finally {
+        renderingTaskList = previous
+      }
     }
-    return (marked.parse(source, { async: false }) as string) ?? ""
+
+    renderer.listitem = function (item) {
+      if (!renderingTaskList || !item.task) {
+        return originalListItem(item)
+      }
+
+      const checkboxMarkup = `<label><input type="checkbox"${
+        item.checked ? ' checked="checked"' : ""
+      }><span></span></label>`
+      const content = this.parser.parse(item.tokens, !!item.loose)
+
+      return `<li data-type="taskItem" data-checked="${
+        item.checked ? "true" : "false"
+      }">${checkboxMarkup}<div>${content}</div></li>\n`
+    }
+
+    return renderer
   }, [])
+
+  const toHtml = React.useCallback(
+    (markdown: string): string => {
+      const source = markdown ?? ""
+      if (!source.trim()) {
+        return ""
+      }
+      return (
+        (marked.parse(source, {
+          async: false,
+          renderer: markedRenderer,
+        }) as string) ?? ""
+      )
+    },
+    [markedRenderer]
+  )
 
   const toMarkdown = React.useCallback(
     (html: string): string => {

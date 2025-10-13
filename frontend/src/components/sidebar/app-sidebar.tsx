@@ -13,8 +13,9 @@ import {
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
@@ -29,6 +30,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -40,8 +42,27 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
+  const params = useParams<{ caseId?: string }>()
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const setSidebarOpenRef = useRef(setSidebarOpen)
   const { isFeatureEnabled } = useFeatureFlag()
   const basePath = `/workspaces/${workspaceId}`
+  const caseId = params?.caseId
+  const casesListPath = `${basePath}/cases`
+  const isCasesList = pathname === casesListPath
+
+  useEffect(() => {
+    setSidebarOpenRef.current = setSidebarOpen
+  }, [setSidebarOpen])
+
+  useEffect(() => {
+    const updateSidebarOpen = setSidebarOpenRef.current
+    if (caseId) {
+      updateSidebarOpen(false)
+    } else if (isCasesList) {
+      updateSidebarOpen(true)
+    }
+  }, [caseId, isCasesList])
 
   type NavItem = {
     title: string
