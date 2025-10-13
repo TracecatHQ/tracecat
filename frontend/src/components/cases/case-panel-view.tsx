@@ -202,63 +202,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 onOpenChange={setPropertiesOpen}
               >
                 <div className="space-y-4">
-                  {/* Tags */}
-                  <div className="pt-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs">Tags</span>
-                      {caseTags && caseTags.length > 0 && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 w-5 p-0"
-                            >
-                              <MoreHorizontal className="h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="text-xs">
-                            {caseTags.map((tag) => {
-                              const hasTag = caseData.tags?.some(
-                                (t) => t.id === tag.id
-                              )
-                              return (
-                                <DropdownMenuCheckboxItem
-                                  key={tag.id}
-                                  className="text-xs"
-                                  checked={hasTag}
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await handleTagToggle(tag.id, !!hasTag)
-                                  }}
-                                >
-                                  <div
-                                    className="mr-2 flex size-2 rounded-full"
-                                    style={{
-                                      backgroundColor: tag.color || undefined,
-                                    }}
-                                  />
-                                  <span>{tag.name}</span>
-                                </DropdownMenuCheckboxItem>
-                              )
-                            })}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {caseData.tags?.length ? (
-                        caseData.tags.map((tag) => (
-                          <TagBadge key={tag.id} tag={tag} />
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          No tags
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
                   {/* Custom fields */}
                   <div className="pt-2">
                     <div className="flex items-center justify-between mb-2">
@@ -353,6 +296,55 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     caseData={caseData}
                     updateCase={updateCase}
                   />
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {caseData.tags?.length ? (
+                      caseData.tags.map((tag) => (
+                        <TagBadge key={tag.id} tag={tag} />
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No tags
+                      </span>
+                    )}
+                  </div>
+                  {caseTags && caseTags.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 px-2">
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Manage tags</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="text-xs">
+                        {caseTags.map((tag) => {
+                          const hasTag = caseData.tags?.some(
+                            (t) => t.id === tag.id
+                          )
+                          return (
+                            <DropdownMenuCheckboxItem
+                              key={tag.id}
+                              className="text-xs"
+                              checked={hasTag}
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                await handleTagToggle(tag.id, !!hasTag)
+                              }}
+                            >
+                              <div
+                                className="mr-2 flex size-2 rounded-full"
+                                style={{
+                                  backgroundColor: tag.color || undefined,
+                                }}
+                              />
+                              <span>{tag.name}</span>
+                            </DropdownMenuCheckboxItem>
+                          )
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
 
