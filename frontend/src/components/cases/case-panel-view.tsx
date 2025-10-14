@@ -303,207 +303,209 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
             <div className="h-full overflow-auto min-w-0">
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
-              <div className="mb-6">
-                <div className="mb-6 flex flex-wrap items-center gap-4 border-b border-border pb-4 text-sm">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <PrioritySelect
-                      priority={caseData.priority || "unknown"}
-                      onValueChange={handlePriorityChange}
-                    />
-                    <SeveritySelect
-                      severity={caseData.severity || "unknown"}
-                      onValueChange={handleSeverityChange}
-                    />
-                    <AssigneeSelect
-                      assignee={caseData.assignee}
-                      workspaceMembers={members ?? []}
-                      onValueChange={handleAssigneeChange}
-                    />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  {/* Case Summary */}
-                  <CasePanelSummary
-                    caseData={caseData}
-                    updateCase={updateCase}
-                  />
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {caseData.tags?.length ? (
-                      caseData.tags.map((tag) => (
-                        <TagBadge key={tag.id} tag={tag} />
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        No tags
-                      </span>
-                    )}
-                  </div>
-                  {caseTags && caseTags.length > 0 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Manage tags</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="text-xs">
-                        {caseTags.map((tag) => {
-                          const hasTag = caseData.tags?.some(
-                            (t) => t.id === tag.id
-                          )
-                          return (
-                            <DropdownMenuCheckboxItem
-                              key={tag.id}
-                              className="text-xs"
-                              checked={hasTag}
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                await handleTagToggle(tag.id, !!hasTag)
-                              }}
-                            >
-                              <div
-                                className="mr-2 flex size-2 rounded-full"
-                                style={{
-                                  backgroundColor: tag.color || undefined,
-                                }}
-                              />
-                              <span>{tag.name}</span>
-                            </DropdownMenuCheckboxItem>
-                          )
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-                <div
-                  className={`mt-4 flex flex-wrap justify-between gap-3 ${visibleCustomFields.length > 0 ? "items-start" : "items-center"}`}
-                >
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                    {visibleCustomFields.length > 0 ? (
-                      visibleCustomFields.map((field) => {
-                        const label = undoSlugify(field.id)
-                        const isEmpty = isCustomFieldValueEmpty(field.value)
-                        const isUserAdded = userAddedCustomFieldIds.includes(
-                          field.id
-                        )
-                        return (
-                          <div
-                            key={field.id}
-                            className="flex items-center gap-2 text-xs"
-                          >
-                            <span className="text-muted-foreground">
-                              {label}
-                            </span>
-                            <CustomField
-                              customField={field}
-                              updateCase={updateCase}
-                              formClassName="inline-flex"
-                              inputClassName="text-xs"
-                              inputStyle={{
-                                width:
-                                  customFieldWidths[field.id] ??
-                                  getCustomFieldInputWidth(field.value),
-                              }}
-                              onValueChange={handleCustomFieldValueChange}
-                            />
-                            {isEmpty && isUserAdded && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                                onClick={() => handleCustomFieldHide(field.id)}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                                <span className="sr-only">
-                                  Hide {label} field
-                                </span>
-                              </Button>
-                            )}
-                          </div>
-                        )
-                      })
-                    ) : customFields.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">
-                        No custom fields configured
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        No custom fields selected
-                      </span>
-                    )}
-                  </div>
-                  {customFields.length > 0 && (
-                    <Popover
-                      open={customFieldComboboxOpen}
-                      onOpenChange={handleCustomFieldPopoverChange}
+                <div className="mb-6">
+                  <div className="flex flex-col">
+                    <div className="flex flex-wrap items-center gap-4 py-1.5 text-sm first:pt-0 last:pb-0 -ml-1">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <PrioritySelect
+                          priority={caseData.priority || "unknown"}
+                          onValueChange={handlePriorityChange}
+                        />
+                        <SeveritySelect
+                          severity={caseData.severity || "unknown"}
+                          onValueChange={handleSeverityChange}
+                        />
+                        <AssigneeSelect
+                          assignee={caseData.assignee}
+                          workspaceMembers={members ?? []}
+                          onValueChange={handleAssigneeChange}
+                        />
+                      </div>
+                    </div>
+                    <div className="py-1.5 first:pt-0 last:pb-0">
+                      {/* Case Summary */}
+                      <CasePanelSummary
+                        caseData={caseData}
+                        updateCase={updateCase}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {caseData.tags?.length ? (
+                          caseData.tags.map((tag) => (
+                            <TagBadge key={tag.id} tag={tag} />
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            No tags
+                          </span>
+                        )}
+                      </div>
+                      {caseTags && caseTags.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Manage tags</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="text-xs">
+                            {caseTags.map((tag) => {
+                              const hasTag = caseData.tags?.some(
+                                (t) => t.id === tag.id
+                              )
+                              return (
+                                <DropdownMenuCheckboxItem
+                                  key={tag.id}
+                                  className="text-xs"
+                                  checked={hasTag}
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await handleTagToggle(tag.id, !!hasTag)
+                                  }}
+                                >
+                                  <div
+                                    className="mr-2 flex size-2 rounded-full"
+                                    style={{
+                                      backgroundColor: tag.color || undefined,
+                                    }}
+                                  />
+                                  <span>{tag.name}</span>
+                                </DropdownMenuCheckboxItem>
+                              )
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <div
+                      className={`flex flex-wrap justify-between gap-3 py-1.5 first:pt-0 last:pb-0 ${visibleCustomFields.length > 0 ? "items-start" : "items-center"}`}
                     >
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0"
-                          aria-expanded={customFieldComboboxOpen}
-                          aria-haspopup="listbox"
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                        {visibleCustomFields.length > 0 ? (
+                          visibleCustomFields.map((field) => {
+                            const label = undoSlugify(field.id)
+                            const isEmpty = isCustomFieldValueEmpty(field.value)
+                            const isUserAdded = userAddedCustomFieldIds.includes(
+                              field.id
+                            )
+                            return (
+                              <div
+                                key={field.id}
+                                className="flex items-center gap-2 text-xs"
+                              >
+                                <span className="text-muted-foreground">
+                                  {label}
+                                </span>
+                                <CustomField
+                                  customField={field}
+                                  updateCase={updateCase}
+                                  formClassName="inline-flex"
+                                  inputClassName="text-xs"
+                                  inputStyle={{
+                                    width:
+                                      customFieldWidths[field.id] ??
+                                      getCustomFieldInputWidth(field.value),
+                                  }}
+                                  onValueChange={handleCustomFieldValueChange}
+                                />
+                                {isEmpty && isUserAdded && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                    onClick={() => handleCustomFieldHide(field.id)}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                    <span className="sr-only">
+                                      Hide {label} field
+                                    </span>
+                                  </Button>
+                                )}
+                              </div>
+                            )
+                          })
+                        ) : customFields.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            No custom fields configured
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            No custom fields selected
+                          </span>
+                        )}
+                      </div>
+                      {customFields.length > 0 && (
+                        <Popover
+                          open={customFieldComboboxOpen}
+                          onOpenChange={handleCustomFieldPopoverChange}
                         >
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Toggle custom fields menu</span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        className="w-64 p-0"
-                        sideOffset={4}
-                      >
-                        <Command>
-                          <CommandInput
-                            placeholder="Search fields..."
-                            value={customFieldSearch}
-                            onValueChange={setCustomFieldSearch}
-                          />
-                          <CommandList>
-                            {availableCustomFields.length > 0 ? (
-                              <CommandGroup heading="Hidden fields">
-                                {availableCustomFields.map((field) => (
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              aria-expanded={customFieldComboboxOpen}
+                              aria-haspopup="listbox"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Toggle custom fields menu</span>
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="end"
+                            className="w-64 p-0"
+                            sideOffset={4}
+                          >
+                            <Command>
+                              <CommandInput
+                                placeholder="Search fields..."
+                                value={customFieldSearch}
+                                onValueChange={setCustomFieldSearch}
+                              />
+                              <CommandList>
+                                {availableCustomFields.length > 0 ? (
+                                  <CommandGroup heading="Hidden fields">
+                                    {availableCustomFields.map((field) => (
+                                      <CommandItem
+                                        key={field.id}
+                                        value={field.id}
+                                        onSelect={(value) => {
+                                          handleCustomFieldAdd(value)
+                                        }}
+                                      >
+                                        {undoSlugify(field.id)}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                ) : (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                                    No hidden fields
+                                  </div>
+                                )}
+                                <CommandSeparator />
+                                <CommandGroup>
                                   <CommandItem
-                                    key={field.id}
-                                    value={field.id}
-                                    onSelect={(value) => {
-                                      handleCustomFieldAdd(value)
+                                    value="__manage__"
+                                    onSelect={() => {
+                                      router.push(
+                                        `/workspaces/${workspaceId}/cases/custom-fields`
+                                      )
+                                      setCustomFieldComboboxOpen(false)
+                                      setCustomFieldSearch("")
                                     }}
                                   >
-                                    {undoSlugify(field.id)}
+                                    Manage fields
                                   </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            ) : (
-                              <div className="px-3 py-2 text-xs text-muted-foreground">
-                                No hidden fields
-                              </div>
-                            )}
-                            <CommandSeparator />
-                            <CommandGroup>
-                              <CommandItem
-                                value="__manage__"
-                                onSelect={() => {
-                                  router.push(
-                                    `/workspaces/${workspaceId}/cases/custom-fields`
-                                  )
-                                  setCustomFieldComboboxOpen(false)
-                                  setCustomFieldSearch("")
-                                }}
-                              >
-                                Manage fields
-                              </CommandItem>
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
               {/* Description */}
               <div className="mb-6">
