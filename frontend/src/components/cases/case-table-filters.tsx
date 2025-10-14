@@ -3,7 +3,7 @@
 import { Cross2Icon } from "@radix-ui/react-icons"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { type ComponentType, useMemo, useState } from "react"
-import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import type { CasePriority, CaseSeverity, CaseStatus, WorkspaceMember } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -25,7 +25,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -40,11 +39,15 @@ interface FilterOption<T extends string = string> {
   iconClassName?: string
 }
 
+export type FilterMode = "include" | "exclude"
+
 interface FilterMultiSelectProps<T extends string> {
   placeholder: string
   value: T[]
   options: FilterOption<T>[]
   onChange: (value: T[]) => void
+  mode: FilterMode
+  onModeChange: (mode: FilterMode) => void
   className?: string
   emptyMessage?: string
 }
@@ -54,6 +57,8 @@ function FilterMultiSelect<T extends string>({
   value,
   options,
   onChange,
+  mode,
+  onModeChange,
   className,
   emptyMessage = "No results found.",
 }: FilterMultiSelectProps<T>) {
@@ -89,6 +94,25 @@ function FilterMultiSelect<T extends string>({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[220px] p-0" align="start">
+        <div className="flex items-center justify-between border-b px-2 py-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {mode === "exclude" ? "Excluding" : "Including"}
+          </span>
+          <div className="flex items-center gap-1">
+            {(["include", "exclude"] as FilterMode[]).map((option) => (
+              <Button
+                key={option}
+                type="button"
+                size="sm"
+                variant={mode === option ? "secondary" : "ghost"}
+                className="h-7 px-2 text-[11px]"
+                onClick={() => onModeChange(option)}
+              >
+                {option === "include" ? "Include" : "Exclude"}
+              </Button>
+            ))}
+          </div>
+        </div>
         <Command>
           <CommandInput
             placeholder={`Search ${placeholder.toLowerCase()}...`}
@@ -157,33 +181,48 @@ function FilterMultiSelect<T extends string>({
 }
 
 interface CaseTableFiltersProps {
-  workspaceId: string
   searchTerm: string
   onSearchChange: (value: string) => void
   statusFilter: CaseStatus[]
   onStatusChange: (value: CaseStatus[]) => void
+  statusMode: FilterMode
+  onStatusModeChange: (mode: FilterMode) => void
   priorityFilter: CasePriority[]
   onPriorityChange: (value: CasePriority[]) => void
+  priorityMode: FilterMode
+  onPriorityModeChange: (mode: FilterMode) => void
   severityFilter: CaseSeverity[]
   onSeverityChange: (value: CaseSeverity[]) => void
+  severityMode: FilterMode
+  onSeverityModeChange: (mode: FilterMode) => void
   assigneeFilter: string[]
   onAssigneeChange: (value: string[]) => void
+  assigneeMode: FilterMode
+  onAssigneeModeChange: (mode: FilterMode) => void
+  members?: WorkspaceMember[]
 }
 
 export function CaseTableFilters({
-  workspaceId,
   searchTerm,
   onSearchChange,
   statusFilter,
   onStatusChange,
+  statusMode,
+  onStatusModeChange,
   priorityFilter,
   onPriorityChange,
+  priorityMode,
+  onPriorityModeChange,
   severityFilter,
   onSeverityChange,
+  severityMode,
+  onSeverityModeChange,
   assigneeFilter,
   onAssigneeChange,
+  assigneeMode,
+  onAssigneeModeChange,
+  members,
 }: CaseTableFiltersProps) {
-  const { members } = useWorkspaceMembers(workspaceId)
 
   const statusOptions = useMemo<FilterOption<CaseStatus>[]>(() => {
     return Object.values(STATUSES).map((status) => ({
@@ -238,9 +277,13 @@ export function CaseTableFilters({
   const handleReset = () => {
     onSearchChange("")
     onStatusChange([])
+    onStatusModeChange("include")
     onPriorityChange([])
+    onPriorityModeChange("include")
     onSeverityChange([])
+    onSeverityModeChange("include")
     onAssigneeChange([])
+    onAssigneeModeChange("include")
   }
 
   return (
@@ -257,6 +300,8 @@ export function CaseTableFilters({
         value={statusFilter}
         onChange={onStatusChange}
         options={statusOptions}
+        mode={statusMode}
+        onModeChange={onStatusModeChange}
         className="w-[140px]"
       />
 
@@ -265,6 +310,8 @@ export function CaseTableFilters({
         value={priorityFilter}
         onChange={onPriorityChange}
         options={priorityOptions}
+        mode={priorityMode}
+        onModeChange={onPriorityModeChange}
         className="w-[140px]"
       />
 
@@ -273,6 +320,8 @@ export function CaseTableFilters({
         value={severityFilter}
         onChange={onSeverityChange}
         options={severityOptions}
+        mode={severityMode}
+        onModeChange={onSeverityModeChange}
         className="w-[140px]"
       />
 
@@ -281,6 +330,8 @@ export function CaseTableFilters({
         value={assigneeFilter}
         onChange={onAssigneeChange}
         options={assigneeOptions}
+        mode={assigneeMode}
+        onModeChange={onAssigneeModeChange}
         className="w-[160px]"
         emptyMessage={
           members && members.length > 0

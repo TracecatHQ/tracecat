@@ -14,7 +14,15 @@ import { casesUpdateCase } from "@/client"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { createColumns } from "@/components/cases/case-table-columns"
-import { CaseTableFilters } from "@/components/cases/case-table-filters"
+import {
+  type FilterMode,
+  CaseTableFilters,
+} from "@/components/cases/case-table-filters"
+import {
+  PRIORITIES,
+  SEVERITIES,
+  STATUSES,
+} from "@/components/cases/case-categories"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { DataTable } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -22,6 +30,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
 import { useAuth } from "@/hooks/use-auth"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -43,8 +52,85 @@ export default function CaseTable() {
   const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
+  const [statusMode, setStatusMode] = useState<FilterMode>("include")
+  const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
+  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+  const [assigneeMode, setAssigneeMode] = useState<FilterMode>("include")
   // Debounce search term for better performance
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
+  const { members } = useWorkspaceMembers(workspaceId)
+
+  const statusValues = useMemo(
+    () => Object.values(STATUSES).map((status) => status.value),
+    []
+  )
+  const priorityValues = useMemo(
+    () => Object.values(PRIORITIES).map((priority) => priority.value),
+    []
+  )
+  const severityValues = useMemo(
+    () => Object.values(SEVERITIES).map((severity) => severity.value),
+    []
+  )
+  const assigneeValues = useMemo(() => {
+    const workspaceMembers = members?.map((member) => member.user_id) ?? []
+    return [UNASSIGNED, ...workspaceMembers]
+  }, [members])
+
+  const deriveFilterValues = useCallback(
+    <T extends string>(
+      selected: T[],
+      mode: FilterMode,
+      allValues: readonly T[]
+    ) => {
+      if (selected.length === 0) {
+        return { values: null as T[] | null, forceEmpty: false }
+      }
+
+      if (mode === "include") {
+        return { values: selected, forceEmpty: false }
+      }
+
+      const exclusionSet = new Set(selected)
+      const complement = allValues.filter((value) => !exclusionSet.has(value))
+
+      if (complement.length === 0) {
+        return { values: null as T[] | null, forceEmpty: true }
+      }
+
+      return { values: complement, forceEmpty: false }
+    },
+    []
+  )
+
+  const {
+    values: statusFilterForQuery,
+    forceEmpty: statusForceEmpty,
+  } = deriveFilterValues(statusFilter, statusMode, statusValues)
+  const {
+    values: priorityFilterForQuery,
+    forceEmpty: priorityForceEmpty,
+  } = deriveFilterValues(priorityFilter, priorityMode, priorityValues)
+  const {
+    values: severityFilterForQuery,
+    forceEmpty: severityForceEmpty,
+  } = deriveFilterValues(severityFilter, severityMode, severityValues)
+  const {
+    values: assigneeFilterRaw,
+    forceEmpty: assigneeForceEmpty,
+  } = deriveFilterValues(assigneeFilter, assigneeMode, assigneeValues)
+
+  const assigneeFilterForQuery = assigneeFilterRaw
+    ? assigneeFilterRaw.map((value) =>
+        value === UNASSIGNED ? "unassigned" : value
+      )
+    : null
+
+  const forceEmptyResults =
+    statusForceEmpty ||
+    priorityForceEmpty ||
+    severityForceEmpty ||
+    assigneeForceEmpty
 
   const {
     data: cases,
@@ -64,15 +150,10 @@ export default function CaseTable() {
     workspaceId,
     limit: pageSize,
     searchTerm: debouncedSearchTerm || null,
-    status: statusFilter,
-    priority: priorityFilter,
-    severity: severityFilter,
-    assigneeIds:
-      assigneeFilter.length > 0
-        ? assigneeFilter.map((value) =>
-            value === UNASSIGNED ? "unassigned" : value
-          )
-        : null,
+    status: statusFilterForQuery,
+    priority: priorityFilterForQuery,
+    severity: severityFilterForQuery,
+    assigneeIds: assigneeFilterForQuery,
     tags: tagFilters.length > 0 ? tagFilters : null,
   })
   const { toast } = useToast()
@@ -231,10 +312,36 @@ export default function CaseTable() {
     [goToFirstPage]
   )
 
+  const handleStatusModeChange = useCallback(
+    (mode: FilterMode) => {
+      setStatusMode((current) => {
+        if (current === mode) {
+          return current
+        }
+        goToFirstPage()
+        return mode
+      })
+    },
+    [goToFirstPage]
+  )
+
   const handlePriorityChange = useCallback(
     (value: CasePriority[]) => {
       setPriorityFilter(value)
       goToFirstPage()
+    },
+    [goToFirstPage]
+  )
+
+  const handlePriorityModeChange = useCallback(
+    (mode: FilterMode) => {
+      setPriorityMode((current) => {
+        if (current === mode) {
+          return current
+        }
+        goToFirstPage()
+        return mode
+      })
     },
     [goToFirstPage]
   )
@@ -247,6 +354,19 @@ export default function CaseTable() {
     [goToFirstPage]
   )
 
+  const handleSeverityModeChange = useCallback(
+    (mode: FilterMode) => {
+      setSeverityMode((current) => {
+        if (current === mode) {
+          return current
+        }
+        goToFirstPage()
+        return mode
+      })
+    },
+    [goToFirstPage]
+  )
+
   const handleAssigneeChange = useCallback(
     (value: string[]) => {
       setAssigneeFilter(value)
@@ -254,6 +374,26 @@ export default function CaseTable() {
     },
     [goToFirstPage]
   )
+
+  const handleAssigneeModeChange = useCallback(
+    (mode: FilterMode) => {
+      setAssigneeMode((current) => {
+        if (current === mode) {
+          return current
+        }
+        goToFirstPage()
+        return mode
+      })
+    },
+    [goToFirstPage]
+  )
+
+  const tableData = forceEmptyResults ? [] : cases
+  const displayedTotalEstimate = forceEmptyResults ? 0 : totalEstimate
+  const displayedStartItem = forceEmptyResults ? 0 : startItem
+  const displayedEndItem = forceEmptyResults ? 0 : endItem
+  const displayedHasNextPage = forceEmptyResults ? false : hasNextPage
+  const displayedHasPreviousPage = forceEmptyResults ? false : hasPreviousPage
 
   return (
     <DeleteCaseAlertDialog
@@ -263,20 +403,28 @@ export default function CaseTable() {
       <TooltipProvider>
         <div className="space-y-4">
           <CaseTableFilters
-            workspaceId={workspaceId}
             searchTerm={searchTerm}
             onSearchChange={handleSearchChange}
             statusFilter={statusFilter}
             onStatusChange={handleStatusChange}
+            statusMode={statusMode}
+            onStatusModeChange={handleStatusModeChange}
             priorityFilter={priorityFilter}
             onPriorityChange={handlePriorityChange}
+            priorityMode={priorityMode}
+            onPriorityModeChange={handlePriorityModeChange}
             severityFilter={severityFilter}
             onSeverityChange={handleSeverityChange}
+            severityMode={severityMode}
+            onSeverityModeChange={handleSeverityModeChange}
             assigneeFilter={assigneeFilter}
             onAssigneeChange={handleAssigneeChange}
+            assigneeMode={assigneeMode}
+            onAssigneeModeChange={handleAssigneeModeChange}
+            members={members}
           />
           <DataTable
-            data={cases || []}
+            data={tableData}
             isLoading={casesIsLoading || isDeleting}
             error={(casesError as Error) || undefined}
             columns={memoizedColumns}
@@ -289,12 +437,12 @@ export default function CaseTable() {
             clearSelectionTrigger={clearSelectionTrigger}
             serverSidePagination={{
               currentPage,
-              hasNextPage,
-              hasPreviousPage,
+              hasNextPage: displayedHasNextPage,
+              hasPreviousPage: displayedHasPreviousPage,
               pageSize,
-              totalEstimate,
-              startItem,
-              endItem,
+              totalEstimate: displayedTotalEstimate,
+              startItem: displayedStartItem,
+              endItem: displayedEndItem,
               onNextPage: goToNextPage,
               onPreviousPage: goToPreviousPage,
               onFirstPage: goToFirstPage,
