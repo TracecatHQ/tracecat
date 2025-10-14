@@ -4,6 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { ColumnDef } from "@tanstack/react-table"
 import { format } from "date-fns"
 import fuzzysort from "fuzzysort"
+import type { ReactNode } from "react"
 import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
@@ -11,13 +12,10 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
-import {
-  AssignedUser,
-  NoAssignee,
-  UNASSIGNED,
-} from "@/components/cases/case-panel-selectors"
+import { AssignedUser, NoAssignee } from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { TagBadge } from "@/components/tag-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -32,8 +30,6 @@ import {
 } from "@/components/ui/tooltip"
 import { User } from "@/lib/auth"
 import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
-
-const NO_DATA = "--" as const
 
 export function createColumns(
   setSelectedCase: (case_: CaseReadMinimal) => void
@@ -76,11 +72,22 @@ export function createColumns(
       header: ({ column }) => (
         <DataTableColumnHeader className="text-xs" column={column} title="ID" />
       ),
-      cell: ({ row }) => (
-        <div className="w-[80px] truncate text-xs">
-          {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const assignee = row.original.assignee
+
+        return (
+          <div className="flex w-[120px] flex-col gap-1 text-xs">
+            <span className="truncate font-medium">
+              {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
+            </span>
+            {assignee ? (
+              <AssignedUser user={new User(assignee)} className="text-xs" />
+            ) : (
+              <NoAssignee text="Not assigned" className="text-xs" />
+            )}
+          </div>
+        )
+      },
       enableSorting: true,
       enableHiding: false,
       filterFn: (row, id, value) => {
@@ -93,11 +100,43 @@ export function createColumns(
         <DataTableColumnHeader column={column} title="Summary" />
       ),
       cell: ({ row }) => {
+        const summary = row.getValue<CaseReadMinimal["summary"]>("summary")
+        const updatedAt = row.original.updated_at
+        const tags = row.original.tags
+
+        let updatedBadge: ReactNode = null
+        if (updatedAt) {
+          const dt = new Date(updatedAt)
+          const shortTime = capitalizeFirst(shortTimeAgo(dt))
+          const fullDateTime = format(dt, "PPpp")
+          updatedBadge = (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="secondary"
+                  className="w-fit text-[10px] font-medium capitalize"
+                >
+                  {shortTime}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{fullDateTime}</p>
+              </TooltipContent>
+            </Tooltip>
+          )
+        }
+
         return (
-          <div className="flex space-x-2">
-            <span className="max-w-[300px] truncate text-xs">
-              {row.getValue<CaseReadMinimal["summary"]>("summary")}
-            </span>
+          <div className="flex max-w-[320px] flex-col gap-2 text-xs">
+            {updatedBadge}
+            <span className="truncate text-xs">{summary}</span>
+            {tags?.length ? (
+              <div className="flex flex-wrap gap-1">
+                {tags.map((tag) => (
+                  <TagBadge key={tag.id} tag={tag} />
+                ))}
+              </div>
+            ) : null}
           </div>
         )
       },
@@ -195,91 +234,6 @@ export function createColumns(
         const dateStr =
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
         return value.includes(dateStr)
-      },
-    },
-    {
-      accessorKey: "updated_at",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Updated At" />
-      ),
-      cell: ({ row }) => {
-        const dt = new Date(
-          row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
-        )
-        const shortTime = capitalizeFirst(shortTimeAgo(dt))
-        const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
-
-        return (
-          <Tooltip>
-            <TooltipTrigger>
-              <span className="truncate text-xs">{shortTime}</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{fullDateTime}</p>
-            </TooltipContent>
-          </Tooltip>
-        )
-      },
-      filterFn: (row, id, value) => {
-        const dateStr =
-          row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
-        return value.includes(dateStr)
-      },
-    },
-    {
-      id: "Assignee",
-      accessorKey: "assignee",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Assignee" />
-      ),
-      cell: ({ getValue }) => {
-        const user = getValue<CaseReadMinimal["assignee"]>()
-        if (!user) {
-          return <NoAssignee text="Not assigned" className="text-xs" />
-        }
-
-        return <AssignedUser user={new User(user)} className="text-xs" />
-      },
-      filterFn: (row, id, value) => {
-        const assignee = row.getValue<CaseReadMinimal["assignee"]>("assignee")
-        if (!assignee) {
-          // Handle unassigned case
-          return value.includes(UNASSIGNED)
-        }
-        const user = new User(assignee)
-        const displayName = user.getDisplayName()
-        return value.includes(displayName)
-      },
-    },
-    {
-      id: "Tags",
-      accessorKey: "tags",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Tags" />
-      ),
-      cell: ({ getValue }) => {
-        const tags = getValue<CaseReadMinimal["tags"]>()
-        return (
-          <div className="flex flex-wrap gap-1">
-            {tags?.length ? (
-              tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
-            ) : (
-              <span className="text-xs text-muted-foreground">{NO_DATA}</span>
-            )}
-          </div>
-        )
-      },
-      filterFn: (row, id, value) => {
-        const tags = row.getValue<CaseReadMinimal["tags"]>("tags")
-        if (!tags || tags.length === 0) {
-          return false
-        }
-        return tags.some(
-          (tag) =>
-            value.includes(tag.name) ||
-            value.includes(tag.id) ||
-            (tag.ref && value.includes(tag.ref))
-        )
       },
     },
     {
