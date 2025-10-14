@@ -7,10 +7,10 @@ import {
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  X,
 } from "lucide-react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CasePriority,
   CaseSeverity,
@@ -32,19 +32,26 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
-import { CasePropertyRow } from "@/components/cases/case-property-row"
 import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
 import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command"
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
@@ -56,6 +63,7 @@ import {
   useRemoveCaseTag,
   useUpdateCase,
 } from "@/lib/hooks"
+import { undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type CasePanelTab =
@@ -64,6 +72,38 @@ type CasePanelTab =
   | "attachments"
   | "records"
   | "payload"
+
+function isCustomFieldValueEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === "string") return value.trim().length === 0
+  if (typeof value === "number") return Number.isNaN(value)
+  if (typeof value === "boolean") return false
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === "object") return Object.keys(value as object).length === 0
+  return false
+}
+
+function getCustomFieldInputWidth(value: unknown): string {
+  const baseLength = (() => {
+    if (value === null || value === undefined) return 5
+    if (typeof value === "string") return Math.max(value.trim().length, value.length)
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value).length
+    }
+    if (Array.isArray(value)) {
+      return Math.min(JSON.stringify(value).length, 24)
+    }
+    if (typeof value === "object") {
+      return Math.min(JSON.stringify(value).length, 24)
+    }
+    return 5
+  })()
+
+  const min = 8
+  const max = 28
+  const widthInCh = Math.min(Math.max(baseLength + 4, min), max)
+  return `${widthInCh}ch`
+}
 
 interface CasePanelContentProps {
   caseId: string
@@ -89,6 +129,85 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { toast } = useToast()
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
+  const customFields = useMemo(
+    () => (caseData?.fields ?? []).filter((field) => !field.reserved),
+    [caseData?.fields]
+  )
+  const [userAddedCustomFieldIds, setUserAddedCustomFieldIds] = useState<string[]>([])
+  const [customFieldComboboxOpen, setCustomFieldComboboxOpen] = useState(false)
+  const [customFieldSearch, setCustomFieldSearch] = useState("")
+  const [customFieldWidths, setCustomFieldWidths] = useState<Record<string, string>>({})
+  const nonEmptyCustomFieldIds = useMemo(
+    () =>
+      customFields
+        .filter((field) => !isCustomFieldValueEmpty(field.value))
+        .map((field) => field.id),
+    [customFields]
+  )
+  useEffect(() => {
+    setUserAddedCustomFieldIds((prev) =>
+      prev.filter((id) => customFields.some((field) => field.id === id))
+    )
+  }, [customFields])
+  useEffect(() => {
+    setCustomFieldWidths((prev) => {
+      const next: Record<string, string> = {}
+      customFields.forEach((field) => {
+        next[field.id] = getCustomFieldInputWidth(field.value)
+      })
+
+      const changed =
+        Object.keys(next).length !== Object.keys(prev).length ||
+        Object.entries(next).some(([key, value]) => prev[key] !== value)
+
+      return changed ? next : prev
+    })
+  }, [customFields])
+  const visibleCustomFieldIds = useMemo(() => {
+    const set = new Set([...nonEmptyCustomFieldIds, ...userAddedCustomFieldIds])
+    return customFields.map((field) => field.id).filter((id) => set.has(id))
+  }, [customFields, nonEmptyCustomFieldIds, userAddedCustomFieldIds])
+  const visibleCustomFields = useMemo(
+    () => customFields.filter((field) => visibleCustomFieldIds.includes(field.id)),
+    [customFields, visibleCustomFieldIds]
+  )
+  const availableCustomFields = useMemo(
+    () => customFields.filter((field) => !visibleCustomFieldIds.includes(field.id)),
+    [customFields, visibleCustomFieldIds]
+  )
+  const handleCustomFieldValueChange = useCallback((fieldId: string, value: unknown) => {
+    setCustomFieldWidths((prev) => ({
+      ...prev,
+      [fieldId]: getCustomFieldInputWidth(value),
+    }))
+  }, [])
+  const handleCustomFieldAdd = useCallback(
+    (fieldId: string) => {
+      setUserAddedCustomFieldIds((prev) =>
+        prev.includes(fieldId) ? prev : [...prev, fieldId]
+      )
+      setCustomFieldComboboxOpen(false)
+      setCustomFieldSearch("")
+      setCustomFieldWidths((prev) => ({
+        ...prev,
+        [fieldId]:
+          prev[fieldId] ??
+          getCustomFieldInputWidth(
+            customFields.find((field) => field.id === fieldId)?.value ?? null
+          ),
+      }))
+    },
+    [customFields]
+  )
+  const handleCustomFieldHide = useCallback((fieldId: string) => {
+    setUserAddedCustomFieldIds((prev) => prev.filter((id) => id !== fieldId))
+  }, [])
+  const handleCustomFieldPopoverChange = useCallback((open: boolean) => {
+    setCustomFieldComboboxOpen(open)
+    if (!open) {
+      setCustomFieldSearch("")
+    }
+  }, [])
 
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
@@ -186,8 +305,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     }
   }
 
-  const customFields = caseData.fields.filter((field) => !field.reserved)
-
   return (
     <div className="h-full flex w-full">
       <div className="h-full w-full min-w-0 flex">
@@ -201,54 +318,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 isOpen={propertiesOpen}
                 onOpenChange={setPropertiesOpen}
               >
-                <div className="space-y-4">
-                  {/* Custom fields */}
-                  <div className="pt-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs">Custom fields</span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-5 w-5 p-0"
-                          >
-                            <MoreHorizontal className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="text-xs">
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/workspaces/${workspaceId}/cases/custom-fields`}
-                            >
-                              Manage fields
-                            </Link>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    {customFields.length === 0 ? (
-                      <div className="text-xs text-muted-foreground">
-                        No fields configured.
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {customFields.map((field) => (
-                          <CasePropertyRow
-                            key={field.id}
-                            label={field.id}
-                            value={
-                              <CustomField
-                                customField={field}
-                                updateCase={updateCase}
-                              />
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <div className="space-y-4">{/* Custom fields moved to main panel */}</div>
               </CasePanelSection>
               {/* Workflow Triggers */}
               <CasePanelSection
@@ -344,6 +414,130 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         })}
                       </DropdownMenuContent>
                     </DropdownMenu>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                    {visibleCustomFields.length > 0 ? (
+                      visibleCustomFields.map((field) => {
+                        const label = undoSlugify(field.id)
+                        const isEmpty = isCustomFieldValueEmpty(field.value)
+                        const isUserAdded = userAddedCustomFieldIds.includes(
+                          field.id
+                        )
+                        return (
+                          <div
+                            key={field.id}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <span className="text-muted-foreground">
+                              {label}
+                            </span>
+                            <CustomField
+                              customField={field}
+                              updateCase={updateCase}
+                              formClassName="inline-flex"
+                              inputClassName="text-xs"
+                              inputStyle={{
+                                width:
+                                  customFieldWidths[field.id] ??
+                                  getCustomFieldInputWidth(field.value),
+                              }}
+                              onValueChange={handleCustomFieldValueChange}
+                            />
+                            {isEmpty && isUserAdded && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleCustomFieldHide(field.id)}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                <span className="sr-only">
+                                  Hide {label} field
+                                </span>
+                              </Button>
+                            )}
+                          </div>
+                        )
+                      })
+                    ) : customFields.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        No custom fields configured
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No custom fields selected
+                      </span>
+                    )}
+                  </div>
+                  {customFields.length > 0 && (
+                    <Popover
+                      open={customFieldComboboxOpen}
+                      onOpenChange={handleCustomFieldPopoverChange}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          aria-expanded={customFieldComboboxOpen}
+                          aria-haspopup="listbox"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Toggle custom fields menu</span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        className="w-64 p-0"
+                        sideOffset={4}
+                      >
+                        <Command>
+                          <CommandInput
+                            placeholder="Search fields..."
+                            value={customFieldSearch}
+                            onValueChange={setCustomFieldSearch}
+                          />
+                          <CommandList>
+                            {availableCustomFields.length > 0 ? (
+                              <CommandGroup heading="Hidden fields">
+                                {availableCustomFields.map((field) => (
+                                  <CommandItem
+                                    key={field.id}
+                                    value={field.id}
+                                    onSelect={(value) => {
+                                      handleCustomFieldAdd(value)
+                                    }}
+                                  >
+                                    {undoSlugify(field.id)}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-muted-foreground">
+                                No hidden fields
+                              </div>
+                            )}
+                            <CommandSeparator />
+                            <CommandGroup>
+                              <CommandItem
+                                value="__manage__"
+                                onSelect={() => {
+                                  router.push(
+                                    `/workspaces/${workspaceId}/cases/custom-fields`
+                                  )
+                                  setCustomFieldComboboxOpen(false)
+                                  setCustomFieldSearch("")
+                                }}
+                              >
+                                Manage fields
+                              </CommandItem>
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   )}
                 </div>
               </div>
