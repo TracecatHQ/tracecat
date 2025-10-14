@@ -1,7 +1,7 @@
 "use client"
 
 import { Cross2Icon } from "@radix-ui/react-icons"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Minus, Plus } from "lucide-react"
 import { type ComponentType, useMemo, useState } from "react"
 import type {
   CasePriority,
@@ -100,7 +100,7 @@ function FilterMultiSelect<T extends string>({
       </PopoverTrigger>
       <PopoverContent className="w-[220px] p-0" align="start">
         <div className="flex items-center justify-between border-b px-2 py-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
             {mode === "exclude" ? "Excluding" : "Including"}
           </span>
           <div className="flex items-center gap-1">
@@ -110,10 +110,15 @@ function FilterMultiSelect<T extends string>({
                 type="button"
                 size="sm"
                 variant={mode === option ? "secondary" : "ghost"}
-                className="h-7 px-2 text-[11px]"
+                className="h-7 px-2 text-xs"
+                aria-label={option === "include" ? "Include filters" : "Exclude filters"}
                 onClick={() => onModeChange(option)}
               >
-                {option === "include" ? "Include" : "Exclude"}
+                {option === "include" ? (
+                  <Plus className="size-3" />
+                ) : (
+                  <Minus className="size-3" />
+                )}
               </Button>
             ))}
           </div>
