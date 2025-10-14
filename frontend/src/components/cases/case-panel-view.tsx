@@ -382,7 +382,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   {caseTags && caseTags.length > 0 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-6 px-2">
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Manage tags</span>
                         </Button>
@@ -416,7 +416,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </DropdownMenu>
                   )}
                 </div>
-                <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+                <div
+                  className={`mt-4 flex flex-wrap justify-between gap-3 ${visibleCustomFields.length > 0 ? "items-start" : "items-center"}`}
+                >
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                     {visibleCustomFields.length > 0 ? (
                       visibleCustomFields.map((field) => {
