@@ -127,7 +127,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { toast } = useToast()
-  const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const customFields = useMemo(
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
