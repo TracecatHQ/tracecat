@@ -11,18 +11,18 @@ import type {
   CaseUpdate,
 } from "@/client"
 import { casesUpdateCase } from "@/client"
-import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import { useCaseSelection } from "@/components/cases/case-selection-context"
-import { createColumns } from "@/components/cases/case-table-columns"
-import {
-  type FilterMode,
-  CaseTableFilters,
-} from "@/components/cases/case-table-filters"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { createColumns } from "@/components/cases/case-table-columns"
+import {
+  CaseTableFilters,
+  type FilterMode,
+} from "@/components/cases/case-table-filters"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { DataTable } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -103,22 +103,14 @@ export default function CaseTable() {
     []
   )
 
-  const {
-    values: statusFilterForQuery,
-    forceEmpty: statusForceEmpty,
-  } = deriveFilterValues(statusFilter, statusMode, statusValues)
-  const {
-    values: priorityFilterForQuery,
-    forceEmpty: priorityForceEmpty,
-  } = deriveFilterValues(priorityFilter, priorityMode, priorityValues)
-  const {
-    values: severityFilterForQuery,
-    forceEmpty: severityForceEmpty,
-  } = deriveFilterValues(severityFilter, severityMode, severityValues)
-  const {
-    values: assigneeFilterRaw,
-    forceEmpty: assigneeForceEmpty,
-  } = deriveFilterValues(assigneeFilter, assigneeMode, assigneeValues)
+  const { values: statusFilterForQuery, forceEmpty: statusForceEmpty } =
+    deriveFilterValues(statusFilter, statusMode, statusValues)
+  const { values: priorityFilterForQuery, forceEmpty: priorityForceEmpty } =
+    deriveFilterValues(priorityFilter, priorityMode, priorityValues)
+  const { values: severityFilterForQuery, forceEmpty: severityForceEmpty } =
+    deriveFilterValues(severityFilter, severityMode, severityValues)
+  const { values: assigneeFilterRaw, forceEmpty: assigneeForceEmpty } =
+    deriveFilterValues(assigneeFilter, assigneeMode, assigneeValues)
 
   const assigneeFilterForQuery = assigneeFilterRaw
     ? assigneeFilterRaw.map((value) =>

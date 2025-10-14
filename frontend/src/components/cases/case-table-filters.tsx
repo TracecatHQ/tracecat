@@ -3,7 +3,12 @@
 import { Cross2Icon } from "@radix-ui/react-icons"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { type ComponentType, useMemo, useState } from "react"
-import type { CasePriority, CaseSeverity, CaseStatus, WorkspaceMember } from "@/client"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  WorkspaceMember,
+} from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -223,7 +228,6 @@ export function CaseTableFilters({
   onAssigneeModeChange,
   members,
 }: CaseTableFiltersProps) {
-
   const statusOptions = useMemo<FilterOption<CaseStatus>[]>(() => {
     return Object.values(STATUSES).map((status) => ({
       value: status.value,

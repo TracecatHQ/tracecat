@@ -12,7 +12,10 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
-import { AssignedUser, NoAssignee } from "@/components/cases/case-panel-selectors"
+import {
+  AssignedUser,
+  NoAssignee,
+} from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
