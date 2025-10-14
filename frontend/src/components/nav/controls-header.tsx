@@ -28,7 +28,10 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import { StatusSelect, UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import {
+  StatusSelect,
+  UNASSIGNED,
+} from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,

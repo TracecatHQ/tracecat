@@ -61,10 +61,7 @@ export function CustomField({
   }
   return (
     <FormProvider {...form}>
-      <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className={formClassName}
-      >
+      <form onSubmit={form.handleSubmit(onSubmit)} className={formClassName}>
         <CustomFieldInner
           customField={customField}
           onBlur={onBlur}

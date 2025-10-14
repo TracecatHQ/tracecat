@@ -83,17 +83,11 @@ interface StatusSelectProps {
   onValueChange: (status: CaseStatus) => void
 }
 
-export function StatusSelect({
-  status,
-  onValueChange,
-}: StatusSelectProps) {
+export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
   const currentStatus = STATUSES[status]
 
   return (
-    <Select
-      value={status}
-      onValueChange={onValueChange}
-    >
+    <Select value={status} onValueChange={onValueChange}>
       <SelectTrigger
         className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
       >
@@ -135,10 +129,7 @@ export function PrioritySelect({
   const currentPriority = PRIORITIES[priority]
 
   return (
-    <Select
-      value={priority}
-      onValueChange={onValueChange}
-    >
+    <Select value={priority} onValueChange={onValueChange}>
       <SelectTrigger
         className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
       >
@@ -180,10 +171,7 @@ export function SeveritySelect({
   const currentSeverity = SEVERITIES[severity]
 
   return (
-    <Select
-      value={severity}
-      onValueChange={onValueChange}
-    >
+    <Select value={severity} onValueChange={onValueChange}>
       <SelectTrigger
         className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
       >
@@ -334,9 +322,7 @@ export function NoAssignee({
       <div className="flex size-3.5 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
         <UserIcon className="size-2.5 text-muted-foreground" />
       </div>
-      <span
-        className={cn("text-xs text-muted-foreground", labelClassName)}
-      >
+      <span className={cn("text-xs text-muted-foreground", labelClassName)}>
         {text ?? "Unassigned"}
       </span>
     </div>

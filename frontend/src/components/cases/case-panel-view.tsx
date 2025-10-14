@@ -11,12 +11,7 @@ import {
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import type {
-  CasePriority,
-  CaseSeverity,
-  CaseUpdate,
-  UserRead,
-} from "@/client"
+import type { CasePriority, CaseSeverity, CaseUpdate, UserRead } from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
@@ -48,9 +43,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -77,14 +76,16 @@ function isCustomFieldValueEmpty(value: unknown): boolean {
   if (typeof value === "number") return Number.isNaN(value)
   if (typeof value === "boolean") return false
   if (Array.isArray(value)) return value.length === 0
-  if (typeof value === "object") return Object.keys(value as object).length === 0
+  if (typeof value === "object")
+    return Object.keys(value as object).length === 0
   return false
 }
 
 function getCustomFieldInputWidth(value: unknown): string {
   const baseLength = (() => {
     if (value === null || value === undefined) return 5
-    if (typeof value === "string") return Math.max(value.trim().length, value.length)
+    if (typeof value === "string")
+      return Math.max(value.trim().length, value.length)
     if (typeof value === "number" || typeof value === "boolean") {
       return String(value).length
     }
@@ -129,10 +130,14 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
     [caseData?.fields]
   )
-  const [userAddedCustomFieldIds, setUserAddedCustomFieldIds] = useState<string[]>([])
+  const [userAddedCustomFieldIds, setUserAddedCustomFieldIds] = useState<
+    string[]
+  >([])
   const [customFieldComboboxOpen, setCustomFieldComboboxOpen] = useState(false)
   const [customFieldSearch, setCustomFieldSearch] = useState("")
-  const [customFieldWidths, setCustomFieldWidths] = useState<Record<string, string>>({})
+  const [customFieldWidths, setCustomFieldWidths] = useState<
+    Record<string, string>
+  >({})
   const nonEmptyCustomFieldIds = useMemo(
     () =>
       customFields
@@ -164,19 +169,24 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     return customFields.map((field) => field.id).filter((id) => set.has(id))
   }, [customFields, nonEmptyCustomFieldIds, userAddedCustomFieldIds])
   const visibleCustomFields = useMemo(
-    () => customFields.filter((field) => visibleCustomFieldIds.includes(field.id)),
+    () =>
+      customFields.filter((field) => visibleCustomFieldIds.includes(field.id)),
     [customFields, visibleCustomFieldIds]
   )
   const availableCustomFields = useMemo(
-    () => customFields.filter((field) => !visibleCustomFieldIds.includes(field.id)),
+    () =>
+      customFields.filter((field) => !visibleCustomFieldIds.includes(field.id)),
     [customFields, visibleCustomFieldIds]
   )
-  const handleCustomFieldValueChange = useCallback((fieldId: string, value: unknown) => {
-    setCustomFieldWidths((prev) => ({
-      ...prev,
-      [fieldId]: getCustomFieldInputWidth(value),
-    }))
-  }, [])
+  const handleCustomFieldValueChange = useCallback(
+    (fieldId: string, value: unknown) => {
+      setCustomFieldWidths((prev) => ({
+        ...prev,
+        [fieldId]: getCustomFieldInputWidth(value),
+      }))
+    },
+    []
+  )
   const handleCustomFieldAdd = useCallback(
     (fieldId: string) => {
       setUserAddedCustomFieldIds((prev) =>
@@ -345,7 +355,11 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       {caseTags && caseTags.length > 0 && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                               <span className="sr-only">Manage tags</span>
                             </Button>
@@ -387,9 +401,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                           visibleCustomFields.map((field) => {
                             const label = undoSlugify(field.id)
                             const isEmpty = isCustomFieldValueEmpty(field.value)
-                            const isUserAdded = userAddedCustomFieldIds.includes(
-                              field.id
-                            )
+                            const isUserAdded =
+                              userAddedCustomFieldIds.includes(field.id)
                             return (
                               <div
                                 key={field.id}
@@ -415,7 +428,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                     variant="ghost"
                                     size="icon"
                                     className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                                    onClick={() => handleCustomFieldHide(field.id)}
+                                    onClick={() =>
+                                      handleCustomFieldHide(field.id)
+                                    }
                                   >
                                     <X className="h-3.5 w-3.5" />
                                     <span className="sr-only">
@@ -450,7 +465,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                               aria-haspopup="listbox"
                             >
                               <MoreHorizontal className="h-4 w-4" />
-                              <span className="sr-only">Toggle custom fields menu</span>
+                              <span className="sr-only">
+                                Toggle custom fields menu
+                              </span>
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent
@@ -508,90 +525,93 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </div>
                 </div>
 
-              {/* Description */}
-              <div className="mb-6">
-                <CasePanelDescription
-                  caseData={caseData}
-                  updateCase={updateCase}
-                />
+                {/* Description */}
+                <div className="mb-6">
+                  <CasePanelDescription
+                    caseData={caseData}
+                    updateCase={updateCase}
+                  />
+                </div>
+
+                {/* Tabs using shadcn components */}
+                <Tabs
+                  value={activeTab}
+                  onValueChange={handleTabChange}
+                  className="w-full"
+                >
+                  <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
+                    <TabsTrigger
+                      className="flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="comments"
+                    >
+                      <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                      Comments
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="activity"
+                    >
+                      <Activity className="mr-1.5 h-3.5 w-3.5" />
+                      Activity
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="attachments"
+                    >
+                      <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                      Attachments
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="records"
+                    >
+                      <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
+                      Records
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="payload"
+                    >
+                      <Braces className="mr-1.5 h-3.5 w-3.5" />
+                      Payload
+                    </TabsTrigger>
+                  </TabsList>
+                  <Separator className="mt-0" />
+
+                  <TabsContent value="comments" className="mt-4">
+                    <CommentSection caseId={caseId} workspaceId={workspaceId} />
+                  </TabsContent>
+
+                  <TabsContent value="activity" className="mt-4">
+                    <CaseActivityFeed
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="attachments" className="mt-4">
+                    <CaseAttachmentsSection
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="records" className="mt-4">
+                    <CaseRecordsSection
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="payload" className="mt-4">
+                    <CasePayloadSection caseData={caseData} />
+                  </TabsContent>
+                </Tabs>
               </div>
-
-              {/* Tabs using shadcn components */}
-              <Tabs
-                value={activeTab}
-                onValueChange={handleTabChange}
-                className="w-full"
-              >
-                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
-                  <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="comments"
-                  >
-                    <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-                    Comments
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="activity"
-                  >
-                    <Activity className="mr-1.5 h-3.5 w-3.5" />
-                    Activity
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="attachments"
-                  >
-                    <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                    Attachments
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="records"
-                  >
-                    <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
-                    Records
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="payload"
-                  >
-                    <Braces className="mr-1.5 h-3.5 w-3.5" />
-                    Payload
-                  </TabsTrigger>
-                </TabsList>
-                <Separator className="mt-0" />
-
-                <TabsContent value="comments" className="mt-4">
-                  <CommentSection caseId={caseId} workspaceId={workspaceId} />
-                </TabsContent>
-
-                <TabsContent value="activity" className="mt-4">
-                  <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
-                </TabsContent>
-
-                <TabsContent value="attachments" className="mt-4">
-                  <CaseAttachmentsSection
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                  />
-                </TabsContent>
-
-                <TabsContent value="records" className="mt-4">
-                  <CaseRecordsSection
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                  />
-                </TabsContent>
-
-                <TabsContent value="payload" className="mt-4">
-                  <CasePayloadSection caseData={caseData} />
-                </TabsContent>
-              </Tabs>
             </div>
           </div>
         </div>
       </div>
-    </div>
     </>
   )
 }
