@@ -23,7 +23,6 @@ import { CaseAttachmentsSection } from "@/components/cases/case-attachments-sect
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
-import { CasePanelSection } from "@/components/cases/case-panel-section"
 import {
   AssigneeSelect,
   PrioritySelect,
@@ -127,7 +126,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { toast } = useToast()
-  const [workflowOpen, setWorkflowOpen] = useState(true)
   const customFields = useMemo(
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
     [caseData?.fields]
@@ -305,28 +303,15 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   }
 
   return (
-    <div className="h-full flex w-full">
-      <div className="h-full w-full min-w-0 flex">
-        {/* Case properties section */}
-        <div className="w-64 min-w-[200px] max-w-[300px] border-r">
-          <div className="h-full overflow-y-auto p-4 min-w-0">
-            <div className="space-y-10">
-              {/* Workflow Triggers */}
-              <CasePanelSection
-                title="Workflows"
-                isOpen={workflowOpen}
-                onOpenChange={setWorkflowOpen}
-              >
-                <CaseWorkflowTrigger caseData={caseData} />
-              </CasePanelSection>
-            </div>
-          </div>
-        </div>
-        {/* Main section */}
-        <div className="flex-1 min-w-0">
-          <div className="h-full overflow-auto min-w-0">
-            <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
-              {/* Header with Chat Toggle */}
+    <>
+      <CaseWorkflowTrigger caseData={caseData} />
+      <div className="h-full flex w-full">
+        <div className="h-full w-full min-w-0 flex">
+          {/* Main section */}
+          <div className="flex-1 min-w-0">
+            <div className="h-full overflow-auto min-w-0">
+              <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
+                {/* Header with Chat Toggle */}
               <div className="mb-6">
                 <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4 text-sm">
                   <div className="flex flex-wrap items-center gap-3">
@@ -618,5 +603,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         </div>
       </div>
     </div>
+    </>
   )
 }

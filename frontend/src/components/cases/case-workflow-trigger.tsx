@@ -29,7 +29,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandShortcut,
 } from "@/components/ui/command"
 import {
   Form,
@@ -53,7 +52,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -338,16 +336,13 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 
   // Loading state
   if (workflowsLoading) {
-    return <Skeleton className="h-8 w-full" />
+    return null
   }
 
   // Error state
   if (workflowsError) {
-    return (
-      <div className="text-xs text-destructive">
-        Error loading workflows: {workflowsError.message}
-      </div>
-    )
+    console.error("Failed to load workflows", workflowsError)
+    return null
   }
 
   const availableWorkflows = workflows ?? []
@@ -355,19 +350,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     (wf) => wf.id === selectedWorkflowId
   )
   return (
-    <div className="space-y-3">
-      <Button
-        type="button"
-        variant="outline"
-        className="h-8 w-full justify-between border-muted text-xs"
-        onClick={() => setIsCommandOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={isCommandOpen}
-      >
-        <span className="truncate">Trigger a workflow...</span>
-        <CommandShortcut>⌘K</CommandShortcut>
-      </Button>
-
+    <>
       <CommandDialog
         open={isCommandOpen}
         onOpenChange={(open) => setIsCommandOpen(open)}
@@ -389,7 +372,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                   className="flex flex-col items-start py-2"
                 >
                   <div className="flex w-full items-center gap-2">
-                    <span className="truncate">
+                    <span className="truncate font-medium">
                       {workflow.title}
                     </span>
                     {workflow.alias && (
@@ -477,19 +460,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-
-      {selectedWorkflowId && (
-        <Link
-          href={selectedWorkflowUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowUpRight className="h-3 w-3" />
-          <span>View workflow</span>
-        </Link>
-      )}
-    </div>
+    </>
   )
 }
 
