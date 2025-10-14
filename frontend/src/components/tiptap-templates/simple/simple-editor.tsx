@@ -5,18 +5,18 @@ import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
-import { TextAlign } from "@tiptap/extension-text-align"
 import { Table } from "@tiptap/extension-table"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { TableHeader } from "@tiptap/extension-table-header"
 import { TableRow } from "@tiptap/extension-table-row"
+import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import {
+  type Editor,
   EditorContent,
   EditorContext,
   useEditor,
-  type Editor,
 } from "@tiptap/react"
 // --- Tiptap Core Extensions ---
 import { StarterKit } from "@tiptap/starter-kit"
@@ -42,10 +42,6 @@ import "@/components/tiptap-node/image-node/image-node.scss"
 import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
 
-// --- Icons ---
-import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
-import { HighlighterIcon } from "@/components/tiptap-icons/highlighter-icon"
-import { LinkIcon } from "@/components/tiptap-icons/link-icon"
 import {
   BookmarkX,
   Delete as DeleteIcon,
@@ -55,6 +51,10 @@ import {
   PanelTopOpen,
   Table as TableIcon,
 } from "lucide-react"
+// --- Icons ---
+import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
+import { HighlighterIcon } from "@/components/tiptap-icons/highlighter-icon"
+import { LinkIcon } from "@/components/tiptap-icons/link-icon"
 // --- Components ---
 import { ThemeToggle } from "@/components/tiptap-templates/simple/theme-toggle"
 import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button"
@@ -124,8 +124,13 @@ const renderTableCell = (content: string, node: HTMLElement): string => {
   return `${prefix}${content} |`
 }
 
-const isFirstTbody = (element: Node | null): element is HTMLTableSectionElement => {
-  if (!(element instanceof HTMLTableSectionElement) || element.nodeName !== "TBODY") {
+const isFirstTbody = (
+  element: Node | null
+): element is HTMLTableSectionElement => {
+  if (
+    !(element instanceof HTMLTableSectionElement) ||
+    element.nodeName !== "TBODY"
+  ) {
     return false
   }
 
@@ -139,10 +144,7 @@ const isFirstTbody = (element: Node | null): element is HTMLTableSectionElement 
     /^\s*$/i.test(previousSibling.textContent ?? "")
   )
 }
-
-const isHeadingRow = (
-  row: Element | null
-): row is HTMLTableRowElement => {
+const isHeadingRow = (row: Element | null): row is HTMLTableRowElement => {
   if (!(row instanceof HTMLTableRowElement)) {
     return false
   }
@@ -161,7 +163,8 @@ const isHeadingRow = (
     (parentNode.nodeName === "TABLE" || isFirstTbody(parentNode))
   ) {
     return Array.from(row.childNodes).every(
-      (child) => child instanceof HTMLTableCellElement && child.nodeName === "TH"
+      (child) =>
+        child instanceof HTMLTableCellElement && child.nodeName === "TH"
     )
   }
 
@@ -217,7 +220,8 @@ const registerMarkdownTableRules = (service: TurndownService) => {
             const alignKey = alignAttr.toLowerCase()
             if (alignKey && alignKey in TABLE_ALIGN_MAP) {
               border =
-                TABLE_ALIGN_MAP[alignKey as keyof typeof TABLE_ALIGN_MAP] ?? border
+                TABLE_ALIGN_MAP[alignKey as keyof typeof TABLE_ALIGN_MAP] ??
+                border
             }
 
             return renderTableCell(border, child)
@@ -232,7 +236,9 @@ const registerMarkdownTableRules = (service: TurndownService) => {
   service.addRule("tableCell", {
     filter: (node: TurndownService.Node) => {
       const element = asElement(node)
-      return !!element && (element.nodeName === "TH" || element.nodeName === "TD")
+      return (
+        !!element && (element.nodeName === "TH" || element.nodeName === "TD")
+      )
     },
     replacement: (content: string, node: TurndownService.Node) => {
       const element = asElement(node)
@@ -378,19 +384,15 @@ const MainToolbarContent = ({
   const { editor } = useTiptapEditor()
   const hasEditableEditor = !!editor && editor.isEditable
   const isTableActive = !!editor && editor.isActive("table")
-  const tableButtonGroups = React.useMemo<TableButtonGroups>(
-    () => {
-      if (!editor || !hasEditableEditor) {
-        return { insertButtons: [], deleteButtons: [] }
-      }
-      return getTableButtonGroups(editor, isTableActive)
-    },
-    [editor, hasEditableEditor, isTableActive]
-  )
+  const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
+    if (!editor || !hasEditableEditor) {
+      return { insertButtons: [], deleteButtons: [] }
+    }
+    return getTableButtonGroups(editor, isTableActive)
+  }, [editor, hasEditableEditor, isTableActive])
   const hasInsertButtons = tableButtonGroups.insertButtons.length > 0
   const hasDeleteButtons = tableButtonGroups.deleteButtons.length > 0
-  const shouldShowThemeSeparator =
-    darkMode && (isMobile || hasDeleteButtons)
+  const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
 
   const renderButtonGroup = (buttons: TableButton[]) => (
     <ButtonGroup orientation="horizontal">
