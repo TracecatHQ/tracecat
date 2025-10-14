@@ -2,7 +2,7 @@
 
 import type { Row } from "@tanstack/react-table"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   CasePriority,
   CaseReadMinimal,
@@ -34,6 +34,118 @@ import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+type StoredFilters = {
+  searchTerm: string
+  statusFilter: CaseStatus[]
+  statusMode: FilterMode
+  priorityFilter: CasePriority[]
+  priorityMode: FilterMode
+  severityFilter: CaseSeverity[]
+  severityMode: FilterMode
+  assigneeFilter: string[]
+  assigneeMode: FilterMode
+}
+
+const FILTER_STORAGE_PREFIX = "tracecat.caseTableFilters"
+
+const DEFAULT_FILTERS: StoredFilters = {
+  searchTerm: "",
+  statusFilter: [],
+  statusMode: "include",
+  priorityFilter: [],
+  priorityMode: "include",
+  severityFilter: [],
+  severityMode: "include",
+  assigneeFilter: [],
+  assigneeMode: "include",
+}
+
+const STATUS_VALUE_SET = new Set<CaseStatus>(
+  Object.values(STATUSES).map((status) => status.value)
+)
+const PRIORITY_VALUE_SET = new Set<CasePriority>(
+  Object.values(PRIORITIES).map((priority) => priority.value)
+)
+const SEVERITY_VALUE_SET = new Set<CaseSeverity>(
+  Object.values(SEVERITIES).map((severity) => severity.value)
+)
+
+const ensureFilterMode = (value: unknown): FilterMode =>
+  value === "exclude" ? "exclude" : "include"
+
+const ensureEnumArray = <T extends string>(
+  value: unknown,
+  allowedValues: Set<T>
+): T[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter(
+    (item): item is T =>
+      typeof item === "string" && allowedValues.has(item as T)
+  )
+}
+
+const ensureStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((item): item is string => typeof item === "string")
+}
+
+const getFilterStorageKey = (
+  workspaceId: string | undefined,
+  userId: string | undefined
+) => `${FILTER_STORAGE_PREFIX}:${workspaceId ?? "unknown"}:${userId ?? "guest"}`
+
+const loadFiltersFromStorage = (key: string): StoredFilters | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw) as Partial<StoredFilters>
+
+    return {
+      searchTerm:
+        typeof parsed.searchTerm === "string"
+          ? parsed.searchTerm
+          : DEFAULT_FILTERS.searchTerm,
+      statusFilter: ensureEnumArray(parsed.statusFilter, STATUS_VALUE_SET),
+      statusMode: ensureFilterMode(parsed.statusMode),
+      priorityFilter: ensureEnumArray(parsed.priorityFilter, PRIORITY_VALUE_SET),
+      priorityMode: ensureFilterMode(parsed.priorityMode),
+      severityFilter: ensureEnumArray(parsed.severityFilter, SEVERITY_VALUE_SET),
+      severityMode: ensureFilterMode(parsed.severityMode),
+      assigneeFilter: ensureStringArray(parsed.assigneeFilter),
+      assigneeMode: ensureFilterMode(parsed.assigneeMode),
+    }
+  } catch (error) {
+    console.warn("Failed to parse saved case filters", error)
+    return null
+  }
+}
+
+const saveFiltersToStorage = (key: string, filters: StoredFilters) => {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(filters))
+  } catch (error) {
+    console.warn("Failed to persist case filters", error)
+  }
+}
+
+const arraysEqual = <T extends string>(a: T[], b: T[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
+
 export default function CaseTable() {
   const { user } = useAuth()
   const workspaceId = useWorkspaceId()
@@ -45,20 +157,45 @@ export default function CaseTable() {
   const [clearSelectionTrigger, setClearSelectionTrigger] = useState(0)
   const router = useRouter()
   const { updateSelection, resetSelection } = useCaseSelection()
+  const storageKey = getFilterStorageKey(workspaceId, user?.id)
+  const storedFilters = useMemo(
+    () => loadFiltersFromStorage(storageKey),
+    [storageKey]
+  )
+  const initialFilters = storedFilters ?? DEFAULT_FILTERS
 
   // Server-side filter states
-  const [searchTerm, setSearchTerm] = useState<string>("")
-  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>([])
-  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
-  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
-  const [statusMode, setStatusMode] = useState<FilterMode>("include")
-  const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
-  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
-  const [assigneeMode, setAssigneeMode] = useState<FilterMode>("include")
+  const [searchTerm, setSearchTerm] = useState<string>(
+    () => initialFilters.searchTerm
+  )
+  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>(
+    () => initialFilters.statusFilter
+  )
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>(
+    () => initialFilters.priorityFilter
+  )
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
+    () => initialFilters.severityFilter
+  )
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
+    () => initialFilters.assigneeFilter
+  )
+  const [statusMode, setStatusMode] = useState<FilterMode>(
+    () => initialFilters.statusMode
+  )
+  const [priorityMode, setPriorityMode] = useState<FilterMode>(
+    () => initialFilters.priorityMode
+  )
+  const [severityMode, setSeverityMode] = useState<FilterMode>(
+    () => initialFilters.severityMode
+  )
+  const [assigneeMode, setAssigneeMode] = useState<FilterMode>(
+    () => initialFilters.assigneeMode
+  )
   // Debounce search term for better performance
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
   const { members } = useWorkspaceMembers(workspaceId)
+  const filtersHydratedRef = useRef(false)
 
   const statusValues = useMemo(
     () => Object.values(STATUSES).map((status) => status.value),
@@ -154,6 +291,125 @@ export default function CaseTable() {
   const { deleteCase } = useDeleteCase({
     workspaceId,
   })
+
+  const goToFirstPageRef = useRef(goToFirstPage)
+
+  useEffect(() => {
+    goToFirstPageRef.current = goToFirstPage
+  }, [goToFirstPage])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const savedFilters = loadFiltersFromStorage(storageKey)
+    const nextFilters = savedFilters ?? DEFAULT_FILTERS
+    let filtersChanged = false
+
+    setSearchTerm((previous) => {
+      if (previous !== nextFilters.searchTerm) {
+        filtersChanged = true
+        return nextFilters.searchTerm
+      }
+      return previous
+    })
+    setStatusFilter((previous) => {
+      if (!arraysEqual(previous, nextFilters.statusFilter)) {
+        filtersChanged = true
+        return nextFilters.statusFilter
+      }
+      return previous
+    })
+    setPriorityFilter((previous) => {
+      if (!arraysEqual(previous, nextFilters.priorityFilter)) {
+        filtersChanged = true
+        return nextFilters.priorityFilter
+      }
+      return previous
+    })
+    setSeverityFilter((previous) => {
+      if (!arraysEqual(previous, nextFilters.severityFilter)) {
+        filtersChanged = true
+        return nextFilters.severityFilter
+      }
+      return previous
+    })
+    setAssigneeFilter((previous) => {
+      if (!arraysEqual(previous, nextFilters.assigneeFilter)) {
+        filtersChanged = true
+        return nextFilters.assigneeFilter
+      }
+      return previous
+    })
+    setStatusMode((previous) => {
+      if (previous !== nextFilters.statusMode) {
+        filtersChanged = true
+        return nextFilters.statusMode
+      }
+      return previous
+    })
+    setPriorityMode((previous) => {
+      if (previous !== nextFilters.priorityMode) {
+        filtersChanged = true
+        return nextFilters.priorityMode
+      }
+      return previous
+    })
+    setSeverityMode((previous) => {
+      if (previous !== nextFilters.severityMode) {
+        filtersChanged = true
+        return nextFilters.severityMode
+      }
+      return previous
+    })
+    setAssigneeMode((previous) => {
+      if (previous !== nextFilters.assigneeMode) {
+        filtersChanged = true
+        return nextFilters.assigneeMode
+      }
+      return previous
+    })
+
+    filtersHydratedRef.current = true
+
+    if (filtersChanged) {
+      goToFirstPageRef.current()
+    }
+  }, [storageKey])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    if (!filtersHydratedRef.current) {
+      return
+    }
+
+    saveFiltersToStorage(storageKey, {
+      searchTerm,
+      statusFilter,
+      statusMode,
+      priorityFilter,
+      priorityMode,
+      severityFilter,
+      severityMode,
+      assigneeFilter,
+      assigneeMode,
+    })
+  }, [
+    assigneeFilter,
+    assigneeMode,
+    priorityFilter,
+    priorityMode,
+    searchTerm,
+    severityFilter,
+    severityMode,
+    statusFilter,
+    statusMode,
+    storageKey,
+  ])
 
   const memoizedColumns = useMemo(
     () => createColumns(setSelectedCase),
