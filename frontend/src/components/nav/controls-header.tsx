@@ -118,6 +118,16 @@ interface ControlsHeaderProps {
   onToggleChat?: () => void
 }
 
+const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
+  new: "bg-yellow-500/[0.03] dark:bg-yellow-500/[0.08]",
+  in_progress: "bg-blue-500/[0.03] dark:bg-blue-500/[0.08]",
+  on_hold: "bg-orange-500/[0.03] dark:bg-orange-500/[0.08]",
+  resolved: "bg-green-500/[0.03] dark:bg-green-500/[0.08]",
+  closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
+  other: "bg-muted/5 dark:bg-muted/[0.12]",
+  unknown: "bg-slate-500/[0.03] dark:bg-slate-500/[0.08]",
+}
+
 function EntitiesDetailHeaderActions() {
   const [includeInactive, setIncludeInactive] = useLocalStorage(
     "entities-include-inactive",
@@ -709,7 +719,7 @@ function CaseBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
@@ -812,7 +822,7 @@ function TableBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
@@ -852,7 +862,7 @@ function IntegrationBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/integrations`}>
@@ -884,7 +894,7 @@ function RunbookBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
@@ -914,7 +924,7 @@ function EntityBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
@@ -1109,23 +1119,32 @@ export function ControlsHeader({
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled } = useFeatureFlag()
   const runbooksEnabled = isFeatureEnabled("runbooks")
+  const pagePath = pathname
+    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+    : "/"
+  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+  const caseId = isCaseDetail ? isCaseDetail[1] : null
 
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams ?? null, {
         runbooksEnabled,
       })
     : null
+  const { caseData } = useGetCase(
+    { caseId: caseId ?? "", workspaceId },
+    { enabled: Boolean(caseId) }
+  )
 
   if (!pageConfig) {
     return null
   }
 
   // Check if this is a case detail page to show timestamp
-  const pagePath = pathname
-    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
-    : "/"
-  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
-  const caseId = isCaseDetail ? isCaseDetail[1] : null
+  const headerBackgroundClass = caseId
+    ? caseData?.status
+      ? CASE_STATUS_TINTS[caseData.status]
+      : "bg-muted/5 dark:bg-muted/[0.12]"
+    : "bg-background"
 
   const titleContent =
     typeof pageConfig.title === "string" ? (
@@ -1135,7 +1154,12 @@ export function ControlsHeader({
     )
 
   return (
-    <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+    <header
+      className={cn(
+        "flex h-10 items-center border-b px-3 overflow-hidden transition-colors",
+        headerBackgroundClass
+      )}
+    >
       {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
