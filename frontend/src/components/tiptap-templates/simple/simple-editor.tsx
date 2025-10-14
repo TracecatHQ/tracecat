@@ -6,6 +6,10 @@ import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
 import { TextAlign } from "@tiptap/extension-text-align"
+import { Table } from "@tiptap/extension-table"
+import { TableCell } from "@tiptap/extension-table-cell"
+import { TableHeader } from "@tiptap/extension-table-header"
+import { TableRow } from "@tiptap/extension-table-row"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
@@ -69,6 +73,182 @@ import { cn } from "@/lib/utils"
 
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
+
+const ELEMENT_NODE = 1
+const TABLE_ALIGN_MAP = {
+  center: ":-:",
+  left: ":--",
+  right: "--:",
+} as const
+const TABLE_SECTION_TAGS = new Set(["THEAD", "TBODY", "TFOOT"])
+
+const asElement = (node: TurndownService.Node | null): HTMLElement | null => {
+  if (
+    node &&
+    typeof node === "object" &&
+    "nodeType" in node &&
+    (node as Node).nodeType === ELEMENT_NODE &&
+    "getAttribute" in (node as Element)
+  ) {
+    return node as HTMLElement
+  }
+  return null
+}
+
+const getNodeIndex = (node: Node): number => {
+  const parent = node.parentNode
+  if (!parent) {
+    return -1
+  }
+  return Array.from(parent.childNodes).indexOf(node)
+}
+
+const renderTableCell = (content: string, node: HTMLElement): string => {
+  const index = getNodeIndex(node)
+  const prefix = index === 0 ? "| " : " "
+  return `${prefix}${content} |`
+}
+
+const isFirstTbody = (element: Node | null): element is HTMLTableSectionElement => {
+  if (!(element instanceof HTMLTableSectionElement) || element.nodeName !== "TBODY") {
+    return false
+  }
+
+  const previousSibling = element.previousSibling
+  if (!previousSibling) {
+    return true
+  }
+
+  return (
+    previousSibling.nodeName === "THEAD" &&
+    /^\s*$/i.test(previousSibling.textContent ?? "")
+  )
+}
+
+const isHeadingRow = (
+  row: Element | null
+): row is HTMLTableRowElement => {
+  if (!(row instanceof HTMLTableRowElement)) {
+    return false
+  }
+
+  const parentNode = row.parentNode
+  if (!parentNode) {
+    return false
+  }
+
+  if (parentNode.nodeName === "THEAD") {
+    return true
+  }
+
+  if (
+    parentNode.firstChild === row &&
+    (parentNode.nodeName === "TABLE" || isFirstTbody(parentNode))
+  ) {
+    return Array.from(row.childNodes).every(
+      (child) => child instanceof HTMLTableCellElement && child.nodeName === "TH"
+    )
+  }
+
+  return false
+}
+
+const registerMarkdownTableRules = (service: TurndownService) => {
+  service.keep((node) => {
+    const element = asElement(node)
+    if (!element || element.nodeName !== "TABLE") {
+      return false
+    }
+
+    const table = element as HTMLTableElement
+    const firstRow = table.rows?.[0] ?? null
+    return !isHeadingRow(firstRow)
+  })
+
+  service.addRule("tableSection", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return !!element && TABLE_SECTION_TAGS.has(element.nodeName)
+    },
+    replacement: (content: string) => content,
+  })
+
+  service.addRule("tableRow", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return !!element && element.nodeName === "TR"
+    },
+    replacement: (content: string, node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element) {
+        return content
+      }
+
+      let borderCells = ""
+
+      if (isHeadingRow(element)) {
+        borderCells = Array.from(element.childNodes)
+          .map((child) => {
+            if (!(child instanceof HTMLElement)) {
+              return ""
+            }
+
+            let border = "---"
+            const alignAttr =
+              child.getAttribute("align") ??
+              child.getAttribute("data-align") ??
+              child.style?.textAlign ??
+              ""
+            const alignKey = alignAttr.toLowerCase()
+            if (alignKey && alignKey in TABLE_ALIGN_MAP) {
+              border =
+                TABLE_ALIGN_MAP[alignKey as keyof typeof TABLE_ALIGN_MAP] ?? border
+            }
+
+            return renderTableCell(border, child)
+          })
+          .join("")
+      }
+
+      return `\n${content}${borderCells ? `\n${borderCells}` : ""}`
+    },
+  })
+
+  service.addRule("tableCell", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return !!element && (element.nodeName === "TH" || element.nodeName === "TD")
+    },
+    replacement: (content: string, node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element) {
+        return content
+      }
+
+      return renderTableCell(content, element)
+    },
+  })
+
+  service.addRule("table", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element || element.nodeName !== "TABLE") {
+        return false
+      }
+
+      const table = element as HTMLTableElement
+      if (!table.rows || table.rows.length === 0) {
+        return false
+      }
+
+      return isHeadingRow(table.rows[0] ?? null)
+    },
+    replacement: (content: string) => {
+      const normalized = content.replace(/\n{2,}/g, "\n")
+      return `\n\n${normalized}\n\n`
+    },
+  })
+}
 
 // Feature flags let us retain richer controls while keeping the current Markdown-only surface.
 const SIMPLE_EDITOR_FEATURE_FLAGS = {
@@ -287,20 +467,6 @@ export function SimpleEditor({
       bulletListMarker: "-",
     })
 
-    const asElement = (node: TurndownService.Node): HTMLElement | null => {
-      if (
-        node &&
-        typeof node === "object" &&
-        "nodeType" in node &&
-        // 1 === Node.ELEMENT_NODE
-        (node as Node).nodeType === 1 &&
-        "getAttribute" in (node as Element)
-      ) {
-        return node as HTMLElement
-      }
-      return null
-    }
-
     service.addRule("codeBlockLanguage", {
       filter: (node: HTMLElement) =>
         node.nodeName === "PRE" &&
@@ -368,6 +534,8 @@ export function SimpleEditor({
         return `${prefix}${formatted}${suffix}`
       },
     })
+
+    registerMarkdownTableRules(service)
 
     return service
   }, [])
@@ -454,6 +622,12 @@ export function SimpleEditor({
         },
       }),
       HorizontalRule,
+      Table.configure({
+        resizable: false,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.textAlign
         ? [TextAlign.configure({ types: ["heading", "paragraph"] })]
         : []),
@@ -529,8 +703,9 @@ export function SimpleEditor({
     },
   })
 
+  const canRenderToolbar = showToolbar && editable
   const shouldShowToolbar =
-    showToolbar && editable && (isEditorFocused || isToolbarFocused)
+    canRenderToolbar && (isEditorFocused || isToolbarFocused)
 
   const rect = useCursorVisibility({
     editor,
@@ -634,13 +809,22 @@ export function SimpleEditor({
       style={wrapperStyle}
     >
       <EditorContext.Provider value={{ editor }}>
-        {shouldShowToolbar && (
+        {canRenderToolbar && (
           <Toolbar
             ref={toolbarRef}
             variant={isMobile ? "fixed" : "floating"}
             className="simple-editor-toolbar"
-            onFocusCapture={() => setIsToolbarFocused(true)}
+            data-visible={shouldShowToolbar ? "true" : "false"}
+            aria-hidden={!shouldShowToolbar}
+            onFocusCapture={() => {
+              if (!shouldShowToolbar) return
+              setIsToolbarFocused(true)
+            }}
             onBlurCapture={(event) => {
+              if (!shouldShowToolbar) {
+                setIsToolbarFocused(false)
+                return
+              }
               const nextTarget = event.relatedTarget
               if (
                 nextTarget instanceof Node &&
@@ -651,6 +835,8 @@ export function SimpleEditor({
               setIsToolbarFocused(false)
             }}
             style={{
+              marginBottom: 0,
+              paddingBottom: 0,
               ...(isMobile
                 ? {
                     bottom: `calc(100% - ${height - rect.y}px)`,

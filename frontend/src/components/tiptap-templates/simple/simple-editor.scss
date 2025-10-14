@@ -5,11 +5,18 @@
 
 .simple-editor-toolbar {
   position: relative;
-  padding: 0.1875rem 0 0.1875rem;
+  min-height: var(--tt-toolbar-height);
+  margin: 0;
+  padding: 0.1875rem 0 0;
   border: none;
   border-radius: 0;
   box-shadow: none;
   background: transparent;
+
+  &[data-visible="false"] {
+    pointer-events: none;
+    visibility: hidden;
+  }
 
   .tiptap-toolbar-group {
     gap: 0.25rem;
@@ -37,8 +44,8 @@
     }
   }
 
-  &[data-variant="floating"] {
-    padding: 0.1875rem 0 0.1875rem;
+  &.tiptap-toolbar[data-variant="floating"] {
+    padding: 0.1875rem 0 0;
     border: none;
     border-radius: 0;
     box-shadow: none;
@@ -66,13 +73,13 @@
     }
   }
 
-  &[data-variant="fixed"] {
+  &.tiptap-toolbar[data-variant="fixed"] {
     border: none;
     border-radius: 0;
     box-shadow: none;
     background: hsl(var(--background));
     border-top: 1px solid hsl(var(--border));
-    padding: 0.1875rem 0 0.1875rem;
+    padding: 0.1875rem 0 0;
 
     .tiptap-toolbar-group {
       padding-inline: 0.375rem;
@@ -90,6 +97,7 @@
       display: none;
     }
   }
+
 }
 
 .simple-editor-toolbar + .tiptap-toolbar-group,
@@ -128,4 +136,35 @@
 
 .simple-editor-content .tiptap.ProseMirror.simple-editor ::selection {
   background: hsl(var(--primary) / 0.15);
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor .tableWrapper {
+  margin: 0.75rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th,
+.simple-editor-content .tiptap.ProseMirror.simple-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th {
+  font-weight: 600;
+  background-color: hsl(var(--muted) / 0.35);
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr:nth-of-type(odd) td {
+  background-color: hsl(var(--muted) / 0.18);
 }
