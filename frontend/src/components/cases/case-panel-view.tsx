@@ -312,14 +312,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         <div className="w-64 min-w-[200px] max-w-[300px] border-r">
           <div className="h-full overflow-y-auto p-4 min-w-0">
             <div className="space-y-10">
-              {/* Properties Section */}
-              <CasePanelSection
-                title="Properties"
-                isOpen={propertiesOpen}
-                onOpenChange={setPropertiesOpen}
-              >
-                <div className="space-y-4">{/* Custom fields moved to main panel */}</div>
-              </CasePanelSection>
               {/* Workflow Triggers */}
               <CasePanelSection
                 title="Workflows"
