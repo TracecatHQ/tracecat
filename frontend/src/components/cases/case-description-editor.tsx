@@ -35,7 +35,7 @@ export function CaseDescriptionEditor({
   )
 
   return (
-    <div className={cn("mx-0 py-2", className)}>
+    <div className={cn("mx-0", className)}>
       <SimpleEditor
         value={value}
         onChange={handleChange}

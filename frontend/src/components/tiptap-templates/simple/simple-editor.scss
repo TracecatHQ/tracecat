@@ -60,7 +60,7 @@
       content: "";
       position: absolute;
       inset-inline: 0;
-      bottom: 0;
+      top: 0;
       height: 1px;
       background: hsl(var(--border));
     }
@@ -71,7 +71,7 @@
     border-radius: 0;
     box-shadow: none;
     background: hsl(var(--background));
-    border-bottom: 1px solid hsl(var(--border));
+    border-top: 1px solid hsl(var(--border));
     padding: 0.375rem 0 0.375rem;
 
     .tiptap-toolbar-group {

@@ -258,7 +258,7 @@ export function CaseActivityFeed({
       <div className="space-y-4 p-4">
         {groupedActivities.map(({ date, activities }) => (
           <div key={date.toISOString()} className="space-y-2">
-            <div className="sticky top-0 z-10 bg-background py-2">
+            <div className="sticky top-0 z-10 py-2">
               <div className="flex items-center">
                 <div className="text-sm font-medium">
                   {date.toLocaleDateString(undefined, {

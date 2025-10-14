@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -300,7 +301,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         <div className="h-full w-full min-w-0 flex">
           {/* Main section */}
           <div className="flex-1 min-w-0">
-            <div className="h-full overflow-auto min-w-0">
+            <div className="h-full overflow-auto min-w-0 bg-muted/20">
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
                 <div className="mb-6">
@@ -521,43 +522,44 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 onValueChange={handleTabChange}
                 className="w-full"
               >
-                <TabsList className="h-8 justify-start rounded-none bg-transparent p-0 border-b border-border w-full">
+                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="comments"
                   >
                     <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
                     Comments
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="activity"
                   >
                     <Activity className="mr-1.5 h-3.5 w-3.5" />
                     Activity
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="attachments"
                   >
                     <Paperclip className="mr-1.5 h-3.5 w-3.5" />
                     Attachments
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="records"
                   >
                     <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
                     Records
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="payload"
                   >
                     <Braces className="mr-1.5 h-3.5 w-3.5" />
                     Payload
                   </TabsTrigger>
                 </TabsList>
+                <Separator className="mt-0" />
 
                 <TabsContent value="comments" className="mt-4">
                   <CommentSection caseId={caseId} workspaceId={workspaceId} />

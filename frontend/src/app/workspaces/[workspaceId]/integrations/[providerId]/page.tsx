@@ -315,7 +315,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       >
         <TabsList className="h-8 justify-start rounded-none bg-transparent p-0 border-b border-border w-full">
           <TabsTrigger
-            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
             value="overview"
           >
             <LayoutListIcon className="mr-2 size-4" />
@@ -323,7 +323,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </TabsTrigger>
           {!isSelfConfiguringMCP && (
             <TabsTrigger
-              className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               value="configuration"
             >
               <Settings className="mr-2 size-4" />

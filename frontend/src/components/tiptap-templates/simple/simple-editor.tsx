@@ -272,6 +272,8 @@ export function SimpleEditor({
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
+  const [isEditorFocused, setIsEditorFocused] = React.useState(false)
+  const [isToolbarFocused, setIsToolbarFocused] = React.useState(false)
   const [mobileView, setMobileView] = React.useState<
     "main" | "highlighter" | "link"
   >("main")
@@ -509,11 +511,26 @@ export function SimpleEditor({
       markdownRef.current = markdown
       onChange(markdown)
     },
-    onBlur: () => onBlur?.(),
-    onFocus: () => onFocus?.(),
+    onBlur: ({ event }) => {
+      const nextTarget = event?.relatedTarget
+      if (
+        nextTarget instanceof Node &&
+        toolbarRef.current?.contains(nextTarget)
+      ) {
+        setIsEditorFocused(true)
+      } else {
+        setIsEditorFocused(false)
+      }
+      onBlur?.()
+    },
+    onFocus: () => {
+      setIsEditorFocused(true)
+      onFocus?.()
+    },
   })
 
-  const shouldShowToolbar = showToolbar && editable
+  const shouldShowToolbar =
+    showToolbar && editable && (isEditorFocused || isToolbarFocused)
 
   const rect = useCursorVisibility({
     editor,
@@ -622,6 +639,17 @@ export function SimpleEditor({
             ref={toolbarRef}
             variant={isMobile ? "fixed" : "floating"}
             className="simple-editor-toolbar"
+            onFocusCapture={() => setIsToolbarFocused(true)}
+            onBlurCapture={(event) => {
+              const nextTarget = event.relatedTarget
+              if (
+                nextTarget instanceof Node &&
+                toolbarRef.current?.contains(nextTarget)
+              ) {
+                return
+              }
+              setIsToolbarFocused(false)
+            }}
             style={{
               ...(isMobile
                 ? {
