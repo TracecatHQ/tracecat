@@ -14,7 +14,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CasePriority,
   CaseSeverity,
-  CaseStatus,
   CaseUpdate,
   UserRead,
 } from "@/client"
@@ -27,7 +26,6 @@ import {
   AssigneeSelect,
   PrioritySelect,
   SeveritySelect,
-  StatusSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
@@ -255,13 +253,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     )
   }
 
-  const handleStatusChange = async (newStatus: CaseStatus) => {
-    const updateParams = {
-      status: newStatus,
-    } as Partial<CaseUpdate>
-    await updateCase(updateParams)
-  }
-
   const handlePriorityChange = async (newPriority: CasePriority) => {
     const params = {
       priority: newPriority,
@@ -313,7 +304,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
               <div className="mb-6">
-                <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4 text-sm">
+                <div className="mb-6 flex flex-wrap items-center gap-4 border-b border-border pb-4 text-sm">
                   <div className="flex flex-wrap items-center gap-3">
                     <PrioritySelect
                       priority={caseData.priority || "unknown"}
@@ -327,12 +318,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       assignee={caseData.assignee}
                       workspaceMembers={members ?? []}
                       onValueChange={handleAssigneeChange}
-                    />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <StatusSelect
-                      status={caseData.status}
-                      onValueChange={handleStatusChange}
                     />
                   </div>
                 </div>

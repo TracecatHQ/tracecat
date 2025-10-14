@@ -18,7 +18,7 @@ import {
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
-import type { EntityRead, OAuthGrantType } from "@/client"
+import type { CaseStatus, EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCustomField } from "@/components/cases/add-custom-field"
@@ -28,7 +28,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { StatusSelect, UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,
@@ -97,6 +97,7 @@ import {
   useGetRunbook,
   useGetTable,
   useIntegrationProvider,
+  useUpdateCase,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
 import { capitalizeFirst, cn } from "@/lib/utils"
@@ -727,9 +728,11 @@ function CaseBreadcrumb({
 function CaseTimestamp({
   caseId,
   workspaceId,
+  className,
 }: {
   caseId: string
   workspaceId: string
+  className?: string
 }) {
   const { caseData } = useGetCase({ caseId, workspaceId })
 
@@ -738,7 +741,12 @@ function CaseTimestamp({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+    <div
+      className={cn(
+        "flex items-center gap-2 text-xs text-muted-foreground min-w-0",
+        className
+      )}
+    >
       <span className="hidden sm:flex items-center gap-1 min-w-0">
         <ClockPlus className="h-3 w-3 flex-shrink-0" />
         <span className="truncate min-w-0">
@@ -761,6 +769,32 @@ function CaseTimestamp({
         </span>
       </span>
     </div>
+  )
+}
+
+function CaseStatusControl({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+  const { updateCase } = useUpdateCase({
+    workspaceId,
+    caseId,
+  })
+
+  if (!caseData) {
+    return null
+  }
+
+  const handleStatusChange = async (newStatus: CaseStatus) => {
+    await updateCase({ status: newStatus })
+  }
+
+  return (
+    <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
   )
 }
 
@@ -1088,16 +1122,31 @@ export function ControlsHeader({
     ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
     : "/"
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+  const caseId = isCaseDetail ? isCaseDetail[1] : null
+
+  const titleContent =
+    typeof pageConfig.title === "string" ? (
+      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+    ) : (
+      pageConfig.title
+    )
 
   return (
     <header className="flex h-10 items-center border-b px-3 overflow-hidden">
       {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
-        {typeof pageConfig.title === "string" ? (
-          <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+        {caseId ? (
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="min-w-0">{titleContent}</div>
+            <CaseTimestamp
+              caseId={caseId}
+              workspaceId={workspaceId}
+              className="ml-3 pl-3"
+            />
+          </div>
         ) : (
-          pageConfig.title
+          titleContent
         )}
       </div>
 
@@ -1110,11 +1159,8 @@ export function ControlsHeader({
       <div className="flex items-center gap-2 flex-shrink-0">
         {pageConfig.actions
           ? pageConfig.actions
-          : isCaseDetail && (
-              <CaseTimestamp
-                caseId={isCaseDetail[1]}
-                workspaceId={workspaceId}
-              />
+          : caseId && (
+              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (
