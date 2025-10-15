@@ -802,8 +802,11 @@ function CaseStatusControl({
     return null
   }
 
-  const handleStatusChange = async (newStatus: CaseStatus) => {
-    await updateCase({ status: newStatus })
+  const handleStatusChange = (newStatus: CaseStatus) => {
+    const updatePromise = updateCase({ status: newStatus })
+    updatePromise.catch((error) => {
+      console.error('Failed to update case status', error)
+    })
   }
 
   return (
