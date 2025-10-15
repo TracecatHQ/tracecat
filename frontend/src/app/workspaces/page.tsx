@@ -1,21 +1,14 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect, useMemo } from "react"
+import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useAuth } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
-import { getDefaultWorkspacePreference } from "@/lib/user-settings"
 
 export default function WorkspacesPage() {
   const { workspaces, createWorkspace, getLastWorkspaceId } =
     useWorkspaceManager()
-  const { user } = useAuth()
   const router = useRouter()
-  const defaultWorkspacePreference = useMemo(
-    () => getDefaultWorkspacePreference(user?.settings),
-    [user?.settings]
-  )
 
   useEffect(() => {
     // Determine which workspace the user should land on
@@ -37,19 +30,8 @@ export default function WorkspacesPage() {
 
     let targetWorkspaceId: string | undefined
 
-    if (defaultWorkspacePreference.strategy === "specific") {
-      const preferredId = defaultWorkspacePreference.workspaceId
-      if (
-        preferredId &&
-        workspaces.some((workspace) => workspace.id === preferredId)
-      ) {
-        targetWorkspaceId = preferredId
-      }
-    }
-
     const lastViewedId = getLastWorkspaceId()
     if (
-      !targetWorkspaceId &&
       lastViewedId &&
       lastViewedId.trim().length > 0 &&
       workspaces.some((workspace) => workspace.id === lastViewedId)
@@ -64,13 +46,7 @@ export default function WorkspacesPage() {
     if (targetWorkspaceId) {
       router.replace(`/workspaces/${targetWorkspaceId}/workflows`)
     }
-  }, [
-    createWorkspace,
-    defaultWorkspacePreference,
-    getLastWorkspaceId,
-    router,
-    workspaces,
-  ])
+  }, [createWorkspace, getLastWorkspaceId, router, workspaces])
 
   // Return a loading indicator while waiting for redirection
   return <CenteredSpinner />
