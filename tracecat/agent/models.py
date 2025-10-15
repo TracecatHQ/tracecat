@@ -3,11 +3,11 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic.dataclasses import dataclass
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
@@ -29,7 +29,11 @@ class StreamingAgentDeps(Protocol):
     message_store: MessageStore | None = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(
+    kw_only=True,
+    slots=True,
+    config=ConfigDict(arbitrary_types_allowed=True),
+)
 class AgentConfig:
     """Configuration for an agent."""
 
