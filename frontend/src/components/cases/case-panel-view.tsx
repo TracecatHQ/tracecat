@@ -314,7 +314,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
             <div className="h-full overflow-auto min-w-0 bg-muted/20">
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
-                <div className="mb-6">
+                <div className="mb-4">
                   <div className="flex flex-col">
                     <div className="flex flex-wrap items-center gap-4 py-1.5 text-sm first:pt-0 last:pb-0 -ml-1">
                       <div className="flex flex-wrap items-center gap-3">
@@ -526,7 +526,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 </div>
 
                 {/* Description */}
-                <div className="mb-6">
+                <div className="mb-4">
                   <CasePanelDescription
                     caseData={caseData}
                     updateCase={updateCase}

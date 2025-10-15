@@ -7,7 +7,7 @@
   position: relative;
   min-height: var(--tt-toolbar-height);
   margin: 0;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--simple-editor-toolbar-gap, 1.5rem);
   padding: 0.1875rem 0 0;
   border: none;
   border-radius: 0;
