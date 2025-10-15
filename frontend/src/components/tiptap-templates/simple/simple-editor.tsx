@@ -49,6 +49,7 @@ import {
   PanelRightOpen,
   PanelTopOpen,
   Table as TableIcon,
+  Trash2,
 } from "lucide-react"
 // --- Icons ---
 import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
@@ -168,6 +169,13 @@ const getTableButtonGroups = (
           disabled: !editor.can().deleteRow(),
           onClick: () => editor.chain().focus().deleteRow().run(),
           icon: <DeleteIcon className="tiptap-button-icon" />,
+        },
+        {
+          key: "delete-table",
+          tooltip: "Delete table",
+          disabled: !editor.can().deleteTable(),
+          onClick: () => editor.chain().focus().deleteTable().run(),
+          icon: <Trash2 className="tiptap-button-icon" />,
         },
       ]
     : []

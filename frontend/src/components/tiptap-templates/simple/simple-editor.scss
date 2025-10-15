@@ -12,6 +12,14 @@
   border-radius: 0;
   box-shadow: none;
   background: transparent;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   &[data-visible="false"] {
     pointer-events: none;
@@ -50,9 +58,19 @@
     border-radius: 0;
     box-shadow: none;
     background: transparent;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
 
     .tiptap-toolbar-group {
       padding-inline: 0.375rem;
+      flex: 0 0 auto;
 
       &:first-of-type {
         padding-inline-start: 0;
