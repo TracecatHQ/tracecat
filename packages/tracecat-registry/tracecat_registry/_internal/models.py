@@ -74,18 +74,18 @@ class RegistrySecret(BaseModel):
     """Indicates if the secret is optional."""
 
     @model_validator(mode="after")
-    def validate_keys(cls, v):
-        if isinstance(v.name, str) and v.name.endswith("_oauth"):
+    def validate_keys(self) -> "RegistrySecret":
+        if isinstance(self.name, str) and self.name.endswith("_oauth"):
             # Cannot have a RegistrySecret with _oauth suffix
             raise ValueError(
                 "OAuth secrets are not allowed to have keys or optional_keys"
             )
 
-        if v.keys is None and v.optional_keys is None:
+        if self.keys is None and self.optional_keys is None:
             raise ValueError(
                 "At least one of 'keys' or 'optional_keys' must be specified"
             )
-        return v
+        return self
 
     def __hash__(self) -> int:
         """Custom hash implementation based on relevant fields."""
