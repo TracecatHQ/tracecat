@@ -143,13 +143,7 @@ export function CasePanelDescription({
         <PencilIcon className="size-4 text-muted-foreground" />
       </Button>
     )
-  }, [
-    form,
-    handleSave,
-    isMacPlatform,
-    isDirty,
-    isSubmitting,
-  ])
+  }, [form, handleSave, isMacPlatform, isDirty, isSubmitting])
 
   return (
     <div className="relative">
