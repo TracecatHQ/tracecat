@@ -3,15 +3,7 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    NotRequired,
-    Protocol,
-    TypedDict,
-    runtime_checkable,
-)
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass
@@ -31,10 +23,12 @@ class MessageStore(Protocol):
     ) -> None: ...
 
 
-@runtime_checkable
 class StreamingAgentDeps(Protocol):
-    stream_writer: StreamWriter
-    message_store: MessageStore | None = None
+    @property
+    def stream_writer(self) -> StreamWriter: ...
+
+    @property
+    def message_store(self) -> MessageStore | None: ...
 
 
 @dataclass(
