@@ -197,14 +197,14 @@ export function WorkflowPanel({
               <div className="mt-0.5 flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-28 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-settings"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>General</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-28 rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-schema"
                   >
                     <ShapesIcon className="mr-2 size-4" />

@@ -2,14 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQuery } from "@tanstack/react-query"
-import fuzzysort from "fuzzysort"
-import {
-  ArrowUpRight,
-  ChevronsUpDown,
-  PlayIcon,
-  Plus,
-  RotateCcw,
-} from "lucide-react"
+import { ArrowUpRight, PlayIcon, Plus, RotateCcw } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -25,12 +18,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Command,
+  CommandDialog,
   CommandEmpty,
   CommandGroup,
   CommandInput,
@@ -59,7 +52,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -212,13 +204,26 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
   )
-  const [searchTerm, setSearchTerm] = useState("")
-  const [isComboboxOpen, setIsComboboxOpen] = useState(false)
+  const [isCommandOpen, setIsCommandOpen] = useState(false)
   // Use the useLocalStorage hook
   const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
     "groupCaseFields",
     false
   )
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        if (event.repeat) {
+          return
+        }
+        event.preventDefault()
+        setIsCommandOpen((open) => !open)
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [setIsCommandOpen])
 
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(selectedWorkflowId || "")
@@ -266,33 +271,6 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
       return workflow as WorkflowWithSchema
     },
   })
-
-  const searchableWorkflows = useMemo(
-    () =>
-      (workflows ?? []).map((workflow) => ({
-        workflow,
-        title: workflow.title,
-        alias: workflow.alias ?? "",
-      })),
-    [workflows]
-  )
-
-  const filteredWorkflows = useMemo(() => {
-    if (!searchableWorkflows.length) {
-      return []
-    }
-
-    if (!searchTerm.trim()) {
-      return searchableWorkflows
-    }
-
-    const results = fuzzysort.go(searchTerm, searchableWorkflows, {
-      all: true,
-      keys: ["title", "alias"],
-    })
-
-    return results.map((result) => result.obj)
-  }, [searchableWorkflows, searchTerm])
 
   const triggerSchema = useMemo<TracecatJsonSchema | null>(() => {
     const schema = selectedWorkflowDetail?.expects_schema
@@ -358,123 +336,62 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 
   // Loading state
   if (workflowsLoading) {
-    return <Skeleton className="h-8 w-full" />
+    return null
   }
 
   // Error state
   if (workflowsError) {
-    return (
-      <div className="text-xs text-destructive">
-        Error loading workflows: {workflowsError.message}
-      </div>
-    )
+    console.error("Failed to load workflows", workflowsError)
+    return null
   }
 
-  const selectedWorkflow = workflows?.find((wf) => wf.id === selectedWorkflowId)
+  const availableWorkflows = workflows ?? []
+  const selectedWorkflow = availableWorkflows.find(
+    (wf) => wf.id === selectedWorkflowId
+  )
   return (
-    <div className="space-y-3">
-      <Popover
-        open={isComboboxOpen}
-        onOpenChange={(open) => {
-          setIsComboboxOpen(open)
-          if (!open) {
-            setSearchTerm("")
-          }
-        }}
+    <>
+      <CommandDialog
+        open={isCommandOpen}
+        onOpenChange={(open) => setIsCommandOpen(open)}
       >
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            aria-expanded={isComboboxOpen}
-            aria-haspopup="listbox"
-            className="h-8 w-full justify-between border-muted text-xs"
-          >
-            <span className="flex min-w-0 items-center gap-2 truncate">
-              {selectedWorkflow ? (
-                <>
-                  <span className="truncate">{selectedWorkflow.title}</span>
-                  {selectedWorkflow.alias && (
-                    <Badge
-                      variant="secondary"
-                      className="px-1 py-0 text-[10px] font-normal"
-                    >
-                      {selectedWorkflow.alias}
-                    </Badge>
-                  )}
-                </>
-              ) : (
-                <span className="text-muted-foreground">
-                  Select a workflow...
-                </span>
-              )}
-            </span>
-            <ChevronsUpDown className="ml-2 size-3 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          className="w-[--radix-popover-trigger-width] min-w-64 p-0"
-          align="start"
-        >
-          <Command shouldFilter={false}>
-            <CommandInput
-              placeholder="Search workflows..."
-              value={searchTerm}
-              onValueChange={setSearchTerm}
-            />
-            <CommandList>
-              {workflowsLoading ? (
-                <CommandEmpty>Loading workflows...</CommandEmpty>
-              ) : workflowsError ? (
-                <CommandEmpty>Failed to load workflows</CommandEmpty>
-              ) : filteredWorkflows.length === 0 ? (
-                <CommandEmpty>No workflows found</CommandEmpty>
-              ) : (
-                <CommandGroup>
-                  {filteredWorkflows.map(({ workflow }) => (
-                    <CommandItem
-                      key={workflow.id}
-                      value={workflow.id}
-                      onSelect={() => {
-                        setSelectedWorkflowId(workflow.id)
-                        setIsComboboxOpen(false)
-                        setSearchTerm("")
-                      }}
-                      className="flex flex-col items-start py-2"
-                    >
-                      <div className="flex w-full items-center gap-2">
-                        <span className="truncate font-medium">
-                          {workflow.title}
-                        </span>
-                        {workflow.alias && (
-                          <Badge
-                            variant="secondary"
-                            className="px-1 py-0 text-[10px] font-normal"
-                          >
-                            {workflow.alias}
-                          </Badge>
-                        )}
-                      </div>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              )}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+        <CommandInput placeholder="Search workflows..." />
+        <CommandList>
+          <CommandEmpty>No workflows found</CommandEmpty>
+          {availableWorkflows.length > 0 ? (
+            <CommandGroup heading="Workflows">
+              {availableWorkflows.map((workflow) => (
+                <CommandItem
+                  key={workflow.id}
+                  value={`${workflow.title} ${workflow.alias ?? ""}`.trim()}
+                  onSelect={() => {
+                    setSelectedWorkflowId(workflow.id)
+                    setIsCommandOpen(false)
+                    setIsConfirmOpen(true)
+                  }}
+                  className="flex flex-col items-start py-2"
+                >
+                  <div className="flex w-full items-center gap-2">
+                    <span className="truncate font-medium">
+                      {workflow.title}
+                    </span>
+                    {workflow.alias && (
+                      <Badge
+                        variant="secondary"
+                        className="px-1 py-0 text-[10px] font-normal"
+                      >
+                        {workflow.alias}
+                      </Badge>
+                    )}
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ) : null}
+        </CommandList>
+      </CommandDialog>
 
       <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-        <AlertDialogTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!selectedWorkflowId || createExecutionIsPending}
-            className="w-full h-8 text-xs"
-          >
-            <PlayIcon className="mr-1.5 h-3 w-3" />
-            Trigger
-          </Button>
-        </AlertDialogTrigger>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-sm">
@@ -543,19 +460,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-
-      {selectedWorkflowId && (
-        <Link
-          href={selectedWorkflowUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowUpRight className="h-3 w-3" />
-          <span>View workflow</span>
-        </Link>
-      )}
-    </div>
+    </>
   )
 }
 

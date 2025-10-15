@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
@@ -9,7 +10,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { linearStyles } from "@/lib/utils"
+import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
   id: z.string(),
@@ -21,9 +22,17 @@ type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 export function CustomField({
   customField,
   updateCase,
+  inputClassName,
+  inputStyle,
+  onValueChange,
+  formClassName,
 }: {
   customField: CaseCustomFieldRead
   updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  inputClassName?: string
+  inputStyle?: CSSProperties
+  onValueChange?: (id: string, value: unknown) => void
+  formClassName?: string
 }) {
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
@@ -46,13 +55,19 @@ export function CustomField({
   }
   const onBlur = (id: string, value: unknown) => {
     console.log("onblur", { id, value })
+    onValueChange?.(id, value)
     form.setValue("value", value)
     form.handleSubmit(onSubmit)()
   }
   return (
     <FormProvider {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
-        <CustomFieldInner customField={customField} onBlur={onBlur} />
+      <form onSubmit={form.handleSubmit(onSubmit)} className={formClassName}>
+        <CustomFieldInner
+          customField={customField}
+          onBlur={onBlur}
+          inputClassName={inputClassName}
+          inputStyle={inputStyle}
+        />
       </form>
     </FormProvider>
   )
@@ -60,6 +75,8 @@ export function CustomField({
 interface CustomFieldProps {
   customField: CaseCustomFieldRead
   onBlur?: (id: string, value: unknown) => void
+  inputClassName?: string
+  inputStyle?: CSSProperties
 }
 
 /**
@@ -67,7 +84,12 @@ interface CustomFieldProps {
  * @param param0
  * @returns
  */
-export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
+export function CustomFieldInner({
+  customField,
+  onBlur,
+  inputClassName,
+  inputStyle,
+}: CustomFieldProps) {
   const form = useFormContext<CustomFieldFormSchema>()
   switch (customField.type) {
     case "TEXT":
@@ -83,7 +105,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   placeholder="Empty"
                   value={String(field.value || "")}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "w-auto min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>
@@ -106,7 +133,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   value={Number(field.value || 0)}
                   onChange={(e) => field.onChange(Number(e.target.value))}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "w-auto min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() =>
                     onBlur && onBlur(customField.id, Number(field.value))
                   }
@@ -150,7 +182,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   type="text"
                   {...field}
                   value={String(field.value || "")}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "w-auto min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>

@@ -5,10 +5,19 @@ import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
+import { Table } from "@tiptap/extension-table"
+import { TableCell } from "@tiptap/extension-table-cell"
+import { TableHeader } from "@tiptap/extension-table-header"
+import { TableRow } from "@tiptap/extension-table-row"
 import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
-import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
+import {
+  type Editor,
+  EditorContent,
+  EditorContext,
+  useEditor,
+} from "@tiptap/react"
 // --- Tiptap Core Extensions ---
 import { StarterKit } from "@tiptap/starter-kit"
 import { marked } from "marked"
@@ -18,7 +27,7 @@ import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/ho
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 // --- UI Primitives ---
-import { Button } from "@/components/tiptap-ui-primitive/button"
+import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
 import {
   Toolbar,
@@ -33,6 +42,15 @@ import "@/components/tiptap-node/image-node/image-node.scss"
 import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
 
+import {
+  BookmarkX,
+  Delete as DeleteIcon,
+  PanelBottomOpen,
+  PanelLeftOpen,
+  PanelRightOpen,
+  PanelTopOpen,
+  Table as TableIcon,
+} from "lucide-react"
 // --- Icons ---
 import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
 import { HighlighterIcon } from "@/components/tiptap-icons/highlighter-icon"
@@ -61,6 +79,7 @@ import { UndoRedoButton } from "@/components/tiptap-ui/undo-redo-button"
 import { useCursorVisibility } from "@/hooks/use-cursor-visibility"
 // --- Hooks ---
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 import { useWindowSize } from "@/hooks/use-window-size"
 
 // --- Lib ---
@@ -70,6 +89,188 @@ import { cn } from "@/lib/utils"
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
 
+const ELEMENT_NODE = 1
+const TABLE_ALIGN_MAP = {
+  center: ":-:",
+  left: ":--",
+  right: "--:",
+} as const
+const TABLE_SECTION_TAGS = new Set(["THEAD", "TBODY", "TFOOT"])
+
+const asElement = (node: TurndownService.Node | null): HTMLElement | null => {
+  if (
+    node &&
+    typeof node === "object" &&
+    "nodeType" in node &&
+    (node as Node).nodeType === ELEMENT_NODE &&
+    "getAttribute" in (node as Element)
+  ) {
+    return node as HTMLElement
+  }
+  return null
+}
+
+const getNodeIndex = (node: Node): number => {
+  const parent = node.parentNode
+  if (!parent) {
+    return -1
+  }
+  return Array.from(parent.childNodes).indexOf(node as ChildNode)
+}
+
+const renderTableCell = (content: string, node: HTMLElement): string => {
+  const index = getNodeIndex(node)
+  const prefix = index === 0 ? "| " : " "
+  return `${prefix}${content} |`
+}
+
+const isFirstTbody = (
+  element: Node | null
+): element is HTMLTableSectionElement => {
+  if (
+    !(element instanceof HTMLTableSectionElement) ||
+    element.nodeName !== "TBODY"
+  ) {
+    return false
+  }
+
+  const previousSibling = element.previousSibling
+  if (!previousSibling) {
+    return true
+  }
+
+  return (
+    previousSibling.nodeName === "THEAD" &&
+    /^\s*$/i.test(previousSibling.textContent ?? "")
+  )
+}
+const isHeadingRow = (row: Element | null): row is HTMLTableRowElement => {
+  if (!(row instanceof HTMLTableRowElement)) {
+    return false
+  }
+
+  const parentNode = row.parentNode
+  if (!parentNode) {
+    return false
+  }
+
+  if (parentNode.nodeName === "THEAD") {
+    return true
+  }
+
+  if (
+    parentNode.firstChild === row &&
+    (parentNode.nodeName === "TABLE" || isFirstTbody(parentNode))
+  ) {
+    return Array.from(row.childNodes).every(
+      (child) =>
+        child instanceof HTMLTableCellElement && child.nodeName === "TH"
+    )
+  }
+
+  return false
+}
+
+const registerMarkdownTableRules = (service: TurndownService) => {
+  service.keep((node) => {
+    const element = asElement(node)
+    if (!element || element.nodeName !== "TABLE") {
+      return false
+    }
+
+    const table = element as HTMLTableElement
+    const firstRow = table.rows?.[0] ?? null
+    return !isHeadingRow(firstRow)
+  })
+
+  service.addRule("tableSection", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return !!element && TABLE_SECTION_TAGS.has(element.nodeName)
+    },
+    replacement: (content: string) => content,
+  })
+
+  service.addRule("tableRow", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return !!element && element.nodeName === "TR"
+    },
+    replacement: (content: string, node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element) {
+        return content
+      }
+
+      let borderCells = ""
+
+      if (isHeadingRow(element)) {
+        borderCells = Array.from(element.childNodes)
+          .map((child) => {
+            if (!(child instanceof HTMLElement)) {
+              return ""
+            }
+
+            let border = "---"
+            const alignAttr =
+              child.getAttribute("align") ??
+              child.getAttribute("data-align") ??
+              child.style?.textAlign ??
+              ""
+            const alignKey = alignAttr.toLowerCase()
+            if (alignKey && alignKey in TABLE_ALIGN_MAP) {
+              border =
+                TABLE_ALIGN_MAP[alignKey as keyof typeof TABLE_ALIGN_MAP] ??
+                border
+            }
+
+            return renderTableCell(border, child)
+          })
+          .join("")
+      }
+
+      return `\n${content}${borderCells ? `\n${borderCells}` : ""}`
+    },
+  })
+
+  service.addRule("tableCell", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      return (
+        !!element && (element.nodeName === "TH" || element.nodeName === "TD")
+      )
+    },
+    replacement: (content: string, node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element) {
+        return content
+      }
+
+      return renderTableCell(content, element)
+    },
+  })
+
+  service.addRule("table", {
+    filter: (node: TurndownService.Node) => {
+      const element = asElement(node)
+      if (!element || element.nodeName !== "TABLE") {
+        return false
+      }
+
+      const table = element as HTMLTableElement
+      if (!table.rows || table.rows.length === 0) {
+        return false
+      }
+
+      return isHeadingRow(table.rows[0] ?? null)
+    },
+    replacement: (content: string) => {
+      const normalized = content.replace(/\n{2,}/g, "\n")
+      return `\n\n${normalized}\n\n`
+    },
+  })
+}
+
 // Feature flags let us retain richer controls while keeping the current Markdown-only surface.
 const SIMPLE_EDITOR_FEATURE_FLAGS = {
   highlight: false,
@@ -78,6 +279,95 @@ const SIMPLE_EDITOR_FEATURE_FLAGS = {
   images: false,
   darkMode: false,
 } as const
+
+type TableButton = {
+  key: string
+  tooltip: string
+  disabled: boolean
+  onClick: () => void
+  icon: React.ReactNode
+}
+
+interface TableButtonGroups {
+  insertButtons: TableButton[]
+  deleteButtons: TableButton[]
+}
+
+const getTableButtonGroups = (
+  editor: Editor,
+  isTableActive: boolean
+): TableButtonGroups => {
+  if (!editor.isEditable) {
+    return { insertButtons: [], deleteButtons: [] }
+  }
+
+  const insertTableOptions = { rows: 3, cols: 3, withHeaderRow: true } as const
+
+  const insertButtons: TableButton[] = [
+    {
+      key: "insert-table",
+      tooltip: "Insert table",
+      disabled: !editor.can().insertTable(insertTableOptions),
+      onClick: () =>
+        editor.chain().focus().insertTable(insertTableOptions).run(),
+      icon: <TableIcon className="tiptap-button-icon" />,
+    },
+  ]
+
+  if (isTableActive) {
+    insertButtons.push(
+      {
+        key: "add-column-before",
+        tooltip: "Insert column to the left",
+        disabled: !editor.can().addColumnBefore(),
+        onClick: () => editor.chain().focus().addColumnBefore().run(),
+        icon: <PanelLeftOpen className="tiptap-button-icon" />,
+      },
+      {
+        key: "add-column-after",
+        tooltip: "Insert column to the right",
+        disabled: !editor.can().addColumnAfter(),
+        onClick: () => editor.chain().focus().addColumnAfter().run(),
+        icon: <PanelRightOpen className="tiptap-button-icon" />,
+      },
+      {
+        key: "add-row-before",
+        tooltip: "Insert row above",
+        disabled: !editor.can().addRowBefore(),
+        onClick: () => editor.chain().focus().addRowBefore().run(),
+        icon: <PanelTopOpen className="tiptap-button-icon" />,
+      },
+      {
+        key: "add-row-after",
+        tooltip: "Insert row below",
+        disabled: !editor.can().addRowAfter(),
+        onClick: () => editor.chain().focus().addRowAfter().run(),
+        icon: <PanelBottomOpen className="tiptap-button-icon" />,
+      }
+    )
+  }
+
+  const deleteButtons: TableButton[] = isTableActive
+    ? [
+        {
+          key: "delete-column",
+          tooltip: "Delete column",
+          disabled: !editor.can().deleteColumn(),
+          onClick: () => editor.chain().focus().deleteColumn().run(),
+          icon: <BookmarkX className="tiptap-button-icon" />,
+        },
+        {
+          key: "delete-row",
+          tooltip: "Delete row",
+          disabled: !editor.can().deleteRow(),
+          onClick: () => editor.chain().focus().deleteRow().run(),
+          icon: <DeleteIcon className="tiptap-button-icon" />,
+        },
+      ]
+    : []
+
+  return { insertButtons, deleteButtons }
+}
 
 const MainToolbarContent = ({
   onHighlighterClick,
@@ -91,6 +381,37 @@ const MainToolbarContent = ({
   features: typeof SIMPLE_EDITOR_FEATURE_FLAGS
 }) => {
   const { highlight, superSub, textAlign, images, darkMode } = features
+  const { editor } = useTiptapEditor()
+  const hasEditableEditor = !!editor && editor.isEditable
+  const isTableActive = !!editor && editor.isActive("table")
+  const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
+    if (!editor || !hasEditableEditor) {
+      return { insertButtons: [], deleteButtons: [] }
+    }
+    return getTableButtonGroups(editor, isTableActive)
+  }, [editor, hasEditableEditor, isTableActive])
+  const hasInsertButtons = tableButtonGroups.insertButtons.length > 0
+  const hasDeleteButtons = tableButtonGroups.deleteButtons.length > 0
+  const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
+
+  const renderButtonGroup = (buttons: TableButton[]) => (
+    <ButtonGroup orientation="horizontal">
+      {buttons.map((button) => (
+        <Button
+          key={button.key}
+          type="button"
+          data-style="ghost"
+          data-disabled={button.disabled}
+          disabled={button.disabled}
+          tooltip={button.tooltip}
+          aria-label={button.tooltip}
+          onClick={button.onClick}
+        >
+          {button.icon}
+        </Button>
+      ))}
+    </ButtonGroup>
+  )
   return (
     <>
       <Spacer />
@@ -153,6 +474,16 @@ const MainToolbarContent = ({
         </>
       )}
 
+      {hasInsertButtons && (
+        <>
+          <ToolbarSeparator />
+
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.insertButtons)}
+          </ToolbarGroup>
+        </>
+      )}
+
       {images && (
         <>
           <ToolbarSeparator />
@@ -165,7 +496,17 @@ const MainToolbarContent = ({
 
       <Spacer />
 
-      {isMobile && darkMode && <ToolbarSeparator />}
+      {hasDeleteButtons && (
+        <>
+          <ToolbarSeparator />
+
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.deleteButtons)}
+          </ToolbarGroup>
+        </>
+      )}
+
+      {shouldShowThemeSeparator && <ToolbarSeparator />}
 
       {darkMode && (
         <ToolbarGroup>
@@ -272,6 +613,8 @@ export function SimpleEditor({
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
+  const [isEditorFocused, setIsEditorFocused] = React.useState(false)
+  const [isToolbarFocused, setIsToolbarFocused] = React.useState(false)
   const [mobileView, setMobileView] = React.useState<
     "main" | "highlighter" | "link"
   >("main")
@@ -284,20 +627,6 @@ export function SimpleEditor({
       codeBlockStyle: "fenced",
       bulletListMarker: "-",
     })
-
-    const asElement = (node: TurndownService.Node): HTMLElement | null => {
-      if (
-        node &&
-        typeof node === "object" &&
-        "nodeType" in node &&
-        // 1 === Node.ELEMENT_NODE
-        (node as Node).nodeType === 1 &&
-        "getAttribute" in (node as Element)
-      ) {
-        return node as HTMLElement
-      }
-      return null
-    }
 
     service.addRule("codeBlockLanguage", {
       filter: (node: HTMLElement) =>
@@ -366,6 +695,8 @@ export function SimpleEditor({
         return `${prefix}${formatted}${suffix}`
       },
     })
+
+    registerMarkdownTableRules(service)
 
     return service
   }, [])
@@ -452,6 +783,12 @@ export function SimpleEditor({
         },
       }),
       HorizontalRule,
+      Table.configure({
+        resizable: false,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.textAlign
         ? [TextAlign.configure({ types: ["heading", "paragraph"] })]
         : []),
@@ -509,11 +846,27 @@ export function SimpleEditor({
       markdownRef.current = markdown
       onChange(markdown)
     },
-    onBlur: () => onBlur?.(),
-    onFocus: () => onFocus?.(),
+    onBlur: ({ event }) => {
+      const nextTarget = event?.relatedTarget
+      if (
+        nextTarget instanceof Node &&
+        toolbarRef.current?.contains(nextTarget)
+      ) {
+        setIsEditorFocused(true)
+      } else {
+        setIsEditorFocused(false)
+      }
+      onBlur?.()
+    },
+    onFocus: () => {
+      setIsEditorFocused(true)
+      onFocus?.()
+    },
   })
 
-  const shouldShowToolbar = showToolbar && editable
+  const canRenderToolbar = showToolbar && editable
+  const shouldShowToolbar =
+    canRenderToolbar && (isEditorFocused || isToolbarFocused)
 
   const rect = useCursorVisibility({
     editor,
@@ -617,12 +970,34 @@ export function SimpleEditor({
       style={wrapperStyle}
     >
       <EditorContext.Provider value={{ editor }}>
-        {shouldShowToolbar && (
+        {canRenderToolbar && (
           <Toolbar
             ref={toolbarRef}
             variant={isMobile ? "fixed" : "floating"}
             className="simple-editor-toolbar"
+            data-visible={shouldShowToolbar ? "true" : "false"}
+            aria-hidden={!shouldShowToolbar}
+            onFocusCapture={() => {
+              if (!shouldShowToolbar) return
+              setIsToolbarFocused(true)
+            }}
+            onBlurCapture={(event) => {
+              if (!shouldShowToolbar) {
+                setIsToolbarFocused(false)
+                return
+              }
+              const nextTarget = event.relatedTarget
+              if (
+                nextTarget instanceof Node &&
+                toolbarRef.current?.contains(nextTarget)
+              ) {
+                return
+              }
+              setIsToolbarFocused(false)
+            }}
             style={{
+              marginBottom: 0,
+              paddingBottom: 0,
               ...(isMobile
                 ? {
                     bottom: `calc(100% - ${height - rect.y}px)`,
