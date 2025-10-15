@@ -138,6 +138,15 @@
   background: hsl(var(--primary) / 0.15);
 }
 
+.simple-editor-content
+  .tiptap.ProseMirror.simple-editor
+  p[data-markdown-table-row="true"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  white-space: pre;
+  margin: 0;
+}
+
 .simple-editor-content .tiptap.ProseMirror.simple-editor .tableWrapper {
   margin: 0.75rem 0;
   max-width: 100%;
