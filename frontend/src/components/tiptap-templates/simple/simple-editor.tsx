@@ -12,6 +12,7 @@ import { TableRow } from "@tiptap/extension-table-row"
 import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
+import { Markdown } from "@tiptap/markdown"
 import {
   type Editor,
   EditorContent,
@@ -20,9 +21,7 @@ import {
 } from "@tiptap/react"
 // --- Tiptap Core Extensions ---
 import { StarterKit } from "@tiptap/starter-kit"
-import { marked } from "marked"
 import * as React from "react"
-import TurndownService from "turndown"
 import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/horizontal-rule-node-extension"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
@@ -49,6 +48,7 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   PanelTopOpen,
+  Table as TableIcon,
 } from "lucide-react"
 // --- Icons ---
 import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
@@ -87,188 +87,6 @@ import { cn } from "@/lib/utils"
 
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
-
-const ELEMENT_NODE = 1
-const TABLE_ALIGN_MAP = {
-  center: ":-:",
-  left: ":--",
-  right: "--:",
-} as const
-const TABLE_SECTION_TAGS = new Set(["THEAD", "TBODY", "TFOOT"])
-
-const asElement = (node: TurndownService.Node | null): HTMLElement | null => {
-  if (
-    node &&
-    typeof node === "object" &&
-    "nodeType" in node &&
-    (node as Node).nodeType === ELEMENT_NODE &&
-    "getAttribute" in (node as Element)
-  ) {
-    return node as HTMLElement
-  }
-  return null
-}
-
-const getNodeIndex = (node: Node): number => {
-  const parent = node.parentNode
-  if (!parent) {
-    return -1
-  }
-  return Array.from(parent.childNodes).indexOf(node as ChildNode)
-}
-
-const renderTableCell = (content: string, node: HTMLElement): string => {
-  const index = getNodeIndex(node)
-  const prefix = index === 0 ? "| " : " "
-  return `${prefix}${content} |`
-}
-
-const isFirstTbody = (
-  element: Node | null
-): element is HTMLTableSectionElement => {
-  if (
-    !(element instanceof HTMLTableSectionElement) ||
-    element.nodeName !== "TBODY"
-  ) {
-    return false
-  }
-
-  const previousSibling = element.previousSibling
-  if (!previousSibling) {
-    return true
-  }
-
-  return (
-    previousSibling.nodeName === "THEAD" &&
-    /^\s*$/i.test(previousSibling.textContent ?? "")
-  )
-}
-const isHeadingRow = (row: Element | null): row is HTMLTableRowElement => {
-  if (!(row instanceof HTMLTableRowElement)) {
-    return false
-  }
-
-  const parentNode = row.parentNode
-  if (!parentNode) {
-    return false
-  }
-
-  if (parentNode.nodeName === "THEAD") {
-    return true
-  }
-
-  if (
-    parentNode.firstChild === row &&
-    (parentNode.nodeName === "TABLE" || isFirstTbody(parentNode))
-  ) {
-    return Array.from(row.childNodes).every(
-      (child) =>
-        child instanceof HTMLTableCellElement && child.nodeName === "TH"
-    )
-  }
-
-  return false
-}
-
-const registerMarkdownTableRules = (service: TurndownService) => {
-  service.keep((node) => {
-    const element = asElement(node)
-    if (!element || element.nodeName !== "TABLE") {
-      return false
-    }
-
-    const table = element as HTMLTableElement
-    const firstRow = table.rows?.[0] ?? null
-    return !isHeadingRow(firstRow)
-  })
-
-  service.addRule("tableSection", {
-    filter: (node: TurndownService.Node) => {
-      const element = asElement(node)
-      return !!element && TABLE_SECTION_TAGS.has(element.nodeName)
-    },
-    replacement: (content: string) => content,
-  })
-
-  service.addRule("tableRow", {
-    filter: (node: TurndownService.Node) => {
-      const element = asElement(node)
-      return !!element && element.nodeName === "TR"
-    },
-    replacement: (content: string, node: TurndownService.Node) => {
-      const element = asElement(node)
-      if (!element) {
-        return content
-      }
-
-      let borderCells = ""
-
-      if (isHeadingRow(element)) {
-        borderCells = Array.from(element.childNodes)
-          .map((child) => {
-            if (!(child instanceof HTMLElement)) {
-              return ""
-            }
-
-            let border = "---"
-            const alignAttr =
-              child.getAttribute("align") ??
-              child.getAttribute("data-align") ??
-              child.style?.textAlign ??
-              ""
-            const alignKey = alignAttr.toLowerCase()
-            if (alignKey && alignKey in TABLE_ALIGN_MAP) {
-              border =
-                TABLE_ALIGN_MAP[alignKey as keyof typeof TABLE_ALIGN_MAP] ??
-                border
-            }
-
-            return renderTableCell(border, child)
-          })
-          .join("")
-      }
-
-      return `\n${content}${borderCells ? `\n${borderCells}` : ""}`
-    },
-  })
-
-  service.addRule("tableCell", {
-    filter: (node: TurndownService.Node) => {
-      const element = asElement(node)
-      return (
-        !!element && (element.nodeName === "TH" || element.nodeName === "TD")
-      )
-    },
-    replacement: (content: string, node: TurndownService.Node) => {
-      const element = asElement(node)
-      if (!element) {
-        return content
-      }
-
-      return renderTableCell(content, element)
-    },
-  })
-
-  service.addRule("table", {
-    filter: (node: TurndownService.Node) => {
-      const element = asElement(node)
-      if (!element || element.nodeName !== "TABLE") {
-        return false
-      }
-
-      const table = element as HTMLTableElement
-      if (!table.rows || table.rows.length === 0) {
-        return false
-      }
-
-      return isHeadingRow(table.rows[0] ?? null)
-    },
-    replacement: (content: string) => {
-      const normalized = content.replace(/\n{2,}/g, "\n")
-      return `\n\n${normalized}\n\n`
-    },
-  })
-}
 
 // Feature flags let us retain richer controls while keeping the current Markdown-only surface.
 const SIMPLE_EDITOR_FEATURE_FLAGS = {
@@ -374,6 +192,29 @@ const MainToolbarContent = ({
   const { editor } = useTiptapEditor()
   const hasEditableEditor = !!editor && editor.isEditable
   const isTableActive = !!editor && editor.isActive("table")
+  const handleInsertTable = React.useCallback(() => {
+    if (!editor || !editor.isEditable) {
+      return
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: 3, cols: 2, withHeaderRow: true })
+      .run()
+  }, [editor])
+  const canInsertTable = React.useMemo(() => {
+    if (!editor || !editor.isEditable) {
+      return false
+    }
+
+    const can = editor.can()
+    if (typeof can.insertTable !== "function") {
+      return editor.isEditable
+    }
+
+    return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
+  }, [editor])
   const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
     if (!editor || !hasEditableEditor) {
       return { insertButtons: [], deleteButtons: [] }
@@ -430,6 +271,17 @@ const MainToolbarContent = ({
         />
         <BlockquoteButton />
         <CodeBlockButton />
+        <Button
+          type="button"
+          data-style="ghost"
+          data-disabled={!canInsertTable}
+          disabled={!canInsertTable}
+          tooltip="Insert table"
+          aria-label="Insert table"
+          onClick={handleInsertTable}
+        >
+          <TableIcon className="tiptap-button-icon" />
+        </Button>
       </ToolbarGroup>
 
       <ToolbarSeparator />
@@ -622,158 +474,7 @@ export function SimpleEditor({
   >("main")
   const toolbarRef = React.useRef<HTMLDivElement>(null)
   const markdownRef = React.useRef<string>(value ?? "")
-
-  const turndownService = React.useMemo(() => {
-    const service = new TurndownService({
-      headingStyle: "atx",
-      codeBlockStyle: "fenced",
-      bulletListMarker: "-",
-    })
-
-    service.addRule("codeBlockLanguage", {
-      filter: (node: HTMLElement) =>
-        node.nodeName === "PRE" &&
-        node.firstChild instanceof HTMLElement &&
-        node.firstChild.nodeName === "CODE",
-      replacement: (content: string, node: TurndownService.Node) => {
-        if (!(node instanceof HTMLElement)) {
-          return content
-        }
-
-        const codeElement = node.firstElementChild as HTMLElement | null
-        const rawLanguage =
-          codeElement?.getAttribute("data-language") ??
-          codeElement
-            ?.getAttribute("class")
-            ?.split(" ")
-            .find((token) => token.startsWith("language-"))
-        const language = rawLanguage?.replace("language-", "") ?? ""
-        const fence = "```"
-        const contentText = codeElement?.textContent ?? content
-
-        return `\n\n${fence}${language ? ` ${language}` : ""}\n${contentText}\n${fence}\n\n`
-      },
-    })
-
-    service.addRule("taskItemLabel", {
-      filter: (node: TurndownService.Node) => {
-        const element = asElement(node)
-        return (
-          !!element &&
-          element.nodeName === "LABEL" &&
-          element.parentElement?.getAttribute("data-type") === "taskItem"
-        )
-      },
-      replacement: () => "",
-    })
-
-    service.addRule("taskItem", {
-      filter: (node: TurndownService.Node) => {
-        const element = asElement(node)
-        return (
-          !!element &&
-          element.nodeName === "LI" &&
-          element.getAttribute("data-type") === "taskItem"
-        )
-      },
-      replacement: (content: string, node: TurndownService.Node) => {
-        const element = asElement(node)
-        if (!element) {
-          return content
-        }
-
-        const isChecked = element.getAttribute("data-checked") === "true"
-        const prefix = `- [${isChecked ? "x" : " "}] `
-        const normalized = content.replace(/^\n+/, "").replace(/\n+$/, "")
-        const lines = normalized.split("\n")
-        const formatted = lines
-          .map((line, index) => {
-            if (index === 0) return line
-            if (!line.trim()) return line
-            return " ".repeat(prefix.length) + line
-          })
-          .join("\n")
-        const suffix = element.nextSibling ? "\n" : ""
-        return `${prefix}${formatted}${suffix}`
-      },
-    })
-
-    registerMarkdownTableRules(service)
-
-    return service
-  }, [])
-
-  const markedRenderer = React.useMemo(() => {
-    const renderer = new marked.Renderer()
-    const originalList = renderer.list.bind(renderer)
-    const originalListItem = renderer.listitem.bind(renderer)
-
-    let renderingTaskList = false
-
-    renderer.list = function (token) {
-      if (token.items.length === 0) {
-        return originalList(token)
-      }
-
-      const isTaskList = token.items.every((item) => item.task)
-      if (!isTaskList) {
-        return originalList(token)
-      }
-
-      const previous = renderingTaskList
-      renderingTaskList = true
-      try {
-        const body = token.items.map((item) => this.listitem(item)).join("")
-        return `<ul data-type="taskList">\n${body}</ul>\n`
-      } finally {
-        renderingTaskList = previous
-      }
-    }
-
-    renderer.listitem = function (item) {
-      if (!renderingTaskList || !item.task) {
-        return originalListItem(item)
-      }
-
-      const checkboxMarkup = `<label><input type="checkbox"${
-        item.checked ? ' checked="checked"' : ""
-      }><span></span></label>`
-      const content = this.parser.parse(item.tokens, !!item.loose)
-
-      return `<li data-type="taskItem" data-checked="${
-        item.checked ? "true" : "false"
-      }">${checkboxMarkup}<div>${content}</div></li>\n`
-    }
-
-    return renderer
-  }, [])
-
-  const toHtml = React.useCallback(
-    (markdown: string): string => {
-      const source = markdown ?? ""
-      if (!source.trim()) {
-        return ""
-      }
-      return (
-        (marked.parse(source, {
-          async: false,
-          renderer: markedRenderer,
-        }) as string) ?? ""
-      )
-    },
-    [markedRenderer]
-  )
-
-  const toMarkdown = React.useCallback(
-    (html: string): string => {
-      const source = html ?? ""
-      if (!source.trim()) {
-        return ""
-      }
-      return turndownService.turndown(source)
-    },
-    [turndownService]
-  )
+  const previousEditableRef = React.useRef(editable)
 
   const extensions = React.useMemo(
     () => [
@@ -814,6 +515,11 @@ export function SimpleEditor({
             }),
           ]
         : []),
+      Markdown.configure({
+        markedOptions: {
+          gfm: true,
+        },
+      }),
     ],
     []
   )
@@ -834,13 +540,14 @@ export function SimpleEditor({
       },
     },
     extensions,
-    content: toHtml(markdownRef.current),
+    content: markdownRef.current,
+    contentType: "markdown",
     onUpdate: ({ editor }) => {
       if (!onChange || !editor.isEditable) {
         return
       }
 
-      const markdown = toMarkdown(editor.getHTML())
+      const markdown = editor.getMarkdown()
       if (markdown === markdownRef.current) {
         return
       }
@@ -868,36 +575,53 @@ export function SimpleEditor({
 
   React.useEffect(() => {
     const nextMarkdown = value ?? ""
-    if (!editor || nextMarkdown === markdownRef.current) {
+
+    if (!editor) {
       markdownRef.current = nextMarkdown
       return
     }
 
-    const nextHtml = toHtml(nextMarkdown)
-    const currentHtml = editor.getHTML()
+    if (nextMarkdown === markdownRef.current) {
+      return
+    }
 
-    if (!nextHtml.trim()) {
-      if (!currentHtml.trim()) {
-        markdownRef.current = ""
-        return
-      }
-      markdownRef.current = ""
+    markdownRef.current = nextMarkdown
+
+    if (!nextMarkdown.trim()) {
       editor.commands.clearContent(true)
       return
     }
 
-    if (nextHtml.trim() === currentHtml.trim()) {
-      markdownRef.current = nextMarkdown
+    editor.commands.setContent(nextMarkdown, {
+      contentType: "markdown",
+      emitUpdate: false,
+    })
+  }, [editor, value])
+
+  React.useEffect(() => {
+    if (!editor) {
+      previousEditableRef.current = editable
       return
     }
 
-    editor.commands.setContent(nextHtml, { emitUpdate: false })
-    markdownRef.current = nextMarkdown
-  }, [editor, value, toHtml])
+    const wasEditable = previousEditableRef.current
+    previousEditableRef.current = editable
 
-  React.useEffect(() => {
-    if (!editor) return
     editor.setEditable(editable)
+
+    if (wasEditable && !editable) {
+      const markdown = markdownRef.current ?? ""
+
+      if (!markdown.trim()) {
+        editor.commands.clearContent(true)
+        return
+      }
+
+      editor.commands.setContent(markdown, {
+        contentType: "markdown",
+        emitUpdate: false,
+      })
+    }
   }, [editor, editable])
 
   React.useEffect(() => {
