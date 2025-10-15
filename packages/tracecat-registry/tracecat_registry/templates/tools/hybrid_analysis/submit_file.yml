@@ -1,19 +1,19 @@
 type: action
 definition:
-  title: Submit URL
-  description: Submit a URL for analysis with Hybrid Analysis.
+  title: Submit file
+  description: Submit a file to Hybrid Analysis sandbox for analysis.
   display_group: Hybrid Analysis
-  doc_url: https://hybrid-analysis.com/docs/api/v2#/Sandbox%20Submission/22e1723d4cec5c9b20d50715e4e5de8f
+  doc_url: https://hybrid-analysis.com/docs/api/v2#/Sandbox%20Submission/e306d626e3fbbe3f10982ff88251b2b7
   namespace: tools.hybrid_analysis
-  name: submit_url
+  name: submit_file
   secrets:
     - name: hybrid_analysis
       keys:
         - HYBRID_ANALYSIS_API_KEY
   expects:
-    url:
-      type: str
-      description: URL to submit for analysis.
+    file:
+      type: Base64
+      description: File to submit for analysis.
     environment_id:
       type: int
       description: |
@@ -25,18 +25,19 @@ definition:
         120 (Windows 7 64 bit);
         110 (Windows 7 32 bit HWP Support);
         100 (Windows 7 32 bit);
-      default: 160
+      default: 310
   steps:
-    - ref: submit_url
+    - ref: submit_file
       action: core.http_request
       args:
-        url: https://www.hybrid-analysis.com/api/v2/submit/url
+        url: https://www.hybrid-analysis.com/api/v2/submit/file
         method: POST
         headers:
           accept: application/json
           api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
           user-agent: Tracecat
+        files:
+          file: ${{ inputs.file }}
         form_data:
-          url: ${{ inputs.url }}
           environment_id: ${{ inputs.environment_id }}
-  returns: ${{ steps.submit_url.result.data }}
+  returns: ${{ steps.submit_file.result.data }}
