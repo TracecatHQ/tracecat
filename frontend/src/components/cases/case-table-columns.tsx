@@ -18,7 +18,6 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { TagBadge } from "@/components/tag-badge"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -104,40 +103,53 @@ export function createColumns(
       ),
       cell: ({ row }) => {
         const summary = row.getValue<CaseReadMinimal["summary"]>("summary")
-        const updatedAt = row.original.updated_at
         const tags = row.original.tags
+        const priority = row.original.priority
+        const severity = row.original.severity
 
-        let updatedBadge: ReactNode = null
-        if (updatedAt) {
-          const dt = new Date(updatedAt)
-          const shortTime = capitalizeFirst(shortTimeAgo(dt))
-          const fullDateTime = format(dt, "PPpp")
-          updatedBadge = (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="secondary"
-                  className="w-fit text-[10px] font-medium capitalize"
-                >
-                  {shortTime}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{fullDateTime}</p>
-              </TooltipContent>
-            </Tooltip>
+        const priorityProps = priority ? PRIORITIES[priority] : undefined
+        const severityProps = severity ? SEVERITIES[severity] : undefined
+
+        const metadataItems: ReactNode[] = []
+
+        if (priorityProps) {
+          metadataItems.push(
+            <CaseBadge
+              key="priority"
+              {...priorityProps}
+              className="font-medium"
+            />
           )
         }
 
+        if (severityProps) {
+          metadataItems.push(
+            <CaseBadge
+              key="severity"
+              {...severityProps}
+              className="font-medium"
+            />
+          )
+        }
+
+        if (tags?.length) {
+          tags.forEach((tag) => {
+            metadataItems.push(
+              <TagBadge
+                key={tag.id}
+                tag={tag}
+                className="font-medium"
+              />
+            )
+          })
+        }
+
         return (
-          <div className="flex max-w-[320px] flex-col gap-2 text-xs">
-            {updatedBadge}
-            <span className="truncate text-xs">{summary}</span>
-            {tags?.length ? (
-              <div className="flex flex-wrap gap-1">
-                {tags.map((tag) => (
-                  <TagBadge key={tag.id} tag={tag} />
-                ))}
+          <div className="flex max-w-[360px] flex-col gap-1.5 text-xs">
+            <span className="truncate text-xs font-medium">{summary}</span>
+            {metadataItems.length ? (
+              <div className="flex flex-wrap items-center gap-1 text-xs">
+                {metadataItems}
               </div>
             ) : null}
           </div>
@@ -160,54 +172,10 @@ export function createColumns(
           return null
         }
 
-        return <CaseBadge {...props} />
+        return <CaseBadge {...props} className="font-medium" />
       },
       filterFn: (row, id, value) => {
         return value.includes(row.getValue<CaseReadMinimal["status"]>("status"))
-      },
-    },
-    {
-      accessorKey: "priority",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Priority" />
-      ),
-      cell: ({ row }) => {
-        const priority = row.getValue<CaseReadMinimal["priority"]>("priority")
-        if (!priority) {
-          return null
-        }
-        const props = PRIORITIES[priority]
-
-        return <CaseBadge {...props} />
-      },
-      filterFn: (row, id, value) => {
-        return value.includes(
-          row.getValue<CaseReadMinimal["priority"]>("priority")
-        )
-      },
-    },
-    {
-      accessorKey: "severity",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Severity" />
-      ),
-      cell: ({ row }) => {
-        const severity = row.getValue<CaseReadMinimal["severity"]>("severity")
-        if (!severity) {
-          return null
-        }
-
-        const props = SEVERITIES[severity]
-        if (!props) {
-          return null
-        }
-
-        return <CaseBadge {...props} />
-      },
-      filterFn: (row, id, value) => {
-        return value.includes(
-          row.getValue<CaseReadMinimal["severity"]>("severity")
-        )
       },
     },
     {
@@ -236,6 +204,39 @@ export function createColumns(
       filterFn: (row, id, value) => {
         const dateStr =
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
+        return value.includes(dateStr)
+      },
+    },
+    {
+      accessorKey: "updated_at",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Updated At" />
+      ),
+      cell: ({ row }) => {
+        const updatedAt = row.getValue<CaseReadMinimal["updated_at"]>(
+          "updated_at"
+        )
+        if (!updatedAt) {
+          return <span className="text-xs text-muted-foreground">—</span>
+        }
+
+        const dt = new Date(updatedAt)
+        const shortTime = capitalizeFirst(shortTimeAgo(dt))
+        const fullDateTime = format(dt, "PPpp")
+
+        return (
+          <Tooltip>
+            <TooltipTrigger>
+              <span className="truncate text-xs">{shortTime}</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{fullDateTime}</p>
+            </TooltipContent>
+          </Tooltip>
+        )
+      },
+      filterFn: (row, id, value) => {
+        const dateStr = row.getValue<CaseReadMinimal["updated_at"]>(id)
         return value.includes(dateStr)
       },
     },
