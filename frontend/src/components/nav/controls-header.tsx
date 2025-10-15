@@ -1,14 +1,15 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { format, formatDistanceToNow } from "date-fns"
+import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
-  Calendar,
   ChevronDown,
+  ClockPlus,
   Flag,
   Flame,
   PanelRight,
+  PenLine,
   Plus,
   Trash2,
   User,
@@ -17,7 +18,7 @@ import {
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
-import type { EntityRead, OAuthGrantType } from "@/client"
+import type { CaseStatus, EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCustomField } from "@/components/cases/add-custom-field"
@@ -27,7 +28,10 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import {
+  StatusSelect,
+  UNASSIGNED,
+} from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,
@@ -96,9 +100,10 @@ import {
   useGetRunbook,
   useGetTable,
   useIntegrationProvider,
+  useUpdateCase,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
-import { cn } from "@/lib/utils"
+import { capitalizeFirst, cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface PageConfig {
@@ -111,6 +116,16 @@ interface ControlsHeaderProps {
   isChatOpen?: boolean
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
+}
+
+const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
+  new: "bg-yellow-500/[0.03] dark:bg-yellow-500/[0.08]",
+  in_progress: "bg-blue-500/[0.03] dark:bg-blue-500/[0.08]",
+  on_hold: "bg-orange-500/[0.03] dark:bg-orange-500/[0.08]",
+  resolved: "bg-green-500/[0.03] dark:bg-green-500/[0.08]",
+  closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
+  other: "bg-muted/5 dark:bg-muted/[0.12]",
+  unknown: "bg-slate-500/[0.03] dark:bg-slate-500/[0.08]",
 }
 
 function EntitiesDetailHeaderActions() {
@@ -704,7 +719,7 @@ function CaseBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
@@ -726,9 +741,11 @@ function CaseBreadcrumb({
 function CaseTimestamp({
   caseId,
   workspaceId,
+  className,
 }: {
   caseId: string
   workspaceId: string
+  className?: string
 }) {
   const { caseData } = useGetCase({ caseId, workspaceId })
 
@@ -737,24 +754,63 @@ function CaseTimestamp({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+    <div
+      className={cn(
+        "flex items-center gap-2 text-xs text-muted-foreground min-w-0",
+        className
+      )}
+    >
       <span className="hidden sm:flex items-center gap-1 min-w-0">
-        <Calendar className="h-3 w-3 flex-shrink-0" />
-        <span className="hidden lg:inline flex-shrink-0">Created</span>
+        <ClockPlus className="h-3 w-3 flex-shrink-0" />
         <span className="truncate min-w-0">
-          {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+          {capitalizeFirst(
+            formatDistanceToNow(new Date(caseData.created_at), {
+              addSuffix: true,
+            })
+          )}
         </span>
       </span>
       <span className="hidden sm:inline flex-shrink-0">•</span>
       <span className="flex items-center gap-1 min-w-0">
-        <span className="hidden sm:inline flex-shrink-0">Updated</span>
+        <PenLine className="h-3 w-3 flex-shrink-0" />
         <span className="truncate min-w-0">
-          {formatDistanceToNow(new Date(caseData.updated_at), {
-            addSuffix: true,
-          })}
+          {capitalizeFirst(
+            formatDistanceToNow(new Date(caseData.updated_at), {
+              addSuffix: true,
+            })
+          )}
         </span>
       </span>
     </div>
+  )
+}
+
+function CaseStatusControl({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+  const { updateCase } = useUpdateCase({
+    workspaceId,
+    caseId,
+  })
+
+  if (!caseData) {
+    return null
+  }
+
+  const handleStatusChange = (newStatus: CaseStatus) => {
+    const updatePromise = updateCase({ status: newStatus })
+    updatePromise.catch((error) => {
+      console.error("Failed to update case status", error)
+    })
+  }
+
+  return (
+    <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
   )
 }
 
@@ -769,7 +825,7 @@ function TableBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
@@ -809,7 +865,7 @@ function IntegrationBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/integrations`}>
@@ -841,7 +897,7 @@ function RunbookBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
@@ -871,7 +927,7 @@ function EntityBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
@@ -1066,32 +1122,61 @@ export function ControlsHeader({
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled } = useFeatureFlag()
   const runbooksEnabled = isFeatureEnabled("runbooks")
+  const pagePath = pathname
+    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+    : "/"
+  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+  const caseId = isCaseDetail ? isCaseDetail[1] : null
 
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams ?? null, {
         runbooksEnabled,
       })
     : null
+  const { caseData } = useGetCase(
+    { caseId: caseId ?? "", workspaceId },
+    { enabled: Boolean(caseId) }
+  )
 
   if (!pageConfig) {
     return null
   }
 
   // Check if this is a case detail page to show timestamp
-  const pagePath = pathname
-    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
-    : "/"
-  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+  const headerBackgroundClass = caseId
+    ? caseData?.status
+      ? CASE_STATUS_TINTS[caseData.status]
+      : "bg-muted/5 dark:bg-muted/[0.12]"
+    : "bg-background"
+
+  const titleContent =
+    typeof pageConfig.title === "string" ? (
+      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+    ) : (
+      pageConfig.title
+    )
 
   return (
-    <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+    <header
+      className={cn(
+        "flex h-10 items-center border-b px-3 overflow-hidden transition-colors",
+        headerBackgroundClass
+      )}
+    >
       {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
-        {typeof pageConfig.title === "string" ? (
-          <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+        {caseId ? (
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="min-w-0">{titleContent}</div>
+            <CaseTimestamp
+              caseId={caseId}
+              workspaceId={workspaceId}
+              className="ml-3 pl-3"
+            />
+          </div>
         ) : (
-          pageConfig.title
+          titleContent
         )}
       </div>
 
@@ -1104,11 +1189,8 @@ export function ControlsHeader({
       <div className="flex items-center gap-2 flex-shrink-0">
         {pageConfig.actions
           ? pageConfig.actions
-          : isCaseDetail && (
-              <CaseTimestamp
-                caseId={isCaseDetail[1]}
-                workspaceId={workspaceId}
-              />
+          : caseId && (
+              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (

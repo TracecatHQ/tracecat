@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: List analyses
+  description: List ANY.RUN analyses with optional status filtering.
+  display_group: ANY.RUN
+  doc_url: https://any.run/api-documentation/#tag/analysis/GET/v1/analysis/
+  namespace: tools.anyrun
+  name: list_analyses
+  secrets:
+    - name: anyrun
+      keys:
+        - ANYRUN_API_KEY
+  expects:
+    status:
+      type: str
+      description: Optional analysis status to filter by (e.g. finished, running).
+      required: false
+    limit:
+      type: int
+      description: Maximum number of analyses to return.
+      default: 50
+    offset:
+      type: int
+      description: Pagination offset.
+      default: 0
+  steps:
+    - ref: list_analyses
+      action: core.http_request
+      args:
+        url: https://api.any.run/v1/analysis
+        method: GET
+        headers:
+          Accept: application/json
+          X-API-Key: ${{ SECRETS.anyrun.ANYRUN_API_KEY }}
+        params:
+          status: ${{ inputs.status }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+  returns: ${{ steps.list_analyses.result.data }}

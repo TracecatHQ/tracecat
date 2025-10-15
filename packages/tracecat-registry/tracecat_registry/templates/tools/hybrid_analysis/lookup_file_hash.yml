@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Lookup file
+  description: Lookup a file with Hybrid Analysis.
+  display_group: Hybrid Analysis
+  doc_url: https://hybrid-analysis.com/docs/api/v2#/Analysis%20Overview/052627a17af8cc6ae5240f4684040902
+  namespace: tools.hybrid_analysis
+  name: lookup_file
+  secrets:
+    - name: hybrid_analysis
+      keys:
+        - HYBRID_ANALYSIS_API_KEY
+  expects:
+    sha256:
+      type: str
+      description: SHA256 hash of the file to lookup.
+  steps:
+    - ref: lookup_file
+      action: core.http_request
+      args:
+        url: https://www.hybrid-analysis.com/api/v2/overview/${{ inputs.sha256 }}/summary
+        method: GET
+        headers:
+          accept: application/json
+          api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
+          user-agent: Tracecat
+  returns: ${{ steps.lookup_file.result.data }}

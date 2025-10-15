@@ -768,14 +768,14 @@ function ActionPanelContent({
               <div className="flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>Inputs</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
@@ -783,7 +783,7 @@ function ActionPanelContent({
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
-                      className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                       value="template-inputs"
                     >
                       <FileTextIcon className="mr-2 size-4" />

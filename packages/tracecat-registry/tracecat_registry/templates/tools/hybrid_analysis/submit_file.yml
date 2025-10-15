@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Submit file
+  description: Submit a file to Hybrid Analysis sandbox for analysis.
+  display_group: Hybrid Analysis
+  doc_url: https://hybrid-analysis.com/docs/api/v2#/Sandbox%20Submission/e306d626e3fbbe3f10982ff88251b2b7
+  namespace: tools.hybrid_analysis
+  name: submit_file
+  secrets:
+    - name: hybrid_analysis
+      keys:
+        - HYBRID_ANALYSIS_API_KEY
+  expects:
+    file:
+      type: str
+      description: File to submit for analysis.
+    environment_id:
+      type: int
+      description: |
+        400 (Mac Catalina 64 bit x86);
+        310 (Linux (Ubuntu 20.04, 64 bit));
+        200 (Android Static Analysis);
+        160 (Windows 10 64 bit);
+        140 (Windows 11 64 bit);
+        120 (Windows 7 64 bit);
+        110 (Windows 7 32 bit HWP Support);
+        100 (Windows 7 32 bit);
+      default: 310
+  steps:
+    - ref: submit_file
+      action: core.http_request
+      args:
+        url: https://www.hybrid-analysis.com/api/v2/submit/file
+        method: POST
+        headers:
+          accept: application/json
+          api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
+          user-agent: Tracecat
+        files:
+          file: ${{ inputs.file }}
+        form_data:
+          environment_id: ${{ inputs.environment_id }}
+  returns: ${{ steps.submit_file.result.data }}

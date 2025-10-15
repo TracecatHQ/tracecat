@@ -100,7 +100,7 @@ export function CommentSection({
 
             return (
               <div key={comment.id} className="group">
-                <div className="rounded-lg border border-border/50 py-3 px-4 hover:bg-accent/30 transition-colors">
+                <div className="rounded-lg border border-border/40 bg-background py-3 px-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
                   {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
                   <div className="space-y-1">
                     {/* Row 1 */}
@@ -238,7 +238,7 @@ function CommentTextBox({
   return (
     <div className="flex w-full items-end gap-2">
       {/* Match styling of ChatInput */}
-      <div className="relative flex w-full gap-2 rounded-md border border-border px-4 transition-colors hover:border-muted-foreground/40">
+      <div className="relative flex w-full gap-2 rounded-md border border-border/40 bg-background px-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleCommentSubmit)}

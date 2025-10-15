@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Submit analysis
+  description: Create an ANY.RUN analysis task for a file hash, URL, or file reference.
+  display_group: ANY.RUN
+  doc_url: https://any.run/api-documentation/#tag/analysis/POST/v1/analysis/
+  namespace: tools.anyrun
+  name: submit_analysis
+  secrets:
+    - name: anyrun
+      keys:
+        - ANYRUN_API_KEY
+  expects:
+    object_type:
+      type: str
+      description: Type of object to analyze (url, hash, or file).
+      enum: [url, hash, file]
+      default: url
+    object_value:
+      type: str
+      description: Value of the object to analyze (URL, hash, or file UUID).
+    platform:
+      type: str
+      description: Execution environment to use (e.g. win10).
+      default: win10
+    interactive:
+      type: bool
+      description: Whether to run the analysis in interactive mode.
+      default: false
+  steps:
+    - ref: submit_analysis
+      action: core.http_request
+      args:
+        url: https://api.any.run/v1/analysis
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          X-API-Key: ${{ SECRETS.anyrun.ANYRUN_API_KEY }}
+        payload:
+          object_type: ${{ inputs.object_type }}
+          object: ${{ inputs.object_value }}
+          platform: ${{ inputs.platform }}
+          interactive: ${{ inputs.interactive }}
+  returns: ${{ steps.submit_analysis.result.data }}

@@ -146,6 +146,18 @@ importers:
       '@tiptap/extension-superscript':
         specifier: ^3.6.6
         version: 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)
+      '@tiptap/extension-table':
+        specifier: 3.6.6
+        version: 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)
+      '@tiptap/extension-table-cell':
+        specifier: 3.6.6
+        version: 3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))
+      '@tiptap/extension-table-header':
+        specifier: 3.6.6
+        version: 3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))
+      '@tiptap/extension-table-row':
+        specifier: 3.6.6
+        version: 3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))
       '@tiptap/extension-text-align':
         specifier: ^3.6.6
         version: 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))
@@ -2612,6 +2624,27 @@ packages:
 
   '@tiptap/extension-superscript@3.6.6':
     resolution: {integrity: sha512-HHjwp2xuTE2YpSfPeS11tTDe3Eb/D6CbGBCXrwGLZw/LPFwHrbnBYIsxxbc5kLvRSXOQYqhF/E0zHedtJHYvsg==}
+    peerDependencies:
+      '@tiptap/core': ^3.6.6
+      '@tiptap/pm': ^3.6.6
+
+  '@tiptap/extension-table-cell@3.6.6':
+    resolution: {integrity: sha512-7EPTu11VTLYPIDVPmDPklK/RV2krcr2AoEFiyj+MRweC0AIdUcJqQWKSaVbfRpWisY2AsndeqzCZDXYW+B59gg==}
+    peerDependencies:
+      '@tiptap/extension-table': ^3.6.6
+
+  '@tiptap/extension-table-header@3.6.6':
+    resolution: {integrity: sha512-jCBiYoncmIO4hiceMExx4jDMfucEZszz5Z1pwtio4b/y2o9e70DzznCsfRKzeN6S2mqHN7J4+I0IBlZHwX1NLg==}
+    peerDependencies:
+      '@tiptap/extension-table': ^3.6.6
+
+  '@tiptap/extension-table-row@3.6.6':
+    resolution: {integrity: sha512-JIInYx/jc42swW9O7DWYcmxT9lOBq94KePT8bAy4IBeiwOwoDRpSwRDITNWQuT0ySxAy1F0MMO5n6Bm5DB7+CQ==}
+    peerDependencies:
+      '@tiptap/extension-table': ^3.6.6
+
+  '@tiptap/extension-table@3.6.6':
+    resolution: {integrity: sha512-kPplbVCL5X+eSXjE5rDwmO+N7Fi20EuLs3JeKopHKJtcRWRdS5bTibRueew3p6GRSbMmtHuaBy/XJVF4xBccKA==}
     peerDependencies:
       '@tiptap/core': ^3.6.6
       '@tiptap/pm': ^3.6.6
@@ -8326,6 +8359,23 @@ snapshots:
       '@tiptap/pm': 3.6.6
 
   '@tiptap/extension-superscript@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)':
+    dependencies:
+      '@tiptap/core': 3.6.6(@tiptap/pm@3.6.6)
+      '@tiptap/pm': 3.6.6
+
+  '@tiptap/extension-table-cell@3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))':
+    dependencies:
+      '@tiptap/extension-table': 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)
+
+  '@tiptap/extension-table-header@3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))':
+    dependencies:
+      '@tiptap/extension-table': 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)
+
+  '@tiptap/extension-table-row@3.6.6(@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6))':
+    dependencies:
+      '@tiptap/extension-table': 3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)
+
+  '@tiptap/extension-table@3.6.6(@tiptap/core@3.6.6(@tiptap/pm@3.6.6))(@tiptap/pm@3.6.6)':
     dependencies:
       '@tiptap/core': 3.6.6(@tiptap/pm@3.6.6)
       '@tiptap/pm': 3.6.6
