@@ -12,7 +12,7 @@ definition:
         - HYBRID_ANALYSIS_API_KEY
   expects:
     file:
-      type: Base64
+      type: str
       description: File to submit for analysis.
     environment_id:
       type: int
