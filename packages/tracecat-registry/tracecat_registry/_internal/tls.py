@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import tempfile
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from _typeshed import SupportsClose
+
+class _SupportsClose(Protocol):
+    def close(self) -> None: ...
 
 
 class TemporaryClientCertificate:
@@ -22,7 +23,7 @@ class TemporaryClientCertificate:
         self.client_cert_str = client_cert_str
         self.client_key_str = client_key_str
         self.client_key_password = client_key_password
-        self._temp_files: list[SupportsClose] = []
+        self._temp_files: list[_SupportsClose] = []
 
     def __enter__(
         self,
