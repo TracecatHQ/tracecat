@@ -305,14 +305,20 @@ export function AssignedUser({
   const displayName = user.getDisplayName()
   return (
     <div
-      className={cn("flex items-center gap-1.5 text-xs leading-4", className)}
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-xs leading-4",
+        className
+      )}
     >
       <UserAvatar
         alt={displayName}
         user={user}
-        className="size-4 text-[11px] text-foreground"
+        className="size-4 text-foreground"
+        fallbackClassName="text-[10px]"
       />
-      <span className="text-xs">{displayName}</span>
+      <span className="truncate text-xs" title={displayName}>
+        {displayName}
+      </span>
     </div>
   )
 }

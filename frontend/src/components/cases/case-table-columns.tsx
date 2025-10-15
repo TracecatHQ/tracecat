@@ -40,18 +40,21 @@ export function createColumns(
     {
       id: "select",
       header: ({ table }) => (
-        <Checkbox
-          className="border-foreground/50"
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
+        <div className="flex w-full justify-center">
+          <Checkbox
+            className="border-foreground/50"
+            checked={
+              table.getIsAllPageRowsSelected() ||
+              (table.getIsSomePageRowsSelected() && "indeterminate")
+            }
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        </div>
       ),
       cell: ({ row }) => (
         <div
+          className="flex w-full justify-center"
           onClick={(e) => {
             e.stopPropagation()
             e.preventDefault()
@@ -67,6 +70,10 @@ export function createColumns(
       ),
       enableSorting: false,
       enableHiding: false,
+      meta: {
+        headerClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+        cellClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+      },
     },
 
     {
@@ -78,12 +85,15 @@ export function createColumns(
         const assignee = row.original.assignee
 
         return (
-          <div className="flex w-[120px] flex-col gap-1 text-xs">
-            <span className="truncate font-medium">
+          <div className="flex w-[148px] min-w-[148px] max-w-[148px] flex-col gap-[0.4rem] text-xs">
+            <span className="truncate text-xs font-medium text-muted-foreground">
               {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
             </span>
             {assignee ? (
-              <AssignedUser user={new User(assignee)} className="text-xs" />
+              <AssignedUser
+                user={new User(assignee)}
+                className="text-xs"
+              />
             ) : (
               <NoAssignee text="Not assigned" className="text-xs" />
             )}
@@ -94,6 +104,14 @@ export function createColumns(
       enableHiding: false,
       filterFn: (row, id, value) => {
         return value.includes(row.getValue<CaseReadMinimal["short_id"]>(id))
+      },
+      meta: {
+        headerClassName:
+          "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        cellClassName:
+          "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        headerStyle: { width: "148px" },
+        cellStyle: { width: "148px" },
       },
     },
     {
@@ -145,7 +163,7 @@ export function createColumns(
         }
 
         return (
-          <div className="flex max-w-[360px] flex-col gap-1.5 text-xs">
+          <div className="flex min-w-[24rem] flex-1 flex-col gap-[0.45rem] text-xs">
             <span className="truncate text-xs font-medium">{summary}</span>
             {metadataItems.length ? (
               <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -159,11 +177,20 @@ export function createColumns(
         const rowValue = String(row.getValue<CaseReadMinimal["summary"]>(id))
         return fuzzysort.single(String(value), rowValue) !== null
       },
+      meta: {
+        headerClassName: "min-w-[24rem] max-w-none text-left",
+        cellClassName: "min-w-[24rem] max-w-none text-left",
+      },
     },
     {
       accessorKey: "status",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Status" />
+        <DataTableColumnHeader
+          column={column}
+          title="Status"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
         const status = row.getValue<CaseReadMinimal["status"]>("status")
@@ -172,16 +199,33 @@ export function createColumns(
           return null
         }
 
-        return <CaseBadge {...props} className="font-medium" />
+        return (
+          <div className="flex w-full justify-end">
+            <CaseBadge {...props} className="font-medium" />
+          </div>
+        )
       },
       filterFn: (row, id, value) => {
         return value.includes(row.getValue<CaseReadMinimal["status"]>("status"))
+      },
+      meta: {
+        headerClassName:
+          "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
+        cellClassName:
+          "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
+        headerStyle: { width: "136px" },
+        cellStyle: { width: "136px" },
       },
     },
     {
       accessorKey: "created_at",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Created At" />
+        <DataTableColumnHeader
+          column={column}
+          title="Created"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
         const dt = new Date(
@@ -192,8 +236,10 @@ export function createColumns(
 
         return (
           <Tooltip>
-            <TooltipTrigger>
-              <span className="truncate text-xs">{shortTime}</span>
+            <TooltipTrigger className="flex w-full justify-end">
+              <span className="block truncate text-right text-xs">
+                {shortTime}
+              </span>
             </TooltipTrigger>
             <TooltipContent>
               <p>{fullDateTime}</p>
@@ -206,11 +252,24 @@ export function createColumns(
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
         return value.includes(dateStr)
       },
+      meta: {
+        headerClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] justify-end px-0 text-right",
+        cellClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] px-0 pl-2 text-right",
+        headerStyle: { width: "96px" },
+        cellStyle: { width: "96px" },
+      },
     },
     {
       accessorKey: "updated_at",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Updated At" />
+        <DataTableColumnHeader
+          column={column}
+          title="Updated"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
         const updatedAt = row.getValue<CaseReadMinimal["updated_at"]>(
@@ -226,8 +285,10 @@ export function createColumns(
 
         return (
           <Tooltip>
-            <TooltipTrigger>
-              <span className="truncate text-xs">{shortTime}</span>
+            <TooltipTrigger className="flex w-full justify-end">
+              <span className="block truncate text-right text-xs">
+                {shortTime}
+              </span>
             </TooltipTrigger>
             <TooltipContent>
               <p>{fullDateTime}</p>
@@ -238,6 +299,14 @@ export function createColumns(
       filterFn: (row, id, value) => {
         const dateStr = row.getValue<CaseReadMinimal["updated_at"]>(id)
         return value.includes(dateStr)
+      },
+      meta: {
+        headerClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] justify-end px-0 text-right",
+        cellClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] px-0 pl-2 text-right",
+        headerStyle: { width: "96px" },
+        cellStyle: { width: "96px" },
       },
     },
     {
@@ -271,6 +340,14 @@ export function createColumns(
             </DropdownMenuContent>
           </DropdownMenu>
         )
+      },
+      meta: {
+        headerClassName:
+          "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        cellClassName:
+          "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        headerStyle: { width: "56px" },
+        cellStyle: { width: "56px" },
       },
     },
   ]
