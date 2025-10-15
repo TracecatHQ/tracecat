@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useWorkspaceManager } from "@/lib/hooks"
 import { useAuth } from "@/hooks/use-auth"
+import { useWorkspaceManager } from "@/lib/hooks"
 import { getDefaultWorkspacePreference } from "@/lib/user-settings"
 
 export default function WorkspacesPage() {

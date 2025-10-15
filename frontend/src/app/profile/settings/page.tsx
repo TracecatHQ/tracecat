@@ -33,7 +33,9 @@ export default function ProfileSettingsPage() {
 
   const initialDefaultWorkspace = useMemo(() => {
     if (defaultWorkspacePreference.strategy === "specific") {
-      return defaultWorkspacePreference.workspaceId ?? LAST_VIEWED_WORKSPACE_OPTION
+      return (
+        defaultWorkspacePreference.workspaceId ?? LAST_VIEWED_WORKSPACE_OPTION
+      )
     }
     return LAST_VIEWED_WORKSPACE_OPTION
   }, [defaultWorkspacePreference])
@@ -50,9 +52,7 @@ export default function ProfileSettingsPage() {
     if (
       selectedDefaultWorkspace !== LAST_VIEWED_WORKSPACE_OPTION &&
       workspaces &&
-      !workspaces.some(
-        (workspace) => workspace.id === selectedDefaultWorkspace
-      )
+      !workspaces.some((workspace) => workspace.id === selectedDefaultWorkspace)
     ) {
       setSelectedDefaultWorkspace(LAST_VIEWED_WORKSPACE_OPTION)
     }
@@ -66,9 +66,7 @@ export default function ProfileSettingsPage() {
     !workspaces.some((workspace) => workspace.id === selectedDefaultWorkspace)
 
   const isSavingDisabled =
-    !hasChanges ||
-    updateCurrentUserPending ||
-    selectedWorkspaceUnavailable
+    !hasChanges || updateCurrentUserPending || selectedWorkspaceUnavailable
 
   const handleSave = async () => {
     if (!user || !hasChanges || selectedWorkspaceUnavailable) {
@@ -159,10 +157,7 @@ export default function ProfileSettingsPage() {
                       Last viewed workspace
                     </SelectItem>
                     {selectedWorkspaceUnavailable && (
-                      <SelectItem
-                        value={selectedDefaultWorkspace}
-                        disabled
-                      >
+                      <SelectItem value={selectedDefaultWorkspace} disabled>
                         Workspace unavailable
                       </SelectItem>
                     )}

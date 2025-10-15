@@ -79,7 +79,10 @@ export function withDefaultWorkspacePreference(
           strategy: "last_viewed",
         }
 
-  if ("default_workspace_id" in nextSettings && preference.strategy === "last_viewed") {
+  if (
+    "default_workspace_id" in nextSettings &&
+    preference.strategy === "last_viewed"
+  ) {
     delete nextSettings.default_workspace_id
   }
 
