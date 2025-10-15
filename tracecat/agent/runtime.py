@@ -12,6 +12,7 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.factory import build_agent
 from tracecat.agent.models import (
     AgentConfig,
     AgentOutput,
@@ -159,7 +160,11 @@ async def run_agent(
     deps = await PersistableStreamingAgentDeps.new(
         session_id, role.workspace_id, persistent=False
     )
-    executor = AioStreamingAgentExecutor(deps=deps, role=role)
+    executor = AioStreamingAgentExecutor(
+        deps=deps,
+        role=role,
+        factory=lambda config: build_agent(config, http_client=http_client),
+    )
     try:
         args = RunAgentArgs(
             user_prompt=user_prompt,
@@ -168,7 +173,6 @@ async def run_agent(
                 model_name=model_name,
                 model_provider=model_provider,
                 base_url=base_url,
-                http_client=http_client,
                 instructions=instructions,
                 output_type=output_type,
                 model_settings=model_settings,

@@ -291,8 +291,8 @@ async def action(
                 model_settings=model_settings,
                 retries=retries,
                 base_url=base_url,
-                http_client=http_client,
-            )
+            ),
+            http_client=http_client,
         )
         result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
         return result

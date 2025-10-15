@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import httpx
 from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
@@ -45,7 +46,9 @@ def _parse_output_type(output_type: OutputType) -> type[Any]:
         return str
 
 
-async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
+async def build_agent(
+    config: AgentConfig, http_client: httpx.AsyncClient | None = None
+) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
     agent_tools: list[Tool[Any | None]] = []
@@ -85,7 +88,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         config.model_name,
         config.model_provider,
         config.base_url,
-        http_client=config.http_client,
+        http_client=http_client,
     )
     agent = Agent(
         model=model,

@@ -3,9 +3,16 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
-import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass
 from pydantic_ai import RunUsage
@@ -24,6 +31,7 @@ class MessageStore(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
     message_store: MessageStore | None = None
@@ -41,7 +49,6 @@ class AgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
-    http_client: httpx.AsyncClient | None = None
     # Agent
     instructions: str | None = None
     output_type: OutputType | None = None
