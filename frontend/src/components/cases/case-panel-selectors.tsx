@@ -278,13 +278,7 @@ export function NoAssignee({
 }) {
   const baseClass = "flex items-center gap-1.5 text-xs leading-4"
   return (
-    <div
-      className={cn(
-        baseClass,
-        "text-muted-foreground",
-        className
-      )}
-    >
+    <div className={cn(baseClass, "text-muted-foreground", className)}>
       <div className="flex size-4 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
         <UserIcon className="size-3 text-muted-foreground" />
       </div>

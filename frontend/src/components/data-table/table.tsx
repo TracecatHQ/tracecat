@@ -204,8 +204,9 @@ export function DataTable<TData, TValue>({
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
-                    const columnMeta = header.column
-                      .columnDef.meta as ColumnMeta | undefined
+                    const columnMeta = header.column.columnDef.meta as
+                      | ColumnMeta
+                      | undefined
 
                     return (
                       <AuxClickMenu

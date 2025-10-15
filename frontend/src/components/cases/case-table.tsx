@@ -118,9 +118,15 @@ const loadFiltersFromStorage = (key: string): StoredFilters | null => {
           : DEFAULT_FILTERS.searchTerm,
       statusFilter: ensureEnumArray(parsed.statusFilter, STATUS_VALUE_SET),
       statusMode: ensureFilterMode(parsed.statusMode),
-      priorityFilter: ensureEnumArray(parsed.priorityFilter, PRIORITY_VALUE_SET),
+      priorityFilter: ensureEnumArray(
+        parsed.priorityFilter,
+        PRIORITY_VALUE_SET
+      ),
       priorityMode: ensureFilterMode(parsed.priorityMode),
-      severityFilter: ensureEnumArray(parsed.severityFilter, SEVERITY_VALUE_SET),
+      severityFilter: ensureEnumArray(
+        parsed.severityFilter,
+        SEVERITY_VALUE_SET
+      ),
       severityMode: ensureFilterMode(parsed.severityMode),
       assigneeFilter: ensureStringArray(parsed.assigneeFilter),
       assigneeMode: ensureFilterMode(parsed.assigneeMode),

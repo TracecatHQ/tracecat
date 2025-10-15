@@ -111,7 +111,9 @@ function FilterMultiSelect<T extends string>({
                 size="sm"
                 variant={mode === option ? "secondary" : "ghost"}
                 className="h-7 px-2 text-xs"
-                aria-label={option === "include" ? "Include filters" : "Exclude filters"}
+                aria-label={
+                  option === "include" ? "Include filters" : "Exclude filters"
+                }
                 onClick={() => onModeChange(option)}
               >
                 {option === "include" ? (

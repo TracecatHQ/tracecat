@@ -47,7 +47,9 @@ export function createColumns(
               table.getIsAllPageRowsSelected() ||
               (table.getIsSomePageRowsSelected() && "indeterminate")
             }
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            onCheckedChange={(value) =>
+              table.toggleAllPageRowsSelected(!!value)
+            }
             aria-label="Select all"
           />
         </div>
@@ -90,10 +92,7 @@ export function createColumns(
               {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
             </span>
             {assignee ? (
-              <AssignedUser
-                user={new User(assignee)}
-                className="text-xs"
-              />
+              <AssignedUser user={new User(assignee)} className="text-xs" />
             ) : (
               <NoAssignee text="Not assigned" className="text-xs" />
             )}
@@ -106,10 +105,8 @@ export function createColumns(
         return value.includes(row.getValue<CaseReadMinimal["short_id"]>(id))
       },
       meta: {
-        headerClassName:
-          "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
-        cellClassName:
-          "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        headerClassName: "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        cellClassName: "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
         headerStyle: { width: "148px" },
         cellStyle: { width: "148px" },
       },
@@ -153,11 +150,7 @@ export function createColumns(
         if (tags?.length) {
           tags.forEach((tag) => {
             metadataItems.push(
-              <TagBadge
-                key={tag.id}
-                tag={tag}
-                className="font-medium"
-              />
+              <TagBadge key={tag.id} tag={tag} className="font-medium" />
             )
           })
         }
@@ -211,8 +204,7 @@ export function createColumns(
       meta: {
         headerClassName:
           "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
-        cellClassName:
-          "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
+        cellClassName: "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
         headerStyle: { width: "136px" },
         cellStyle: { width: "136px" },
       },
@@ -272,9 +264,8 @@ export function createColumns(
         />
       ),
       cell: ({ row }) => {
-        const updatedAt = row.getValue<CaseReadMinimal["updated_at"]>(
-          "updated_at"
-        )
+        const updatedAt =
+          row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
         if (!updatedAt) {
           return <span className="text-xs text-muted-foreground">—</span>
         }
@@ -342,10 +333,8 @@ export function createColumns(
         )
       },
       meta: {
-        headerClassName:
-          "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
-        cellClassName:
-          "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        headerClassName: "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        cellClassName: "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
         headerStyle: { width: "56px" },
         cellStyle: { width: "56px" },
       },

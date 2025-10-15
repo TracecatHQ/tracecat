@@ -43,10 +43,7 @@ export function DataTableColumnHeader<TData, TValue>({
     buttonClassName ?? "-ml-3 h-8 data-[state=open]:bg-accent"
 
   return (
-    <div
-      className={cn("flex items-center space-x-2", className)}
-      {...props}
-    >
+    <div className={cn("flex items-center space-x-2", className)} {...props}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
