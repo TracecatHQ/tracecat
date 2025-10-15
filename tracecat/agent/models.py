@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 import httpx
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
@@ -54,6 +54,8 @@ class AgentConfig:
 
 
 class RunAgentArgs(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     user_prompt: str
     """User prompt for the agent."""
     session_id: uuid.UUID
