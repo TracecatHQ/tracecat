@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from typing import Protocol
 
@@ -23,7 +24,7 @@ class TemporaryClientCertificate:
         self.client_cert_str = client_cert_str
         self.client_key_str = client_key_str
         self.client_key_password = client_key_password
-        self._temp_files: list[_SupportsClose] = []
+        self._temp_files: list[tuple[_SupportsClose, str]] = []
 
     def __enter__(
         self,
@@ -33,18 +34,18 @@ class TemporaryClientCertificate:
 
         if self.client_cert_str:
             cert_file = tempfile.NamedTemporaryFile(
-                mode="w", delete=True, encoding="utf-8"
+                mode="w", delete=False, encoding="utf-8"
             )
-            self._temp_files.append(cert_file)
+            self._temp_files.append((cert_file, cert_file.name))
             cert_file.write(self.client_cert_str)
             cert_file.flush()
             cert_path = cert_file.name
 
         if self.client_key_str:
             key_file = tempfile.NamedTemporaryFile(
-                mode="w", delete=True, encoding="utf-8"
+                mode="w", delete=False, encoding="utf-8"
             )
-            self._temp_files.append(key_file)
+            self._temp_files.append((key_file, key_file.name))
             key_file.write(self.client_key_str)
             key_file.flush()
             key_path = key_file.name
@@ -58,6 +59,10 @@ class TemporaryClientCertificate:
         return None
 
     def __exit__(self, *args: object) -> None:
-        for temp_file in self._temp_files:
+        for temp_file, path in self._temp_files:
             temp_file.close()
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
         self._temp_files.clear()
