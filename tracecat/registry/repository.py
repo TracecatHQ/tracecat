@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 from pydantic import (
     BaseModel,
@@ -760,22 +760,60 @@ def import_and_reload(module_name: str) -> ModuleType:
             # Skip reload on first import
             loaded_module = importlib.import_module(module_name)
         else:
-            # Reload in-place to refresh definitions without dropping parent package
-            loaded_module = importlib.reload(module)
+            spec = getattr(module, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec is not None else None
+            if loader is None:
+                # Without a loader importlib.reload will raise ModuleNotFoundError;
+                # fall back to a best-effort fresh import and keep the existing module.
+                loaded_module = importlib.import_module(module_name)
+            else:
+                # Reload in-place to refresh definitions without dropping parent package
+                loaded_module = importlib.reload(module)
         sys.modules[module_name] = loaded_module
         return loaded_module
 
 
-def attach_validators(func: F, *validators: Any):
-    sig = inspect.signature(func)
+def _annotated_with_validators(annotation: Any, validators: tuple[Any, ...]) -> Any:
+    """Return an Annotated type that includes the provided validators once each."""
 
-    new_annotations = {
-        name: Annotated[param.annotation, *validators]
-        for name, param in sig.parameters.items()
-    }
+    if annotation is inspect._empty:
+        base = Any
+        metadata: list[Any] = []
+    else:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            args = get_args(annotation)
+            base = args[0]
+            metadata = list(args[1:])
+        else:
+            base = annotation
+            metadata = []
+
+    for validator in validators:
+        if any(isinstance(meta, validator.__class__) for meta in metadata):
+            continue
+        metadata.append(validator)
+
+    if metadata:
+        return Annotated[base, *metadata]
+    return base
+
+
+def attach_validators(func: F, *validators: Any):
+    if not validators:
+        return
+
+    sig = inspect.signature(func)
+    annotations = dict(func.__annotations__)
+
+    for name, param in sig.parameters.items():
+        current = annotations.get(name, param.annotation)
+        annotations[name] = _annotated_with_validators(current, validators)
+
     if sig.return_annotation is not sig.empty:
-        new_annotations["return"] = sig.return_annotation
-    func.__annotations__ = new_annotations
+        annotations.setdefault("return", sig.return_annotation)
+
+    func.__annotations__ = annotations
 
 
 def generate_model_from_function(
