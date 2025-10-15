@@ -1,4 +1,5 @@
 import orjson
+import httpx
 from google.oauth2 import service_account
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -15,7 +16,11 @@ from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
 
 def get_model(
-    model_name: str, model_provider: str, base_url: str | None = None
+    model_name: str,
+    model_provider: str,
+    base_url: str | None = None,
+    *,
+    http_client: httpx.AsyncClient | None = None,
 ) -> Model:
     """Get a pydantic-ai Model instance for the specified provider and model.
 
@@ -40,36 +45,63 @@ def get_model(
                 "CUSTOM_MODEL_PROVIDER_MODEL_NAME", model_name
             )
 
+            provider_kwargs = {}
+            if http_client is not None:
+                provider_kwargs["http_client"] = http_client
+
             model = OpenAIChatModel(
                 model_name=effective_model_name,
                 provider=OpenAIProvider(
                     base_url=effective_base_url,
                     api_key=secrets.get_or_default("CUSTOM_MODEL_PROVIDER_API_KEY"),
+                    **provider_kwargs,
                 ),
             )
         case "openai":
+            provider_kwargs = {}
+            if http_client is not None:
+                provider_kwargs["http_client"] = http_client
+
             model = OpenAIChatModel(
                 model_name=model_name,
                 provider=OpenAIProvider(
-                    base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
+                    base_url=base_url,
+                    api_key=secrets.get("OPENAI_API_KEY"),
+                    **provider_kwargs,
                 ),
             )
         case "ollama":
+            provider_kwargs = {}
+            if http_client is not None:
+                provider_kwargs["http_client"] = http_client
+
             model = OpenAIChatModel(
                 model_name=model_name,
-                provider=OllamaProvider(base_url=base_url),
+                provider=OllamaProvider(base_url=base_url, **provider_kwargs),
             )
         case "openai_responses":
+            provider_kwargs = {}
+            if http_client is not None:
+                provider_kwargs["http_client"] = http_client
+
             model = OpenAIResponsesModel(
                 model_name=model_name,
                 provider=OpenAIProvider(
-                    base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
+                    base_url=base_url,
+                    api_key=secrets.get("OPENAI_API_KEY"),
+                    **provider_kwargs,
                 ),
             )
         case "anthropic":
+            provider_kwargs = {}
+            if http_client is not None:
+                provider_kwargs["http_client"] = http_client
+
             model = AnthropicModel(
                 model_name=model_name,
-                provider=AnthropicProvider(api_key=secrets.get("ANTHROPIC_API_KEY")),
+                provider=AnthropicProvider(
+                    api_key=secrets.get("ANTHROPIC_API_KEY"), **provider_kwargs
+                ),
             )
         case "gemini":
             model = GoogleModel(

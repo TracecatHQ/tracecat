@@ -4,6 +4,7 @@ import uuid
 from timeit import default_timer
 from typing import Any
 
+import httpx
 from langfuse import observe
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelMessage
@@ -74,6 +75,7 @@ async def run_agent(
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -103,6 +105,7 @@ async def run_agent(
         max_requests: Maximum number of requests to make per agent run (default: 20).
         retries: Maximum number of retry attempts for agent execution (default: 3).
         base_url: Optional custom base URL for the model provider's API.
+        http_client: Optional pre-configured HTTP client to use for model requests.
         stream_id: Optional identifier for Redis streaming of execution events.
                   If provided, execution steps will be streamed to Redis.
 
@@ -165,6 +168,7 @@ async def run_agent(
                 model_name=model_name,
                 model_provider=model_provider,
                 base_url=base_url,
+                http_client=http_client,
                 instructions=instructions,
                 output_type=output_type,
                 model_settings=model_settings,

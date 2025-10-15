@@ -81,7 +81,12 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         )
         toolsets = [mcp_server]
 
-    model = get_model(config.model_name, config.model_provider, config.base_url)
+    model = get_model(
+        config.model_name,
+        config.model_provider,
+        config.base_url,
+        http_client=config.http_client,
+    )
     agent = Agent(
         model=model,
         instructions=instructions,

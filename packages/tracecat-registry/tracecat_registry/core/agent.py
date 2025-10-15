@@ -1,7 +1,12 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from typing import Annotated, Any
-from tracecat_registry import registry, RegistrySecret
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any, TypeVar
+
+import httpx
+
+from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.tls import TemporaryClientCertificate
 from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
@@ -9,6 +14,29 @@ from tracecat.agent.factory import build_agent
 
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
+
+T = TypeVar("T")
+
+
+async def _with_optional_tls_client(
+    callback: Callable[[httpx.AsyncClient | None], Awaitable[T]],
+) -> T:
+    """Execute a coroutine with an optional TLS-configured HTTP client."""
+
+    client_cert_str = secrets.get_or_default("SSL_CLIENT_CERT")
+    client_key_str = secrets.get_or_default("SSL_CLIENT_KEY")
+    client_key_password = secrets.get_or_default("SSL_CLIENT_PASSWORD")
+
+    with TemporaryClientCertificate(
+        client_cert_str=client_cert_str,
+        client_key_str=client_key_str,
+        client_key_password=client_key_password,
+    ) as cert_for_httpx:
+        if cert_for_httpx:
+            async with httpx.AsyncClient(cert=cert_for_httpx) as http_client:
+                return await callback(http_client)
+        return await callback(None)
+
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -111,6 +139,27 @@ custom_model_provider_secret = RegistrySecret(
     - `CUSTOM_MODEL_PROVIDER_BASE_URL`: Optional custom model provider base URL.
 """
 
+ssl_secret = RegistrySecret(
+    name="ssl",
+    optional_keys=["SSL_CLIENT_CERT", "SSL_CLIENT_KEY", "SSL_CLIENT_PASSWORD"],
+    optional=True,
+)
+"""AI TLS certificate configuration.
+
+By default, AI actions rely on the platform CA bundle. This optional secret
+allows providing a client certificate pair for providers that require mutual
+TLS or custom gateways.
+
+- name: `ssl`
+- optional keys:
+    - `SSL_CLIENT_CERT`
+    - `SSL_CLIENT_KEY`
+    - `SSL_CLIENT_PASSWORD`
+
+Note: `SSL_CLIENT_CERT` and `SSL_CLIENT_KEY` should contain the PEM encoded
+certificate and key respectively. `SSL_CLIENT_PASSWORD` is optional.
+"""
+
 langfuse_secret = RegistrySecret(
     name="langfuse",
     optional_keys=[
@@ -135,6 +184,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     gemini_secret,
     bedrock_secret,
     custom_model_provider_secret,
+    ssl_secret,
 ]
 
 
@@ -178,19 +228,24 @@ async def agent(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
-    output = await run_agent(
-        user_prompt=user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=actions,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        max_tool_calls=max_tool_calls,
-        max_requests=max_requests,
-        base_url=base_url,
-        retries=retries,
-    )
+    async def _run(http_client: httpx.AsyncClient | None):
+        output = await run_agent(
+            user_prompt=user_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+            actions=actions,
+            instructions=instructions,
+            output_type=output_type,
+            model_settings=model_settings,
+            max_tool_calls=max_tool_calls,
+            max_requests=max_requests,
+            base_url=base_url,
+            retries=retries,
+            http_client=http_client,
+        )
+        return output
+
+    output = await _with_optional_tls_client(_run)
     return output.model_dump(mode="json")
 
 
@@ -226,16 +281,21 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    agent = await build_agent(
-        AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
-            instructions=instructions,
-            output_type=output_type,
-            model_settings=model_settings,
-            retries=retries,
-            base_url=base_url,
+    async def _run(http_client: httpx.AsyncClient | None):
+        agent = await build_agent(
+            AgentConfig(
+                model_name=model_name,
+                model_provider=model_provider,
+                instructions=instructions,
+                output_type=output_type,
+                model_settings=model_settings,
+                retries=retries,
+                base_url=base_url,
+                http_client=http_client,
+            )
         )
-    )
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
-    return result.model_dump()
+        result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
+        return result
+
+    agent_output = await _with_optional_tls_client(_run)
+    return agent_output.model_dump()

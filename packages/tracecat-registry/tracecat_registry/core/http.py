@@ -6,7 +6,6 @@ from collections.abc import Callable
 import base64
 import binascii
 from pathlib import Path
-import tempfile
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, NotRequired, Required, TypedDict
 
@@ -33,6 +32,7 @@ from tracecat.config import (
 
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.tls import TemporaryClientCertificate
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
@@ -150,67 +150,6 @@ class HTTPResponse(TypedDict):
     headers: dict[str, str]
     data: str | dict[str, Any] | list[Any] | None
 
-
-class TemporaryClientCertificate:
-    """
-    Manages temporary files for SSL client certificate and key.
-    Ensures files are deleted upon exiting the context.
-    """
-
-    def __init__(
-        self,
-        client_cert_str: str | None = None,
-        client_key_str: str | None = None,
-        client_key_password: str | None = None,
-    ):
-        self.client_cert_str = client_cert_str
-        self.client_key_str = client_key_str
-        self.client_key_password = client_key_password
-        self._temp_files: list[tempfile._TemporaryFileWrapper] = []
-
-    def __enter__(self) -> str | tuple[str, str] | tuple[str, str, str] | None:
-        cert_path: str | None = None
-        key_path: str | None = None
-
-        if self.client_cert_str:
-            cert_file = tempfile.NamedTemporaryFile(
-                mode="w", delete=True, encoding="utf-8"
-            )
-            self._temp_files.append(cert_file)
-            cert_file.write(self.client_cert_str)
-            cert_file.flush()
-            cert_path = cert_file.name
-
-        if self.client_key_str:
-            key_file = tempfile.NamedTemporaryFile(
-                mode="w", delete=True, encoding="utf-8"
-            )
-            self._temp_files.append(key_file)
-            key_file.write(self.client_key_str)
-            key_file.flush()
-            key_path = key_file.name
-
-        if cert_path and key_path:
-            if self.client_key_password:
-                return (cert_path, key_path, self.client_key_password)
-            return (cert_path, key_path)
-        elif cert_path:
-            # Single file containing both cert and key (e.g., PEM format)
-            return cert_path
-
-        # No valid certificate configuration provided
-        return None
-
-    def __exit__(self, exc_type, exc_val, traceback):
-        for temp_file in self._temp_files:
-            try:
-                temp_file.close()  # Triggers file deletion due to delete=True
-            except Exception:
-                # Log errors but continue cleanup for remaining files
-                logger.error(
-                    f"Error closing temporary certificate file {temp_file.name}",
-                    exc_info=True,
-                )
 
 
 def httpx_to_response(response: httpx.Response) -> HTTPResponse:

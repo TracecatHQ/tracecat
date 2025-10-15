@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
+import httpx
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
@@ -36,6 +37,7 @@ class AgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
+    http_client: httpx.AsyncClient | None = None
     # Agent
     instructions: str | None = None
     output_type: OutputType | None = None
