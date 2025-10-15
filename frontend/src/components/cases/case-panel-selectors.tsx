@@ -312,15 +312,11 @@ export function NoAssignee({
   className?: string
   labelClassName?: string
 }) {
+  const baseClass = "flex items-center gap-1.5 text-xs leading-4"
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-muted-foreground",
-        className
-      )}
-    >
-      <div className="flex size-3.5 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
-        <UserIcon className="size-2.5 text-muted-foreground" />
+    <div className={cn(baseClass, "text-muted-foreground", className)}>
+      <div className="flex size-4 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
+        <UserIcon className="size-3 text-muted-foreground" />
       </div>
       <span className={cn("text-xs text-muted-foreground", labelClassName)}>
         {text ?? "Unassigned"}
@@ -340,13 +336,21 @@ export function AssignedUser({
 }) {
   const displayName = user.getDisplayName()
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-xs leading-4",
+        className
+      )}
+    >
       <UserAvatar
         alt={displayName}
         user={user}
-        className="size-3.5 text-[10px] text-foreground"
+        className="size-4 text-foreground"
+        fallbackClassName="text-[10px]"
       />
-      <span className={cn("text-xs", nameClassName)}>{displayName}</span>
+      <span className="truncate text-xs" title={displayName}>
+        {displayName}
+      </span>
     </div>
   )
 }

@@ -6,12 +6,14 @@ interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
   src?: string
   alt?: string
   user?: User | null
+  fallbackClassName?: string
 }
 export default function UserAvatar({
   src,
   alt,
   user,
   className,
+  fallbackClassName,
 }: UserAvatarProps) {
   const initials = user?.firstName
     ? `${user.firstName[0]}`.toUpperCase()
@@ -19,7 +21,11 @@ export default function UserAvatar({
   return (
     <Avatar className={cn("size-8", className)}>
       <AvatarImage src={src} alt={alt} />
-      <AvatarFallback>{initials}</AvatarFallback>
+      <AvatarFallback
+        className={cn("text-sm font-medium uppercase", fallbackClassName)}
+      >
+        {initials}
+      </AvatarFallback>
     </Avatar>
   )
 }
