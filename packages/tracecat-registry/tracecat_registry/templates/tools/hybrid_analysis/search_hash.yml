@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Search hash
+  description: Search Hybrid Analysis for a file hash and return matching submissions.
+  display_group: Hybrid Analysis
+  doc_url: https://hybrid-analysis.com/docs/api/v2#/Search/post_search_hash
+  namespace: tools.hybrid_analysis
+  name: search_hash
+  secrets:
+    - name: hybrid_analysis
+      keys:
+        - HYBRID_ANALYSIS_API_KEY
+  expects:
+    hash:
+      type: str
+      description: File hash to search for.
+  steps:
+    - ref: search_hash
+      action: core.http_request
+      args:
+        url: https://www.hybrid-analysis.com/api/v2/search/hash
+        method: POST
+        headers:
+          accept: application/json
+          api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
+          user-agent: Tracecat
+        form_data:
+          hash: ${{ inputs.hash }}
+  returns: ${{ steps.search_hash.result.data }}

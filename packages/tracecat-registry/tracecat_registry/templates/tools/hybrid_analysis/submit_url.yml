@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Submit URL for analysis
+  description: Submit a URL to Hybrid Analysis for detonation and wait for the report summary.
+  display_group: Hybrid Analysis
+  doc_url: https://hybrid-analysis.com/docs/api/v2#/Submission/post_submit_url
+  namespace: tools.hybrid_analysis
+  name: submit_url
+  secrets:
+    - name: hybrid_analysis
+      keys:
+        - HYBRID_ANALYSIS_API_KEY
+  expects:
+    url:
+      type: str
+      description: URL to submit for analysis.
+    environment_id:
+      type: int
+      description: Execution environment ID (e.g. 160 for Windows 10 64-bit).
+      default: 160
+    no_share:
+      type: bool
+      description: Whether to prevent sharing the submission with the community.
+      default: true
+  steps:
+    - ref: submit_url
+      action: core.http_request
+      args:
+        url: https://www.hybrid-analysis.com/api/v2/submit/url
+        method: POST
+        headers:
+          accept: application/json
+          api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
+          user-agent: Tracecat
+        form_data:
+          url: ${{ inputs.url }}
+          environment_id: ${{ inputs.environment_id }}
+          no_share_third_party: ${{ inputs.no_share }}
+    - ref: get_report_summary
+      action: core.http_poll
+      args:
+        url: https://www.hybrid-analysis.com/api/v2/report/${{ FN.url_encode(steps.submit_url.result.data.sha256) }}/summary
+        method: GET
+        headers:
+          accept: application/json
+          api-key: ${{ SECRETS.hybrid_analysis.HYBRID_ANALYSIS_API_KEY }}
+          user-agent: Tracecat
+        poll_retry_codes:
+          - 404
+        poll_wait_seconds: 10
+        poll_timeout_seconds: 600
+  returns:
+    submission: ${{ steps.submit_url.result.data }}
+    summary: ${{ steps.get_report_summary.result.data }}
