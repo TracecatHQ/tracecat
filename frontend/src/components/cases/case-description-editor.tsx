@@ -12,6 +12,7 @@ interface CaseDescriptionEditorProps {
   onChange?: (value: string) => void
   className?: string
   onBlur?: () => void
+  toolbarStatus?: React.ReactNode
 }
 
 export function CaseDescriptionEditor({
@@ -19,6 +20,7 @@ export function CaseDescriptionEditor({
   onChange,
   className,
   onBlur,
+  toolbarStatus,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
 
@@ -40,6 +42,7 @@ export function CaseDescriptionEditor({
         value={value}
         onChange={handleChange}
         onBlur={onBlur}
+        toolbarStatus={toolbarStatus}
         placeholder="Describe the case..."
         className="case-description-editor"
       />

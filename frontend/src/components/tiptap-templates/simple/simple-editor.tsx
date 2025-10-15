@@ -49,7 +49,6 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   PanelTopOpen,
-  Table as TableIcon,
 } from "lucide-react"
 // --- Icons ---
 import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
@@ -301,18 +300,7 @@ const getTableButtonGroups = (
     return { insertButtons: [], deleteButtons: [] }
   }
 
-  const insertTableOptions = { rows: 3, cols: 3, withHeaderRow: true } as const
-
-  const insertButtons: TableButton[] = [
-    {
-      key: "insert-table",
-      tooltip: "Insert table",
-      disabled: !editor.can().insertTable(insertTableOptions),
-      onClick: () =>
-        editor.chain().focus().insertTable(insertTableOptions).run(),
-      icon: <TableIcon className="tiptap-button-icon" />,
-    },
-  ]
+  const insertButtons: TableButton[] = []
 
   if (isTableActive) {
     insertButtons.push(
@@ -374,11 +362,13 @@ const MainToolbarContent = ({
   onLinkClick,
   isMobile,
   features,
+  statusIndicator,
 }: {
   onHighlighterClick?: () => void
   onLinkClick: () => void
   isMobile: boolean
   features: typeof SIMPLE_EDITOR_FEATURE_FLAGS
+  statusIndicator?: React.ReactNode
 }) => {
   const { highlight, superSub, textAlign, images, darkMode } = features
   const { editor } = useTiptapEditor()
@@ -415,6 +405,15 @@ const MainToolbarContent = ({
   return (
     <>
       <Spacer />
+
+      {statusIndicator && (
+        <>
+          <ToolbarGroup className="simple-editor-status-indicator">
+            {statusIndicator}
+          </ToolbarGroup>
+          <ToolbarSeparator />
+        </>
+      )}
 
       <ToolbarGroup>
         <UndoRedoButton action="undo" />
@@ -588,6 +587,10 @@ export interface SimpleEditorProps {
    */
   onFocus?: () => void
   /**
+   * Optional status indicator rendered in the toolbar.
+   */
+  toolbarStatus?: React.ReactNode
+  /**
    * Auto focus behaviour.
    * @default false
    */
@@ -608,13 +611,12 @@ export function SimpleEditor({
   onSave,
   onBlur,
   onFocus,
+  toolbarStatus,
   autoFocus = false,
   style,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
-  const [isEditorFocused, setIsEditorFocused] = React.useState(false)
-  const [isToolbarFocused, setIsToolbarFocused] = React.useState(false)
   const [mobileView, setMobileView] = React.useState<
     "main" | "highlighter" | "link"
   >("main")
@@ -846,27 +848,16 @@ export function SimpleEditor({
       markdownRef.current = markdown
       onChange(markdown)
     },
-    onBlur: ({ event }) => {
-      const nextTarget = event?.relatedTarget
-      if (
-        nextTarget instanceof Node &&
-        toolbarRef.current?.contains(nextTarget)
-      ) {
-        setIsEditorFocused(true)
-      } else {
-        setIsEditorFocused(false)
-      }
+    onBlur: () => {
       onBlur?.()
     },
     onFocus: () => {
-      setIsEditorFocused(true)
       onFocus?.()
     },
   })
 
   const canRenderToolbar = showToolbar && editable
-  const shouldShowToolbar =
-    canRenderToolbar && (isEditorFocused || isToolbarFocused)
+  const shouldShowToolbar = canRenderToolbar
 
   const rect = useCursorVisibility({
     editor,
@@ -977,24 +968,6 @@ export function SimpleEditor({
             className="simple-editor-toolbar"
             data-visible={shouldShowToolbar ? "true" : "false"}
             aria-hidden={!shouldShowToolbar}
-            onFocusCapture={() => {
-              if (!shouldShowToolbar) return
-              setIsToolbarFocused(true)
-            }}
-            onBlurCapture={(event) => {
-              if (!shouldShowToolbar) {
-                setIsToolbarFocused(false)
-                return
-              }
-              const nextTarget = event.relatedTarget
-              if (
-                nextTarget instanceof Node &&
-                toolbarRef.current?.contains(nextTarget)
-              ) {
-                return
-              }
-              setIsToolbarFocused(false)
-            }}
             style={{
               marginBottom: 0,
               paddingBottom: 0,
@@ -1015,6 +988,7 @@ export function SimpleEditor({
                 onLinkClick={() => setMobileView("link")}
                 isMobile={isMobile}
                 features={SIMPLE_EDITOR_FEATURE_FLAGS}
+                statusIndicator={toolbarStatus}
               />
             ) : (
               <MobileToolbarContent
