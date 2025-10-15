@@ -7,6 +7,7 @@
   position: relative;
   min-height: var(--tt-toolbar-height);
   margin: 0;
+  margin-bottom: 0.75rem;
   padding: 0.1875rem 0 0;
   border: none;
   border-radius: 0;
@@ -80,15 +81,6 @@
         padding-inline-end: 0;
       }
     }
-
-    &::after {
-      content: "";
-      position: absolute;
-      inset-inline: 0;
-      top: 0;
-      height: 1px;
-      background: hsl(var(--border));
-    }
   }
 
   &.tiptap-toolbar[data-variant="fixed"] {
@@ -98,6 +90,7 @@
     background: hsl(var(--background));
     border-top: 1px solid hsl(var(--border));
     padding: 0.1875rem 0 0;
+    margin-bottom: 0;
 
     .tiptap-toolbar-group {
       padding-inline: 0.375rem;

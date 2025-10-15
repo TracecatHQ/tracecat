@@ -701,10 +701,10 @@ export function SimpleEditor({
             data-visible={shouldShowToolbar ? "true" : "false"}
             aria-hidden={!shouldShowToolbar}
             style={{
-              marginBottom: 0,
               paddingBottom: 0,
               ...(isMobile
                 ? {
+                    marginBottom: 0,
                     bottom: `calc(100% - ${height - rect.y}px)`,
                   }
                 : {}),

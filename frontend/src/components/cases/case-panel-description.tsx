@@ -54,6 +54,13 @@ export function CasePanelDescription({
     [updateCase, caseData, form]
   )
 
+  // Save on blur, mirroring other editor forms
+  const handleBlur = useCallback(() => {
+    if (form.formState.isDirty) {
+      void form.handleSubmit(handleSave)()
+    }
+  }, [form, handleSave])
+
   useEffect(() => {
     if (typeof navigator === "undefined") {
       return
@@ -160,6 +167,7 @@ export function CasePanelDescription({
                     onChange={(content) => {
                       field.onChange(content)
                     }}
+                    onBlur={handleBlur}
                     toolbarStatus={toolbarStatus}
                   />
                 </FormControl>

@@ -23,6 +23,7 @@ export function CaseDescriptionEditor({
   toolbarStatus,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
+  const containerRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
     setValue(initialContent ?? "")
@@ -36,12 +37,29 @@ export function CaseDescriptionEditor({
     [onChange]
   )
 
+  // Only fire onBlur when focus leaves the entire editor area (content + toolbar)
+  const handleContainerBlur = React.useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const container = containerRef.current
+      const nextTarget = event.relatedTarget as Node | null
+
+      // If next focus target is not inside the editor container (or is null), treat as external blur.
+      if (!container || !nextTarget || !container.contains(nextTarget)) {
+        onBlur?.()
+      }
+    },
+    [onBlur]
+  )
+
   return (
-    <div className={cn("mx-0", className)}>
+    <div
+      ref={containerRef}
+      className={cn("mx-0", className)}
+      onBlur={handleContainerBlur}
+    >
       <SimpleEditor
         value={value}
         onChange={handleChange}
-        onBlur={onBlur}
         toolbarStatus={toolbarStatus}
         placeholder="Describe the case..."
         className="case-description-editor"
