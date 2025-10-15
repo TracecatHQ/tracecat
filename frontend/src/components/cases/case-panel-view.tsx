@@ -537,7 +537,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 <Tabs
                   value={activeTab}
                   onValueChange={handleTabChange}
-                  className="w-full"
+                  className="mt-[4.5rem] w-full"
                 >
                   <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
                     <TabsTrigger
