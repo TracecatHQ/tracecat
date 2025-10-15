@@ -25,12 +25,10 @@ class MessageStore(Protocol):
 
 class StreamingAgentDeps(Protocol):
     @property
-    def stream_writer(self) -> StreamWriter:
-        ...
+    def stream_writer(self) -> StreamWriter: ...
 
     @property
-    def message_store(self) -> MessageStore | None:
-        ...
+    def message_store(self) -> MessageStore | None: ...
 
 
 @dataclass(
