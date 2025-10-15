@@ -805,7 +805,7 @@ function CaseStatusControl({
   const handleStatusChange = (newStatus: CaseStatus) => {
     const updatePromise = updateCase({ status: newStatus })
     updatePromise.catch((error) => {
-      console.error('Failed to update case status', error)
+      console.error("Failed to update case status", error)
     })
   }
 
