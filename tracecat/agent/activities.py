@@ -140,7 +140,7 @@ class AgentActivities:
         self._event_stream_handler = _event_stream_handler
         self.run_context_type = run_context_type
 
-    def all_activities(self) -> list[Callable[..., Any]]:
+    def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
 
     @activity.defn

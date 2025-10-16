@@ -77,7 +77,7 @@ async def get_activities() -> list[Callable]:
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
-        *agent_activities.all_activities(),
+        *agent_activities.get_activities(),
         *ApprovalManager.get_activities(),
     ]
 
