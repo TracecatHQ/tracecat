@@ -73,7 +73,7 @@ async def test_workflow_wait_until_future(
         return input.task.args["value"]
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -139,7 +139,7 @@ async def test_workflow_retry_until_condition(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -200,7 +200,7 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -299,7 +299,7 @@ async def test_workflow_waits_until_tomorrow_9am(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -384,7 +384,7 @@ async def test_workflow_retry_until_condition_with_wait_until(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -507,7 +507,7 @@ async def test_workflow_start_delay(
         return "test"
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = await get_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
