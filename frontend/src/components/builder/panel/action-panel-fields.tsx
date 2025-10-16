@@ -529,11 +529,6 @@ function ComponentContent({
       return (
         <div className="flex items-center space-x-2">
           <Switch checked={field.value} onCheckedChange={field.onChange} />
-          <span className="text-sm text-muted-foreground">
-            {field.value
-              ? component.label_on || "On"
-              : component.label_off || "Off"}
-          </span>
         </div>
       )
     case "code":
