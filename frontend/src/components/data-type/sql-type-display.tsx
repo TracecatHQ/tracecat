@@ -21,9 +21,16 @@ export function SqlTypeDisplay({
   const Icon = config?.icon
 
   return (
-    <span className={cn("flex items-center gap-2", className)}>
-      {Icon && <Icon className={cn("size-4", iconClassName)} />}
-      <span className={cn("font-normal", labelClassName)}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 whitespace-nowrap",
+        className
+      )}
+    >
+      {Icon && (
+        <Icon className={cn("size-4 shrink-0", iconClassName)} />
+      )}
+      <span className={cn("font-normal leading-none whitespace-nowrap", labelClassName)}>
         {config?.label ?? type}
       </span>
     </span>
@@ -36,12 +43,16 @@ interface SqlTypeBadgeProps extends Omit<BadgeProps, "children"> {
 
 export function SqlTypeBadge({ type, className, ...props }: SqlTypeBadgeProps) {
   return (
-    <Badge variant="secondary" className={cn("text-xs", className)} {...props}>
+    <Badge
+      variant="secondary"
+      className={cn("text-xs whitespace-nowrap", className)}
+      {...props}
+    >
       <SqlTypeDisplay
         type={type}
         className="gap-1.5"
-        iconClassName="size-3"
-        labelClassName="text-xs font-medium"
+        iconClassName="size-3 shrink-0"
+        labelClassName="text-xs font-medium whitespace-nowrap"
       />
     </Badge>
   )

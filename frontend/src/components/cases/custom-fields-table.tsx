@@ -2,6 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
+import { format } from "date-fns"
 import type { CaseFieldRead } from "@/client"
 import {
   DataTable,
@@ -96,11 +97,29 @@ export function CustomFieldsTable({
                 title="Default value"
               />
             ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["default"]>("default") || "-"}
-              </div>
-            ),
+            cell: ({ row }) => {
+              const defaultValue =
+                row.getValue<CaseFieldRead["default"]>("default")
+              const fieldType = row.original.type
+              const parsedDate =
+                typeof defaultValue === "string" &&
+                defaultValue &&
+                (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  ? new Date(defaultValue)
+                  : null
+              const isValidDate =
+                parsedDate && !Number.isNaN(parsedDate.getTime())
+                  ? parsedDate
+                  : null
+
+              return (
+                <div className="text-xs">
+                  {isValidDate
+                    ? format(isValidDate, "MMM d yyyy '·' p")
+                    : defaultValue || "-"}
+                </div>
+              )
+            },
             enableSorting: false,
             enableHiding: false,
           },
