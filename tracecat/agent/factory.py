@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import httpx
 from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
@@ -12,7 +13,7 @@ from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tools import build_agent_tools
 
-type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
+type AgentFactory = Callable[..., Awaitable[AbstractAgent[Any, Any]]]
 
 
 SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
@@ -45,7 +46,11 @@ def _parse_output_type(output_type: OutputType) -> type[Any]:
         return str
 
 
-async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
+async def build_agent(
+    config: AgentConfig,
+    provider_http_client: httpx.AsyncClient | None = None,
+    mcp_http_client: httpx.AsyncClient | None = None,
+) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
     agent_tools: list[Tool[Any | None]] = []
@@ -77,11 +82,24 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     if config.mcp_server_url:
         mcp_server = MCPServerStreamableHTTP(
             url=config.mcp_server_url,
-            headers=config.mcp_server_headers,
+            **(
+                {"http_client": mcp_http_client}
+                if mcp_http_client is not None
+                else (
+                    {"headers": config.mcp_server_headers}
+                    if config.mcp_server_headers is not None
+                    else {}
+                )
+            ),
         )
         toolsets = [mcp_server]
 
-    model = get_model(config.model_name, config.model_provider, config.base_url)
+    model = get_model(
+        config.model_name,
+        config.model_provider,
+        config.base_url,
+        http_client=provider_http_client,
+    )
     agent = Agent(
         model=model,
         instructions=instructions,

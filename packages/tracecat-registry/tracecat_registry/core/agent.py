@@ -1,10 +1,13 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
 from typing import Annotated, Any
-from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.models import AgentConfig, OutputType
+
+from tracecat_registry import registry, RegistrySecret, secrets
+from tracecat.agent.models import AgentConfig, AgentTLSConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
+from tracecat.agent.tls import agent_tls_clients
+from tracecat_registry.core.http import ssl_secret
 
 
 from tracecat.registry.fields import ActionType, TextArea
@@ -143,7 +146,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret, ssl_secret],
     namespace="ai",
 )
 async def agent(
@@ -178,6 +181,9 @@ async def agent(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
+    client_cert = secrets.get_or_default("SSL_CLIENT_CERT")
+    client_key = secrets.get_or_default("SSL_CLIENT_KEY")
+    client_key_password = secrets.get_or_default("SSL_CLIENT_PASSWORD")
     output = await run_agent(
         user_prompt=user_prompt,
         model_name=model_name,
@@ -190,6 +196,9 @@ async def agent(
         max_requests=max_requests,
         base_url=base_url,
         retries=retries,
+        client_cert=client_cert,
+        client_key=client_key,
+        client_key_password=client_key_password,
     )
     return output.model_dump(mode="json")
 
@@ -200,7 +209,7 @@ async def agent(
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
     namespace="ai",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, ssl_secret],
 )
 async def action(
     user_prompt: Annotated[
@@ -226,16 +235,41 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    agent = await build_agent(
-        AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
-            instructions=instructions,
-            output_type=output_type,
-            model_settings=model_settings,
-            retries=retries,
-            base_url=base_url,
+    client_cert = secrets.get_or_default("SSL_CLIENT_CERT")
+    client_key = secrets.get_or_default("SSL_CLIENT_KEY")
+    client_key_password = secrets.get_or_default("SSL_CLIENT_PASSWORD")
+    tls_config = (
+        AgentTLSConfig(
+            client_cert=client_cert,
+            client_key=client_key,
+            client_key_password=client_key_password,
         )
+        if any(value for value in (client_cert, client_key, client_key_password))
+        else None
     )
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
+    config = AgentConfig(
+        model_name=model_name,
+        model_provider=model_provider,
+        instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
+        base_url=base_url,
+        tls_config=tls_config,
+    )
+    async with agent_tls_clients(
+        tls_config,
+        include_provider=True,
+        include_mcp=False,
+    ) as tls_clients:
+        agent_instance = await build_agent(
+            config,
+            tls_clients.provider,
+            tls_clients.mcp,
+        )
+        result = await run_agent_sync(
+            agent_instance,
+            user_prompt,
+            max_requests=max_requests,
+        )
     return result.model_dump()

@@ -29,6 +29,21 @@ class StreamingAgentDeps(Protocol):
 
 
 @dataclass(kw_only=True, slots=True)
+class AgentTLSConfig:
+    """TLS client configuration for providers and MCP connections."""
+
+    client_cert: str | None = None
+    client_key: str | None = None
+    client_key_password: str | None = None
+
+    def is_configured(self) -> bool:
+        return any(
+            value
+            for value in (self.client_cert, self.client_key, self.client_key_password)
+        )
+
+
+@dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
 
@@ -49,6 +64,7 @@ class AgentConfig:
     model_settings: dict[str, Any] | None = None
     retries: int = 3
     deps_type: type[StreamingAgentDeps] | type[None] | None = None
+    tls_config: AgentTLSConfig | None = None
 
 
 class RunAgentArgs(BaseModel):

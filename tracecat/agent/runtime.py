@@ -14,6 +14,7 @@ from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.models import (
     AgentConfig,
     AgentOutput,
+    AgentTLSConfig,
     OutputType,
     RunAgentArgs,
 )
@@ -74,6 +75,9 @@ async def run_agent(
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    client_key_password: str | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -157,6 +161,15 @@ async def run_agent(
         session_id, role.workspace_id, persistent=False
     )
     executor = AioStreamingAgentExecutor(deps=deps, role=role)
+    tls_config = (
+        AgentTLSConfig(
+            client_cert=client_cert,
+            client_key=client_key,
+            client_key_password=client_key_password,
+        )
+        if any(value for value in (client_cert, client_key, client_key_password))
+        else None
+    )
     try:
         args = RunAgentArgs(
             user_prompt=user_prompt,
@@ -173,6 +186,7 @@ async def run_agent(
                 mcp_server_url=mcp_server_url,
                 mcp_server_headers=mcp_server_headers,
                 actions=actions,
+                tls_config=tls_config,
             ),
             max_requests=max_requests,
             max_tool_calls=max_tool_calls,

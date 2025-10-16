@@ -17,6 +17,7 @@ from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.models import RunAgentArgs, StreamingAgentDeps
 from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import event_stream_handler
+from tracecat.agent.tls import agent_tls_clients
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 
@@ -90,36 +91,46 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
         result: AgentRunResult[str] | None = None
         new_messages: list[ModelRequest | ModelResponse] | None = None
 
-        agent = await self._factory(args.config)
-        usage = UsageLimits(
-            request_limit=args.max_requests or 50,
-            tool_calls_limit=args.max_tool_calls,
-        )
-        try:
-            result = await agent.run(
-                user_prompt=args.user_prompt,
-                message_history=message_history,
-                deps=self.deps,
-                event_stream_handler=self._event_stream_handler,
-                usage_limits=usage,
+        async with agent_tls_clients(
+            args.config.tls_config,
+            include_provider=True,
+            include_mcp=bool(args.config.mcp_server_url),
+            mcp_headers=args.config.mcp_server_headers,
+        ) as tls_clients:
+            agent = await self._factory(
+                args.config,
+                tls_clients.provider,
+                tls_clients.mcp,
             )
-            new_messages = result.new_messages()
-        except Exception as exc:
-            error_message = str(exc)
-            logger.error(
-                "Streaming agent run failed",
-                error=error_message,
-                session_id=args.session_id,
+            usage = UsageLimits(
+                request_limit=args.max_requests or 50,
+                tool_calls_limit=args.max_tool_calls,
             )
-            await self.deps.stream_writer.stream.error(error_message)
-            ## Don't update the message history with the error message
-            new_messages = [
-                user_message,
-                StreamError.model_response(error_message),
-            ]
-        finally:
-            # Ensure we always close the stream so the client stops waiting.
-            await self.deps.stream_writer.stream.done()
+            try:
+                result = await agent.run(
+                    user_prompt=args.user_prompt,
+                    message_history=message_history,
+                    deps=self.deps,
+                    event_stream_handler=self._event_stream_handler,
+                    usage_limits=usage,
+                )
+                new_messages = result.new_messages()
+            except Exception as exc:
+                error_message = str(exc)
+                logger.error(
+                    "Streaming agent run failed",
+                    error=error_message,
+                    session_id=args.session_id,
+                )
+                await self.deps.stream_writer.stream.error(error_message)
+                ## Don't update the message history with the error message
+                new_messages = [
+                    user_message,
+                    StreamError.model_response(error_message),
+                ]
+            finally:
+                # Ensure we always close the stream so the client stops waiting.
+                await self.deps.stream_writer.stream.done()
 
         if new_messages and self.deps.message_store:
             await self.deps.message_store.store(args.session_id, new_messages)
