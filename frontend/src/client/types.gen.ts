@@ -3590,7 +3590,6 @@ export type SqlType =
   | "INTEGER"
   | "NUMERIC"
   | "BOOLEAN"
-  | "TIMESTAMP"
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"

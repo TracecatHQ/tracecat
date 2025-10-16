@@ -8,7 +8,6 @@ class SqlType(StrEnum):
     INTEGER = "INTEGER"
     NUMERIC = "NUMERIC"
     BOOLEAN = "BOOLEAN"
-    TIMESTAMP = "TIMESTAMP"
     TIMESTAMPTZ = "TIMESTAMPTZ"
     JSONB = "JSONB"
     UUID = "UUID"

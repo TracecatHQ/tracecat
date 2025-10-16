@@ -7790,7 +7790,6 @@ components:
       - INTEGER
       - NUMERIC
       - BOOLEAN
-      - TIMESTAMP
       - TIMESTAMPTZ
       - JSONB
       - UUID

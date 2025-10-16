@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +13,32 @@ from tracecat.tables.enums import SqlType
 def is_valid_sql_type(type: str) -> bool:
     """Check if the type is a valid SQL type."""
     return type in SqlType
+
+
+def coerce_to_utc_datetime(value: Any) -> datetime:
+    """Convert supported inputs into a timezone-aware UTC datetime."""
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day)
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            text = f"{text[:-1]}+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise TypeError(f"Invalid ISO datetime string: {value!r}") from exc
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=UTC)
+    else:
+        raise TypeError(
+            f"Unsupported value for TIMESTAMPTZ column: {type(value).__name__}"
+        )
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def handle_default_value(type: SqlType, default: Any) -> str:
@@ -37,12 +63,10 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.TEXT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
-        case SqlType.TIMESTAMP:
-            # For timestamp, ensure proper format and quoting
-            default_value = f"'{default}'::timestamp"
         case SqlType.TIMESTAMPTZ:
             # For timestamp with timezone, ensure proper format and quoting
-            default_value = f"'{default}'::timestamptz"
+            dt = coerce_to_utc_datetime(default)
+            default_value = f"'{dt.isoformat()}'::timestamptz"
         case SqlType.BOOLEAN:
             # For boolean, convert to lowercase string representation
             default_value = str(bool(default)).lower()
@@ -75,11 +99,10 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
-        case SqlType.TIMESTAMP:
-            return sa.bindparam(key=name, value=value, type_=sa.TIMESTAMP)
         case SqlType.TIMESTAMPTZ:
+            coerced = None if value is None else coerce_to_utc_datetime(value)
             return sa.bindparam(
-                key=name, value=value, type_=sa.TIMESTAMP(timezone=True)
+                key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
             )
         case SqlType.BOOLEAN:
             # Allow bool, 1, 0 as valid boolean values
@@ -136,7 +159,9 @@ def parse_postgres_default(default_value: str | None) -> str | None:
     return default_value
 
 
-def convert_value(value: str, type: SqlType) -> Any:
+def convert_value(value: str | None, type: SqlType) -> Any:
+    if value is None:
+        return None
     try:
         match type:
             case SqlType.INTEGER:
@@ -155,8 +180,8 @@ def convert_value(value: str, type: SqlType) -> Any:
                 return orjson.loads(value)
             case SqlType.TEXT:
                 return str(value)
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
-                return datetime.fromisoformat(value)
+            case SqlType.TIMESTAMPTZ:
+                return coerce_to_utc_datetime(value)
             case SqlType.UUID:
                 return UUID(value)
             case _:
