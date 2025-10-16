@@ -35,13 +35,13 @@ import {
 } from "@/components/ui/select"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useInsertColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update schema for column creation
 const createInsertTableColumnSchema = z.object({
   name: z.string().min(1, "Column name is required"),
-  type: z.enum(SqlTypeEnum),
+  type: z.enum(SqlTypeCreatableEnum),
 })
 
 type ColumnFormData = z.infer<typeof createInsertTableColumnSchema>
@@ -143,7 +143,7 @@ export function TableInsertColumnDialog({
                         <SelectValue placeholder="Select a type..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {SqlTypeEnum.map((type) => (
+                        {SqlTypeCreatableEnum.map((type) => (
                           <SelectItem key={type} value={type}>
                             <SqlTypeDisplay
                               type={type}

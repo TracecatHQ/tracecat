@@ -2,7 +2,7 @@ import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import {
   FormControl,
   FormField,
@@ -157,7 +157,7 @@ export function CustomFieldInner({
           render={({ field }) => (
             <FormItem>
               <FormControl>
-                <Checkbox
+                <Switch
                   checked={Boolean(field.value)}
                   onCheckedChange={(checked) => {
                     field.onChange(checked)

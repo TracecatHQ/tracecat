@@ -76,7 +76,7 @@ export function CustomFieldsTable({
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Type"
+                title="Data type"
               />
             ),
             cell: ({ row }) => (
@@ -88,49 +88,12 @@ export function CustomFieldsTable({
             enableHiding: false,
           },
           {
-            accessorKey: "description",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Description"
-              />
-            ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["description"]>("description") ||
-                  "-"}
-              </div>
-            ),
-            enableSorting: false,
-            enableHiding: false,
-          },
-          {
-            accessorKey: "nullable",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Nullable"
-              />
-            ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["nullable"]>("nullable")
-                  ? "Yes"
-                  : "No"}
-              </div>
-            ),
-            enableSorting: true,
-            enableHiding: false,
-          },
-          {
             accessorKey: "default",
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Default"
+                title="Default value"
               />
             ),
             cell: ({ row }) => (

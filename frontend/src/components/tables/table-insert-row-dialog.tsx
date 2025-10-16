@@ -162,7 +162,7 @@ export function TableInsertRowDialog({
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
-            Add a new row to the {table.name} table.
+            Add a new row to the "{table.name}" table.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

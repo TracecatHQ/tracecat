@@ -11,7 +11,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import {
   Form,
@@ -391,7 +391,7 @@ export function ProviderConfigForm({
                             <FormItem>
                               <div className="flex items-center space-x-2">
                                 <FormControl>
-                                  <Checkbox
+                                  <Switch
                                     id={key}
                                     checked={Boolean(field.value)}
                                     onCheckedChange={field.onChange}

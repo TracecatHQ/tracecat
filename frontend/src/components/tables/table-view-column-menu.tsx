@@ -60,7 +60,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
@@ -225,7 +225,7 @@ const updateColumnSchema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, {
       message: "Name must contain only letters, numbers, and underscores",
     }),
-  type: z.enum(SqlTypeEnum),
+  type: z.enum(SqlTypeCreatableEnum),
   nullable: z.boolean(),
 })
 

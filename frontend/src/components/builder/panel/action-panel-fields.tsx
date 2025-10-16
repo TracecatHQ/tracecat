@@ -30,7 +30,7 @@ import {
   type Suggestion,
 } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import {
   Command,
   CommandEmpty,
@@ -528,7 +528,7 @@ function ComponentContent({
     case "toggle":
       return (
         <div className="flex items-center space-x-2">
-          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+          <Switch checked={field.value} onCheckedChange={field.onChange} />
           <span className="text-sm text-muted-foreground">
             {field.value
               ? component.label_on || "On"
