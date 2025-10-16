@@ -686,8 +686,10 @@ export function SimpleEditor({
     }),
     [style]
   )
-  const toolbarStyle = React.useMemo<React.CSSProperties>(() => {
-    const next: React.CSSProperties = {
+  const toolbarStyle = React.useMemo<
+    React.CSSProperties & Record<string, string | number>
+  >(() => {
+    const next: React.CSSProperties & Record<string, string | number> = {
       paddingBottom: 0,
       "--tt-toolbar-bg-color":
         "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--background)) 80%)",
