@@ -89,19 +89,21 @@ def get_runtime_env() -> str:
 
 
 async def get_action_secrets(
-    args: Mapping[str, Any],
+    secret_exprs: Set[str],
     action_secrets: Set[RegistrySecretType],
 ) -> dict[str, Any]:
     # Handle secrets from the task args
-    args_secrets = extract_templated_secrets(args)
+    args_secrets = secret_exprs
     # Get oauth integrations from the action secrets
     args_oauth_secrets: Set[str] = Set()
     args_basic_secrets: Set[str] = Set()
     for secret in args_secrets:
-        if secret.endswith("_oauth"):
-            args_oauth_secrets.add(secret)
-        else:
-            args_basic_secrets.add(secret)
+        if "." in secret:
+            name, _ = secret.split(".", 1)
+            if name.endswith("_oauth"):
+                args_oauth_secrets.add(secret)
+                continue
+        args_basic_secrets.add(secret)
 
     # Handle secrets from the action
     required_basic_secrets: Set[str] = Set()
@@ -245,7 +247,7 @@ async def load_secrets(action_type: str) -> AsyncIterator[dict[str, Any]]:
         reg_action = await svc.get_action(action_type)
         action_secrets = await svc.fetch_all_action_secrets(reg_action)
 
-    secrets = await get_action_secrets(args={}, action_secrets=action_secrets)
+    secrets = await get_action_secrets(secret_exprs=Set(), action_secrets=action_secrets)
     flat_secrets = flatten_secrets(secrets)
     with env_sandbox(flat_secrets):
         yield secrets

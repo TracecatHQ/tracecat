@@ -15,7 +15,6 @@ from tracecat.executor.models import DispatchActionContext
 from tracecat.executor.service import (
     _dispatch_action,
     dispatch_action_on_cluster,
-    get_action_secrets,
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
@@ -24,6 +23,7 @@ from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets import secrets_manager
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
 
@@ -330,7 +330,9 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets(set(), action_secrets)
+    secrets = await secrets_manager.get_action_secrets(
+        secret_exprs=set(), action_secrets=action_secrets
+    )
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -398,7 +400,9 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets(set(), action_secrets)
+    secrets = await secrets_manager.get_action_secrets(
+        secret_exprs=set(), action_secrets=action_secrets
+    )
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -442,7 +446,9 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     )
 
     with pytest.raises(TracecatCredentialsError):
-        await get_action_secrets(set(), action_secrets)
+        await secrets_manager.get_action_secrets(
+            secret_exprs=set(), action_secrets=action_secrets
+        )
 
 
 @pytest.mark.anyio
