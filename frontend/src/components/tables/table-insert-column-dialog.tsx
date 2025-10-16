@@ -106,7 +106,7 @@ export function TableInsertColumnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add column</DialogTitle>
+          <DialogTitle>Add new column</DialogTitle>
           <DialogDescription>
             Add a new column to the {table.name} table.
           </DialogDescription>
@@ -118,7 +118,7 @@ export function TableInsertColumnDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Column Name</FormLabel>
+                  <FormLabel>Column name</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -160,12 +160,7 @@ export function TableInsertColumnDialog({
             />
             <DialogFooter>
               <Button type="submit" disabled={insertColumnIsPending}>
-                {insertColumnIsPending ? (
-                  <Spinner className="mr-2 size-4" />
-                ) : (
-                  <PlusCircle className="mr-2 size-4" />
-                )}
-                Add Column
+                Add column
               </Button>
             </DialogFooter>
           </form>

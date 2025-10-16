@@ -1,9 +1,11 @@
 "use client"
 
+import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusCircle } from "lucide-react"
+import { CalendarClock, Clock, PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
+import { format } from "date-fns"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
@@ -26,8 +28,15 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Calendar } from "@/components/ui/calendar"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update the schema to be dynamic based on table columns
@@ -80,6 +89,15 @@ const createInsertTableRowSchema = (table: TableRead) => {
           )
           .transform((val) => JSON.parse(val))
         break
+      case "TIMESTAMPTZ":
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => !Number.isNaN(new Date(val).getTime()),
+            `${column.name} must be a valid date and time`
+          )
+        break
       default:
         // Default to text for any unknown types
         columnValidations[column.name] = z
@@ -91,7 +109,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
   return z.object(columnValidations)
 }
 
-type DynamicFormData = Record<string, string | number | boolean>
+type DynamicFormData = Record<string, unknown>
 
 export function TableInsertRowDialog({
   open,
@@ -170,12 +188,7 @@ export function TableInsertRowDialog({
             ))}
             <DialogFooter>
               <Button type="submit" disabled={insertRowIsPending}>
-                {insertRowIsPending ? (
-                  <Spinner className="mr-2 size-4" />
-                ) : (
-                  <PlusCircle className="mr-2 size-4" />
-                )}
-                Insert Row
+                Add row
               </Button>
             </DialogFooter>
           </form>
@@ -230,6 +243,8 @@ function DynamicInput({
           onChange={(e) => field.onChange(e.target.value)}
         />
       )
+    case "TIMESTAMPTZ":
+      return <DateTimePickerField field={field} />
     case "TEXT":
     default:
       return (
@@ -241,4 +256,123 @@ function DynamicInput({
         />
       )
   }
+}
+
+function DateTimePickerField({
+  field,
+}: {
+  field: ControllerRenderProps<DynamicFormData, string>
+}) {
+  const [open, setOpen] = React.useState(false)
+  const stringValue =
+    typeof field.value === "string" && field.value.length > 0
+      ? field.value
+      : ""
+  const dateValue = stringValue ? new Date(stringValue) : undefined
+
+  const handleSelect = React.useCallback(
+    (date: Date | undefined) => {
+      if (!date) {
+        field.onChange("")
+        return
+      }
+
+      const next = new Date(date)
+      const hours = dateValue?.getHours() ?? 0
+      const minutes = dateValue?.getMinutes() ?? 0
+      next.setHours(hours, minutes, 0, 0)
+      field.onChange(next.toISOString())
+    },
+    [dateValue, field]
+  )
+
+  const handleTimeChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!dateValue) return
+
+      const [hoursStr = "", minutesStr = ""] = event.target.value.split(":")
+      const hours = Number.parseInt(hoursStr, 10)
+      const minutes = Number.parseInt(minutesStr, 10)
+      if (Number.isNaN(hours) || Number.isNaN(minutes)) return
+
+      const next = new Date(dateValue)
+      next.setHours(hours, minutes, 0, 0)
+      field.onChange(next.toISOString())
+    },
+    [dateValue, field]
+  )
+
+  const handleSetNow = React.useCallback(() => {
+    const now = new Date()
+    field.onChange(now.toISOString())
+    setOpen(false)
+  }, [field, setOpen])
+
+  const handleClear = React.useCallback(() => {
+    field.onChange("")
+    setOpen(false)
+  }, [field, setOpen])
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          field.onBlur()
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "w-full justify-start text-left font-normal text-sm",
+            !dateValue && "text-xs text-muted-foreground"
+          )}
+        >
+          <CalendarClock className="mr-2 size-4" />
+          {dateValue ? format(dateValue, "PPP HH:mm") : "Select date and time"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={dateValue}
+          onSelect={handleSelect}
+          initialFocus
+        />
+        <div className="flex flex-col gap-2 border-t border-border p-3">
+          <Input
+            type="time"
+            value={dateValue ? format(dateValue, "HH:mm") : ""}
+            onChange={handleTimeChange}
+            step={60}
+            disabled={!dateValue}
+          />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 text-xs"
+              onClick={handleSetNow}
+            >
+              <Clock className="mr-2 size-4" />
+              Now
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="flex-1 text-xs text-muted-foreground"
+              onClick={handleClear}
+              disabled={!stringValue}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
