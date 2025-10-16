@@ -37,6 +37,14 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
         )
 
 
+class UserReadMinimal(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    role: UserRole
+    first_name: str | None = None
+    last_name: str | None = None
+
+
 class UserCreate(schemas.BaseUserCreate):
     first_name: str | None = None
     last_name: str | None = None
