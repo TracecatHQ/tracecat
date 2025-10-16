@@ -33,11 +33,15 @@
   outline: none;
   caret-color: var(--tt-cursor-color);
 
-  // Paragraph spacing
-  p:not(:first-child) {
-    font-size: 1rem;
+  // Paragraph typography
+  p {
+    font-size: 0.875rem;
     line-height: 1.6;
     font-weight: normal;
+  }
+
+  // Paragraph spacing
+  p:not(:first-child) {
     margin-top: 20px;
   }
 

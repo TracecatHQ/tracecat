@@ -100,9 +100,9 @@ export function CommentSection({
 
             return (
               <div key={comment.id} className="group">
-                <div className="rounded-lg border border-border/40 bg-background py-3 px-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
+                <div className="rounded-lg border border-border/40 bg-background p-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
                   {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
-                  <div className="space-y-1">
+                  <div className="space-y-3">
                     {/* Row 1 */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">

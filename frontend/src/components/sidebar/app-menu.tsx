@@ -87,7 +87,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
-              className="data-[state=open]:bg-sidebar-accent dark:data-[state=open]:bg-sidebar-accent pl-0"
+              className="data-[state=open]:bg-foreground/5 dark:data-[state=open]:bg-foreground/10 pl-0"
             >
               <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
               <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
@@ -112,7 +112,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                   className={cn(
                     "flex items-center gap-2 py-1 px-2",
                     workspace.id === workspaceId &&
-                      "bg-sidebar-accent dark:bg-sidebar-accent"
+                      "bg-foreground/5 dark:bg-foreground/10"
                   )}
                 >
                   <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
