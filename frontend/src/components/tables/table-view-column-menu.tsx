@@ -324,9 +324,7 @@ function TableColumnEditDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Name
-                  </FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -342,29 +340,19 @@ function TableColumnEditDialog({
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Type
-                  </FormLabel>
+                  <FormLabel>Type</FormLabel>
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="text-xs">
-                        {field.value ? (
-                          <>
-                            <SqlTypeDisplay
-                              type={field.value}
-                              className="gap-1.5"
-                              iconClassName="size-3"
-                            />
-                            <SelectValue className="sr-only" />
-                          </>
-                        ) : (
-                          <SelectValue placeholder="Select a type..." />
-                        )}
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a type..." />
                       </SelectTrigger>
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay type={type} />
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -390,7 +378,7 @@ function TableColumnEditDialog({
                         disabled
                       />
                     </FormControl>
-                    <FormLabel className="text-xs">Allow null values</FormLabel>
+                    <FormLabel>Allow null values</FormLabel>
                   </div>
                   <FormMessage />
                 </FormItem>

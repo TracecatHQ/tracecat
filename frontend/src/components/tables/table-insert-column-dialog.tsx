@@ -131,32 +131,24 @@ export function TableInsertColumnDialog({
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    <span>Data Type</span>
+                  <FormLabel className="flex items-center gap-2">
+                    <span>Data type</span>
                     <span className="text-xs text-muted-foreground">
                       (required)
                     </span>
                   </FormLabel>
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="text-xs">
-                        {field.value ? (
-                          <>
-                            <SqlTypeDisplay
-                              type={field.value}
-                              className="gap-1.5"
-                              iconClassName="size-3"
-                            />
-                            <SelectValue className="sr-only" />
-                          </>
-                        ) : (
-                          <SelectValue placeholder="Select a type..." />
-                        )}
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a type..." />
                       </SelectTrigger>
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay type={type} />
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>

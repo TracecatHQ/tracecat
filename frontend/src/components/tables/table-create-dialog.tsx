@@ -194,27 +194,16 @@ export function CreateTableDialog({
                                     value={field.value}
                                     onValueChange={field.onChange}
                                   >
-                                    <SelectTrigger className="text-xs">
-                                      {field.value ? (
-                                        <>
-                                          <SqlTypeDisplay
-                                            type={field.value}
-                                            className="gap-1.5"
-                                            iconClassName="size-3"
-                                          />
-                                          <SelectValue className="sr-only" />
-                                        </>
-                                      ) : (
-                                        <SelectValue
-                                          placeholder="Select column type"
-                                          className="w-full"
-                                        />
-                                      )}
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select column type" />
                                     </SelectTrigger>
                                     <SelectContent>
                                       {SqlTypeEnum.map((type) => (
                                         <SelectItem key={type} value={type}>
-                                          <SqlTypeDisplay type={type} />
+                                          <SqlTypeDisplay
+                                            type={type}
+                                            labelClassName="text-xs"
+                                          />
                                         </SelectItem>
                                       ))}
                                     </SelectContent>

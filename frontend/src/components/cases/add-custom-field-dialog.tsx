@@ -148,31 +148,20 @@ export function AddCustomFieldDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Data type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger className="text-xs">
-                        {field.value ? (
-                          <>
-                            <SqlTypeDisplay
-                              type={field.value}
-                              className="gap-1.5"
-                              iconClassName="size-3"
-                            />
-                            <SelectValue className="sr-only" />
-                          </>
-                        ) : (
-                          <SelectValue placeholder="Select a data type" />
-                        )}
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a data type" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {SqlTypeEnum.filter((type) => type !== "JSONB").map(
                         (type) => (
                           <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay type={type} />
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         )
                       )}

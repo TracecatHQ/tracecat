@@ -156,8 +156,8 @@ export function TableInsertRowDialog({
                 name={column.name}
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-xs">
-                      <span className="font-semibold">{column.name}</span>
+                    <FormLabel className="flex items-center gap-2">
+                      <span>{column.name}</span>
                       <SqlTypeBadge type={column.type as SqlType} />
                     </FormLabel>
                     <FormControl>
