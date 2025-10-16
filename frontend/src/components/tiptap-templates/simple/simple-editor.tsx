@@ -686,6 +686,20 @@ export function SimpleEditor({
     }),
     [style]
   )
+  const toolbarStyle = React.useMemo<React.CSSProperties>(() => {
+    const next: React.CSSProperties = {
+      paddingBottom: 0,
+      "--tt-toolbar-bg-color":
+        "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--background)) 80%)",
+    }
+
+    if (isMobile) {
+      next.marginBottom = 0
+      next.bottom = `calc(100% - ${height - rect.y}px)`
+    }
+
+    return next
+  }, [height, isMobile, rect.y])
 
   return (
     <div
@@ -700,15 +714,7 @@ export function SimpleEditor({
             className="simple-editor-toolbar"
             data-visible={shouldShowToolbar ? "true" : "false"}
             aria-hidden={!shouldShowToolbar}
-            style={{
-              paddingBottom: 0,
-              ...(isMobile
-                ? {
-                    marginBottom: 0,
-                    bottom: `calc(100% - ${height - rect.y}px)`,
-                  }
-                : {}),
-            }}
+            style={toolbarStyle}
           >
             {mobileView === "main" ? (
               <MainToolbarContent

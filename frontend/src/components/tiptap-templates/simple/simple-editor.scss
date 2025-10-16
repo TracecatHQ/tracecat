@@ -4,6 +4,12 @@
 }
 
 .simple-editor-toolbar {
+  --tt-toolbar-bg-color: color-mix(
+    in srgb,
+    hsl(var(--muted)) 20%,
+    hsl(var(--background)) 80%
+  );
+
   position: relative;
   min-height: var(--tt-toolbar-height);
   margin: 0;
@@ -12,7 +18,7 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
-  background: transparent;
+  background-color: var(--tt-toolbar-bg-color);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -58,7 +64,7 @@
     border: none;
     border-radius: 0;
     box-shadow: none;
-    background: transparent;
+    background-color: var(--tt-toolbar-bg-color);
     overflow-x: auto;
     overflow-y: hidden;
     flex-wrap: nowrap;
@@ -87,7 +93,7 @@
     border: none;
     border-radius: 0;
     box-shadow: none;
-    background: hsl(var(--background));
+    background-color: var(--tt-toolbar-bg-color);
     border-top: 1px solid hsl(var(--border));
     padding: 0.1875rem 0 0;
     margin-bottom: 0;
