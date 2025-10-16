@@ -60,6 +60,7 @@ export function CaseDescriptionEditor({
       <SimpleEditor
         value={value}
         onChange={handleChange}
+        onShortcutFallback={onBlur}
         toolbarStatus={toolbarStatus}
         placeholder="Describe the case..."
         className="case-description-editor"

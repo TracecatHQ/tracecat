@@ -443,6 +443,10 @@ export interface SimpleEditorProps {
    */
   onBlur?: () => void
   /**
+   * Called when the save shortcut is pressed but no onSave is provided.
+   */
+  onShortcutFallback?: () => void
+  /**
    * Called when the editor gains focus.
    */
   onFocus?: () => void
@@ -470,6 +474,7 @@ export function SimpleEditor({
   placeholder,
   onSave,
   onBlur,
+  onShortcutFallback,
   onFocus,
   toolbarStatus,
   autoFocus = false,
@@ -655,7 +660,7 @@ export function SimpleEditor({
 
       const key = event.key.toLowerCase()
 
-      if (key === "enter") {
+      if (key === "s") {
         event.preventDefault()
         event.stopPropagation()
 
@@ -666,7 +671,7 @@ export function SimpleEditor({
         if (onSave) {
           onSave()
         } else {
-          onBlur?.()
+          onShortcutFallback?.() ?? onBlur?.()
         }
       }
     }
@@ -676,7 +681,7 @@ export function SimpleEditor({
     return () => {
       dom.removeEventListener("keydown", handleKeydown)
     }
-  }, [editor, onBlur, onSave])
+  }, [editor, onBlur, onSave, onShortcutFallback])
 
   const wrapperStyle = React.useMemo<React.CSSProperties>(
     () => ({
