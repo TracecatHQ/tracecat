@@ -101,7 +101,10 @@ class BaseTablesService(BaseService):
                 )
 
             sql_type = SqlType(column.type)
-            if sql_type is SqlType.TIMESTAMPTZ and value is not None:
+            if (
+                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
+                and value is not None
+            ):
                 normalised[column_name] = coerce_to_utc_datetime(value)
             else:
                 normalised[column_name] = value

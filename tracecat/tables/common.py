@@ -10,9 +10,14 @@ from sqlalchemy.dialects.postgresql import JSONB
 from tracecat.tables.enums import SqlType
 
 
-def is_valid_sql_type(type: str) -> bool:
-    """Check if the type is a valid SQL type."""
-    return type in SqlType
+def is_valid_sql_type(type: str | SqlType) -> bool:
+    """Check if the type is a valid SQL type for user-defined columns."""
+    try:
+        sql_type = SqlType(type)
+    except ValueError:
+        return False
+    # Plain TIMESTAMP is only supported for legacy/system-managed columns.
+    return sql_type is not SqlType.TIMESTAMP
 
 
 def coerce_to_utc_datetime(value: Any) -> datetime:
@@ -33,7 +38,7 @@ def coerce_to_utc_datetime(value: Any) -> datetime:
         dt = datetime.fromtimestamp(value, tz=UTC)
     else:
         raise TypeError(
-            f"Unsupported value for TIMESTAMPTZ column: {type(value).__name__}"
+            f"Unsupported value for TIMESTAMP/TIMESTAMPTZ column: {type(value).__name__}"
         )
 
     if dt.tzinfo is None:
@@ -63,7 +68,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.TEXT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
-        case SqlType.TIMESTAMPTZ:
+        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             # For timestamp with timezone, ensure proper format and quoting
             dt = coerce_to_utc_datetime(default)
             default_value = f"'{dt.isoformat()}'::timestamptz"
@@ -99,7 +104,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
-        case SqlType.TIMESTAMPTZ:
+        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             coerced = None if value is None else coerce_to_utc_datetime(value)
             return sa.bindparam(
                 key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
@@ -180,7 +185,7 @@ def convert_value(value: str | None, type: SqlType) -> Any:
                 return orjson.loads(value)
             case SqlType.TEXT:
                 return str(value)
-            case SqlType.TIMESTAMPTZ:
+            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return coerce_to_utc_datetime(value)
             case SqlType.UUID:
                 return UUID(value)

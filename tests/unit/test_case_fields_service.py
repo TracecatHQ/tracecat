@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseFieldCreate, CaseFieldUpdate
+from tracecat.cases.models import CaseFieldCreate, CaseFieldRead, CaseFieldUpdate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.schemas import Case, CaseFields
 from tracecat.tables.enums import SqlType
@@ -82,6 +82,20 @@ class TestCaseFieldsService:
             # Verify the method returned the mock columns
             assert fields == mock_columns
             mock_get_columns.assert_called_once()
+
+    async def test_case_field_read_accepts_timestamp_type(self) -> None:
+        """Ensure TIMESTAMP columns can be read for reserved fields."""
+        column = {
+            "name": "created_at",
+            "type": sa.types.TIMESTAMP(),
+            "nullable": False,
+            "default": None,
+            "comment": None,
+        }
+
+        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        assert field.type is SqlType.TIMESTAMP
+        assert field.reserved is True
 
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""

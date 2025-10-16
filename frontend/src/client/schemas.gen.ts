@@ -10394,6 +10394,7 @@ export const $SqlType = {
     "INTEGER",
     "NUMERIC",
     "BOOLEAN",
+    "TIMESTAMP",
     "TIMESTAMPTZ",
     "JSONB",
     "UUID",

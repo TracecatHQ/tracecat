@@ -165,6 +165,21 @@ class TestTablesService:
         with pytest.raises(TracecatNotFoundError):
             await tables_service.get_table_by_name("deletable_table")
 
+    async def test_create_column_rejects_plain_timestamp(
+        self, tables_service: TablesService
+    ) -> None:
+        """Ensure TIMESTAMP is not allowed for user-defined columns."""
+        table = await tables_service.create_table(TableCreate(name="reject_ts"))
+
+        with pytest.raises(ValueError, match="Invalid type: TIMESTAMP"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name="legacy_ts",
+                    type=SqlType.TIMESTAMP,
+                ),
+            )
+
 
 class TestParsePostgresDefault:
     @pytest.fixture
