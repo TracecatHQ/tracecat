@@ -1,4 +1,6 @@
 import type { UIMessage } from "ai"
+import type { AgentSessionRead, WorkflowExecutionStatus } from "@/client"
+import { undoSlugify } from "@/lib/utils"
 
 export function isUIMessageArray(value: unknown): value is UIMessage[] {
   if (!Array.isArray(value)) {
@@ -20,3 +22,153 @@ export function isUIMessageArray(value: unknown): value is UIMessage[] {
     )
   })
 }
+
+const TEMPORAL_STATUS_MAP: Record<
+  WorkflowExecutionStatus,
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELED"
+  | "TERMINATED"
+  | "CONTINUED_AS_NEW"
+  | "TIMED_OUT"
+> = {
+  1: "RUNNING",
+  2: "COMPLETED",
+  3: "FAILED",
+  4: "CANCELED",
+  5: "TERMINATED",
+  6: "CONTINUED_AS_NEW",
+  7: "TIMED_OUT",
+}
+
+export type AgentTemporalStatus =
+  (typeof TEMPORAL_STATUS_MAP)[WorkflowExecutionStatus]
+
+export type AgentDerivedStatus =
+  | "PENDING_APPROVAL"
+  | AgentTemporalStatus
+  | "UNKNOWN"
+
+export type AgentStatusTone =
+  | "danger"
+  | "warning"
+  | "success"
+  | "info"
+  | "neutral"
+
+export interface AgentStatusMetadata {
+  label: string
+  priority: number
+  tone: AgentStatusTone
+}
+
+function baseStatusMeta(
+  status: AgentTemporalStatus,
+  priority: number,
+  tone: AgentStatusTone
+): AgentStatusMetadata {
+  return {
+    label: undoSlugify(status.toLowerCase()),
+    priority,
+    tone,
+  }
+}
+
+const STATUS_METADATA: Record<AgentDerivedStatus, AgentStatusMetadata> = {
+  PENDING_APPROVAL: {
+    label: "Pending approvals",
+    priority: 0,
+    tone: "warning",
+  },
+  FAILED: baseStatusMeta("FAILED", 1, "danger"),
+  TIMED_OUT: baseStatusMeta("TIMED_OUT", 2, "danger"),
+  TERMINATED: baseStatusMeta("TERMINATED", 3, "danger"),
+  CANCELED: baseStatusMeta("CANCELED", 4, "neutral"),
+  RUNNING: baseStatusMeta("RUNNING", 5, "info"),
+  CONTINUED_AS_NEW: baseStatusMeta("CONTINUED_AS_NEW", 6, "info"),
+  COMPLETED: baseStatusMeta("COMPLETED", 7, "success"),
+  UNKNOWN: {
+    label: "Unknown",
+    priority: 8,
+    tone: "neutral",
+  },
+}
+
+export type AgentSessionWithStatus = AgentSessionRead & {
+  derivedStatus: AgentDerivedStatus
+  statusLabel: string
+  statusPriority: number
+  statusTone: AgentStatusTone
+  pendingApprovalCount: number
+  temporalStatus: AgentTemporalStatus | null
+}
+
+export function enrichAgentSession(
+  session: AgentSessionRead
+): AgentSessionWithStatus {
+  const pendingApprovalCount =
+    session.approvals?.filter((approval) => approval.status === "pending")
+      .length ?? 0
+
+  if (pendingApprovalCount > 0) {
+    const pendingMeta = STATUS_METADATA["PENDING_APPROVAL"]
+    return {
+      ...session,
+      derivedStatus: "PENDING_APPROVAL",
+      statusLabel: pendingMeta.label,
+      statusPriority: pendingMeta.priority,
+      statusTone: pendingMeta.tone,
+      pendingApprovalCount,
+      temporalStatus: null,
+    }
+  }
+
+  const temporalStatus =
+    session.status != null
+      ? (TEMPORAL_STATUS_MAP[session.status] ?? null)
+      : null
+  const derivedStatus: AgentDerivedStatus = temporalStatus ?? "UNKNOWN"
+  const metadata = STATUS_METADATA[derivedStatus]
+
+  return {
+    ...session,
+    derivedStatus,
+    statusLabel: metadata.label,
+    statusPriority: metadata.priority,
+    statusTone: metadata.tone,
+    pendingApprovalCount,
+    temporalStatus,
+  }
+}
+
+export function getAgentStatusMetadata(
+  status: AgentDerivedStatus
+): AgentStatusMetadata {
+  return STATUS_METADATA[status]
+}
+
+export function compareAgentStatusPriority(
+  a: AgentDerivedStatus,
+  b: AgentDerivedStatus
+) {
+  return (
+    (STATUS_METADATA[a]?.priority ?? Number.MAX_SAFE_INTEGER) -
+    (STATUS_METADATA[b]?.priority ?? Number.MAX_SAFE_INTEGER)
+  )
+}
+
+export type ToolApprovedPayload = {
+  kind: "tool-approved"
+  override_args?: Record<string, unknown> | null
+}
+
+export type ToolDeniedPayload = {
+  kind: "tool-denied"
+  message?: string
+}
+
+export type AgentApprovalDecisionPayload =
+  | boolean
+  | ToolApprovedPayload
+  | ToolDeniedPayload

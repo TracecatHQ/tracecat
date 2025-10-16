@@ -9,6 +9,8 @@ import {
   type ActionUpdate,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
+  type AgentListAgentSessionsData,
+  type AgentListAgentSessionsResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
   type AgentSettingsRead,
@@ -23,6 +25,7 @@ import {
   agentGetDefaultModel,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
+  agentListAgentSessions,
   agentListModels,
   agentListProviderCredentialConfigs,
   agentListProviders,
@@ -259,6 +262,8 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useGetRunbook } from "@/hooks/use-runbook"
+import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
 import {
   listCaseDurationDefinitions,
@@ -4372,6 +4377,39 @@ export function useIntegrationProvider({
 }
 
 // Agent hooks
+interface UseAgentSessionsOptions {
+  enabled?: boolean
+}
+
+export function useAgentSessions(
+  { workspaceId }: AgentListAgentSessionsData,
+  options?: UseAgentSessionsOptions
+) {
+  const {
+    data: sessions,
+    isLoading: sessionsIsLoading,
+    error: sessionsError,
+    refetch: refetchSessions,
+  } = useQuery<
+    AgentListAgentSessionsResponse,
+    TracecatApiError,
+    AgentSessionWithStatus[]
+  >({
+    queryKey: ["agent-sessions", workspaceId],
+    queryFn: async () => await agentListAgentSessions({ workspaceId }),
+    select: (data) => data.map(enrichAgentSession),
+    enabled: options?.enabled ?? Boolean(workspaceId),
+    retry: retryHandler,
+  })
+
+  return {
+    sessions,
+    sessionsIsLoading,
+    sessionsError,
+    refetchSessions,
+  }
+}
+
 export function useAgentModels() {
   const {
     data: models,
