@@ -8444,6 +8444,11 @@ export const $RegistryActionOptions = {
       title: "Include In Schema",
       default: true,
     },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      default: false,
+    },
   },
   type: "object",
   title: "RegistryActionOptions",
