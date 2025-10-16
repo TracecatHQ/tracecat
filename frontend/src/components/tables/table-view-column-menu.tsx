@@ -13,6 +13,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type TableColumnRead } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -323,9 +324,7 @@ function TableColumnEditDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Name
-                  </FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -341,9 +340,7 @@ function TableColumnEditDialog({
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Type
-                  </FormLabel>
+                  <FormLabel>Type</FormLabel>
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger>
@@ -352,7 +349,10 @@ function TableColumnEditDialog({
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -378,7 +378,7 @@ function TableColumnEditDialog({
                         disabled
                       />
                     </FormControl>
-                    <FormLabel className="text-xs">Allow null values</FormLabel>
+                    <FormLabel>Allow null values</FormLabel>
                   </div>
                   <FormMessage />
                 </FormItem>

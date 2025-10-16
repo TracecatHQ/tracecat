@@ -1,16 +1,5 @@
 "use client"
 
-import {
-  Braces,
-  Calendar,
-  CalendarClock,
-  CircleDot,
-  Hash,
-  ListTodo,
-  SquareCheck,
-  ToggleLeft,
-  Type,
-} from "lucide-react"
 import { useState } from "react"
 import type { EntityFieldRead, FieldType } from "@/client"
 import {
@@ -31,21 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
-const fieldTypeConfig: Record<
-  FieldType,
-  { label: string; icon: React.ElementType }
-> = {
-  TEXT: { label: "Text", icon: Type },
-  INTEGER: { label: "Integer", icon: Hash },
-  NUMBER: { label: "Number", icon: CircleDot },
-  BOOL: { label: "Boolean", icon: ToggleLeft },
-  JSON: { label: "JSON", icon: Braces },
-  DATE: { label: "Date", icon: Calendar },
-  DATETIME: { label: "Date and time", icon: CalendarClock },
-  SELECT: { label: "Select", icon: SquareCheck },
-  MULTI_SELECT: { label: "Multi-select", icon: ListTodo },
-}
+import { getFieldTypeConfig } from "@/lib/data-type"
 
 interface EntityFieldsTableProps {
   fields: EntityFieldRead[]
@@ -108,7 +83,7 @@ export function EntityFieldsTable({
             ),
             cell: ({ row }) => {
               const t = row.getValue<FieldType>("type")
-              const cfg = fieldTypeConfig[t]
+              const cfg = getFieldTypeConfig(t)
               const Icon = cfg?.icon
               return (
                 <Badge variant="secondary" className="text-xs">

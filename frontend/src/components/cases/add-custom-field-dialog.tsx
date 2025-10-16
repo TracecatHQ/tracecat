@@ -6,6 +6,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { casesCreateField } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -147,10 +148,7 @@ export function AddCustomFieldDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Data type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a data type" />
@@ -160,7 +158,10 @@ export function AddCustomFieldDialog({
                       {SqlTypeEnum.filter((type) => type !== "JSONB").map(
                         (type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         )
                       )}

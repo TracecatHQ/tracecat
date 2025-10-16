@@ -6,6 +6,7 @@ import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -130,8 +131,8 @@ export function TableInsertColumnDialog({
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    <span>Data Type</span>
+                  <FormLabel className="flex items-center gap-2">
+                    <span>Data type</span>
                     <span className="text-xs text-muted-foreground">
                       (required)
                     </span>
@@ -144,7 +145,10 @@ export function TableInsertColumnDialog({
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay
+                              type={type}
+                              labelClassName="text-xs"
+                            />
                           </SelectItem>
                         ))}
                       </SelectContent>

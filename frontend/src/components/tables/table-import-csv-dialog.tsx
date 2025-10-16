@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type TableRead } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -41,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
+import type { SqlType } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useImportCsv } from "@/lib/hooks"
 import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
@@ -393,10 +395,17 @@ function ColumnMapping({ csvData, table }: ColumnMappingProps) {
                       <SelectItem value="skip">Skip this column</SelectItem>
                       {table.columns.map((column) => (
                         <SelectItem key={column.name} value={column.name}>
-                          <span>{column.name}</span>
-                          <span className="ml-3 lowercase text-muted-foreground">
-                            {column.type}
-                          </span>
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <span className="text-xs font-medium">
+                              {column.name}
+                            </span>
+                            <SqlTypeDisplay
+                              type={column.type as SqlType}
+                              className="gap-1.5 text-muted-foreground"
+                              iconClassName="size-3"
+                              labelClassName="text-xs font-normal"
+                            />
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>

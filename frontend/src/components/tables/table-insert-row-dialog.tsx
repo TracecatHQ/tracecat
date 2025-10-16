@@ -6,6 +6,7 @@ import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,6 +26,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -154,11 +156,9 @@ export function TableInsertRowDialog({
                 name={column.name}
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-xs lowercase">
-                      <span className="font-semibold">{column.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {column.type}
-                      </span>
+                    <FormLabel className="flex items-center gap-2">
+                      <span>{column.name}</span>
+                      <SqlTypeBadge type={column.type as SqlType} />
                     </FormLabel>
                     <FormControl>
                       <DynamicInput column={column} field={field} />
