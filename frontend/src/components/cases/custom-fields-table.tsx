@@ -26,6 +26,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
+import type { SqlType } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
   fields: CaseFieldRead[]
@@ -78,9 +80,9 @@ export function CustomFieldsTable({
               />
             ),
             cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["type"]>("type")}
-              </div>
+              <SqlTypeBadge
+                type={row.getValue<CaseFieldRead["type"]>("type") as SqlType}
+              />
             ),
             enableSorting: true,
             enableHiding: false,

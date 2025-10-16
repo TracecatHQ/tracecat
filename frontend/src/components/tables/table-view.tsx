@@ -10,6 +10,8 @@ import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
+import type { SqlType } from "@/lib/data-type"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -129,7 +131,7 @@ export function DatabaseTable({
             title={column.name}
             className="text-xs"
           />
-          <span className="lowercase text-muted-foreground">{column.type}</span>
+          <SqlTypeBadge type={column.type as SqlType} />
           {column.is_index && (
             <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
               <DatabaseZapIcon className="mr-1 size-3" />

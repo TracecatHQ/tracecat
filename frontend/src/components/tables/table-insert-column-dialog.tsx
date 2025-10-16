@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useInsertColumn } from "@/lib/hooks"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { SqlTypeEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -138,13 +139,24 @@ export function TableInsertColumnDialog({
                   </FormLabel>
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a type..." />
+                      <SelectTrigger className="text-xs">
+                        {field.value ? (
+                          <>
+                            <SqlTypeDisplay
+                              type={field.value}
+                              className="gap-1.5"
+                              iconClassName="size-3"
+                            />
+                            <SelectValue className="sr-only" />
+                          </>
+                        ) : (
+                          <SelectValue placeholder="Select a type..." />
+                        )}
                       </SelectTrigger>
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay type={type} />
                           </SelectItem>
                         ))}
                       </SelectContent>

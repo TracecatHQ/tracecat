@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { SqlTypeEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -152,15 +153,26 @@ export function AddCustomFieldDialog({
                     defaultValue={field.value}
                   >
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a data type" />
+                      <SelectTrigger className="text-xs">
+                        {field.value ? (
+                          <>
+                            <SqlTypeDisplay
+                              type={field.value}
+                              className="gap-1.5"
+                              iconClassName="size-3"
+                            />
+                            <SelectValue className="sr-only" />
+                          </>
+                        ) : (
+                          <SelectValue placeholder="Select a data type" />
+                        )}
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {SqlTypeEnum.filter((type) => type !== "JSONB").map(
                         (type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay type={type} />
                           </SelectItem>
                         )
                       )}

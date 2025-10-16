@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import {
   Table,
   TableBody,
@@ -40,6 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import type { SqlType } from "@/lib/data-type"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useImportCsv } from "@/lib/hooks"
@@ -393,10 +395,17 @@ function ColumnMapping({ csvData, table }: ColumnMappingProps) {
                       <SelectItem value="skip">Skip this column</SelectItem>
                       {table.columns.map((column) => (
                         <SelectItem key={column.name} value={column.name}>
-                          <span>{column.name}</span>
-                          <span className="ml-3 lowercase text-muted-foreground">
-                            {column.type}
-                          </span>
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <span className="text-xs font-medium">
+                              {column.name}
+                            </span>
+                            <SqlTypeDisplay
+                              type={column.type as SqlType}
+                              className="gap-1.5 text-muted-foreground"
+                              iconClassName="size-3"
+                              labelClassName="text-xs font-normal"
+                            />
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>

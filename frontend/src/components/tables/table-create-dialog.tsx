@@ -5,6 +5,7 @@ import { PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -193,16 +194,27 @@ export function CreateTableDialog({
                                     value={field.value}
                                     onValueChange={field.onChange}
                                   >
-                                    <SelectTrigger>
-                                      <SelectValue
-                                        placeholder="Select column type"
-                                        className="w-full"
-                                      />
+                                    <SelectTrigger className="text-xs">
+                                      {field.value ? (
+                                        <>
+                                          <SqlTypeDisplay
+                                            type={field.value}
+                                            className="gap-1.5"
+                                            iconClassName="size-3"
+                                          />
+                                          <SelectValue className="sr-only" />
+                                        </>
+                                      ) : (
+                                        <SelectValue
+                                          placeholder="Select column type"
+                                          className="w-full"
+                                        />
+                                      )}
                                     </SelectTrigger>
                                     <SelectContent>
                                       {SqlTypeEnum.map((type) => (
                                         <SelectItem key={type} value={type}>
-                                          {type}
+                                          <SqlTypeDisplay type={type} />
                                         </SelectItem>
                                       ))}
                                     </SelectContent>

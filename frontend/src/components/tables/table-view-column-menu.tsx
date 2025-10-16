@@ -57,6 +57,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
@@ -346,13 +347,24 @@ function TableColumnEditDialog({
                   </FormLabel>
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a type..." />
+                      <SelectTrigger className="text-xs">
+                        {field.value ? (
+                          <>
+                            <SqlTypeDisplay
+                              type={field.value}
+                              className="gap-1.5"
+                              iconClassName="size-3"
+                            />
+                            <SelectValue className="sr-only" />
+                          </>
+                        ) : (
+                          <SelectValue placeholder="Select a type..." />
+                        )}
                       </SelectTrigger>
                       <SelectContent>
                         {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            <SqlTypeDisplay type={type} />
                           </SelectItem>
                         ))}
                       </SelectContent>

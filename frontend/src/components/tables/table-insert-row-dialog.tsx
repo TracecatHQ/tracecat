@@ -27,6 +27,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
+import type { SqlType } from "@/lib/data-type"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
@@ -154,11 +156,9 @@ export function TableInsertRowDialog({
                 name={column.name}
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-xs lowercase">
+                    <FormLabel className="flex items-center gap-2 text-xs">
                       <span className="font-semibold">{column.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {column.type}
-                      </span>
+                      <SqlTypeBadge type={column.type as SqlType} />
                     </FormLabel>
                     <FormControl>
                       <DynamicInput column={column} field={field} />
