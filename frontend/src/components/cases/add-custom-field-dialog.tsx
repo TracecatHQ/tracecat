@@ -6,6 +6,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { casesCreateField } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -34,7 +35,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { SqlTypeEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

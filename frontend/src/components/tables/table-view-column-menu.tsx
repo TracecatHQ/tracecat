@@ -13,6 +13,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type TableColumnRead } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -57,7 +58,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"

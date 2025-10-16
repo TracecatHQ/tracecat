@@ -1,5 +1,4 @@
-import type { FieldType } from "@/client"
-import type { SqlTypeEnum } from "@/lib/tables"
+import type { LucideIcon } from "lucide-react"
 import {
   Braces,
   Calendar,
@@ -11,7 +10,8 @@ import {
   ToggleLeft,
   Type,
 } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+import type { FieldType } from "@/client"
+import type { SqlTypeEnum } from "@/lib/tables"
 
 export type SqlType = (typeof SqlTypeEnum)[number]
 

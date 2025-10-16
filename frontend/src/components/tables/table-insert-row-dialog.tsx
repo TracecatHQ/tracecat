@@ -6,6 +6,7 @@ import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,10 +26,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
-import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
-import type { SqlType } from "@/lib/data-type"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {

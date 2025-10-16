@@ -36,11 +36,7 @@ interface SqlTypeBadgeProps extends Omit<BadgeProps, "children"> {
 
 export function SqlTypeBadge({ type, className, ...props }: SqlTypeBadgeProps) {
   return (
-    <Badge
-      variant="secondary"
-      className={cn("text-xs", className)}
-      {...props}
-    >
+    <Badge variant="secondary" className={cn("text-xs", className)} {...props}>
       <SqlTypeDisplay type={type} className="gap-1.5" iconClassName="size-3" />
     </Badge>
   )

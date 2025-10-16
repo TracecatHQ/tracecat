@@ -6,6 +6,7 @@ import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,7 +35,6 @@ import {
 } from "@/components/ui/select"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useInsertColumn } from "@/lib/hooks"
-import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { SqlTypeEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

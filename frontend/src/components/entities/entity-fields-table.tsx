@@ -14,13 +14,13 @@ import {
 import { EntityFieldActions } from "@/components/entities/table-actions"
 import { ActiveDialog } from "@/components/entities/table-common"
 import { Badge } from "@/components/ui/badge"
-import { getFieldTypeConfig } from "@/lib/data-type"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getFieldTypeConfig } from "@/lib/data-type"
 
 interface EntityFieldsTableProps {
   fields: EntityFieldRead[]

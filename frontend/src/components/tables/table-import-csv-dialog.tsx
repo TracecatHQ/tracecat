@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type TableRead } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import {
   Table,
   TableBody,
@@ -41,8 +41,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { SqlType } from "@/lib/data-type"
 import { toast } from "@/components/ui/use-toast"
+import type { SqlType } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useImportCsv } from "@/lib/hooks"
 import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"

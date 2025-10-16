@@ -8,6 +8,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +27,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import type { SqlType } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
