@@ -1,9 +1,20 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, TypeAdapter
+from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
+from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError
 
+from tracecat.agent.approvals.models import ApprovalRead
+from tracecat.agent.approvals.service import (
+    ApprovalMap,
+    ApprovalService,
+    ApprovalWithUser,
+)
 from tracecat.agent.models import (
     ModelConfig,
     ModelCredentialCreate,
@@ -14,10 +25,16 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.stream.common import get_stream_headers
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
-from tracecat.agent.types import StreamKey
+from tracecat.agent.types import AgentWorkflowID, StreamKey
+from tracecat.agent.workflows.durable import (
+    DurableAgentWorkflow,
+    WorkflowApprovalSubmission,
+)
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.models import UserReadMinimal
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -198,6 +215,81 @@ async def set_default_model(
         ) from e
 
 
+class AgentSessionRead(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    parent_id: str | None = None
+    parent_run_id: str | None
+    root_id: str | None = None
+    root_run_id: str | None = None
+    status: WorkflowExecutionStatus | None = None
+    approvals: list[ApprovalRead] = Field(default_factory=list)
+
+
+ApprovalsTA: TypeAdapter[list[ApprovalWithUser]] = TypeAdapter(list[ApprovalWithUser])
+
+
+class AgentApprovalSubmission(BaseModel):
+    approvals: ApprovalMap
+
+
+@router.get("/sessions")
+async def list_agent_sessions(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+) -> list[AgentSessionRead]:
+    """List all agent sessions."""
+    # TODO: Limit to workspace
+    # Get all running DurableAgentWorkflows
+    client = await get_temporal_client()
+    executions: list[WorkflowExecution] = []
+    async for execution in client.list_workflows(
+        query="WorkflowType = 'DurableAgentWorkflow'"
+    ):
+        executions.append(execution)
+
+    svc = ApprovalService(session, role=role)
+    # Extract session IDs and fetch pending approvals counts
+    session_ids = [AgentWorkflowID.extract_id(e.id) for e in executions]
+    logger.info("Session IDs", session_ids=session_ids)
+    # Get pending approvals counts for all sessions
+    approvals: dict[uuid.UUID, list[ApprovalWithUser]] = {}
+    logger.info("Role", role=role)
+    if session_ids and role.workspace_id:
+        approvals = await svc.list_approvals_for_sessions(session_ids)
+
+    logger.info("Approvals", approvals=approvals)
+
+    result: list[AgentSessionRead] = []
+    for session_id, e in zip(session_ids, executions, strict=False):
+        approval_reads = [
+            ApprovalRead(
+                approved_by=UserReadMinimal.model_validate(
+                    pair.user, from_attributes=True
+                )
+                if pair.user
+                else None,
+                **pair.approval.model_dump(exclude={"approved_by"}),
+            )
+            for pair in approvals.get(session_id, [])
+        ]
+        logger.info(f"Approval reads: {approval_reads}")
+        result.append(
+            AgentSessionRead(
+                id=session_id,
+                created_at=e.start_time,
+                parent_id=e.parent_id,
+                parent_run_id=e.parent_run_id,
+                root_id=e.root_id,
+                root_run_id=e.root_run_id,
+                status=e.status,
+                approvals=approval_reads,
+            )
+        )
+    return result
+
+
 @router.get("/sessions/{session_id}")
 async def stream_agent_session(
     *,
@@ -238,3 +330,66 @@ async def stream_agent_session(
         media_type="text/event-stream",
         headers=headers,
     )
+
+
+@router.post("/sessions/{session_id}/approvals", status_code=status.HTTP_204_NO_CONTENT)
+async def submit_agent_approvals(
+    *,
+    role: WorkspaceUserRole,
+    session_id: uuid.UUID,
+    payload: AgentApprovalSubmission,
+) -> None:
+    """Submit approval decisions back to the running agent workflow."""
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    workflow_id = AgentWorkflowID(session_id)
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle_for(DurableAgentWorkflow.run, workflow_id)
+
+    try:
+        submission = WorkflowApprovalSubmission(
+            approvals=payload.approvals,
+            approved_by=role.user_id,
+        )
+        await handle.execute_update(DurableAgentWorkflow.set_approvals, submission)
+    except ApplicationError as exc:
+        logger.warning(
+            "Failed to submit approvals",
+            session_id=session_id,
+            workflow_id=workflow_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except RPCError as exc:
+        logger.error(
+            "Temporal RPC error while submitting approvals",
+            session_id=session_id,
+            workflow_id=workflow_id,
+            error=str(exc),
+        )
+        if "workflow not found" in str(exc).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agent session not found"
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to reach workflow service",
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "Unexpected error while submitting approvals",
+            session_id=session_id,
+            workflow_id=workflow_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to submit approvals",
+        ) from exc

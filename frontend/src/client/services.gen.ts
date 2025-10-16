@@ -22,6 +22,8 @@ import type {
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
+  AgentListAgentSessionsData,
+  AgentListAgentSessionsResponse,
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
@@ -29,6 +31,8 @@ import type {
   AgentSetDefaultModelResponse,
   AgentStreamAgentSessionData,
   AgentStreamAgentSessionResponse,
+  AgentSubmitAgentApprovalsData,
+  AgentSubmitAgentApprovalsResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
@@ -3355,6 +3359,29 @@ export const agentSetDefaultModel = (
 }
 
 /**
+ * List Agent Sessions
+ * List all agent sessions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentListAgentSessions = (
+  data: AgentListAgentSessionsData
+): CancelablePromise<AgentListAgentSessionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/sessions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Stream Agent Session
  * Stream agent session events via Server-Sent Events (SSE).
  *
@@ -3385,6 +3412,36 @@ export const agentStreamAgentSession = (
       format: data.format,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Submit Agent Approvals
+ * Submit approval decisions back to the running agent workflow.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentSubmitAgentApprovals = (
+  data: AgentSubmitAgentApprovalsData
+): CancelablePromise<AgentSubmitAgentApprovalsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions/{session_id}/approvals",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

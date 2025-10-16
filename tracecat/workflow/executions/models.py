@@ -18,7 +18,10 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
+from tracecat.agent.types import AgentWorkflowID
+from tracecat.agent.workflows.durable import AgentWorkflowArgs
 from tracecat.dsl.common import (
+    AgentActionMemo,
     ChildWorkflowMemo,
     DSLRunArgs,
     get_trigger_type_from_search_attr,
@@ -148,6 +151,7 @@ EventInput = (
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
+    | AgentWorkflowArgs
 )
 
 
@@ -166,7 +170,7 @@ class EventGroup[T: EventInput](BaseModel):
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
     start_delay: float = 0.0
     join_strategy: JoinStrategy = JoinStrategy.ALL
-    related_wf_exec_id: WorkflowExecutionID | None = None
+    related_wf_exec_id: WorkflowExecutionID | AgentWorkflowID | None = None
 
     @staticmethod
     async def from_scheduled_activity(
@@ -220,7 +224,7 @@ class EventGroup[T: EventInput](BaseModel):
     @staticmethod
     async def from_initiated_child_workflow(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[DSLRunArgs]:
+    ) -> EventGroup[DSLRunArgs | AgentWorkflowArgs]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
@@ -228,31 +232,53 @@ class EventGroup[T: EventInput](BaseModel):
             raise ValueError("Event is not a child workflow initiated event.")
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
-        wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        input = await extract_first(attrs.input)
-        dsl_run_args = DSLRunArgs(**input)
-        # Create an event group
+        logger.warning("Child workflow initiated event", attrs=attrs.workflow_type)
+        match attrs.workflow_type.name:
+            case "DSLWorkfklow":
+                wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
+                input = await extract_first(attrs.input)
+                dsl_run_args = DSLRunArgs(**input)
+                # Create an event group
 
-        if dsl := dsl_run_args.dsl:
-            action_title = dsl.title
-            action_description = dsl.description
-        else:
-            action_title = None
-            action_description = None
+                if dsl := dsl_run_args.dsl:
+                    action_title = dsl.title
+                    action_description = dsl.description
+                else:
+                    action_title = None
+                    action_description = None
 
-        wf_id = WorkflowUUID.new(dsl_run_args.wf_id)
-        return EventGroup(
-            event_id=event.event_id,
-            udf_namespace="core.workflow",
-            udf_name="execute",
-            udf_key="core.workflow.execute",
-            action_id=wf_id.short(),
-            action_ref=None,
-            action_title=action_title,
-            action_description=action_description,
-            action_input=dsl_run_args,
-            related_wf_exec_id=wf_exec_id,
-        )
+                wf_id = WorkflowUUID.new(dsl_run_args.wf_id)
+                return EventGroup(
+                    event_id=event.event_id,
+                    udf_namespace="core.workflow",
+                    udf_name="execute",
+                    udf_key="core.workflow.execute",
+                    action_id=wf_id.short(),
+                    action_ref=None,
+                    action_title=action_title,
+                    action_description=action_description,
+                    action_input=dsl_run_args,
+                    related_wf_exec_id=wf_exec_id,
+                )
+            case "DurableAgentWorkflow":
+                agent_wf_id = AgentWorkflowID.from_workflow_id(attrs.workflow_id)
+                input = await extract_first(attrs.input)
+                agent_run_args = AgentWorkflowArgs(**input)
+                namespace, name = PlatformAction.AI_HITL_AGENT.value.split(".", 1)
+                return EventGroup(
+                    event_id=event.event_id,
+                    udf_namespace=namespace,
+                    udf_name=name,
+                    udf_key=PlatformAction.AI_HITL_AGENT.value,
+                    action_id=agent_wf_id,
+                    action_ref=None,
+                    action_title="AI Agent",
+                    action_description="AI Agent",
+                    action_input=agent_run_args,
+                    related_wf_exec_id=agent_wf_id,
+                )
+            case _:
+                raise ValueError("Event is not a child workflow initiated event.")
 
     @staticmethod
     async def from_accepted_workflow_update(
@@ -436,43 +462,69 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        try:
-            memo = ChildWorkflowMemo.from_temporal(attrs.memo)
-        except Exception as e:
-            logger.error("Error parsing child workflow memo", error=e)
-            raise e
+        match attrs.workflow_type.name:
+            case "DSLWorkfklow":
+                try:
+                    memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+                except Exception as e:
+                    logger.error("Error parsing child workflow memo", error=e)
+                    raise e
 
-        if (
-            attrs.parent_close_policy
-            == temporalio.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
-            and memo.wait_strategy == WaitStrategy.DETACH
-        ):
-            status = WorkflowExecutionEventStatus.DETACHED
-        else:
-            status = WorkflowExecutionEventStatus.SCHEDULED
-        logger.info(
-            "Child workflow initiated event",
-            status=status,
-            wf_exec_id=wf_exec_id,
-            memo=memo,
-        )
+                if (
+                    attrs.parent_close_policy
+                    == temporalio.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+                    and memo.wait_strategy == WaitStrategy.DETACH
+                ):
+                    status = WorkflowExecutionEventStatus.DETACHED
+                else:
+                    status = WorkflowExecutionEventStatus.SCHEDULED
+                logger.info(
+                    "Child workflow initiated event",
+                    status=status,
+                    wf_exec_id=wf_exec_id,
+                    memo=memo,
+                )
 
-        input_data = await extract_first(attrs.input)
-        dsl_run_args = DSLRunArgs(**input_data)
+                input_data = await extract_first(attrs.input)
+                dsl_run_args = DSLRunArgs(**input_data)
 
-        return WorkflowExecutionEventCompact(
-            source_event_id=event.event_id,
-            schedule_time=event.event_time.ToDatetime(UTC),
-            curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-            status=status,
-            action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
-            action_ref=memo.action_ref,
-            action_input=dsl_run_args.trigger_inputs,
-            child_wf_exec_id=wf_exec_id,
-            loop_index=memo.loop_index,
-            child_wf_wait_strategy=memo.wait_strategy,
-            stream_id=memo.stream_id,
-        )
+                return WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=status,
+                    action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
+                    action_ref=memo.action_ref,
+                    action_input=dsl_run_args.trigger_inputs,
+                    child_wf_exec_id=wf_exec_id,
+                    loop_index=memo.loop_index,
+                    child_wf_wait_strategy=memo.wait_strategy,
+                    stream_id=memo.stream_id,
+                )
+            case "DurableAgentWorkflow":
+                try:
+                    memo = AgentActionMemo.from_temporal(attrs.memo)
+                except Exception as e:
+                    logger.error("Error parsing agent action memo", error=e)
+                    raise e
+
+                input_data = await extract_first(attrs.input)
+                agent_run_args = AgentWorkflowArgs(**input_data)
+                return WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.SCHEDULED,
+                    action_name=PlatformAction.AI_AGENT.value,
+                    action_ref=memo.action_ref,
+                    action_input=agent_run_args,
+                    child_wf_exec_id=None,
+                    loop_index=memo.loop_index,
+                )
+            case _:
+                raise ValueError(
+                    f"Unexpected child workflow type: {attrs.workflow_type.name}"
+                )
 
     @staticmethod
     async def from_workflow_update_accepted(

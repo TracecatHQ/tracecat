@@ -679,6 +679,160 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AgentApprovalSubmission = {
+  properties: {
+    approvals: {
+      $ref: "#/components/schemas/ApprovalMap",
+    },
+  },
+  type: "object",
+  required: ["approvals"],
+  title: "AgentApprovalSubmission",
+} as const
+
+export const $AgentConfig = {
+  properties: {
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    fixed_arguments: {
+      anyOf: [
+        {
+          additionalProperties: {
+            additionalProperties: true,
+            type: "object",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Arguments",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      title: "Retries",
+      default: 3,
+    },
+    deps_type: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Deps Type",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider"],
+  title: "AgentConfig",
+  description: "Configuration for an agent.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -732,6 +886,85 @@ export const $AgentOutput = {
   type: "object",
   required: ["output", "message_history", "duration", "usage", "session_id"],
   title: "AgentOutput",
+} as const
+
+export const $AgentSessionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    parent_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Run Id",
+    },
+    root_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Id",
+    },
+    root_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Run Id",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowExecutionStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approvals: {
+      items: {
+        $ref: "#/components/schemas/ApprovalRead",
+      },
+      type: "array",
+      title: "Approvals",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "parent_run_id"],
+  title: "AgentSessionRead",
 } as const
 
 export const $AgentSettingsRead = {
@@ -823,6 +1056,20 @@ export const $AgentSettingsUpdate = {
   },
   type: "object",
   title: "AgentSettingsUpdate",
+} as const
+
+export const $AgentWorkflowArgs = {
+  properties: {
+    role: {
+      $ref: "#/components/schemas/Role",
+    },
+    agent_args: {
+      $ref: "#/components/schemas/RunAgentArgs",
+    },
+  },
+  type: "object",
+  required: ["role", "agent_args"],
+  title: "AgentWorkflowArgs",
 } as const
 
 export const $AppSettingsRead = {
@@ -981,6 +1228,137 @@ export const $ApprovalInteraction = {
   required: ["type"],
   title: "ApprovalInteraction",
   description: "Configuration for an approval interaction.",
+} as const
+
+export const $ApprovalMap = {
+  additionalProperties: {
+    anyOf: [
+      {
+        type: "boolean",
+      },
+      {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/ToolApproved",
+          },
+          {
+            $ref: "#/components/schemas/ToolDenied",
+          },
+        ],
+        discriminator: {
+          propertyName: "kind",
+          mapping: {
+            "tool-approved": "#/components/schemas/ToolApproved",
+            "tool-denied": "#/components/schemas/ToolDenied",
+          },
+        },
+      },
+    ],
+  },
+  type: "object",
+} as const
+
+export const $ApprovalRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    status: {
+      $ref: "#/components/schemas/ApprovalStatus",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    data: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Data",
+    },
+    approved_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approved_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Approved At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "session_id",
+    "tool_call_id",
+    "tool_name",
+    "status",
+    "reason",
+    "data",
+    "approved_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ApprovalRead",
+  description: "Serialized approval record.",
+} as const
+
+export const $ApprovalStatus = {
+  type: "string",
+  enum: ["pending", "approved", "rejected"],
+  title: "ApprovalStatus",
+  description: "Possible states for a deferred tool approval.",
 } as const
 
 export const $AssigneeChangedEventRead = {
@@ -5561,6 +5939,9 @@ export const $EventGroup_TypeVar_ = {
         {
           $ref: "#/components/schemas/InteractionInput",
         },
+        {
+          $ref: "#/components/schemas/AgentWorkflowArgs",
+        },
       ],
       title: "Action Input",
     },
@@ -5602,6 +5983,10 @@ export const $EventGroup_TypeVar_ = {
           type: "string",
           pattern:
             "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        },
+        {
+          type: "string",
+          pattern: "^agent/[0-9a-f]8-[0-9a-f]4-[0-9a-f]4-[0-9a-f]4-[0-9a-f]12$",
         },
         {
           type: "null",
@@ -7573,6 +7958,28 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $OutputType = {
+  anyOf: [
+    {
+      type: "string",
+      enum: [
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+      ],
+    },
+    {
+      additionalProperties: true,
+      type: "object",
+    },
+  ],
 } as const
 
 export const $PartDeltaEvent = {
@@ -9670,6 +10077,48 @@ export const $RunActionInput = {
   title: "RunActionInput",
   description:
     "This object contains all the information needed to execute an action.",
+} as const
+
+export const $RunAgentArgs = {
+  properties: {
+    user_prompt: {
+      type: "string",
+      title: "User Prompt",
+    },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    config: {
+      $ref: "#/components/schemas/AgentConfig",
+    },
+    max_requests: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Requests",
+    },
+    max_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Tool Calls",
+    },
+  },
+  type: "object",
+  required: ["user_prompt", "session_id", "config"],
+  title: "RunAgentArgs",
 } as const
 
 export const $RunContext = {
@@ -12398,6 +12847,31 @@ export const $Toggle = {
   title: "Toggle",
 } as const
 
+export const $ToolApproved = {
+  properties: {
+    override_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Override Args",
+    },
+    kind: {
+      type: "string",
+      const: "tool-approved",
+      title: "Kind",
+      default: "tool-approved",
+    },
+  },
+  type: "object",
+  title: "ToolApproved",
+} as const
+
 export const $ToolCallPart = {
   properties: {
     tool_name: {
@@ -12495,6 +12969,26 @@ export const $ToolCallPartDelta = {
   },
   type: "object",
   title: "ToolCallPartDelta",
+} as const
+
+export const $ToolDenied = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+      default: "The tool call was denied.",
+    },
+    kind: {
+      type: "string",
+      const: "tool-denied",
+      title: "Kind",
+      default: "tool-denied",
+    },
+  },
+  type: "object",
+  title: "ToolDenied",
+  description:
+    "Indicates that a tool call has been denied and that a denial message should be returned to the model.",
 } as const
 
 export const $ToolReturnPart = {
@@ -13083,6 +13577,49 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
+} as const
+
+export const $UserReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role"],
+  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {
@@ -14817,6 +15354,15 @@ export const $WorkflowExecutionReadMinimal = {
     "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
+} as const
+
+export const $WorkflowExecutionStatus = {
+  type: "integer",
+  enum: [1, 2, 3, 4, 5, 6, 7],
+  title: "WorkflowExecutionStatus",
+  description: `Status of a workflow execution.
+
+See :py:class:\`temporalio.api.enums.v1.WorkflowExecutionStatus\`.`,
 } as const
 
 export const $WorkflowExecutionTerminate = {

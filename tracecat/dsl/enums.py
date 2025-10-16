@@ -6,6 +6,7 @@ class PlatformAction(StrEnum):
     TRANSFORM_SCATTER = "core.transform.scatter"
     TRANSFORM_GATHER = "core.transform.gather"
     AI_AGENT = "ai.agent"
+    AI_HITL_AGENT = "ai.hitl_agent"
     AI_ACTION = "ai.action"
 
     @classmethod

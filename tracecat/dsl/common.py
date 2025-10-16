@@ -488,6 +488,32 @@ class ExecuteChildWorkflowArgs(BaseModel):
         return WorkflowUUID.new(v)
 
 
+class AgentActionMemo(BaseModel):
+    action_ref: str = Field(
+        ..., description="The action ref that initiated the child workflow."
+    )
+    loop_index: int | None = Field(
+        default=None,
+        description="The loop index of the child workflow, if any.",
+    )
+
+    @staticmethod
+    def from_temporal(memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
+        try:
+            action_ref = orjson.loads(memo.fields["action_ref"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo action ref", error=e)
+            action_ref = "Unknown Agent Action"
+        if loop_index_data := memo.fields["loop_index"].data:
+            loop_index = orjson.loads(loop_index_data)
+        else:
+            loop_index = None
+        return AgentActionMemo(
+            action_ref=action_ref,
+            loop_index=loop_index,
+        )
+
+
 class ChildWorkflowMemo(BaseModel):
     action_ref: str = Field(
         ..., description="The action ref that initiated the child workflow."

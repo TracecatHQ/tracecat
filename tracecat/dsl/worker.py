@@ -1,9 +1,11 @@
 import asyncio
 import dataclasses
 import os
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+from pydantic_ai.durable_exec.temporal import PydanticAIPlugin
 from temporalio import workflow
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
@@ -17,6 +19,11 @@ with workflow.unsafe.imports_passed_through():
     import sentry_sdk
 
     from tracecat import config
+    from tracecat.agent.activities import AgentActivities
+    from tracecat.agent.approvals.service import ApprovalManager
+    from tracecat.agent.stream.common import PersistableStreamingAgentDeps
+    from tracecat.agent.tools import SimpleToolExecutor
+    from tracecat.agent.workflows.durable import DurableAgentWorkflow
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -57,7 +64,12 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-def get_activities() -> list[Callable]:
+async def get_activities() -> list[Callable]:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    deps = await PersistableStreamingAgentDeps.new(session_id, workspace_id)
+    executor = SimpleToolExecutor()
+    agent_activities = AgentActivities(deps=deps, executor=executor)
     return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
@@ -65,11 +77,13 @@ def get_activities() -> list[Callable]:
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
+        *agent_activities.all_activities(),
+        *ApprovalManager.get_activities(),
     ]
 
 
 async def main() -> None:
-    client = await get_temporal_client()
+    client = await get_temporal_client(plugins=[PydanticAIPlugin()])
 
     interceptors = []
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
@@ -91,7 +105,7 @@ async def main() -> None:
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow
-    activities = get_activities()
+    activities = await get_activities()
     logger.debug(
         "Activities loaded",
         activities=[
@@ -107,7 +121,7 @@ async def main() -> None:
             client,
             task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
             activities=activities,
-            workflows=[DSLWorkflow],
+            workflows=[DSLWorkflow, DurableAgentWorkflow],
             workflow_runner=new_sandbox_runner(),
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,

@@ -25,8 +25,12 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from tracecat_registry.core.agent import HitlAgentActionArgs
 
     from tracecat import config, identifiers
+    from tracecat.agent.models import AgentConfig, RunAgentArgs
+    from tracecat.agent.types import AgentWorkflowID
+    from tracecat.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
         ctx_interaction,
@@ -41,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
+        AgentActionMemo,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
@@ -521,6 +526,43 @@ class DSLWorkflow:
                     # In contrast, task.args are the runtime args that the parent workflow provided
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
+                    )
+                case PlatformAction.AI_HITL_AGENT:
+                    logger.warning("Executing AI agent", task=task)
+                    action_args = HitlAgentActionArgs(**task.args)
+                    wf_info = workflow.info()
+                    session_id = workflow.uuid4()
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
+                            user_prompt=action_args.user_prompt,
+                            session_id=session_id,
+                            config=AgentConfig(
+                                model_name=action_args.model_name,
+                                model_provider=action_args.model_provider,
+                                instructions=action_args.instructions,
+                                output_type=action_args.output_type,
+                                model_settings=action_args.model_settings,
+                                retries=action_args.retries,
+                                base_url=action_args.base_url,
+                                actions=action_args.actions,
+                            ),
+                        ),
+                    )
+                    action_result: Any = await workflow.execute_child_workflow(
+                        DurableAgentWorkflow.run,
+                        arg=arg,
+                        id=AgentWorkflowID(session_id),
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        # Propagate the parent workflow attributes to the child workflow
+                        task_queue=wf_info.task_queue,
+                        execution_timeout=wf_info.execution_timeout,
+                        task_timeout=wf_info.task_timeout,
+                        search_attributes=wf_info.typed_search_attributes,
+                        memo=AgentActionMemo(
+                            action_ref=task.ref,
+                            loop_index=None,
+                        ).model_dump(),
                     )
                 case _:
                     # Below this point, we're executing the task

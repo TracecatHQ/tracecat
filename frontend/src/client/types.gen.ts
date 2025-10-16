@@ -170,6 +170,37 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentApprovalSubmission = {
+  approvals: ApprovalMap
+}
+
+/**
+ * Configuration for an agent.
+ */
+export type AgentConfig = {
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  instructions?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  fixed_arguments?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  deps_type?: unknown | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history: Array<ModelRequest | ModelResponse>
@@ -177,6 +208,17 @@ export type AgentOutput = {
   usage: RunUsage
   session_id: string
   trace_id?: string | null
+}
+
+export type AgentSessionRead = {
+  id: string
+  created_at: string
+  parent_id?: string | null
+  parent_run_id: string | null
+  root_id?: string | null
+  root_run_id?: string | null
+  status?: WorkflowExecutionStatus | null
+  approvals?: Array<ApprovalRead>
 }
 
 export type AgentSettingsRead = {
@@ -203,6 +245,11 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+}
+
+export type AgentWorkflowArgs = {
+  role: Role
+  agent_args: RunAgentArgs
 }
 
 /**
@@ -278,6 +325,34 @@ export type ApprovalInteraction = {
    */
   approve_if?: string | null
 }
+
+export type ApprovalMap = {
+  [key: string]: boolean | ToolApproved | ToolDenied
+}
+
+/**
+ * Serialized approval record.
+ */
+export type ApprovalRead = {
+  id: string
+  session_id: string
+  tool_call_id: string
+  tool_name: string
+  status: ApprovalStatus
+  reason: string | null
+  data: {
+    [key: string]: unknown
+  } | null
+  approved_by?: UserReadMinimal | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Possible states for a deferred tool approval.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected"
 
 /**
  * Event for when a case assignee is changed.
@@ -1886,6 +1961,7 @@ export type EventGroup_TypeVar_ = {
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
+    | AgentWorkflowArgs
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -2566,6 +2642,19 @@ export type OrgMemberRead = {
   is_verified: boolean
   last_login_at: string | null
 }
+
+export type OutputType =
+  | "bool"
+  | "float"
+  | "int"
+  | "str"
+  | "list[bool]"
+  | "list[float]"
+  | "list[int]"
+  | "list[str]"
+  | {
+      [key: string]: unknown
+    }
 
 export type PartDeltaEvent = {
   index: number
@@ -3364,6 +3453,14 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+}
+
+export type RunAgentArgs = {
+  user_prompt: string
+  session_id: string
+  config: AgentConfig
+  max_requests?: number | null
+  max_tool_calls?: number | null
 }
 
 /**
@@ -4261,6 +4358,13 @@ export type Toggle = {
   component_id?: "toggle"
 }
 
+export type ToolApproved = {
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  kind?: "tool-approved"
+}
+
 /**
  * A tool call from a model.
  */
@@ -4287,6 +4391,14 @@ export type ToolCallPartDelta = {
     | null
   tool_call_id?: string | null
   part_delta_kind?: "tool_call"
+}
+
+/**
+ * Indicates that a tool call has been denied and that a denial message should be returned to the model.
+ */
+export type ToolDenied = {
+  message?: string
+  kind?: "tool-denied"
 }
 
 /**
@@ -4462,6 +4574,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -4960,6 +5080,13 @@ export type WorkflowExecutionReadMinimal = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
 }
+
+/**
+ * Status of a workflow execution.
+ *
+ * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
+ */
+export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -6043,6 +6170,12 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentListAgentSessionsData = {
+  workspaceId: string
+}
+
+export type AgentListAgentSessionsResponse = Array<AgentSessionRead>
+
 export type AgentStreamAgentSessionData = {
   /**
    * Streaming format (e.g. 'vercel')
@@ -6054,6 +6187,14 @@ export type AgentStreamAgentSessionData = {
 }
 
 export type AgentStreamAgentSessionResponse = unknown
+
+export type AgentSubmitAgentApprovalsData = {
+  requestBody: AgentApprovalSubmission
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSubmitAgentApprovalsResponse = void
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -8660,6 +8801,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/sessions": {
+    get: {
+      req: AgentListAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentSessionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/sessions/{session_id}": {
     get: {
       req: AgentStreamAgentSessionData
@@ -8668,6 +8824,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/approvals": {
+    post: {
+      req: AgentSubmitAgentApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
