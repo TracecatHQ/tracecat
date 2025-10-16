@@ -175,7 +175,7 @@ class DurableAgentWorkflow:
     async def _build_toolset(
         self, args: AgentWorkflowArgs
     ) -> RemoteToolset[PersistableStreamingAgentDepsSpec]:
-        build_tool_defs_result = await workflow.execute_activity_method(
+        build_tool_defs_result = await workflow.execute_activity(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
                 tool_filters=ToolFilters(

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, with_config
 from pydantic_ai import ModelSettings, RunContext, ToolDefinition
-from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.durable_exec.temporal import TemporalRunContext
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import (
@@ -30,9 +29,8 @@ from tracecat.agent.stream.common import (
     PersistableStreamingAgentDeps,
     PersistableStreamingAgentDepsSpec,
 )
-from tracecat.agent.stream.writers import HasStreamWriter, event_stream_handler
+from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.tools import (
-    ToolExecutor,
     build_agent_tools,
     denormalize_tool_name,
 )
@@ -116,36 +114,20 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
 class AgentActivities:
     """Activities for agent execution with optional Redis streaming."""
 
-    def __init__(
-        self,
-        deps: HasStreamWriter,
-        executor: ToolExecutor,
-        event_stream_handler: EventStreamHandler[
-            PersistableStreamingAgentDeps
-        ] = event_stream_handler,
-        run_context_type: type[
-            TemporalRunContext[PersistableStreamingAgentDeps]
-        ] = TemporalRunContext[PersistableStreamingAgentDeps],
-    ):
-        self.deps = deps
-        self.executor = executor
+    run_context_type: ClassVar[
+        type[TemporalRunContext[PersistableStreamingAgentDeps]]
+    ] = TemporalRunContext[PersistableStreamingAgentDeps]
 
-        async def _event_stream_handler(
-            ctx: RunContext[PersistableStreamingAgentDeps],
-            events: AsyncIterable[AgentStreamEvent],
-        ) -> None:
-            logger.info("ACTIVITY Event stream handler", ctx=ctx, events=events)
-            await event_stream_handler(ctx, events)
+    def __new__(cls) -> None:
+        raise NotImplementedError("AgentActivities is a static class")
 
-        self._event_stream_handler = _event_stream_handler
-        self.run_context_type = run_context_type
+    @classmethod
+    def get_activities(cls) -> list[Callable[..., Any]]:
+        return all_activities(cls)
 
-    def get_activities(self) -> list[Callable[..., Any]]:
-        return all_activities(self)
-
+    @staticmethod
     @activity.defn
     async def build_tool_definitions(
-        self,
         args: BuildToolDefsArgs,
     ) -> BuildToolDefsResult:
         result = await build_agent_tools(
@@ -210,9 +192,10 @@ class AgentActivities:
 
         return ModelRequestResult(model_response=model_response)
 
+    @classmethod
     @activity.defn
     async def request_stream(
-        self,
+        cls,
         args: RequestStreamArgs,
         deps: PersistableStreamingAgentDepsSpec,
     ) -> ModelResponse:
@@ -220,10 +203,7 @@ class AgentActivities:
             "REQUEST STREAM ACTIVITY", params=args, deps=deps, role=args.role
         )
         ctx_role.set(args.role)
-        # An error is raised in `request_stream` if no `event_stream_handler` is set.
-        assert self._event_stream_handler is not None
-
-        run_context = await self._reconstruct_run_context(
+        run_context = await cls._reconstruct_run_context(
             args.serialized_run_context, spec=deps
         )
         async with secrets_manager.load_secrets(PlatformAction.AI_HITL_AGENT):
@@ -238,19 +218,20 @@ class AgentActivities:
             args.model_request_parameters,
             run_context,
         ) as streamed_response:
-            await self._event_stream_handler(run_context, streamed_response)
+            await event_stream_handler(run_context, streamed_response)
 
             async for _ in streamed_response:
                 pass
         return streamed_response.get()
 
+    @classmethod
     @activity.defn
     async def event_stream_handler(
-        self,
+        cls,
         args: EventStreamHandlerArgs,
         deps: PersistableStreamingAgentDepsSpec,
     ) -> None:
-        run_context = await self._reconstruct_run_context(
+        run_context = await cls._reconstruct_run_context(
             args.serialized_run_context, spec=deps
         )
         logger.warning(
@@ -262,14 +243,15 @@ class AgentActivities:
         async def streamed_response():
             yield args.event
 
-        await self._event_stream_handler(run_context, streamed_response())
+        await event_stream_handler(run_context, streamed_response())
 
+    @classmethod
     async def _reconstruct_run_context(
-        self,
+        cls,
         serialized_run_context: Any,
         spec: PersistableStreamingAgentDepsSpec,
     ) -> RunContext[PersistableStreamingAgentDeps]:
         deps = await spec.build()
-        return self.run_context_type.deserialize_run_context(
+        return cls.run_context_type.deserialize_run_context(
             serialized_run_context, deps=deps
         )

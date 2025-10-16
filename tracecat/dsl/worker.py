@@ -1,7 +1,6 @@
 import asyncio
 import dataclasses
 import os
-import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
@@ -21,8 +20,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.agent.activities import AgentActivities
     from tracecat.agent.approvals.service import ApprovalManager
-    from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-    from tracecat.agent.tools import SimpleToolExecutor
     from tracecat.agent.workflows.durable import DurableAgentWorkflow
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
@@ -65,11 +62,6 @@ interrupt_event = asyncio.Event()
 
 
 async def get_activities() -> list[Callable]:
-    session_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
-    deps = await PersistableStreamingAgentDeps.new(session_id, workspace_id)
-    executor = SimpleToolExecutor()
-    agent_activities = AgentActivities(deps=deps, executor=executor)
     return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
@@ -77,7 +69,7 @@ async def get_activities() -> list[Callable]:
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
-        *agent_activities.get_activities(),
+        *AgentActivities.get_activities(),
         *ApprovalManager.get_activities(),
     ]
 
