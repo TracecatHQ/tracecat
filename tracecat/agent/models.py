@@ -12,7 +12,6 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 
-from tracecat.agent.workflows.proxy import ModelInfo
 from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
@@ -20,6 +19,12 @@ if TYPE_CHECKING:
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
+
+
+class ModelInfo(BaseModel):
+    name: str
+    provider: str
+    base_url: str | None
 
 
 class MessageStore(Protocol):
