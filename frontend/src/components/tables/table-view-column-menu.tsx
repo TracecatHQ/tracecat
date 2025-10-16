@@ -26,7 +26,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -78,7 +77,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="size-4 p-0 !ring-0">
-            <span className="sr-only">Edit column</span>
+            <span className="sr-only">Configure column</span>
             <ChevronDownIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -117,16 +116,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 {column.is_index ? "Unique index" : "Create unique index"}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="py-1 text-xs text-foreground/80"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setActiveType("edit")
-                }}
-              >
-                <Pencil className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 className="py-1 text-xs text-destructive"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -134,7 +123,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
               >
                 <Trash2Icon className="mr-2 size-3 group-hover/item:text-destructive" />
-                Delete
+                Delete column
               </DropdownMenuItem>
             </>
           )}
@@ -144,12 +133,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         tableId={tableId}
         column={column}
         open={activeType === "delete"}
-        onOpenChange={onOpenChange}
-      />
-      <TableColumnEditDialog
-        tableId={tableId}
-        column={column}
-        open={activeType === "edit"}
         onOpenChange={onOpenChange}
       />
       <TableColumnIndexDialog
@@ -206,7 +189,7 @@ function TableColumnDeleteDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Column</AlertDialogTitle>
+          <AlertDialogTitle>Delete column permanently</AlertDialogTitle>
           <AlertDialogDescription>
             To confirm deletion, type the column name <b>{column.name}</b>{" "}
             below. This action cannot be undone.
@@ -226,7 +209,7 @@ function TableColumnDeleteDialog({
             variant="destructive"
             disabled={confirmName !== column.name}
           >
-            Delete
+            Delete column
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -245,161 +228,6 @@ const updateColumnSchema = z.object({
   type: z.enum(SqlTypeEnum),
   nullable: z.boolean(),
 })
-
-type UpdateColumnSchema = z.infer<typeof updateColumnSchema>
-
-function TableColumnEditDialog({
-  tableId,
-  column,
-  open,
-  onOpenChange,
-}: {
-  tableId?: string
-  column: TableColumnRead
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const workspaceId = useWorkspaceId()
-  const { updateColumn, updateColumnIsPending } = useUpdateColumn()
-
-  const form = useForm<UpdateColumnSchema>({
-    resolver: zodResolver(updateColumnSchema),
-    defaultValues: {
-      name: column.name,
-      type: column.type as (typeof SqlTypeEnum)[number],
-      nullable: column.nullable,
-    },
-  })
-
-  if (!tableId || !workspaceId) {
-    return null
-  }
-
-  const onSubmit = async (data: UpdateColumnSchema) => {
-    try {
-      const updates: Partial<UpdateColumnSchema> = {}
-      if (data.name !== column.name) {
-        updates.name = data.name
-      }
-      if (data.type !== column.type) {
-        updates.type = data.type
-      }
-      if (data.nullable !== column.nullable) {
-        updates.nullable = data.nullable
-      }
-
-      await updateColumn({
-        requestBody: updates,
-        tableId,
-        columnId: column.id,
-        workspaceId,
-      })
-      form.reset()
-      onOpenChange(false)
-    } catch (error) {
-      console.error(error)
-      if (error instanceof ApiError) {
-        if (error.status === 409) {
-          form.setError("name", {
-            message: "A column with this name already exists",
-          })
-        } else {
-          form.setError("root", { message: error.message })
-        }
-      }
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader className="space-y-4">
-          <DialogTitle>Edit Column</DialogTitle>
-          <DialogDescription>Edit the {column.name} column.</DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    The new name for the column.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a type..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SqlTypeEnum.map((type) => (
-                          <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay
-                              type={type}
-                              labelClassName="text-xs"
-                            />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription>
-                    The data type for this column.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="nullable"
-              render={({ field }) => (
-                <FormItem>
-                  <div className="flex items-center gap-2">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled
-                      />
-                    </FormControl>
-                    <FormLabel>Allow null values</FormLabel>
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button type="submit" disabled={updateColumnIsPending}>
-                {updateColumnIsPending ? (
-                  <Spinner />
-                ) : (
-                  <Pencil className="mr-2 size-4" />
-                )}
-                Update Column
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 function TableColumnIndexDialog({
   tableId,
