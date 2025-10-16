@@ -1,5 +1,6 @@
 """Unit tests for the CSVImporter class."""
 
+from datetime import timezone
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -115,6 +116,30 @@ class TestCSVImporter:
             TypeError, match="Cannot convert value 'invalid' to SqlType BOOLEAN"
         ):
             csv_importer.convert_value("invalid", SqlType.BOOLEAN)
+
+    def test_convert_value_timestamptz(self, csv_importer: CSVImporter) -> None:
+        """Test convert_value with TIMESTAMPTZ values."""
+
+        aware_value = csv_importer.convert_value(
+            "2024-01-02T03:04:05+02:00", SqlType.TIMESTAMPTZ
+        )
+        assert aware_value.tzinfo is not None
+
+        utc_assumed_value = csv_importer.convert_value(
+            "2024-01-02T03:04:05", SqlType.TIMESTAMPTZ
+        )
+        assert utc_assumed_value.tzinfo is timezone.utc
+
+        zulu_value = csv_importer.convert_value(
+            "2024-01-02T03:04:05Z", SqlType.TIMESTAMPTZ
+        )
+        assert zulu_value.tzinfo is timezone.utc
+
+        with pytest.raises(
+            TypeError,
+            match="Cannot convert value 'not-a-date' to SqlType TIMESTAMPTZ",
+        ):
+            csv_importer.convert_value("not-a-date", SqlType.TIMESTAMPTZ)
 
     def test_map_row(self, csv_importer: CSVImporter) -> None:
         """Test mapping CSV rows to table columns."""

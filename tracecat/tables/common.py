@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -57,6 +57,38 @@ def handle_default_value(type: SqlType, default: Any) -> str:
     return default_value
 
 
+def _normalize_isoformat(value: str) -> str:
+    """Normalize ISO datetime strings for Python's datetime parser."""
+
+    normalized_value = value.strip()
+    if normalized_value.endswith("Z"):
+        # Python's datetime.fromisoformat doesn't understand the "Z" suffix
+        normalized_value = normalized_value[:-1] + "+00:00"
+    return normalized_value
+
+
+def _coerce_datetime(value: Any) -> datetime:
+    """Coerce a value into a datetime instance."""
+
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(_normalize_isoformat(value))
+    raise TypeError(
+        "Expected datetime or ISO 8601 string, "
+        f"got {type(value).__name__}: {value!r}"
+    )
+
+
+def ensure_tzaware_datetime(value: Any) -> datetime:
+    """Ensure a datetime value is timezone-aware, assuming UTC when missing."""
+
+    dt_value = _coerce_datetime(value)
+    if dt_value.tzinfo is None:
+        return dt_value.replace(tzinfo=timezone.utc)
+    return dt_value
+
+
 def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
     """Convert a value to a SQL-compatible string based on type.
 
@@ -76,10 +108,26 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case SqlType.TIMESTAMP:
-            return sa.bindparam(key=name, value=value, type_=sa.TIMESTAMP)
-        case SqlType.TIMESTAMPTZ:
+            datetime_value = (
+                None
+                if value is None
+                else _coerce_datetime(value)
+                if isinstance(value, (datetime, str))
+                else value
+            )
             return sa.bindparam(
-                key=name, value=value, type_=sa.TIMESTAMP(timezone=True)
+                key=name,
+                value=datetime_value,
+                type_=sa.TIMESTAMP,
+            )
+        case SqlType.TIMESTAMPTZ:
+            datetime_value = (
+                None if value is None else ensure_tzaware_datetime(value)
+            )
+            return sa.bindparam(
+                key=name,
+                value=datetime_value,
+                type_=sa.TIMESTAMP(timezone=True),
             )
         case SqlType.BOOLEAN:
             # Allow bool, 1, 0 as valid boolean values
@@ -155,8 +203,10 @@ def convert_value(value: str, type: SqlType) -> Any:
                 return orjson.loads(value)
             case SqlType.TEXT:
                 return str(value)
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
-                return datetime.fromisoformat(value)
+            case SqlType.TIMESTAMP:
+                return _coerce_datetime(value)
+            case SqlType.TIMESTAMPTZ:
+                return ensure_tzaware_datetime(value)
             case SqlType.UUID:
                 return UUID(value)
             case _:
