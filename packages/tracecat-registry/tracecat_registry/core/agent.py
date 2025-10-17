@@ -11,7 +11,7 @@ from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
 
 
-from tracecat.registry.fields import ActionType, TextArea
+from tracecat.registry.fields import ActionType, TextArea, Yaml
 from typing_extensions import Doc
 
 anthropic_secret = RegistrySecret(
@@ -249,6 +249,7 @@ class HitlAgentActionArgs(BaseModel):
     user_prompt: str
     model_name: str
     model_provider: str
+    tool_approvals: dict[str, bool] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
     model_settings: dict[str, Any] | None = None
@@ -279,6 +280,13 @@ async def hitl_agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
+    tool_approvals: Annotated[
+        dict[str, bool] | None,
+        Doc(
+            "Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution."
+        ),
+        Yaml(),
+    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,

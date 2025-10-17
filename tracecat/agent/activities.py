@@ -62,6 +62,7 @@ class InvokeToolResult(BaseModel):
 
 class BuildToolDefsArgs(BaseModel):
     tool_filters: ToolFilters
+    tool_approvals: dict[str, bool] | None = None
 
 
 class BuildToolDefsResult(BaseModel):
@@ -135,6 +136,7 @@ class AgentActivities:
         result = await build_agent_tools(
             namespaces=args.tool_filters.namespaces,
             actions=args.tool_filters.actions,
+            tool_approvals=args.tool_approvals,
         )
         defs = [
             replace(t.tool_def, metadata={"approval_required": t.requires_approval})

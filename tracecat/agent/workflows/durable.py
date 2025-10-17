@@ -186,7 +186,8 @@ class DurableAgentWorkflow:
                 tool_filters=ToolFilters(
                     namespaces=args.agent_args.config.namespaces,
                     actions=args.agent_args.config.actions,
-                )
+                ),
+                tool_approvals=args.agent_args.config.tool_approvals,
             ),
             start_to_close_timeout=timedelta(seconds=120),
         )

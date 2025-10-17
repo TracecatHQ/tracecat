@@ -190,6 +190,9 @@ export type AgentConfig = {
       [key: string]: unknown
     }
   } | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
   mcp_server_url?: string | null
   mcp_server_headers?: {
     [key: string]: string

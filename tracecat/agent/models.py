@@ -54,6 +54,7 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     fixed_arguments: dict[str, dict[str, Any]] | None = None
+    tool_approvals: dict[str, bool] | None = None
     # MCP
     mcp_server_url: str | None = None
     mcp_server_headers: dict[str, str] | None = None

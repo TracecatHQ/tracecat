@@ -137,6 +137,7 @@ async def create_tool_from_registry(
     fixed_args: dict[str, Any] | None = None,
     *,
     service: RegistryActionsService | None = None,
+    tool_approvals: dict[str, bool] | None = None,
 ) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
@@ -154,7 +155,11 @@ async def create_tool_from_registry(
     if service is None:
         async with RegistryActionsService.with_session() as _service:
             return await create_tool_from_registry(
-                action_name, ra, fixed_args, service=_service
+                action_name,
+                ra,
+                fixed_args,
+                service=_service,
+                tool_approvals=tool_approvals,
             )
 
     reg_action = ra or await service.get_action(action_name)
@@ -205,11 +210,17 @@ async def create_tool_from_registry(
     )
 
     # Create tool with enforced documentation standards
+    override = (tool_approvals or {}).get(action_name)
+    if override is not None:
+        requires_approval = override
+    else:
+        requires_approval = options.requires_approval
+
     return Tool(
         tool_func,
         docstring_format="google",
         require_parameter_descriptions=False,
-        requires_approval=options.requires_approval,
+        requires_approval=requires_approval,
     )
 
 
@@ -230,6 +241,7 @@ async def create_single_tool(
     ra: RegistryAction,
     action_name: str,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
 ) -> CreateToolResult | None:
     """Create a single tool from a registry action.
 
@@ -253,7 +265,11 @@ async def create_single_tool(
         # Get fixed arguments for this specific action
         action_fixed_args = fixed_arguments.get(action_name)
         tool = await create_tool_from_registry(
-            action_name, ra, action_fixed_args, service=service
+            action_name,
+            ra,
+            action_fixed_args,
+            service=service,
+            tool_approvals=tool_approvals,
         )
 
         return CreateToolResult(
@@ -280,6 +296,7 @@ async def build_agent_tools(
     namespaces: list[str] | None = None,
     actions: list[str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
     """Build tools from a list of actions."""
@@ -319,7 +336,13 @@ async def build_agent_tools(
                     continue
 
             # Create the tool using the extracted function
-            result = await create_single_tool(service, ra, action_name, fixed_arguments)
+            result = await create_single_tool(
+                service,
+                ra,
+                action_name,
+                fixed_arguments=fixed_arguments,
+                tool_approvals=tool_approvals,
+            )
 
             # Check if result is None and handle accordingly
             if result is None:

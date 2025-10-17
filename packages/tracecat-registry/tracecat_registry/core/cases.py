@@ -94,7 +94,6 @@ StatusType = Literal[
     display_group="Cases",
     description="Create a new case.",
     namespace="core.cases",
-    requires_approval=True,
 )
 async def create_case(
     summary: Annotated[

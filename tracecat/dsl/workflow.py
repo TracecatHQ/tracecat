@@ -546,6 +546,7 @@ class DSLWorkflow:
                                 retries=action_args.retries,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
+                                tool_approvals=action_args.tool_approvals,
                             ),
                         ),
                     )

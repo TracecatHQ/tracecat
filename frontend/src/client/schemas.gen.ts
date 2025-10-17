@@ -775,6 +775,20 @@ export const $AgentConfig = {
       ],
       title: "Fixed Arguments",
     },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
     mcp_server_url: {
       anyOf: [
         {
