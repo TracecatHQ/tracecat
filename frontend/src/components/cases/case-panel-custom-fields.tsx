@@ -216,6 +216,7 @@ export function CustomFieldInner({
               <FormControl>
                 <DateTimePicker
                   value={field.value}
+                  fieldType={customField.type}
                   onValueChange={(next) => {
                     field.onChange(next ?? null)
                     onBlur?.(customField.id, next ?? null)
@@ -243,6 +244,7 @@ interface DateTimePickerProps {
   onOpenChange?: (open: boolean) => void
   inputClassName?: string
   inputStyle?: CSSProperties
+  fieldType: "TIMESTAMP" | "TIMESTAMPTZ"
 }
 
 function DateTimePicker({
@@ -251,13 +253,18 @@ function DateTimePicker({
   onOpenChange,
   inputClassName,
   inputStyle,
+  fieldType,
 }: DateTimePickerProps) {
   const [open, setOpen] = useState(false)
+  const formatFieldValue = (date: Date) =>
+    fieldType === "TIMESTAMPTZ"
+      ? date.toISOString()
+      : format(date, "yyyy-MM-dd'T'HH:mm:ss")
   const stringValue = useMemo(() => {
     if (typeof value === "string") return value
-    if (value instanceof Date) return value.toISOString()
+    if (value instanceof Date) return formatFieldValue(value)
     return ""
-  }, [value])
+  }, [fieldType, value])
   const dateValue = useMemo(() => {
     if (!stringValue) return undefined
     const parsed = new Date(stringValue)
@@ -274,7 +281,7 @@ function DateTimePicker({
     if (dateValue) {
       next.setHours(dateValue.getHours(), dateValue.getMinutes(), 0, 0)
     }
-    onValueChange(next.toISOString())
+    onValueChange(formatFieldValue(next))
   }
 
   const handleTimeChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -286,12 +293,12 @@ function DateTimePicker({
 
     const next = new Date(dateValue)
     next.setHours(hours, minutes, 0, 0)
-    onValueChange(next.toISOString())
+    onValueChange(formatFieldValue(next))
   }
 
   const handleSetNow = () => {
     const now = new Date()
-    onValueChange(now.toISOString())
+    onValueChange(formatFieldValue(now))
     setOpen(false)
     onOpenChange?.(false)
   }

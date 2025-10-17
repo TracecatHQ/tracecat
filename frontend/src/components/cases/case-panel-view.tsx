@@ -207,7 +207,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
       prev.filter((id) => {
         const field = customFields.find((item) => item.id === id)
         if (!field) return false
-        return !isCustomFieldValueEmpty(field.value)
+        return isCustomFieldValueEmpty(field.value)
       })
     )
   }, [customFields])

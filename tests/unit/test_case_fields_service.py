@@ -97,6 +97,34 @@ class TestCaseFieldsService:
         assert field.type is SqlType.TIMESTAMP
         assert field.reserved is True
 
+    async def test_case_field_read_accepts_timestamptz_type(self) -> None:
+        """Ensure TIMESTAMPTZ columns can be read for custom fields."""
+        column = {
+            "name": "last_seen_at",
+            "type": sa.types.TIMESTAMP(timezone=True),
+            "nullable": False,
+            "default": None,
+            "comment": None,
+        }
+
+        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.reserved is False
+
+    async def test_case_field_read_normalises_timestamptz_string(self) -> None:
+        """Ensure reflected TIMESTAMP WITH TIME ZONE strings are supported."""
+        column = {
+            "name": "custom_tz_field",
+            "type": "TIMESTAMP WITH TIME ZONE",
+            "nullable": True,
+            "default": None,
+            "comment": None,
+        }
+
+        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.reserved is False
+
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""
         # Create field parameters

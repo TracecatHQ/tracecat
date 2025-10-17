@@ -105,10 +105,18 @@ export function AddCustomFieldDialog({
       ) {
         switch (data.type) {
           case "INTEGER": {
+            const normalized =
+              typeof rawDefault === "string" ? rawDefault.trim() : rawDefault
+            if (typeof normalized === "string" && normalized.length === 0) {
+              form.setError("default", {
+                type: "manual",
+                message: "Default must be a whole number",
+              })
+              setIsSubmitting(false)
+              return
+            }
             const parsed =
-              typeof rawDefault === "number"
-                ? rawDefault
-                : Number.parseInt(String(rawDefault), 10)
+              typeof normalized === "number" ? normalized : Number(normalized)
             if (!Number.isInteger(parsed)) {
               form.setError("default", {
                 type: "manual",

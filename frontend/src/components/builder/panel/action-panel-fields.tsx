@@ -525,12 +525,17 @@ function ComponentContent({
           }
         />
       )
-    case "toggle":
+    case "toggle": {
+      const stateLabel = field.value
+        ? component.label_on || "On"
+        : component.label_off || "Off"
       return (
         <div className="flex items-center space-x-2">
           <Switch checked={field.value} onCheckedChange={field.onChange} />
+          <span className="text-sm text-muted-foreground">{stateLabel}</span>
         </div>
       )
+    }
     case "code":
       return (
         <CodeEditor
