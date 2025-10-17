@@ -1,6 +1,11 @@
 "use client"
 
-import { AlertTriangleIcon, ExternalLinkIcon } from "lucide-react"
+import {
+  AlertTriangleIcon,
+  BoxIcon,
+  ExternalLinkIcon,
+  WorkflowIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import type { UserReadMinimal } from "@/client"
@@ -379,8 +384,9 @@ function AgentSessionCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5"
+                title={detail.label}
               >
-                <span className="text-foreground/65">{detail.label}:</span>
+                <WorkflowIcon className="size-3.5 text-foreground/50" />
                 {detail.formattedLabel}
                 <ExternalLinkIcon className="size-3" />
               </Link>
@@ -389,8 +395,8 @@ function AgentSessionCard({
           {sessionActionLabel ? (
             <>
               <span aria-hidden="true">•</span>
-              <span>
-                <span className="text-foreground/65">Action:</span>{" "}
+              <span className="inline-flex items-center gap-1.5">
+                <BoxIcon className="size-3.5 text-foreground/50" />
                 {sessionActionLabel}
               </span>
             </>
