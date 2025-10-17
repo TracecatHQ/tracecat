@@ -239,7 +239,7 @@ function isEmptyObjectOrArray(value: unknown): boolean {
   return false
 }
 
-function normalizeToolArgs(raw: unknown): {
+function normalizePayload(raw: unknown): {
   value: unknown
   hasValue: boolean
 } {
@@ -468,8 +468,19 @@ function AgentSessionCard({
                 const approverUser = approval.approved_by
                   ? userReadMinimalToUser(approval.approved_by)
                   : undefined
+                const decisionPayload = approval.decision
+                const hasOverrideArgs =
+                  decisionPayload !== null &&
+                  typeof decisionPayload === "object" &&
+                  "override_args" in decisionPayload &&
+                  (decisionPayload as Record<string, unknown>).override_args !==
+                    undefined
                 const decisionLabel =
-                  approval.status === "approved" ? "Approved" : "Rejected"
+                  approval.status === "approved"
+                    ? hasOverrideArgs
+                      ? "Approved with overrides"
+                      : "Approved"
+                    : "Rejected"
                 const decisionTime = approval.approved_at
                   ? shortTimeAgo(new Date(approval.approved_at))
                   : approval.updated_at
@@ -486,18 +497,22 @@ function AgentSessionCard({
                   ? actionTypeKey
                   : "Unknown action"
                 const { value: toolArgsValue, hasValue: hasToolArgs } =
-                  normalizeToolArgs(approval.tool_call_args)
+                  normalizePayload(approval.tool_call_args)
+                const { value: decisionValue, hasValue: hasDecisionValue } =
+                  normalizePayload(decisionPayload)
+                const hasExpandableContent =
+                  hasToolArgs || hasDecisionValue
 
                 return (
                   <button
                     key={approval.id}
                     onClick={() => {
-                      if (hasToolArgs) {
+                      if (hasExpandableContent) {
                         toggleApprovalExpanded(approval.id)
                       }
                     }}
                     className="w-full text-left flex items-start gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 transition-colors hover:bg-muted/30 disabled:opacity-50"
-                    disabled={!hasToolArgs}
+                    disabled={!hasExpandableContent}
                   >
                     {approverUser ? (
                       <UserAvatar
@@ -521,7 +536,7 @@ function AgentSessionCard({
                             {actionLabel}
                           </span>
                         </div>
-                        {hasToolArgs ? (
+                        {hasExpandableContent ? (
                           <Collapsible
                             open={expandedApprovals.has(approval.id)}
                             onOpenChange={() =>
@@ -539,6 +554,7 @@ function AgentSessionCard({
                       </div>
                       <span className="text-[11px] text-muted-foreground">
                         {decisionLabel}
+                        {hasOverrideArgs ? " • Overrides applied" : ""}
                         {approverUser
                           ? ` by ${approverUser.getDisplayName()}`
                           : approval.approved_by
@@ -547,7 +563,7 @@ function AgentSessionCard({
                         {decisionTime ? ` • ${decisionTime}` : ""}
                         {reasonText}
                       </span>
-                      {hasToolArgs ? (
+                      {hasExpandableContent ? (
                         <Collapsible
                           open={expandedApprovals.has(approval.id)}
                           onOpenChange={() =>
@@ -557,13 +573,40 @@ function AgentSessionCard({
                           <CollapsibleContent
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <JsonViewWithControls
-                              src={toolArgsValue}
-                              defaultExpanded={true}
-                              defaultTab="nested"
-                              showControls={false}
-                              className="mt-2 text-xs"
-                            />
+                            <div className="mt-2 flex flex-col gap-3 text-xs">
+                              {hasToolArgs ? (
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Original args
+                                  </span>
+                                  <JsonViewWithControls
+                                    src={toolArgsValue}
+                                    defaultExpanded={true}
+                                    defaultTab="nested"
+                                    showControls={false}
+                                    className="text-xs"
+                                  />
+                                </div>
+                              ) : null}
+                              {hasDecisionValue ? (
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {approval.status === "approved"
+                                      ? hasOverrideArgs
+                                        ? "Override payload"
+                                        : "Decision payload"
+                                      : "Rejection payload"}
+                                  </span>
+                                  <JsonViewWithControls
+                                    src={decisionValue}
+                                    defaultExpanded={true}
+                                    defaultTab="nested"
+                                    showControls={false}
+                                    className="text-xs"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
                           </CollapsibleContent>
                         </Collapsible>
                       ) : null}
