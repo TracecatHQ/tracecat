@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.agent.activities import AgentActivities
     from tracecat.agent.approvals.service import ApprovalManager
+    from tracecat.agent.tools import SimpleToolExecutor
     from tracecat.agent.workflows.durable import DurableAgentWorkflow
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
@@ -62,6 +63,8 @@ interrupt_event = asyncio.Event()
 
 
 async def get_activities() -> list[Callable]:
+    tool_executor = SimpleToolExecutor()
+    agent_activities = AgentActivities(tool_executor=tool_executor)
     return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
@@ -69,7 +72,7 @@ async def get_activities() -> list[Callable]:
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
-        *AgentActivities.get_activities(),
+        *agent_activities.get_activities(),
         *ApprovalManager.get_activities(),
     ]
 

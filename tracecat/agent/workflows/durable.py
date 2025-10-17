@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterable
-from datetime import timedelta
-from typing import Any, Literal, cast
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.durable_exec.temporal import TemporalRunContext
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -30,7 +29,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat.agent.context import AgentContext
     from tracecat.agent.durable import DurableModel
-    from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+    from tracecat.agent.models import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
+    from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
     from tracecat.agent.toolset import RemoteToolset
     from tracecat.contexts import ctx_role
@@ -69,9 +69,7 @@ class DurableAgentWorkflow:
         self.approvals = ApprovalManager(role=self.role)
 
     @workflow.run
-    async def run(
-        self, args: AgentWorkflowArgs
-    ) -> AgentRunResult[Any | DeferredToolRequests]:
+    async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
         logger.info("DurableAgentWorkflow run", args=args)
         ext_toolset = await self._build_toolset(args)
@@ -148,7 +146,14 @@ class DurableAgentWorkflow:
                     # The next run() of the workflow will handle the tool calls
                     # depending on the results of the approvals
                 case _:
-                    return cast(AgentRunResult[Any], result)
+                    info = workflow.info()
+                    return AgentOutput(
+                        output=try_parse_json(result.output),
+                        message_history=result.all_messages(),
+                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                        usage=result.usage(),
+                        session_id=self.session_id,
+                    )
             self._turn += 1
 
     @workflow.update
@@ -175,7 +180,7 @@ class DurableAgentWorkflow:
     async def _build_toolset(
         self, args: AgentWorkflowArgs
     ) -> RemoteToolset[PersistableStreamingAgentDepsSpec]:
-        build_tool_defs_result = await workflow.execute_activity(
+        build_tool_defs_result = await workflow.execute_activity_method(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
                 tool_filters=ToolFilters(

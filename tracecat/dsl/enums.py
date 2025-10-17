@@ -11,7 +11,7 @@ class PlatformAction(StrEnum):
 
     @classmethod
     def is_streamable(cls, action: str) -> bool:
-        return action == cls.AI_AGENT or action == cls.AI_ACTION
+        return action in (cls.AI_AGENT, cls.AI_HITL_AGENT, cls.AI_ACTION)
 
 
 class FailStrategy(StrEnum):
