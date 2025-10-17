@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { format, isValid as isValidDate } from "date-fns"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
+  CaseCustomFieldRead,
   CasePriority,
   CaseSeverity,
   CaseUpdate,
@@ -168,12 +169,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const [customFieldWidths, setCustomFieldWidths] = useState<
     Record<string, string>
   >({})
+  const [clearedCustomFieldIds, setClearedCustomFieldIds] = useState<string[]>(
+    []
+  )
   const nonEmptyCustomFieldIds = useMemo(
     () =>
       customFields
-        .filter((field) => !isCustomFieldValueEmpty(field.value))
+        .filter(
+          (field) =>
+            !isCustomFieldValueEmpty(field.value) &&
+            !clearedCustomFieldIds.includes(field.id)
+        )
         .map((field) => field.id),
-    [customFields]
+    [customFields, clearedCustomFieldIds]
   )
   useEffect(() => {
     setUserAddedCustomFieldIds((prev) =>
@@ -193,6 +201,15 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
       return changed ? next : prev
     })
+  }, [customFields])
+  useEffect(() => {
+    setClearedCustomFieldIds((prev) =>
+      prev.filter((id) => {
+        const field = customFields.find((item) => item.id === id)
+        if (!field) return false
+        return !isCustomFieldValueEmpty(field.value)
+      })
+    )
   }, [customFields])
   const visibleCustomFieldIds = useMemo(() => {
     const set = new Set([...nonEmptyCustomFieldIds, ...userAddedCustomFieldIds])
@@ -224,6 +241,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const handleCustomFieldAdd = useCallback(
     (fieldId: string) => {
       const targetField = customFields.find((field) => field.id === fieldId)
+      setClearedCustomFieldIds((prev) => prev.filter((id) => id !== fieldId))
       setUserAddedCustomFieldIds((prev) =>
         prev.includes(fieldId) ? prev : [...prev, fieldId]
       )
@@ -241,9 +259,33 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     },
     [customFields]
   )
-  const handleCustomFieldHide = useCallback((fieldId: string) => {
-    setUserAddedCustomFieldIds((prev) => prev.filter((id) => id !== fieldId))
-  }, [])
+  const handleCustomFieldClearAndHide = useCallback(
+    async (field: CaseCustomFieldRead) => {
+      setClearedCustomFieldIds((prev) =>
+        prev.includes(field.id) ? prev : [...prev, field.id]
+      )
+      setUserAddedCustomFieldIds((prev) =>
+        prev.filter((id) => id !== field.id)
+      )
+      try {
+        await updateCase({
+          fields: {
+            [field.id]: null,
+          },
+        })
+        handleCustomFieldValueChange(field.id, null)
+      } catch (error) {
+        console.error("Failed to clear custom field:", error)
+        setClearedCustomFieldIds((prev) =>
+          prev.filter((id) => id !== field.id)
+        )
+        setUserAddedCustomFieldIds((prev) =>
+          prev.includes(field.id) ? prev : [...prev, field.id]
+        )
+      }
+    },
+    [handleCustomFieldValueChange, updateCase]
+  )
   const handleCustomFieldPopoverChange = useCallback((open: boolean) => {
     setCustomFieldComboboxOpen(open)
     if (!open) {
@@ -436,9 +478,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         {visibleCustomFields.length > 0 ? (
                           visibleCustomFields.map((field) => {
                             const label = undoSlugify(field.id)
-                            const isEmpty = isCustomFieldValueEmpty(field.value)
-                            const isUserAdded =
-                              userAddedCustomFieldIds.includes(field.id)
                             return (
                               <div
                                 key={field.id}
@@ -462,21 +501,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                   }}
                                   onValueChange={handleCustomFieldValueChange}
                                 />
-                                {isEmpty && isUserAdded && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                                    onClick={() =>
-                                      handleCustomFieldHide(field.id)
-                                    }
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                    <span className="sr-only">
-                                      Hide {label} field
-                                    </span>
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                  onClick={() =>
+                                    handleCustomFieldClearAndHide(field)
+                                  }
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  <span className="sr-only">
+                                    Remove {label} field
+                                  </span>
+                                </Button>
                               </div>
                             )
                           })

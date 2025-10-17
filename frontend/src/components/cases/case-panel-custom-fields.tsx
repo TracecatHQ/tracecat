@@ -121,7 +121,7 @@ export function CustomFieldInner({
                   value={String(field.value || "")}
                   className={cn(
                     linearStyles.input.full,
-                    "w-auto min-w-[8ch]",
+                    "inline-block w-fit min-w-[8ch]",
                     inputClassName
                   )}
                   style={inputStyle}
@@ -149,7 +149,7 @@ export function CustomFieldInner({
                   onChange={(e) => field.onChange(Number(e.target.value))}
                   className={cn(
                     linearStyles.input.full,
-                    "w-auto min-w-[8ch]",
+                    "inline-block w-fit min-w-[8ch]",
                     inputClassName
                   )}
                   style={inputStyle}
@@ -198,7 +198,7 @@ export function CustomFieldInner({
                   value={String(field.value || "")}
                   className={cn(
                     linearStyles.input.full,
-                    "w-auto min-w-[8ch]",
+                    "inline-block w-fit min-w-[8ch]",
                     inputClassName
                   )}
                   style={inputStyle}
