@@ -8,6 +8,7 @@ import { z } from "zod"
 import { casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Select,
   SelectContent,
@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
-import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const caseFieldFormSchema = z.object({

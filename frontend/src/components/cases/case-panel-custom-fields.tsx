@@ -1,8 +1,9 @@
 import { format, isValid as isValidDate } from "date-fns"
-import { type CSSProperties } from "react"
+import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   FormControl,
   FormField,
@@ -10,7 +11,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Switch } from "@/components/ui/switch"
 import { cn, linearStyles } from "@/lib/utils"
 

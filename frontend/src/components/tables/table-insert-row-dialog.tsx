@@ -7,6 +7,7 @@ import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -24,7 +25,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
