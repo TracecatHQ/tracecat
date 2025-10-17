@@ -219,6 +219,10 @@ export type AgentSessionRead = {
   root_run_id?: string | null
   status?: WorkflowExecutionStatus | null
   approvals?: Array<ApprovalRead>
+  parent_workflow?: WorkflowSummary | null
+  root_workflow?: WorkflowSummary | null
+  action_ref?: string | null
+  action_title?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -5167,6 +5171,12 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+}
+
+export type WorkflowSummary = {
+  id: string
+  title: string
+  alias?: string | null
 }
 
 /**

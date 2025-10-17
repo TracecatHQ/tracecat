@@ -968,6 +968,48 @@ export const $AgentSessionRead = {
       type: "array",
       title: "Approvals",
     },
+    parent_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    root_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    action_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Ref",
+    },
+    action_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Title",
+    },
   },
   type: "object",
   required: ["id", "created_at", "parent_run_id"],
@@ -15787,6 +15829,34 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+  },
+  type: "object",
+  required: ["id", "title"],
+  title: "WorkflowSummary",
 } as const
 
 export const $WorkflowSyncPullRequest = {

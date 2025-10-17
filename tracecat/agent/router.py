@@ -13,7 +13,8 @@ from tracecat.agent.approvals.models import ApprovalRead
 from tracecat.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,
-    ApprovalWithUser,
+    EnrichedSession,
+    SessionInfo,
 )
 from tracecat.agent.models import (
     ModelConfig,
@@ -35,6 +36,8 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.models import UserReadMinimal
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.common import AgentActionMemo
+from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -215,6 +218,12 @@ async def set_default_model(
         ) from e
 
 
+class WorkflowSummary(BaseModel):
+    id: uuid.UUID
+    title: str
+    alias: str | None = None
+
+
 class AgentSessionRead(BaseModel):
     id: uuid.UUID
     created_at: datetime
@@ -224,9 +233,13 @@ class AgentSessionRead(BaseModel):
     root_run_id: str | None = None
     status: WorkflowExecutionStatus | None = None
     approvals: list[ApprovalRead] = Field(default_factory=list)
+    parent_workflow: WorkflowSummary | None = None
+    root_workflow: WorkflowSummary | None = None
+    action_ref: str | None = None
+    action_title: str | None = None
 
 
-ApprovalsTA: TypeAdapter[list[ApprovalWithUser]] = TypeAdapter(list[ApprovalWithUser])
+ApprovalsTA: TypeAdapter[list[EnrichedSession]] = TypeAdapter(list[EnrichedSession])
 
 
 class AgentApprovalSubmission(BaseModel):
@@ -243,46 +256,99 @@ async def list_agent_sessions(
     # TODO: Limit to workspace
     # Get all running DurableAgentWorkflows
     client = await get_temporal_client()
-    executions: list[WorkflowExecution] = []
+    sessions: list[SessionInfo] = []
+    executions_by_id: dict[uuid.UUID, WorkflowExecution] = {}
+
     async for execution in client.list_workflows(
         query="WorkflowType = 'DurableAgentWorkflow'"
     ):
-        executions.append(execution)
+        memo = await execution.memo()
+        execution_time = execution.start_time
+        typed_memo = AgentActionMemo.model_validate(memo)
+        session_id = AgentWorkflowID.extract_id(execution.id)
+        if execution.parent_id:
+            p_wf_id, _ = exec_id_to_parts(execution.parent_id)
+        else:
+            p_wf_id = None
+        if execution.root_id:
+            r_wf_id, _ = exec_id_to_parts(execution.root_id)
+        else:
+            r_wf_id = None
+        sessions.append(
+            SessionInfo(
+                session_id=session_id,
+                parent_workflow_id=p_wf_id,
+                root_workflow_id=r_wf_id,
+                start_time=execution_time,
+                action_ref=typed_memo.action_ref,
+                action_title=typed_memo.action_title,
+            )
+        )
+        # Store execution object for later use
+        executions_by_id[session_id] = execution
 
     svc = ApprovalService(session, role=role)
-    # Extract session IDs and fetch pending approvals counts
-    session_ids = [AgentWorkflowID.extract_id(e.id) for e in executions]
-    logger.info("Session IDs", session_ids=session_ids)
-    # Get pending approvals counts for all sessions
-    approvals: dict[uuid.UUID, list[ApprovalWithUser]] = {}
-    if session_ids and role.workspace_id:
-        approvals = await svc.list_approvals_for_sessions(session_ids)
+    enriched_sessions = await svc.list_sessions_enriched(sessions)
 
     result: list[AgentSessionRead] = []
-    for session_id, e in zip(session_ids, executions, strict=False):
+    for enriched_session in enriched_sessions:
+        execution = executions_by_id[enriched_session.id]
+
+        # Transform approval enrichments to API response format
         approval_reads = [
             ApprovalRead(
                 approved_by=UserReadMinimal.model_validate(
-                    pair.user, from_attributes=True
+                    enriched.approved_by, from_attributes=True
                 )
-                if pair.user
+                if enriched.approved_by
                 else None,
-                **pair.approval.model_dump(exclude={"approved_by"}),
+                **enriched.approval.model_dump(exclude={"approved_by"}),
             )
-            for pair in approvals.get(session_id, [])
+            for enriched in enriched_session.approvals
         ]
+
+        # Create workflow summaries if workflows exist
+        parent_summary = (
+            WorkflowSummary(
+                id=enriched_session.parent_workflow.id,
+                title=enriched_session.parent_workflow.title,
+                alias=enriched_session.parent_workflow.alias,
+            )
+            if enriched_session.parent_workflow
+            else None
+        )
+
+        root_summary = (
+            WorkflowSummary(
+                id=enriched_session.root_workflow.id,
+                title=enriched_session.root_workflow.title,
+                alias=enriched_session.root_workflow.alias,
+            )
+            if enriched_session.root_workflow
+            else None
+        )
+
         result.append(
             AgentSessionRead(
-                id=session_id,
-                created_at=e.start_time,
-                parent_id=e.parent_id,
-                parent_run_id=e.parent_run_id,
-                root_id=e.root_id,
-                root_run_id=e.root_run_id,
-                status=e.status,
+                id=enriched_session.id,
+                created_at=enriched_session.start_time,
+                parent_id=str(enriched_session.parent_workflow.id)
+                if enriched_session.parent_workflow
+                else None,
+                parent_run_id=execution.parent_id,
+                root_id=str(enriched_session.root_workflow.id)
+                if enriched_session.root_workflow
+                else None,
+                root_run_id=execution.root_id,
+                status=execution.status,
                 approvals=approval_reads,
+                parent_workflow=parent_summary,
+                root_workflow=root_summary,
+                action_ref=enriched_session.action_ref,
+                action_title=enriched_session.action_title,
             )
         )
+    logger.info("Result", result=result)
     return result
 
 

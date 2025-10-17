@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -33,16 +32,37 @@ from tracecat.agent.approvals.models import (
 )
 from tracecat.agent.context import AgentContext
 from tracecat.common import all_activities
-from tracecat.db.schemas import Approval, User
+from tracecat.db.schemas import Approval, User, Workflow
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 
 
-@dataclass
-class ApprovalWithUser:
+@dataclass(slots=True)
+class EnrichedApproval:
     approval: Approval
-    user: User | None = None
+    approved_by: User | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class EnrichedSession:
+    id: uuid.UUID
+    approvals: list[EnrichedApproval] = field(default_factory=list)
+    parent_workflow: Workflow | None = None
+    root_workflow: Workflow | None = None
+    start_time: datetime
+    action_ref: str | None = None
+    action_title: str | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class SessionInfo:
+    session_id: uuid.UUID
+    start_time: datetime
+    parent_workflow_id: uuid.UUID | None = None
+    root_workflow_id: uuid.UUID | None = None
+    action_ref: str | None = None
+    action_title: str | None = None
 
 
 class ApprovalService(BaseWorkspaceService):
@@ -134,10 +154,29 @@ class ApprovalService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.all()
 
-    async def list_approvals_for_sessions(
-        self, session_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[ApprovalWithUser]]:
-        """List all approvals for a given list of session IDs."""
+    async def list_sessions_enriched(
+        self, sessions: Sequence[SessionInfo]
+    ) -> list[EnrichedSession]:
+        """List all enriched sessions for a given list of session IDs."""
+        session_ids = [s.session_id for s in sessions]
+
+        # Get unique workflow IDs to fetch
+        workflow_ids = set()
+        for session in sessions:
+            if session.parent_workflow_id:
+                workflow_ids.add(session.parent_workflow_id)
+            if session.root_workflow_id:
+                workflow_ids.add(session.root_workflow_id)
+
+        # Fetch workflows if any exist
+        workflows_by_id = {}
+        if workflow_ids:
+            workflow_statement = select(Workflow).where(
+                col(Workflow.id).in_(list(workflow_ids))
+            )
+            workflow_result = await self.session.exec(workflow_statement)
+            workflows_by_id = {w.id: w for w in workflow_result.all()}
+
         statement = (
             select(Approval, User)
             .outerjoin(User, col(Approval.approved_by) == col(User.id))
@@ -147,12 +186,43 @@ class ApprovalService(BaseWorkspaceService):
             )
         )
         result = await self.session.exec(statement)
-        res = defaultdict[uuid.UUID, list[ApprovalWithUser]](list)
+
+        # Group approvals by session_id
+        approvals_by_session: dict[uuid.UUID, list[tuple[Approval, User | None]]] = {}
         for approval, user in result.all():
-            res[approval.session_id].append(
-                ApprovalWithUser(approval=approval, user=user)
+            if approval.session_id not in approvals_by_session:
+                approvals_by_session[approval.session_id] = []
+            approvals_by_session[approval.session_id].append((approval, user))
+
+        # Create one EnrichedSession per session with all its approvals
+        res: list[EnrichedSession] = []
+        for session in sessions:
+            id = session.session_id
+            parent_wf_id = session.parent_workflow_id
+            root_wf_id = session.root_workflow_id
+            session_approvals = approvals_by_session.get(id, [])
+
+            # Create enriched approval objects
+            enriched_approvals = [
+                EnrichedApproval(approval=approval, approved_by=user)
+                for approval, user in session_approvals
+            ]
+
+            # Create the enriched session
+            enriched_session = EnrichedSession(
+                id=id,
+                approvals=enriched_approvals,
+                parent_workflow=workflows_by_id.get(parent_wf_id)
+                if parent_wf_id
+                else None,
+                root_workflow=workflows_by_id.get(root_wf_id) if root_wf_id else None,
+                start_time=session.start_time,
+                action_ref=session.action_ref,
+                action_title=session.action_title,
             )
-        return dict(res)
+            res.append(enriched_session)
+
+        return res
 
     # UPDATE operations
 
