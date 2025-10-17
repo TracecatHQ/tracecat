@@ -34,6 +34,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
@@ -44,7 +45,6 @@ import {
   parseExecutionId,
 } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
-import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
