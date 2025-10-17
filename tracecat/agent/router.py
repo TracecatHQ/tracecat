@@ -255,11 +255,8 @@ async def list_agent_sessions(
     logger.info("Session IDs", session_ids=session_ids)
     # Get pending approvals counts for all sessions
     approvals: dict[uuid.UUID, list[ApprovalWithUser]] = {}
-    logger.info("Role", role=role)
     if session_ids and role.workspace_id:
         approvals = await svc.list_approvals_for_sessions(session_ids)
-
-    logger.info("Approvals", approvals=approvals)
 
     result: list[AgentSessionRead] = []
     for session_id, e in zip(session_ids, executions, strict=False):
@@ -274,7 +271,6 @@ async def list_agent_sessions(
             )
             for pair in approvals.get(session_id, [])
         ]
-        logger.info(f"Approval reads: {approval_reads}")
         result.append(
             AgentSessionRead(
                 id=session_id,
