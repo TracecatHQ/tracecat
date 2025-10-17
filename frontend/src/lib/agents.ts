@@ -2,6 +2,19 @@ import type { UIMessage } from "ai"
 import type { AgentSessionRead, WorkflowExecutionStatus } from "@/client"
 import { undoSlugify } from "@/lib/utils"
 
+export type WorkflowSummary = {
+  id: string
+  title: string
+  alias?: string | null
+}
+
+export type AgentSessionReadWithMeta = AgentSessionRead & {
+  parent_workflow?: WorkflowSummary | null
+  root_workflow?: WorkflowSummary | null
+  action_ref?: string | null
+  action_title?: string | null
+}
+
 export function isUIMessageArray(value: unknown): value is UIMessage[] {
   if (!Array.isArray(value)) {
     return false
@@ -95,7 +108,7 @@ const STATUS_METADATA: Record<AgentDerivedStatus, AgentStatusMetadata> = {
   },
 }
 
-export type AgentSessionWithStatus = AgentSessionRead & {
+export type AgentSessionWithStatus = AgentSessionReadWithMeta & {
   derivedStatus: AgentDerivedStatus
   statusLabel: string
   statusPriority: number
@@ -105,7 +118,7 @@ export type AgentSessionWithStatus = AgentSessionRead & {
 }
 
 export function enrichAgentSession(
-  session: AgentSessionRead
+  session: AgentSessionReadWithMeta
 ): AgentSessionWithStatus {
   const pendingApprovalCount =
     session.approvals?.filter((approval) => approval.status === "pending")
