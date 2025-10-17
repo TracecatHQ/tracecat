@@ -84,9 +84,30 @@ class CaseFieldRead(BaseModel):
     def from_sa(
         column: sa.engine.interfaces.ReflectedColumn,
     ) -> CaseFieldRead:
+        raw_type = column["type"]
+        if isinstance(raw_type, SqlType):
+            sql_type = raw_type
+        else:
+            if isinstance(raw_type, str):
+                type_str = raw_type.upper()
+            else:
+                type_str = str(raw_type).upper()
+                if hasattr(raw_type, "timezone"):
+                    type_str = (
+                        "TIMESTAMP WITH TIME ZONE"
+                        if getattr(raw_type, "timezone", False)
+                        else "TIMESTAMP WITHOUT TIME ZONE"
+                    )
+            # Normalise common Postgres timestamp representations produced by reflection.
+            if type_str == "TIMESTAMP WITH TIME ZONE":
+                sql_type = SqlType.TIMESTAMPTZ
+            elif type_str in {"TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP"}:
+                sql_type = SqlType.TIMESTAMP
+            else:
+                sql_type = SqlType(type_str)
         return CaseFieldRead(
             id=column["name"],
-            type=SqlType(str(column["type"])),
+            type=sql_type,
             description=column.get("comment") or "",
             nullable=column["nullable"],
             default=parse_postgres_default(column.get("default")),

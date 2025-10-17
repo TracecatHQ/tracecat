@@ -1,6 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { format } from "date-fns"
 import { useState } from "react"
 import type { CaseFieldRead } from "@/client"
 import {
@@ -76,7 +77,7 @@ export function CustomFieldsTable({
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Type"
+                title="Data type"
               />
             ),
             cell: ({ row }) => (
@@ -88,56 +89,37 @@ export function CustomFieldsTable({
             enableHiding: false,
           },
           {
-            accessorKey: "description",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Description"
-              />
-            ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["description"]>("description") ||
-                  "-"}
-              </div>
-            ),
-            enableSorting: false,
-            enableHiding: false,
-          },
-          {
-            accessorKey: "nullable",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Nullable"
-              />
-            ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["nullable"]>("nullable")
-                  ? "Yes"
-                  : "No"}
-              </div>
-            ),
-            enableSorting: true,
-            enableHiding: false,
-          },
-          {
             accessorKey: "default",
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Default"
+                title="Default value"
               />
             ),
-            cell: ({ row }) => (
-              <div className="text-xs">
-                {row.getValue<CaseFieldRead["default"]>("default") || "-"}
-              </div>
-            ),
+            cell: ({ row }) => {
+              const defaultValue =
+                row.getValue<CaseFieldRead["default"]>("default")
+              const fieldType = row.original.type
+              const parsedDate =
+                typeof defaultValue === "string" &&
+                defaultValue &&
+                (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  ? new Date(defaultValue)
+                  : null
+              const isValidDate =
+                parsedDate && !Number.isNaN(parsedDate.getTime())
+                  ? parsedDate
+                  : null
+
+              return (
+                <div className="text-xs">
+                  {isValidDate
+                    ? format(isValidDate, "MMM d yyyy '·' p")
+                    : defaultValue || "-"}
+                </div>
+              )
+            },
             enableSorting: false,
             enableHiding: false,
           },

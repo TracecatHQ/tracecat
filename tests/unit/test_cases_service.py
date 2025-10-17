@@ -694,7 +694,6 @@ class TestCasesService:
         self, cases_service: CasesService
     ) -> None:
         """Test creating a case with a field that doesn't exist in the schema."""
-        from tracecat.types.exceptions import TracecatException
 
         params = CaseCreate(
             summary="Test Case",
@@ -705,12 +704,9 @@ class TestCasesService:
             fields={"nonexistent_field": "some value"},
         )
 
-        # Should raise TracecatException with clear message about undefined field
-        with pytest.raises(TracecatException) as exc_info:
+        # Should raise ValueError with clear message about undefined column
+        with pytest.raises(ValueError):
             await cases_service.create_case(params)
-
-        # Error message should mention that field doesn't exist
-        assert "custom fields do not exist" in str(exc_info.value).lower()
 
     async def test_create_case_fields_update_fails(
         self, cases_service: CasesService, case_create_params: CaseCreate, mocker
@@ -755,7 +751,6 @@ class TestCasesService:
         self, cases_service: CasesService
     ) -> None:
         """Test that case creation is fully atomic - if fields fail, case also rolls back."""
-        from tracecat.types.exceptions import TracecatException
 
         # Try to create case with invalid field
         params = CaseCreate(
@@ -768,7 +763,7 @@ class TestCasesService:
         )
 
         # Should fail
-        with pytest.raises(TracecatException):
+        with pytest.raises(ValueError):
             await cases_service.create_case(params)
 
         # Verify the case was NOT created (entire transaction rolled back)

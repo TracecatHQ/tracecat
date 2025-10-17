@@ -1,5 +1,6 @@
 "use client"
 
+import { format, isValid as isValidDate } from "date-fns"
 import {
   Activity,
   BoxIcon,
@@ -11,7 +12,14 @@ import {
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import type { CasePriority, CaseSeverity, CaseUpdate, UserRead } from "@/client"
+import type {
+  CaseCustomFieldRead,
+  CasePriority,
+  CaseSeverity,
+  CaseUpdate,
+  SqlType,
+  UserRead,
+} from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
@@ -81,8 +89,31 @@ function isCustomFieldValueEmpty(value: unknown): boolean {
   return false
 }
 
-function getCustomFieldInputWidth(value: unknown): string {
+function getFormattedDateValue(value: unknown): string | null {
+  if (value instanceof Date) {
+    return isValidDate(value) ? format(value, "MMM d yyyy '·' p") : null
+  }
+  if (typeof value === "string" && value.length > 0) {
+    const parsed = new Date(value)
+    if (isValidDate(parsed)) {
+      return format(parsed, "MMM d yyyy '·' p")
+    }
+  }
+  return null
+}
+
+function getCustomFieldInputWidth(value: unknown, type?: SqlType): string {
   const baseLength = (() => {
+    const formattedDate = getFormattedDateValue(value)
+    if (formattedDate) return formattedDate.length
+    if (
+      (type === "TIMESTAMP" || type === "TIMESTAMPTZ") &&
+      (value === null ||
+        value === undefined ||
+        (typeof value === "string" && value.trim().length === 0))
+    ) {
+      return "Select date and time".length
+    }
     if (value === null || value === undefined) return 5
     if (typeof value === "string")
       return Math.max(value.trim().length, value.length)
@@ -138,12 +169,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const [customFieldWidths, setCustomFieldWidths] = useState<
     Record<string, string>
   >({})
+  const [clearedCustomFieldIds, setClearedCustomFieldIds] = useState<string[]>(
+    []
+  )
   const nonEmptyCustomFieldIds = useMemo(
     () =>
       customFields
-        .filter((field) => !isCustomFieldValueEmpty(field.value))
+        .filter(
+          (field) =>
+            !isCustomFieldValueEmpty(field.value) &&
+            !clearedCustomFieldIds.includes(field.id)
+        )
         .map((field) => field.id),
-    [customFields]
+    [customFields, clearedCustomFieldIds]
   )
   useEffect(() => {
     setUserAddedCustomFieldIds((prev) =>
@@ -154,7 +192,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     setCustomFieldWidths((prev) => {
       const next: Record<string, string> = {}
       customFields.forEach((field) => {
-        next[field.id] = getCustomFieldInputWidth(field.value)
+        next[field.id] = getCustomFieldInputWidth(field.value, field.type)
       })
 
       const changed =
@@ -163,6 +201,15 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
       return changed ? next : prev
     })
+  }, [customFields])
+  useEffect(() => {
+    setClearedCustomFieldIds((prev) =>
+      prev.filter((id) => {
+        const field = customFields.find((item) => item.id === id)
+        if (!field) return false
+        return isCustomFieldValueEmpty(field.value)
+      })
+    )
   }, [customFields])
   const visibleCustomFieldIds = useMemo(() => {
     const set = new Set([...nonEmptyCustomFieldIds, ...userAddedCustomFieldIds])
@@ -180,15 +227,22 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   )
   const handleCustomFieldValueChange = useCallback(
     (fieldId: string, value: unknown) => {
-      setCustomFieldWidths((prev) => ({
-        ...prev,
-        [fieldId]: getCustomFieldInputWidth(value),
-      }))
+      setCustomFieldWidths((prev) => {
+        const fieldType = customFields.find(
+          (field) => field.id === fieldId
+        )?.type
+        return {
+          ...prev,
+          [fieldId]: getCustomFieldInputWidth(value, fieldType),
+        }
+      })
     },
-    []
+    [customFields]
   )
   const handleCustomFieldAdd = useCallback(
     (fieldId: string) => {
+      const targetField = customFields.find((field) => field.id === fieldId)
+      setClearedCustomFieldIds((prev) => prev.filter((id) => id !== fieldId))
       setUserAddedCustomFieldIds((prev) =>
         prev.includes(fieldId) ? prev : [...prev, fieldId]
       )
@@ -199,15 +253,36 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         [fieldId]:
           prev[fieldId] ??
           getCustomFieldInputWidth(
-            customFields.find((field) => field.id === fieldId)?.value ?? null
+            targetField?.value ?? null,
+            targetField?.type
           ),
       }))
     },
     [customFields]
   )
-  const handleCustomFieldHide = useCallback((fieldId: string) => {
-    setUserAddedCustomFieldIds((prev) => prev.filter((id) => id !== fieldId))
-  }, [])
+  const handleCustomFieldClearAndHide = useCallback(
+    async (field: CaseCustomFieldRead) => {
+      setClearedCustomFieldIds((prev) =>
+        prev.includes(field.id) ? prev : [...prev, field.id]
+      )
+      setUserAddedCustomFieldIds((prev) => prev.filter((id) => id !== field.id))
+      try {
+        await updateCase({
+          fields: {
+            [field.id]: null,
+          },
+        })
+        handleCustomFieldValueChange(field.id, null)
+      } catch (error) {
+        console.error("Failed to clear custom field:", error)
+        setClearedCustomFieldIds((prev) => prev.filter((id) => id !== field.id))
+        setUserAddedCustomFieldIds((prev) =>
+          prev.includes(field.id) ? prev : [...prev, field.id]
+        )
+      }
+    },
+    [handleCustomFieldValueChange, updateCase]
+  )
   const handleCustomFieldPopoverChange = useCallback((open: boolean) => {
     setCustomFieldComboboxOpen(open)
     if (!open) {
@@ -394,15 +469,12 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       )}
                     </div>
                     <div
-                      className={`flex flex-wrap justify-between gap-3 py-1.5 first:pt-0 last:pb-0 ${visibleCustomFields.length > 0 ? "items-start" : "items-center"}`}
+                      className={`flex flex-col gap-3 py-1.5 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between`}
                     >
-                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:flex-1 sm:min-w-0">
                         {visibleCustomFields.length > 0 ? (
                           visibleCustomFields.map((field) => {
                             const label = undoSlugify(field.id)
-                            const isEmpty = isCustomFieldValueEmpty(field.value)
-                            const isUserAdded =
-                              userAddedCustomFieldIds.includes(field.id)
                             return (
                               <div
                                 key={field.id}
@@ -419,25 +491,26 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                   inputStyle={{
                                     width:
                                       customFieldWidths[field.id] ??
-                                      getCustomFieldInputWidth(field.value),
+                                      getCustomFieldInputWidth(
+                                        field.value,
+                                        field.type
+                                      ),
                                   }}
                                   onValueChange={handleCustomFieldValueChange}
                                 />
-                                {isEmpty && isUserAdded && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                                    onClick={() =>
-                                      handleCustomFieldHide(field.id)
-                                    }
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                    <span className="sr-only">
-                                      Hide {label} field
-                                    </span>
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                  onClick={() =>
+                                    handleCustomFieldClearAndHide(field)
+                                  }
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  <span className="sr-only">
+                                    Remove {label} field
+                                  </span>
+                                </Button>
                               </div>
                             )
                           })
@@ -452,74 +525,76 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         )}
                       </div>
                       {customFields.length > 0 && (
-                        <Popover
-                          open={customFieldComboboxOpen}
-                          onOpenChange={handleCustomFieldPopoverChange}
-                        >
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              aria-expanded={customFieldComboboxOpen}
-                              aria-haspopup="listbox"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                              <span className="sr-only">
-                                Toggle custom fields menu
-                              </span>
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            align="end"
-                            className="w-64 p-0"
-                            sideOffset={4}
+                        <div className="flex shrink-0 items-start sm:self-start">
+                          <Popover
+                            open={customFieldComboboxOpen}
+                            onOpenChange={handleCustomFieldPopoverChange}
                           >
-                            <Command>
-                              <CommandInput
-                                placeholder="Search fields..."
-                                value={customFieldSearch}
-                                onValueChange={setCustomFieldSearch}
-                              />
-                              <CommandList>
-                                {availableCustomFields.length > 0 ? (
-                                  <CommandGroup heading="Hidden fields">
-                                    {availableCustomFields.map((field) => (
-                                      <CommandItem
-                                        key={field.id}
-                                        value={field.id}
-                                        onSelect={(value) => {
-                                          handleCustomFieldAdd(value)
-                                        }}
-                                      >
-                                        {undoSlugify(field.id)}
-                                      </CommandItem>
-                                    ))}
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                aria-expanded={customFieldComboboxOpen}
+                                aria-haspopup="listbox"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">
+                                  Toggle custom fields menu
+                                </span>
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="end"
+                              className="w-64 p-0"
+                              sideOffset={4}
+                            >
+                              <Command>
+                                <CommandInput
+                                  placeholder="Search fields..."
+                                  value={customFieldSearch}
+                                  onValueChange={setCustomFieldSearch}
+                                />
+                                <CommandList>
+                                  {availableCustomFields.length > 0 ? (
+                                    <CommandGroup heading="Hidden fields">
+                                      {availableCustomFields.map((field) => (
+                                        <CommandItem
+                                          key={field.id}
+                                          value={field.id}
+                                          onSelect={(value) => {
+                                            handleCustomFieldAdd(value)
+                                          }}
+                                        >
+                                          {undoSlugify(field.id)}
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  ) : (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                                      No hidden fields
+                                    </div>
+                                  )}
+                                  <CommandSeparator />
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value="__manage__"
+                                      onSelect={() => {
+                                        router.push(
+                                          `/workspaces/${workspaceId}/cases/custom-fields`
+                                        )
+                                        setCustomFieldComboboxOpen(false)
+                                        setCustomFieldSearch("")
+                                      }}
+                                    >
+                                      Manage fields
+                                    </CommandItem>
                                   </CommandGroup>
-                                ) : (
-                                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                                    No hidden fields
-                                  </div>
-                                )}
-                                <CommandSeparator />
-                                <CommandGroup>
-                                  <CommandItem
-                                    value="__manage__"
-                                    onSelect={() => {
-                                      router.push(
-                                        `/workspaces/${workspaceId}/cases/custom-fields`
-                                      )
-                                      setCustomFieldComboboxOpen(false)
-                                      setCustomFieldSearch("")
-                                    }}
-                                  >
-                                    Manage fields
-                                  </CommandItem>
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
                       )}
                     </div>
                   </div>

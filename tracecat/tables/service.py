@@ -27,6 +27,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseService
 from tracecat.tables.common import (
+    coerce_to_utc_datetime,
     handle_default_value,
     is_valid_sql_type,
     to_sql_clause,
@@ -82,6 +83,33 @@ class BaseTablesService(BaseService):
         if workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
         return WorkspaceUUID.new(workspace_id)
+
+    def _normalize_row_inputs(
+        self, table: Table, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Coerce row inputs to the expected SQL types."""
+        if not data:
+            return {}
+
+        column_index = {column.name: column for column in table.columns}
+        normalised: dict[str, Any] = {}
+        for column_name, value in data.items():
+            column = column_index.get(column_name)
+            if column is None:
+                raise ValueError(
+                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                )
+
+            sql_type = SqlType(column.type)
+            if (
+                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
+                and value is not None
+            ):
+                normalised[column_name] = coerce_to_utc_datetime(value)
+            else:
+                normalised[column_name] = value
+
+        return normalised
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -557,7 +585,7 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = params.data
+        row_data = self._normalize_row_inputs(table, params.data)
         col_map = {c.name: c for c in table.columns}
         upsert = params.upsert
 
@@ -686,13 +714,22 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Build update statement using SQLAlchemy
+        # Normalise inputs and build update statement using SQLAlchemy
+        normalised_data = self._normalize_row_inputs(table, data)
+        col_map = {c.name: c for c in table.columns}
         sanitized_table_name = self._sanitize_identifier(table.name)
-        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for column_name, value in normalised_data.items():
+            cols.append(sa.column(self._sanitize_identifier(column_name)))
+            value_clauses[column_name] = to_sql_clause(
+                value, col_map[column_name].name, SqlType(col_map[column_name].type)
+            )
+
         stmt = (
             sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
 
@@ -1162,7 +1199,8 @@ class BaseTablesService(BaseService):
         # Group rows by their column sets to avoid inserting NULL into missing columns.
         rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            rows_by_columns[frozenset(row.keys())].append(row)
+            normalised_row = self._normalize_row_inputs(table, row)
+            rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
 
         conn = await self.session.connection()
 
@@ -1531,7 +1569,18 @@ class TableEditorService(BaseService):
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
         for col, value in row_data.items():
-            value_clauses[col] = sa.bindparam(col, value, type_=col_map[col]["type"])
+            column_info = col_map.get(col)
+            if column_info is None:
+                raise ValueError(
+                    f"Column '{col}' does not exist in table {self.table_name}"
+                )
+            column_type = column_info["type"]
+            coerced_value = (
+                coerce_to_utc_datetime(value)
+                if value is not None and getattr(column_type, "timezone", False)
+                else value
+            )
+            value_clauses[col] = sa.bindparam(col, coerced_value, type_=column_type)
             cols.append(sa.column(sanitize_identifier(col)))
 
         stmt = (
@@ -1558,13 +1607,32 @@ class TableEditorService(BaseService):
             TracecatNotFoundError: If the row does not exist
         """
         conn = await self.session.connection()
+        col_map = {c["name"]: c for c in await self.get_columns()}
 
         # Build update statement using SQLAlchemy
-        cols = [sa.column(sanitize_identifier(k)) for k in data.keys()]
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for column_name, value in data.items():
+            column_info = col_map.get(column_name)
+            if column_info is None:
+                raise ValueError(
+                    f"Column '{column_name}' does not exist in table {self.table_name}"
+                )
+            column_type = column_info["type"]
+            coerced_value = (
+                coerce_to_utc_datetime(value)
+                if value is not None and getattr(column_type, "timezone", False)
+                else value
+            )
+            cols.append(sa.column(sanitize_identifier(column_name)))
+            value_clauses[column_name] = sa.bindparam(
+                column_name, coerced_value, type_=column_type
+            )
+
         stmt = (
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
 

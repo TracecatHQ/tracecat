@@ -1,6 +1,7 @@
 "use client"
 
 import type { CellContext, Column, ColumnDef } from "@tanstack/react-table"
+import { format } from "date-fns"
 import { DatabaseZapIcon } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
@@ -63,9 +64,7 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs font-sans">
-        {chunks.join("\n")}
-      </pre>
+      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
       <Button
         variant="ghost"
         size="sm"
@@ -125,7 +124,7 @@ export function DatabaseTable({
       }: {
         column: Column<TableRowRead, unknown>
       }) => (
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2">
           <SimpleColumnHeader
             column={tableColumn}
             title={column.name}
@@ -143,6 +142,16 @@ export function DatabaseTable({
       ),
       cell: ({ row }: CellT) => {
         const value = row.original[column.name as keyof TableRowRead]
+        const isDateColumn = ["TIMESTAMP", "TIMESTAMPTZ"].includes(
+          column.type.toUpperCase()
+        )
+        const parsedDate =
+          isDateColumn && typeof value === "string" && value
+            ? new Date(value)
+            : undefined
+        const isValidDate =
+          parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
+
         return (
           <div className="w-full text-xs">
             {typeof value === "object" && value ? (
@@ -160,10 +169,12 @@ export function DatabaseTable({
                   <JsonViewWithControls src={value} />
                 </TooltipProvider>
               </button>
+            ) : isValidDate ? (
+              <span>{format(isValidDate, "MMM d yyyy '·' p")}</span>
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (
-              <pre className="text-xs font-sans">{String(value)}</pre>
+              <pre className="text-xs">{String(value)}</pre>
             )}
           </div>
         )

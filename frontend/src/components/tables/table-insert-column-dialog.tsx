@@ -1,13 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
-import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,13 +33,13 @@ import {
 } from "@/components/ui/select"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useInsertColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update schema for column creation
 const createInsertTableColumnSchema = z.object({
   name: z.string().min(1, "Column name is required"),
-  type: z.enum(SqlTypeEnum),
+  type: z.enum(SqlTypeCreatableEnum),
 })
 
 type ColumnFormData = z.infer<typeof createInsertTableColumnSchema>
@@ -106,7 +104,7 @@ export function TableInsertColumnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add column</DialogTitle>
+          <DialogTitle>Add new column</DialogTitle>
           <DialogDescription>
             Add a new column to the {table.name} table.
           </DialogDescription>
@@ -118,7 +116,7 @@ export function TableInsertColumnDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Column Name</FormLabel>
+                  <FormLabel>Column name</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -143,7 +141,7 @@ export function TableInsertColumnDialog({
                         <SelectValue placeholder="Select a type..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {SqlTypeEnum.map((type) => (
+                        {SqlTypeCreatableEnum.map((type) => (
                           <SelectItem key={type} value={type}>
                             <SqlTypeDisplay
                               type={type}
@@ -160,12 +158,7 @@ export function TableInsertColumnDialog({
             />
             <DialogFooter>
               <Button type="submit" disabled={insertColumnIsPending}>
-                {insertColumnIsPending ? (
-                  <Spinner className="mr-2 size-4" />
-                ) : (
-                  <PlusCircle className="mr-2 size-4" />
-                )}
-                Add Column
+                Add column
               </Button>
             </DialogFooter>
           </form>

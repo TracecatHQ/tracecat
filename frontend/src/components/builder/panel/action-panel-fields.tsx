@@ -30,7 +30,6 @@ import {
   type Suggestion,
 } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Command,
   CommandEmpty,
@@ -59,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { isExpression } from "@/lib/expressions"
 import { useBuilderRegistryActions } from "@/lib/hooks"
@@ -525,17 +525,17 @@ function ComponentContent({
           }
         />
       )
-    case "toggle":
+    case "toggle": {
+      const stateLabel = field.value
+        ? component.label_on || "On"
+        : component.label_off || "Off"
       return (
         <div className="flex items-center space-x-2">
-          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-          <span className="text-sm text-muted-foreground">
-            {field.value
-              ? component.label_on || "On"
-              : component.label_off || "Off"}
-          </span>
+          <Switch checked={field.value} onCheckedChange={field.onChange} />
+          <span className="text-sm text-muted-foreground">{stateLabel}</span>
         </div>
       )
+    }
     case "code":
       return (
         <CodeEditor

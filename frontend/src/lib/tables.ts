@@ -5,8 +5,21 @@ export const SqlTypeEnum = [
   "INTEGER",
   "NUMERIC",
   "BOOLEAN",
+  "TIMESTAMP",
+  "TIMESTAMPTZ",
   "JSONB",
 ] as const
+
+export const SqlTypeCreatableEnum = [
+  "TEXT",
+  "INTEGER",
+  "NUMERIC",
+  "BOOLEAN",
+  "TIMESTAMPTZ",
+  "JSONB",
+] as const
+
+export type SqlTypeCreatable = (typeof SqlTypeCreatableEnum)[number]
 
 export interface CsvPreviewData {
   headers: string[]
