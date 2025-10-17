@@ -468,13 +468,22 @@ function AgentSessionCard({
                 const approverUser = approval.approved_by
                   ? userReadMinimalToUser(approval.approved_by)
                   : undefined
-                const decisionPayload = approval.decision
-                const hasOverrideArgs =
-                  decisionPayload !== null &&
+                const decisionPayload = approval.decision as unknown
+                const decisionKind =
                   typeof decisionPayload === "object" &&
+                  decisionPayload !== null &&
+                  "kind" in decisionPayload &&
+                  typeof (decisionPayload as { kind?: unknown }).kind ===
+                    "string"
+                    ? (decisionPayload as { kind: string }).kind
+                    : null
+                const hasOverrideArgs =
+                  decisionKind === "tool-approved" &&
+                  typeof decisionPayload === "object" &&
+                  decisionPayload !== null &&
                   "override_args" in decisionPayload &&
-                  (decisionPayload as Record<string, unknown>).override_args !==
-                    undefined
+                  (decisionPayload as { override_args?: unknown })
+                    .override_args !== undefined
                 const decisionLabel =
                   approval.status === "approved"
                     ? hasOverrideArgs
@@ -500,8 +509,7 @@ function AgentSessionCard({
                   normalizePayload(approval.tool_call_args)
                 const { value: decisionValue, hasValue: hasDecisionValue } =
                   normalizePayload(decisionPayload)
-                const hasExpandableContent =
-                  hasToolArgs || hasDecisionValue
+                const hasExpandableContent = hasToolArgs || hasDecisionValue
 
                 return (
                   <button

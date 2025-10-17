@@ -100,7 +100,7 @@ class ApprovalDecisionPayload(BaseModel):
     tool_call_id: str
     approved: bool
     reason: str | None = None
-    decision: dict[str, Any] | None = None
+    decision: bool | dict[str, Any] | None = None
     approved_by: UUID4 | None = None
 
 

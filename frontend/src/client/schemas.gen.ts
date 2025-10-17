@@ -1356,6 +1356,9 @@ export const $ApprovalRead = {
     decision: {
       anyOf: [
         {
+          type: "boolean",
+        },
+        {
           additionalProperties: true,
           type: "object",
         },

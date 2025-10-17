@@ -31,7 +31,7 @@ class ApprovalUpdate(BaseModel):
     status: ApprovalStatus | None = None
     reason: str | None = None
     tool_call_args: dict[str, Any] | None = None
-    decision: dict[str, Any] | None = None
+    decision: bool | dict[str, Any] | None = None
     approved_by: UUID4 | None = None
 
 
@@ -45,7 +45,7 @@ class ApprovalRead(BaseModel):
     status: ApprovalStatus
     reason: str | None
     tool_call_args: dict[str, Any] | None
-    decision: dict[str, Any] | None
+    decision: bool | dict[str, Any] | None
     approved_by: UserReadMinimal | None = None
     approved_at: datetime | None
     created_at: datetime

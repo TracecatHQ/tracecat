@@ -1284,7 +1284,7 @@ class Approval(Resource, table=True):
         nullable=True,
         description="Optional reason for approval decision",
     )
-    decision: dict[str, Any] | None = Field(
+    decision: bool | dict[str, Any] | None = Field(
         default=None,
         sa_column=Column(JSONB),
         description="Deferred tool result decision (approved/denied with override args or rejection reason)",

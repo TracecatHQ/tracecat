@@ -402,19 +402,25 @@ class ApprovalManager:
         for tool_call_id, result in self._approvals.items():
             approved = False
             reason: str | None = None
-            decision: dict[str, Any] | None = None
+            decision: bool | dict[str, Any] | None = None
 
             match result:
                 case bool(value):
                     approved = value
+                    decision = value
                 case ToolApproved(override_args=override_args):
                     approved = True
+                    decision_payload: dict[str, Any] = {"kind": "tool-approved"}
                     if override_args is not None:
-                        decision = {"override_args": override_args}
+                        decision_payload["override_args"] = override_args
+                    decision = decision_payload
                 case ToolDenied(message=message):
                     approved = False
                     reason = message
-                    decision = {"message": message}
+                    decision_payload = {"kind": "tool-denied"}
+                    if message:
+                        decision_payload["message"] = message
+                    decision = decision_payload
                 case _:
                     raise RuntimeError(
                         "Invalid approval result", approval_result=result
@@ -547,6 +553,7 @@ class ApprovalManager:
                             tool_call_args=approval_args,
                             reason=None,
                             approved_by=None,
+                            decision=None,
                         ),
                     )
                     # Reset approved_at manually
