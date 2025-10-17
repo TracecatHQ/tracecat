@@ -338,17 +338,6 @@ function AgentSessionCard({
             <span className="text-sm font-semibold">
               {sessionActionLabel ?? `Session ${session.id.slice(0, 8)}`}
             </span>
-            {session.temporalStatus && (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  "text-[11px] font-medium",
-                  toneBadgeClasses[session.statusTone]
-                )}
-              >
-                {session.statusLabel}
-              </Badge>
-            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{createdAt.toLocaleString()}</span>
