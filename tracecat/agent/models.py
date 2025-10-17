@@ -176,7 +176,7 @@ class ModelCredentialUpdate(BaseModel):
 
 class AgentOutput(BaseModel):
     output: Any
-    message_history: list[ModelMessage]
+    message_history: list[ModelMessage] | None = None
     duration: float
     usage: RunUsage
     session_id: uuid.UUID

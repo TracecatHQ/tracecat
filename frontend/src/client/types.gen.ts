@@ -203,7 +203,7 @@ export type AgentConfig = {
 
 export type AgentOutput = {
   output: unknown
-  message_history: Array<ModelRequest | ModelResponse>
+  message_history?: Array<ModelRequest | ModelResponse> | null
   duration: number
   usage: RunUsage
   session_id: string

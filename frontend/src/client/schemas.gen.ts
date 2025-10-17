@@ -839,24 +839,31 @@ export const $AgentOutput = {
       title: "Output",
     },
     message_history: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/ModelRequest",
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/ModelRequest",
+              },
+              {
+                $ref: "#/components/schemas/ModelResponse",
+              },
+            ],
+            discriminator: {
+              propertyName: "kind",
+              mapping: {
+                request: "#/components/schemas/ModelRequest",
+                response: "#/components/schemas/ModelResponse",
+              },
+            },
           },
-          {
-            $ref: "#/components/schemas/ModelResponse",
-          },
-        ],
-        discriminator: {
-          propertyName: "kind",
-          mapping: {
-            request: "#/components/schemas/ModelRequest",
-            response: "#/components/schemas/ModelResponse",
-          },
+          type: "array",
         },
-      },
-      type: "array",
+        {
+          type: "null",
+        },
+      ],
       title: "Message History",
     },
     duration: {
@@ -884,7 +891,7 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "message_history", "duration", "usage", "session_id"],
+  required: ["output", "duration", "usage", "session_id"],
   title: "AgentOutput",
 } as const
 
