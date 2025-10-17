@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { AgentsBoard } from "@/components/agents/agents-board"
+import { AgentsBoard } from "@/components/agents/agents-dashboard"
 import { useAgentSessions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

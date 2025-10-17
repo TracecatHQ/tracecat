@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangleIcon } from "lucide-react"
+import { AlertTriangleIcon, ExternalLinkIcon } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import type { UserReadMinimal } from "@/client"
@@ -226,6 +226,12 @@ function AgentSessionCard({
 }) {
   const workspaceId = useWorkspaceId()
   const createdAt = new Date(session.created_at)
+  const humanizeActionRef = (ref: string): string =>
+    ref
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase())
   const pendingApprovals =
     session.pendingApprovalCount > 0
       ? (session.approvals?.filter(
@@ -241,62 +247,82 @@ function AgentSessionCard({
     return new Date(bTime ?? 0).getTime() - new Date(aTime ?? 0).getTime()
   })
 
-  const workflowLinks =
-    workspaceId != null
+  const formatWorkflowLabel = (
+    summary?: AgentSessionWithStatus["parent_workflow"]
+  ): JSX.Element => {
+    if (!summary) return <span>Unknown workflow</span>
+    return (
+      <span className="flex items-center gap-1.5">
+        <span>{summary.title}</span>
+        {summary.alias && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            {summary.alias}
+          </Badge>
+        )}
+      </span>
+    )
+  }
+
+  const parentWorkflowLabel = session.parent_workflow ? (
+    formatWorkflowLabel(session.parent_workflow)
+  ) : (
+    <span>Unknown workflow</span>
+  )
+
+  let rootWorkflowSummary = session.root_workflow ?? null
+  if (
+    rootWorkflowSummary &&
+    session.parent_workflow &&
+    rootWorkflowSummary.id === session.parent_workflow.id
+  ) {
+    rootWorkflowSummary = null
+  }
+  const rootWorkflowLabel = rootWorkflowSummary
+    ? formatWorkflowLabel(rootWorkflowSummary)
+    : null
+
+  const sessionActionLabel =
+    session.action_title ??
+    (session.action_ref ? humanizeActionRef(session.action_ref) : null)
+
+  const workflowLinks = [
+    {
+      label: "Workflow",
+      formattedLabel: parentWorkflowLabel,
+      workflowId: session.parent_id,
+      executionId: session.parent_run_id,
+    },
+    // Only include root workflow if it's different from parent workflow
+    ...(rootWorkflowSummary
       ? [
           {
-            label: "Parent workflow",
-            workflowId: session.parent_id,
-            executionId: session.parent_run_id,
-          },
-          {
             label: "Root workflow",
+            formattedLabel: rootWorkflowLabel,
             workflowId: session.root_id,
             executionId: session.root_run_id,
           },
         ]
-          .map((item) => {
-            if (!item.workflowId) {
-              return null
-            }
-
-            let workflowId = item.workflowId
-            let executionId = item.executionId ?? null
-
-            if (!executionId) {
-              try {
-                const parts = splitExecutionId(item.workflowId)
-                workflowId = parts.wf
-                executionId = parts.exec
-              } catch {
-                // ignore parse errors; fall back to explicit execution ID if provided
-              }
-            } else {
-              try {
-                const parts = splitExecutionId(item.workflowId)
-                workflowId = parts.wf
-                // Only override execution ID if parse succeeded and explicit executionId missing
-                executionId = executionId ?? parts.exec
-              } catch {
-                // ignore parse errors
-              }
-            }
-
-            if (!executionId) {
-              return null
-            }
-
-            return {
-              label: item.label,
-              href: `/workspaces/${workspaceId}/workflows/${encodeURIComponent(workflowId)}/executions/${encodeURIComponent(executionId)}`,
-              tooltip: `${workflowId}/${executionId}`,
-            }
-          })
-          .filter(
-            (item): item is { label: string; href: string; tooltip: string } =>
-              item !== null
-          )
-      : []
+      : []),
+  ]
+    .filter(
+      (
+        item
+      ): item is {
+        label: string
+        formattedLabel: JSX.Element | null
+        workflowId: string
+        executionId: string
+      } => Boolean(item.workflowId && item.executionId)
+    )
+    .map(({ label, formattedLabel, executionId: fullExecutionId }) => {
+      const { wf, exec } = splitExecutionId(fullExecutionId)
+      return {
+        label,
+        formattedLabel,
+        href: `/workspaces/${workspaceId}/workflows/${encodeURIComponent(wf)}/executions/${encodeURIComponent(exec)}`,
+        tooltip: `${wf}/${exec}`,
+      }
+    })
 
   return (
     <div className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm transition hover:border-border">
@@ -305,7 +331,7 @@ function AgentSessionCard({
           <div className="flex items-center gap-2">
             <StatusIndicator tone={session.statusTone} className="size-2.5" />
             <span className="text-sm font-semibold">
-              Session {session.id.slice(0, 8)}
+              {sessionActionLabel ?? `Session ${session.id.slice(0, 8)}`}
             </span>
             {session.temporalStatus && (
               <Badge
@@ -344,25 +370,32 @@ function AgentSessionCard({
             </span>
           )}
         </div>
-        {workflowLinks.length > 0 && (
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            {workflowLinks.map((detail) => (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {workflowLinks.map((detail, index) => (
+            <span key={detail.label} className="flex items-center gap-2">
+              {index > 0 && <span aria-hidden="true">•</span>}
               <Link
-                key={detail.label}
                 href={detail.href}
-                className="inline-flex"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5"
               >
-                <Badge
-                  variant="outline"
-                  className="border-border/60 bg-muted/40 text-[11px]"
-                  title={detail.tooltip}
-                >
-                  {detail.label}
-                </Badge>
+                <span className="text-foreground/65">{detail.label}:</span>
+                {detail.formattedLabel}
+                <ExternalLinkIcon className="size-3" />
               </Link>
-            ))}
-          </div>
-        )}
+            </span>
+          ))}
+          {sessionActionLabel ? (
+            <>
+              <span aria-hidden="true">•</span>
+              <span>
+                <span className="text-foreground/65">Action:</span>{" "}
+                {sessionActionLabel}
+              </span>
+            </>
+          ) : null}
+        </div>
         {sortedCompletedApprovals.length > 0 && (
           <div className="flex flex-col gap-1 pt-1">
             <span className="text-xs font-semibold text-muted-foreground">
@@ -440,9 +473,9 @@ function AgentSessionCard({
               const actionTypeKey = approval.tool_name
                 ? reconstructActionType(approval.tool_name)
                 : "unknown"
-              const actionLabel = approval.tool_name
+              const toolLabel = approval.tool_name
                 ? actionTypeKey
-                : "Unknown action"
+                : "Unknown tool"
               return (
                 <span
                   key={approval.id}
@@ -451,7 +484,7 @@ function AgentSessionCard({
                   {getIcon(actionTypeKey, {
                     className: "size-5 shrink-0",
                   })}
-                  <span>Awaiting {actionLabel}</span>
+                  <span>Awaiting {toolLabel}</span>
                 </span>
               )
             })}
