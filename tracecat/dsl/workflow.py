@@ -561,6 +561,7 @@ class DSLWorkflow:
                         search_attributes=wf_info.typed_search_attributes,
                         memo=AgentActionMemo(
                             action_ref=task.ref,
+                            action_title=task.title,
                             loop_index=None,
                         ).model_dump(),
                     )

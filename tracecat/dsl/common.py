@@ -492,6 +492,9 @@ class AgentActionMemo(BaseModel):
     action_ref: str = Field(
         ..., description="The action ref that initiated the child workflow."
     )
+    action_title: str | None = Field(
+        default=None, description="The action title that initiated the child workflow."
+    )
     loop_index: int | None = Field(
         default=None,
         description="The loop index of the child workflow, if any.",
@@ -503,13 +506,19 @@ class AgentActionMemo(BaseModel):
             action_ref = orjson.loads(memo.fields["action_ref"].data)
         except Exception as e:
             logger.warning("Error parsing agent action memo action ref", error=e)
-            action_ref = "Unknown Agent Action"
+            action_ref = "unknown_agent_action"
+        try:
+            action_title = orjson.loads(memo.fields["action_title"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo action title", error=e)
+            action_title = "Unknown Agent Action"
         if loop_index_data := memo.fields["loop_index"].data:
             loop_index = orjson.loads(loop_index_data)
         else:
             loop_index = None
         return AgentActionMemo(
             action_ref=action_ref,
+            action_title=action_title,
             loop_index=loop_index,
         )
 
