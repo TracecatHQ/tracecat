@@ -101,6 +101,12 @@ export function AgentApprovalsDialog({
 }: AgentApprovalsDialogProps) {
   const workspaceId = useWorkspaceId()
   const { toast } = useToast()
+  const formatWorkflowLabel = (
+    summary?: AgentSessionWithStatus["parent_workflow"]
+  ): string => {
+    if (!summary) return "Unknown workflow"
+    return summary.alias ? `${summary.title} (${summary.alias})` : summary.title
+  }
   const [formState, setFormState] = useState<Record<string, DecisionFormState>>(
     {}
   )
@@ -257,9 +263,19 @@ export function AgentApprovalsDialog({
                 const actionTypeKey = approval.tool_name
                   ? reconstructActionType(approval.tool_name)
                   : "unknown"
-                const actionLabel = approval.tool_name
+                const defaultActionLabel = approval.tool_name
                   ? actionTypeKey
                   : "Unknown action"
+                const actionDisplayName =
+                  session?.action_title ?? defaultActionLabel
+                let rootWorkflowLabel = session?.root_workflow ?? null
+                if (
+                  rootWorkflowLabel &&
+                  session?.parent_workflow &&
+                  rootWorkflowLabel.id === session.parent_workflow.id
+                ) {
+                  rootWorkflowLabel = null
+                }
 
                 // Parse args if it's a JSON string
                 const argsData = approval.data?.args ?? approval.data
@@ -286,7 +302,7 @@ export function AgentApprovalsDialog({
                               flairsize: "sm",
                             })}
                             <span className="text-sm font-semibold">
-                              {actionLabel}
+                              {actionDisplayName}
                             </span>
                           </div>
                         </TooltipTrigger>
@@ -296,6 +312,34 @@ export function AgentApprovalsDialog({
                           </span>
                         </TooltipContent>
                       </Tooltip>
+                    </div>
+
+                    <div className="mb-4 space-y-1 text-xs text-muted-foreground">
+                      <div>
+                        <span className="font-medium text-foreground">
+                          Parent:
+                        </span>{" "}
+                        {formatWorkflowLabel(session?.parent_workflow)}
+                      </div>
+                      {rootWorkflowLabel ? (
+                        <div>
+                          <span className="font-medium text-foreground">
+                            Root:
+                          </span>{" "}
+                          {formatWorkflowLabel(rootWorkflowLabel)}
+                        </div>
+                      ) : null}
+                      <div>
+                        <span className="font-medium text-foreground">
+                          Action:
+                        </span>{" "}
+                        {actionDisplayName}
+                        {session?.action_ref ? (
+                          <span className="ml-1 text-muted-foreground/80">
+                            ({session.action_ref})
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="mb-4 text-xs text-muted-foreground">
