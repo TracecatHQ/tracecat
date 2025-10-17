@@ -8,7 +8,6 @@ from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.db.schemas import Case, CaseFields, User
 from tracecat.tables.enums import SqlType
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -97,10 +96,7 @@ class TestCaseFieldsIntegration:
 
         # Create case with fields
         # Since we haven't created the fields yet, this should raise an error
-        with pytest.raises(
-            TracecatException,
-            match="Failed to create case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again.",
-        ):
+        with pytest.raises(ValueError):
             await cases_service.create_case(params_with_fields)
 
     async def test_create_case_with_fields(
@@ -250,10 +246,7 @@ class TestCaseFieldsIntegration:
         )
 
         # Update the case
-        with pytest.raises(
-            TracecatException,
-            match="Failed to update case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again.",
-        ):
+        with pytest.raises(ValueError):
             await cases_service.update_case(created_case, update_params)
 
     async def test_case_fields_cascade_delete(

@@ -327,7 +327,13 @@ async def create_case(
 ) -> None:
     """Create a new case."""
     service = CasesService(session, role)
-    await service.create_case(params)
+    try:
+        await service.create_case(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
@@ -348,6 +354,11 @@ async def update_case(
         )
     try:
         await service.update_case(case, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except DBAPIError as e:
         while (cause := e.__cause__) is not None:
             e = cause
