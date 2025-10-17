@@ -510,16 +510,21 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 
                 input_data = await extract_first(attrs.input)
                 agent_run_args = AgentWorkflowArgs(**input_data)
+                session = None
+                session_id = agent_run_args.agent_args.session_id
+                if session_id is not None:
+                    session = Session(id=session_id)
                 return WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),
                     curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
                     status=WorkflowExecutionEventStatus.SCHEDULED,
-                    action_name=PlatformAction.AI_AGENT.value,
+                    action_name=PlatformAction.AI_HITL_AGENT.value,
                     action_ref=memo.action_ref,
                     action_input=agent_run_args,
                     child_wf_exec_id=None,
                     loop_index=memo.loop_index,
+                    session=session,
                 )
             case _:
                 raise ValueError(
