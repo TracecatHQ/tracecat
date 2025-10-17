@@ -1,8 +1,8 @@
 """Create approval table
 
-Revision ID: 592c06767fa2
+Revision ID: b376e6d16619
 Revises: f04f005837c9
-Create Date: 2025-10-14 17:11:51.996711
+Create Date: 2025-10-17 13:37:04.811962
 
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "592c06767fa2"
+revision: str = "b376e6d16619"
 down_revision: str | None = "f04f005837c9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -47,6 +47,9 @@ def upgrade() -> None:
         sa.Column("tool_call_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("tool_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column(
+            "tool_call_args", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
             "status",
             postgresql.ENUM(
                 "PENDING",
@@ -58,7 +61,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("reason", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("decision", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("approved_by", sqlmodel.sql.sqltypes.GUID(), nullable=True),
         sa.Column("approved_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
