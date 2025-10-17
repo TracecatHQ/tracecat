@@ -30,11 +30,15 @@ definition:
       type: str
       description: API version.
       default: "2025-09-01"
+    base_url:
+      type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
+      description: Base URL for the Azure Management API.
+      default: https://management.azure.com
   steps:
     - ref: get_item
       action: core.http_request
       args:
-        url: https://management.azure.com/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/watchlists/${{ FN.url_encode(inputs.watchlist_alias) }}/watchlistItems/${{ FN.url_encode(inputs.watchlist_item_id) }}
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/watchlists/${{ FN.url_encode(inputs.watchlist_alias) }}/watchlistItems/${{ FN.url_encode(inputs.watchlist_item_id) }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_sentinel.MICROSOFT_SENTINEL_USER_TOKEN }}

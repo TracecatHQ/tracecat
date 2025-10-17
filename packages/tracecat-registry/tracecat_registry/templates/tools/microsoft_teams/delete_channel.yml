@@ -17,11 +17,15 @@ definition:
     channel_id:
       type: str
       description: The ID of the channel.
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: delete_channel
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams.MICROSOFT_TEAMS_USER_TOKEN }}
