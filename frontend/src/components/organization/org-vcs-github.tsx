@@ -266,8 +266,12 @@ export function GitHubAppSetup() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="manifest">Create New App</TabsTrigger>
-            <TabsTrigger value="manual">Use Existing App</TabsTrigger>
+            <TabsTrigger value="manifest" disableUnderline>
+              Create new GitHub App
+            </TabsTrigger>
+            <TabsTrigger value="manual" disableUnderline>
+              Use existing GitHub App
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="manifest" className="space-y-6">

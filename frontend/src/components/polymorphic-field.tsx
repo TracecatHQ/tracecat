@@ -133,6 +133,7 @@ export const PolyField = React.forwardRef<
                         <TabsTrigger
                           key={fieldType.value}
                           value={fieldType.value}
+                          disableUnderline
                           className="h-5 rounded-sm px-1.5 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none"
                           title={fieldType.tooltip}
                         >

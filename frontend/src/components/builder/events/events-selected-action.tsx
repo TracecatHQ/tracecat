@@ -304,10 +304,18 @@ function ActionEventContent({
                   placeholder={streamIdPlaceholder}
                 />
                 <TabsList className="h-8">
-                  <TabsTrigger value="session" className="h-6 text-xs">
+                  <TabsTrigger
+                    value="session"
+                    disableUnderline
+                    className="h-6 text-xs"
+                  >
                     Session
                   </TabsTrigger>
-                  <TabsTrigger value="result" className="h-6 text-xs">
+                  <TabsTrigger
+                    value="result"
+                    disableUnderline
+                    className="h-6 text-xs"
+                  >
                     Result
                   </TabsTrigger>
                 </TabsList>
