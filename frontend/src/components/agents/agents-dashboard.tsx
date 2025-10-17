@@ -3,6 +3,7 @@
 import {
   AlertTriangleIcon,
   BoxIcon,
+  ChevronDownIcon,
   ExternalLinkIcon,
   WorkflowIcon,
 } from "lucide-react"
@@ -12,10 +13,16 @@ import type { UserReadMinimal } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { getIcon } from "@/components/icons"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import UserAvatar from "@/components/user-avatar"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
@@ -222,6 +229,51 @@ function userReadMinimalToUser(user: UserReadMinimal): User {
   })
 }
 
+function isEmptyObjectOrArray(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length === 0
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>).length === 0
+  }
+  return false
+}
+
+function normalizeToolArgs(raw: unknown): {
+  value: unknown
+  hasValue: boolean
+} {
+  if (raw === null || raw === undefined) {
+    return { value: null, hasValue: false }
+  }
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      return { value: null, hasValue: false }
+    }
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (parsed === null) {
+        return { value: null, hasValue: false }
+      }
+      return { value: parsed, hasValue: !isEmptyObjectOrArray(parsed) }
+    } catch {
+      return { value: trimmed, hasValue: true }
+    }
+  }
+
+  if (Array.isArray(raw)) {
+    return { value: raw, hasValue: raw.length > 0 }
+  }
+
+  if (typeof raw === "object") {
+    return { value: raw, hasValue: !isEmptyObjectOrArray(raw) }
+  }
+
+  return { value: raw, hasValue: true }
+}
+
 function AgentSessionCard({
   session,
   onReviewApprovals,
@@ -231,6 +283,21 @@ function AgentSessionCard({
 }) {
   const workspaceId = useWorkspaceId()
   const createdAt = new Date(session.created_at)
+  const [expandedApprovals, setExpandedApprovals] = useState<Set<string>>(
+    new Set()
+  )
+
+  const toggleApprovalExpanded = (approvalId: string) => {
+    setExpandedApprovals((prev) => {
+      const next = new Set(prev)
+      if (next.has(approvalId)) {
+        next.delete(approvalId)
+      } else {
+        next.add(approvalId)
+      }
+      return next
+    })
+  }
   const humanizeActionRef = (ref: string): string =>
     ref
       .replace(/[_-]+/g, " ")
@@ -418,11 +485,19 @@ function AgentSessionCard({
                 const actionLabel = approval.tool_name
                   ? actionTypeKey
                   : "Unknown action"
+                const { value: toolArgsValue, hasValue: hasToolArgs } =
+                  normalizeToolArgs(approval.tool_call_args)
 
                 return (
-                  <div
+                  <button
                     key={approval.id}
-                    className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5"
+                    onClick={() => {
+                      if (hasToolArgs) {
+                        toggleApprovalExpanded(approval.id)
+                      }
+                    }}
+                    className="w-full text-left flex items-start gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 transition-colors hover:bg-muted/30 disabled:opacity-50"
+                    disabled={!hasToolArgs}
                   >
                     {approverUser ? (
                       <UserAvatar
@@ -436,14 +511,31 @@ function AgentSessionCard({
                         ?
                       </div>
                     )}
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {getIcon(actionTypeKey, {
-                          className: "size-5 shrink-0",
-                        })}
-                        <span className="truncate text-xs font-medium text-foreground">
-                          {actionLabel}
-                        </span>
+                    <div className="flex min-w-0 w-full flex-col gap-0.5">
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {getIcon(actionTypeKey, {
+                            className: "size-5 shrink-0",
+                          })}
+                          <span className="truncate text-xs font-medium text-foreground">
+                            {actionLabel}
+                          </span>
+                        </div>
+                        {hasToolArgs ? (
+                          <Collapsible
+                            open={expandedApprovals.has(approval.id)}
+                            onOpenChange={() =>
+                              toggleApprovalExpanded(approval.id)
+                            }
+                          >
+                            <CollapsibleTrigger
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex shrink-0 text-[11px] font-medium text-muted-foreground/80 hover:text-muted-foreground transition-colors"
+                            >
+                              <ChevronDownIcon className="size-3.5 transition-transform data-[state=open]:rotate-180" />
+                            </CollapsibleTrigger>
+                          </Collapsible>
+                        ) : null}
                       </div>
                       <span className="text-[11px] text-muted-foreground">
                         {decisionLabel}
@@ -455,42 +547,61 @@ function AgentSessionCard({
                         {decisionTime ? ` • ${decisionTime}` : ""}
                         {reasonText}
                       </span>
+                      {hasToolArgs ? (
+                        <Collapsible
+                          open={expandedApprovals.has(approval.id)}
+                          onOpenChange={() =>
+                            toggleApprovalExpanded(approval.id)
+                          }
+                        >
+                          <CollapsibleContent
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <JsonViewWithControls
+                              src={toolArgsValue}
+                              defaultExpanded={true}
+                              defaultTab="nested"
+                              showControls={false}
+                              className="mt-2 text-xs"
+                            />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ) : null}
                     </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>
           </div>
         )}
         {pendingApprovals.length > 0 && (
-          <div className="flex flex-wrap gap-2 text-[11px] text-amber-700">
-            {pendingApprovals.map((approval) => {
-              const actionTypeKey = approval.tool_name
-                ? reconstructActionType(approval.tool_name)
-                : "unknown"
-              const toolLabel = approval.tool_name
-                ? actionTypeKey
-                : "Unknown tool"
-              return (
-                <span
-                  key={approval.id}
-                  className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium"
-                >
-                  {getIcon(actionTypeKey, {
-                    className: "size-5 shrink-0",
-                  })}
-                  <span>Awaiting {toolLabel}</span>
-                </span>
-              )
-            })}
-          </div>
-        )}
-        {pendingApprovals.length > 0 && (
-          <div className="flex justify-end pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-700">
+            <div className="flex flex-wrap gap-2">
+              {pendingApprovals.map((approval) => {
+                const actionTypeKey = approval.tool_name
+                  ? reconstructActionType(approval.tool_name)
+                  : "unknown"
+                const toolLabel = approval.tool_name
+                  ? actionTypeKey
+                  : "Unknown tool"
+                return (
+                  <span
+                    key={approval.id}
+                    className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium"
+                  >
+                    {getIcon(actionTypeKey, {
+                      className: "size-5 shrink-0",
+                    })}
+                    <span>Awaiting {toolLabel}</span>
+                  </span>
+                )
+              })}
+            </div>
             <Button
               size="sm"
               variant="secondary"
               onClick={() => onReviewApprovals?.(session)}
+              className="shrink-0"
             >
               Review approvals
             </Button>

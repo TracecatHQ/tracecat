@@ -278,7 +278,7 @@ export function AgentApprovalsDialog({
                 }
 
                 // Parse args if it's a JSON string
-                const argsData = approval.data?.args ?? approval.data
+                const argsData = approval.tool_call_args
                 let parsedArgs = argsData
                 if (typeof argsData === "string") {
                   try {
