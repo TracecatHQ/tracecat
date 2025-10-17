@@ -1,13 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
-import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

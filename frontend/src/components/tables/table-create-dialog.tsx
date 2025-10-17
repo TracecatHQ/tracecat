@@ -236,7 +236,9 @@ export function CreateTableDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => append({ name: "", type: SqlTypeCreatableEnum[0] })}
+                onClick={() =>
+                  append({ name: "", type: SqlTypeCreatableEnum[0] })
+                }
                 className="space-x-2 text-xs"
                 aria-label="Add new column"
               >

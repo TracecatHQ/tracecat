@@ -30,7 +30,6 @@ import {
   type Suggestion,
 } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import {
   Command,
   CommandEmpty,
@@ -59,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { isExpression } from "@/lib/expressions"
 import { useBuilderRegistryActions } from "@/lib/hooks"

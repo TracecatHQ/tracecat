@@ -1,19 +1,15 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
   DatabaseZapIcon,
-  Pencil,
   Trash2Icon,
 } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useState } from "react"
-import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { ApiError, type TableColumnRead } from "@/client"
-import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
+import type { TableColumnRead } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -27,36 +23,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
@@ -217,7 +189,7 @@ function TableColumnDeleteDialog({
   )
 }
 
-const updateColumnSchema = z.object({
+const _updateColumnSchema = z.object({
   name: z
     .string()
     .min(1, { message: "Name must be at least 1 character" })

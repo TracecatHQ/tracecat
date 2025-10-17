@@ -15,7 +15,6 @@ import YAML from "yaml"
 import { z } from "zod"
 import { ApiError } from "@/client"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -41,6 +40,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import type { TracecatApiError } from "@/lib/errors"
 import { useFolders, useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -157,7 +157,10 @@ function ImportWorkflowDialog({
               render={({ field }) => (
                 <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                   <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
                   </FormControl>
                   <div className="space-y-1 leading-none">
                     <FormLabel>Use workflow ID from file</FormLabel>

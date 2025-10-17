@@ -64,9 +64,7 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs">
-        {chunks.join("\n")}
-      </pre>
+      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
       <Button
         variant="ghost"
         size="sm"
@@ -172,9 +170,7 @@ export function DatabaseTable({
                 </TooltipProvider>
               </button>
             ) : isValidDate ? (
-              <span>
-                {format(isValidDate, "MMM d yyyy '·' p")}
-              </span>
+              <span>{format(isValidDate, "MMM d yyyy '·' p")}</span>
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (

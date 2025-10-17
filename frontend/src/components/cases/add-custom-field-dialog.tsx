@@ -2,13 +2,16 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { format } from "date-fns"
+import { CalendarClock, Clock } from "lucide-react"
 import type { ChangeEvent } from "react"
+import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import { casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
   DialogContent,
@@ -27,7 +30,11 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Calendar } from "@/components/ui/calendar"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -35,19 +42,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { toast } from "@/components/ui/use-toast"
-import { CalendarClock, Clock } from "lucide-react"
-import { format } from "date-fns"
+import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { cn } from "@/lib/utils"
-import {
-  SqlTypeCreatableEnum,
-  type SqlTypeCreatable,
-} from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const caseFieldFormSchema = z.object({
@@ -101,7 +98,11 @@ export function AddCustomFieldDialog({
       let defaultValue: string | number | boolean | null = null
       const rawDefault = data.default
 
-      if (rawDefault !== null && rawDefault !== undefined && rawDefault !== "") {
+      if (
+        rawDefault !== null &&
+        rawDefault !== undefined &&
+        rawDefault !== ""
+      ) {
         switch (data.type) {
           case "INTEGER": {
             const parsed =
@@ -121,9 +122,7 @@ export function AddCustomFieldDialog({
           }
           case "NUMERIC": {
             const parsed =
-              typeof rawDefault === "number"
-                ? rawDefault
-                : Number(rawDefault)
+              typeof rawDefault === "number" ? rawDefault : Number(rawDefault)
             if (Number.isNaN(parsed)) {
               form.setError("default", {
                 type: "manual",
@@ -249,16 +248,16 @@ export function AddCustomFieldDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {SqlTypeCreatableEnum.filter((type) => type !== "JSONB").map(
-                        (type) => (
-                          <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay
-                              type={type}
-                              labelClassName="text-xs"
-                            />
-                          </SelectItem>
-                        )
-                      )}
+                      {SqlTypeCreatableEnum.filter(
+                        (type) => type !== "JSONB"
+                      ).map((type) => (
+                        <SelectItem key={type} value={type}>
+                          <SqlTypeDisplay
+                            type={type}
+                            labelClassName="text-xs"
+                          />
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormDescription>
@@ -276,10 +275,7 @@ export function AddCustomFieldDialog({
                 <FormItem>
                   <FormLabel>Default value (optional)</FormLabel>
                   <FormControl>
-                    <DefaultValueInput
-                      type={selectedType}
-                      field={field}
-                    />
+                    <DefaultValueInput type={selectedType} field={field} />
                   </FormControl>
                   <FormDescription>
                     {getDefaultHelperText(selectedType)}
@@ -377,9 +373,7 @@ function DateTimePickerField({
   const [open, setOpen] = useState(false)
 
   const stringValue =
-    typeof field.value === "string" && field.value.length > 0
-      ? field.value
-      : ""
+    typeof field.value === "string" && field.value.length > 0 ? field.value : ""
   const dateValue = stringValue ? new Date(stringValue) : undefined
 
   const handleSelect = (date: Date | undefined) => {

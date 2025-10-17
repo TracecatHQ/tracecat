@@ -1,17 +1,11 @@
-import {
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ChangeEvent,
-} from "react"
-import { FormProvider, useForm, useFormContext } from "react-hook-form"
-import { CalendarClock, Clock } from "lucide-react"
 import { format, isValid as isValidDate } from "date-fns"
+import { CalendarClock, Clock } from "lucide-react"
+import { type ChangeEvent, type CSSProperties, useMemo, useState } from "react"
+import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Switch } from "@/components/ui/switch"
 import {
   FormControl,
   FormField,
@@ -24,6 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Switch } from "@/components/ui/switch"
 import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({

@@ -1,5 +1,6 @@
 "use client"
 
+import { format, isValid as isValidDate } from "date-fns"
 import {
   Activity,
   BoxIcon,
@@ -10,7 +11,6 @@ import {
   X,
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { format, isValid as isValidDate } from "date-fns"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CaseCustomFieldRead,
@@ -228,8 +228,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const handleCustomFieldValueChange = useCallback(
     (fieldId: string, value: unknown) => {
       setCustomFieldWidths((prev) => {
-        const fieldType = customFields.find((field) => field.id === fieldId)
-          ?.type
+        const fieldType = customFields.find(
+          (field) => field.id === fieldId
+        )?.type
         return {
           ...prev,
           [fieldId]: getCustomFieldInputWidth(value, fieldType),
@@ -264,9 +265,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
       setClearedCustomFieldIds((prev) =>
         prev.includes(field.id) ? prev : [...prev, field.id]
       )
-      setUserAddedCustomFieldIds((prev) =>
-        prev.filter((id) => id !== field.id)
-      )
+      setUserAddedCustomFieldIds((prev) => prev.filter((id) => id !== field.id))
       try {
         await updateCase({
           fields: {
@@ -276,9 +275,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         handleCustomFieldValueChange(field.id, null)
       } catch (error) {
         console.error("Failed to clear custom field:", error)
-        setClearedCustomFieldIds((prev) =>
-          prev.filter((id) => id !== field.id)
-        )
+        setClearedCustomFieldIds((prev) => prev.filter((id) => id !== field.id))
         setUserAddedCustomFieldIds((prev) =>
           prev.includes(field.id) ? prev : [...prev, field.id]
         )
@@ -579,25 +576,25 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                     </div>
                                   )}
                                   <CommandSeparator />
-                                <CommandGroup>
-                                  <CommandItem
-                                    value="__manage__"
-                                    onSelect={() => {
-                                      router.push(
-                                        `/workspaces/${workspaceId}/cases/custom-fields`
-                                      )
-                                      setCustomFieldComboboxOpen(false)
-                                      setCustomFieldSearch("")
-                                    }}
-                                  >
-                                    Manage fields
-                                  </CommandItem>
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value="__manage__"
+                                      onSelect={() => {
+                                        router.push(
+                                          `/workspaces/${workspaceId}/cases/custom-fields`
+                                        )
+                                        setCustomFieldComboboxOpen(false)
+                                        setCustomFieldSearch("")
+                                      }}
+                                    >
+                                      Manage fields
+                                    </CommandItem>
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
                       )}
                     </div>
                   </div>

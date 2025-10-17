@@ -1,16 +1,16 @@
 "use client"
 
-import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CalendarClock, Clock, PlusCircle } from "lucide-react"
-import { useParams } from "next/navigation"
-import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { format } from "date-fns"
+import { CalendarClock, Clock } from "lucide-react"
+import { useParams } from "next/navigation"
+import * as React from "react"
+import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
-import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Calendar } from "@/components/ui/calendar"
 import {
   Popover,
   PopoverContent,
@@ -265,9 +264,7 @@ function DateTimePickerField({
 }) {
   const [open, setOpen] = React.useState(false)
   const stringValue =
-    typeof field.value === "string" && field.value.length > 0
-      ? field.value
-      : ""
+    typeof field.value === "string" && field.value.length > 0 ? field.value : ""
   const dateValue = stringValue ? new Date(stringValue) : undefined
 
   const handleSelect = React.useCallback(

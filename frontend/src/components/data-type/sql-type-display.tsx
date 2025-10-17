@@ -27,10 +27,13 @@ export function SqlTypeDisplay({
         className
       )}
     >
-      {Icon && (
-        <Icon className={cn("size-4 shrink-0", iconClassName)} />
-      )}
-      <span className={cn("font-normal leading-none whitespace-nowrap", labelClassName)}>
+      {Icon && <Icon className={cn("size-4 shrink-0", iconClassName)} />}
+      <span
+        className={cn(
+          "font-normal leading-none whitespace-nowrap",
+          labelClassName
+        )}
+      >
         {config?.label ?? type}
       </span>
     </span>
