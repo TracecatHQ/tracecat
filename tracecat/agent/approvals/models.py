@@ -18,7 +18,7 @@ class ApprovalCreate(BaseModel):
     session_id: uuid.UUID
     tool_call_id: str
     tool_name: str
-    data: dict[str, Any] | None = None
+    tool_call_args: dict[str, Any] | None = None
 
 
 class ApprovalUpdate(BaseModel):
@@ -30,7 +30,8 @@ class ApprovalUpdate(BaseModel):
     tool_name: str | None = None
     status: ApprovalStatus | None = None
     reason: str | None = None
-    data: dict[str, Any] | None = None
+    tool_call_args: dict[str, Any] | None = None
+    decision: dict[str, Any] | None = None
     approved_by: UUID4 | None = None
 
 
@@ -43,7 +44,8 @@ class ApprovalRead(BaseModel):
     tool_name: str
     status: ApprovalStatus
     reason: str | None
-    data: dict[str, Any] | None
+    tool_call_args: dict[str, Any] | None
+    decision: dict[str, Any] | None
     approved_by: UserReadMinimal | None = None
     approved_at: datetime | None
     created_at: datetime

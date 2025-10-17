@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -85,7 +86,7 @@ class ApprovalService(BaseWorkspaceService):
             tool_call_id=params.tool_call_id,
             tool_name=params.tool_name,
             status=ApprovalStatus.PENDING,
-            data=params.data,
+            tool_call_args=params.tool_call_args,
         )
         self.session.add(approval)
         await self.session.commit()
@@ -107,7 +108,7 @@ class ApprovalService(BaseWorkspaceService):
                 tool_call_id=params.tool_call_id,
                 tool_name=params.tool_name,
                 status=ApprovalStatus.PENDING,
-                data=params.data,
+                tool_call_args=params.tool_call_args,
             )
             self.session.add(approval)
             records.append(approval)
@@ -401,7 +402,7 @@ class ApprovalManager:
         for tool_call_id, result in self._approvals.items():
             approved = False
             reason: str | None = None
-            data: dict[str, Any] | None = None
+            decision: dict[str, Any] | None = None
 
             match result:
                 case bool(value):
@@ -409,11 +410,11 @@ class ApprovalManager:
                 case ToolApproved(override_args=override_args):
                     approved = True
                     if override_args is not None:
-                        data = {"override_args": override_args}
+                        decision = {"override_args": override_args}
                 case ToolDenied(message=message):
                     approved = False
                     reason = message
-                    data = {"message": message}
+                    decision = {"message": message}
                 case _:
                     raise RuntimeError(
                         "Invalid approval result", approval_result=result
@@ -423,7 +424,7 @@ class ApprovalManager:
                     tool_call_id=tool_call_id,
                     approved=approved,
                     reason=reason,
-                    data=data,
+                    decision=decision,
                     approved_by=self._approved_by,
                 )
             )
@@ -468,7 +469,7 @@ class ApprovalManager:
                             session_id=input.session_id,
                             tool_call_id=decision.tool_call_id,
                             tool_name="unknown",
-                            data=None,
+                            tool_call_args=None,
                         )
                     )
 
@@ -482,15 +483,19 @@ class ApprovalManager:
                     datetime.now(tz=UTC) if status != ApprovalStatus.PENDING else None
                 )
 
+                # Build update payload - only include decision if it was explicitly set
+                update_data = {
+                    "status": status,
+                    "reason": decision.reason,
+                    "approved_by": decision.approved_by,
+                }
+                if decision.decision is not None:
+                    update_data["decision"] = decision.decision
+
                 # Update the approval with decision
                 await service.update_approval(
                     approval,
-                    ApprovalUpdate(
-                        status=status,
-                        reason=decision.reason,
-                        data=decision.data,
-                        approved_by=decision.approved_by,
-                    ),
+                    ApprovalUpdate(**update_data),
                 )
 
                 # Manually set approved_at since it's not part of ApprovalUpdate
@@ -519,16 +524,27 @@ class ApprovalManager:
                     tool_call_id=payload.tool_call_id,
                 )
 
-                data = {"args": payload.args} if payload.args is not None else None
+                # Normalize tool args to a dict
+                approval_args: dict[str, Any] | None = None
+                if payload.args is not None:
+                    if isinstance(payload.args, dict):
+                        approval_args = payload.args
+                    elif isinstance(payload.args, str):
+                        try:
+                            approval_args = json.loads(payload.args)
+                        except (json.JSONDecodeError, ValueError):
+                            # Store as-is if not valid JSON
+                            approval_args = {"raw_args": payload.args}
 
                 if existing:
+                    # TODO: Do we need this path?
                     # Update existing record and reset to pending state
                     await service.update_approval(
                         existing,
                         ApprovalUpdate(
                             status=ApprovalStatus.PENDING,
                             tool_name=payload.tool_name,
-                            data=data,
+                            tool_call_args=approval_args,
                             reason=None,
                             approved_by=None,
                         ),
@@ -543,6 +559,6 @@ class ApprovalManager:
                             session_id=input.session_id,
                             tool_call_id=payload.tool_call_id,
                             tool_name=payload.tool_name,
-                            data=data,
+                            tool_call_args=approval_args,
                         )
                     )

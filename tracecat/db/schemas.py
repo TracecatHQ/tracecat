@@ -1269,6 +1269,11 @@ class Approval(Resource, table=True):
         nullable=False,
         description="Name of the tool requiring approval",
     )
+    tool_call_args: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool call arguments captured at approval request time",
+    )
     status: ApprovalStatus = Field(
         default=ApprovalStatus.PENDING,
         index=True,
@@ -1279,10 +1284,10 @@ class Approval(Resource, table=True):
         nullable=True,
         description="Optional reason for approval decision",
     )
-    data: dict[str, Any] | None = Field(
+    decision: dict[str, Any] | None = Field(
         default=None,
         sa_column=Column(JSONB),
-        description="Additional approval metadata",
+        description="Deferred tool result decision (approved/denied with override args or rejection reason)",
     )
     approved_by: uuid.UUID | None = Field(
         default=None,

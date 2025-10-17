@@ -348,7 +348,6 @@ async def list_agent_sessions(
                 action_title=enriched_session.action_title,
             )
         )
-    logger.info("Result", result=result)
     return result
 
 
