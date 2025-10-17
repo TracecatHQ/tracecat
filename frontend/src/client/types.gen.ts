@@ -344,7 +344,10 @@ export type ApprovalRead = {
   tool_name: string
   status: ApprovalStatus
   reason: string | null
-  data: {
+  tool_call_args: {
+    [key: string]: unknown
+  } | null
+  decision: {
     [key: string]: unknown
   } | null
   approved_by?: UserReadMinimal | null

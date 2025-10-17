@@ -1341,7 +1341,7 @@ export const $ApprovalRead = {
       ],
       title: "Reason",
     },
-    data: {
+    tool_call_args: {
       anyOf: [
         {
           additionalProperties: true,
@@ -1351,7 +1351,19 @@ export const $ApprovalRead = {
           type: "null",
         },
       ],
-      title: "Data",
+      title: "Tool Call Args",
+    },
+    decision: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Decision",
     },
     approved_by: {
       anyOf: [
@@ -1394,7 +1406,8 @@ export const $ApprovalRead = {
     "tool_name",
     "status",
     "reason",
-    "data",
+    "tool_call_args",
+    "decision",
     "approved_at",
     "created_at",
     "updated_at",
