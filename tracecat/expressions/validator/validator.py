@@ -11,6 +11,9 @@ from tracecat.dsl.models import TaskResult
 from tracecat.expressions.common import ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
@@ -170,6 +173,76 @@ class ExprValidator(BaseExprValidator):
         # Check that we've defined the secret in the SM
         coro = self._secret_validator(
             name=name, key=key, environment=self._environment, loc=self._loc
+        )
+        self._task_group.create_task(coro)
+
+    async def _oauth_validator(
+        self,
+        *,
+        provider: str,
+        token_type: str,
+        grant_type: OAuthGrantType,
+        loc: tuple[str | int, ...],
+    ) -> None:
+        provider_key = ProviderKey(id=provider, grant_type=grant_type)
+        try:
+            async with IntegrationService.with_session() as service:
+                integration = await service.get_integration(provider_key=provider_key)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to validate OAuth provider",
+                provider_id=provider,
+                grant_type=grant_type.value,
+                error=str(exc),
+            )
+            self.add(
+                status="error",
+                msg=(
+                    "Encountered an error while validating OAuth provider"
+                    f" {provider!r} for grant type {grant_type.value!r}."
+                ),
+                type=ExprType.OAUTH,
+                loc=loc,
+            )
+            return
+
+        if integration is None:
+            token_expr = f"{ExprContext.OAUTH.value}.{provider}.{token_type}"
+            self.add(
+                status="error",
+                msg=(
+                    f"OAuth provider {provider!r} is not configured for grant type"
+                    f" {grant_type.value!r} required by `{token_expr}`"
+                ),
+                type=ExprType.OAUTH,
+                loc=loc,
+            )
+            return
+
+        self.add(status="success", type=ExprType.OAUTH)
+
+    def oauth(self, node: Tree[Token]):
+        parsed = super().oauth(node)
+        if parsed is None:
+            return
+        provider, token_type = parsed
+        logger.trace(
+            "Visit oauth expression",
+            provider_id=provider,
+            token_type=token_type,
+            environment=self._environment,
+        )
+        grant_type = (
+            OAuthGrantType.CLIENT_CREDENTIALS
+            if token_type == "SERVICE_TOKEN"
+            else OAuthGrantType.AUTHORIZATION_CODE
+        )
+        loc = ("expression", f"{ExprContext.OAUTH.value}.{provider}.{token_type}")
+        coro = self._oauth_validator(
+            provider=provider,
+            token_type=token_type,
+            grant_type=grant_type,
+            loc=loc,
         )
         self._task_group.create_task(coro)
 

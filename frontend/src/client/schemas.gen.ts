@@ -5098,6 +5098,7 @@ export const $ExprContext = {
   enum: [
     "ACTIONS",
     "SECRETS",
+    "OAUTH",
     "FN",
     "ENV",
     "TRIGGER",
@@ -5115,6 +5116,7 @@ export const $ExprType = {
     "generic",
     "action",
     "secret",
+    "oauth",
     "function",
     "input",
     "env",

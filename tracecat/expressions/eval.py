@@ -1,5 +1,6 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -7,6 +8,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
 from tracecat.expressions.core import (
     Expression,
+    OAuthPathExtractor,
     SecretPathExtractor,
     TemplateExpression,
 )
@@ -80,16 +82,58 @@ def is_template_only(template: str) -> bool:
     return template.startswith("${{") and template.endswith("}}")
 
 
-def extract_templated_secrets(templated_obj: Any) -> list[str]:
-    """Extract secrets from templated objects using AST parsing."""
+@dataclass(frozen=True)
+class ExtractedSecretPaths:
+    """Container for templated secret references."""
+
+    secrets: set[str] = field(default_factory=set)
+    oauth: set[str] = field(default_factory=set)
+
+    def __iter__(self) -> Iterator[str]:
+        # Preserve compatibility with legacy list usage by iterating over secrets
+        return iter(sorted(self.secrets))
+
+    def __len__(self) -> int:
+        return len(self.secrets)
+
+    def __contains__(self, item: object) -> bool:
+        return item in self.secrets
+
+    def secrets_list(self) -> list[str]:
+        return sorted(self.secrets)
+
+    def oauth_list(self) -> list[str]:
+        return sorted(self.oauth)
+
+    def all(self) -> dict[str, set[str]]:
+        return {"secrets": set(self.secrets), "oauth": set(self.oauth)}
+
+
+def extract_templated_secrets(templated_obj: Any) -> ExtractedSecretPaths:
+    """Extract secret and OAuth paths from templated objects using AST parsing."""
     # Extract and parse all template expressions from all strings
-    extractor = SecretPathExtractor()
+    secret_extractor = SecretPathExtractor()
+    oauth_extractor = OAuthPathExtractor()
     for expr_str in traverse_expressions(templated_obj):
-        Expression(expr_str, visitor=extractor)()
+        Expression(expr_str, visitor=secret_extractor)()
+        Expression(expr_str, visitor=oauth_extractor)()
     # Get the results and return only the secrets
-    results = extractor.results()
-    secrets = set(results.get(ExprContext.SECRETS, []))
-    return sorted(secrets)
+    secret_results = secret_extractor.results()
+    oauth_results = oauth_extractor.results()
+    secrets = set(secret_results.get(ExprContext.SECRETS, []))
+    oauth = set(oauth_results.get(ExprContext.OAUTH, []))
+    return ExtractedSecretPaths(secrets=secrets, oauth=oauth)
+
+
+def extract_oauth_expressions(
+    templated_obj: Any | ExtractedSecretPaths,
+) -> list[str]:
+    """Convenience helper to extract OAuth expressions."""
+    if isinstance(templated_obj, ExtractedSecretPaths):
+        extracted = templated_obj
+    else:
+        extracted = extract_templated_secrets(templated_obj)
+    return extracted.oauth_list()
 
 
 def extract_expressions(templated_obj: Any) -> list[Expression]:

@@ -1740,6 +1740,7 @@ export type ExpectedField = {
 export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
+  | "OAUTH"
   | "FN"
   | "ENV"
   | "TRIGGER"
@@ -1751,6 +1752,7 @@ export type ExprType =
   | "generic"
   | "action"
   | "secret"
+  | "oauth"
   | "function"
   | "input"
   | "env"
