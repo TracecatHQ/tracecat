@@ -118,6 +118,12 @@ class ExprEvaluator(Transformer):
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
+    def oauth(self, path: str):
+        logger.trace("Visiting oauth:", path=path)
+        expr = ExprContext.OAUTH + path
+        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
+
+    @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
         expr = ExprContext.ENV + jsonpath

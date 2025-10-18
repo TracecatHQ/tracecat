@@ -19,6 +19,7 @@ from tracecat.executor.service import (
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.eval import ExtractedSecretPaths
 from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
@@ -227,7 +228,7 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     # Mock extract_templated_secrets to return some args secrets
     mocker.patch(
         "tracecat.executor.service.extract_templated_secrets",
-        return_value=["args_secret1", "args_secret2"],
+        return_value=ExtractedSecretPaths(secrets={"args_secret1", "args_secret2"}),
     )
 
     # Mock get_runtime_env
@@ -298,7 +299,10 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         ),
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch(
+        "tracecat.executor.service.extract_templated_secrets",
+        return_value=ExtractedSecretPaths(),
+    )
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -348,7 +352,10 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         ),
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch(
+        "tracecat.executor.service.extract_templated_secrets",
+        return_value=ExtractedSecretPaths(),
+    )
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -411,7 +418,10 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
         )
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch(
+        "tracecat.executor.service.extract_templated_secrets",
+        return_value=ExtractedSecretPaths(),
+    )
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -442,7 +452,7 @@ async def test_extract_templated_secrets_detects_nested_complex_expressions():
 
     expr = '${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}'
     secrets = extract_templated_secrets(expr)
-    assert sorted(secrets) == sorted(
+    assert sorted(secrets.secrets) == sorted(
         [
             "zendesk.ZENDESK_EMAIL",
             "zendesk.ZENDESK_API_TOKEN",

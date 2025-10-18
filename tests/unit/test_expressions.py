@@ -22,6 +22,7 @@ from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_expressions,
+    extract_oauth_expressions,
     extract_templated_secrets,
 )
 from tracecat.expressions.parser.core import ExprParser
@@ -40,6 +41,10 @@ from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.common import get_validators
 from tracecat.validation.models import ExprValidationResult, ValidationDetail
+
+
+def _sorted_secret_paths(obj: Any) -> list[str]:
+    return sorted(extract_templated_secrets(obj).secrets)
 
 
 @pytest.mark.parametrize(
@@ -247,7 +252,7 @@ def test_find_secrets():
     test_str = "This is a ${{ SECRETS.my_secret.TEST_API_KEY_1 }} secret"
     expected = ["my_secret.TEST_API_KEY_1"]
 
-    assert extract_templated_secrets(test_str) == expected
+    assert extract_templated_secrets(test_str).secrets_list() == expected
 
     mock_templated_kwargs = {
         "question_generation": {
@@ -272,14 +277,14 @@ def test_find_secrets():
     }
 
     expected = ["my_secret.TEST_API_KEY_1", "other_secret.test_api_key_2"]
-    assert sorted(extract_templated_secrets(mock_templated_kwargs)) == sorted(expected)
+    assert _sorted_secret_paths(mock_templated_kwargs) == sorted(expected)
 
 
 def test_find_secrets_in_complex_expression():
     # Should detect secret usages nested within a function call
     expr = '${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}'
     secrets = extract_templated_secrets(expr)
-    assert sorted(secrets) == sorted(
+    assert sorted(secrets.secrets) == sorted(
         [
             "zendesk.ZENDESK_EMAIL",
             "zendesk.ZENDESK_API_TOKEN",
@@ -417,7 +422,7 @@ def test_evaluate_templated_secret(test_role):
             )
 
         # Start test
-        secret_paths = extract_templated_secrets(mock_templated_kwargs)
+        secret_paths = extract_templated_secrets(mock_templated_kwargs).secrets_list()
         secret_names = [path.split(".")[0] for path in secret_paths]
         secrets = [get_secret(secret_name) for secret_name in secret_names]
         secret_ctx = {ExprContext.SECRETS: format_secrets_as_json(secrets)}
@@ -1781,19 +1786,19 @@ def test_build_lambda_input_sanitization() -> None:
 
 def test_multiple_secrets_in_single_template():
     expr = "${{ FN.concat(SECRETS.a.K1, '-', SECRETS.a.K2, '-', SECRETS.b.K3) }}"
-    got = sorted(extract_templated_secrets(expr))
+    got = _sorted_secret_paths(expr)
     assert got == sorted(["a.K1", "a.K2", "b.K3"])
 
 
 def test_trims_whitespace_and_newlines_inside_template():
     expr = "${{  FN.to_base64(  SECRETS.a.K1  +\n  '-'  +  SECRETS.b.K2  )  }}"
-    got = sorted(extract_templated_secrets(expr))
+    got = _sorted_secret_paths(expr)
     assert got == sorted(["a.K1", "b.K2"])
 
 
 def test_multiple_templates_in_one_string():
     s = "before ${{ SECRETS.a.K1 }} mid ${{ FN.upper(SECRETS.b.K2) }} after"
-    got = sorted(extract_templated_secrets(s))
+    got = _sorted_secret_paths(s)
     assert got == sorted(["a.K1", "b.K2"])
 
 
@@ -1802,25 +1807,25 @@ def test_detection_in_dict_keys_and_values():
         "${{ FN.lower(SECRETS.a.K1) }}": "${{ SECRETS.b.K2 }}",
         "k2": "${{ FN.len(SECRETS.c.K3) }}",
     }
-    got = sorted(extract_templated_secrets(obj))
+    got = _sorted_secret_paths(obj)
     assert got == sorted(["a.K1", "b.K2", "c.K3"])
 
 
 def test_underscore_and_case_in_identifiers():
     expr = "${{ FN.f(SECRETS.alpha_beta.GAMMA_DELTA + SECRETS.xYz.A_b1) }}"
-    got = sorted(extract_templated_secrets(expr))
+    got = _sorted_secret_paths(expr)
     assert got == sorted(["alpha_beta.GAMMA_DELTA", "xYz.A_b1"])
 
 
 def test_duplicates_are_deduped():
     expr = "${{ SECRETS.a.K1 + SECRETS.a.K1 + FN.id(SECRETS.a.K1) + SECRETS.b.K2 }}"
-    got = sorted(extract_templated_secrets(expr))
+    got = _sorted_secret_paths(expr)
     assert got == sorted(["a.K1", "b.K2"])  # no duplicates
 
 
 def test_ignores_non_template_mentions():
     s = "SECRETS.a.K1 not inside template; and ${{ 'SECRETS.a.K1' }} as string"
-    got = extract_templated_secrets(s)
+    got = extract_templated_secrets(s).secrets_list()
     assert got == []
 
 
@@ -1835,5 +1840,42 @@ def test_mixed_nested_object():
             {"inner": "${{ SECRETS.alpha.KEY }}"},  # duplicate should be deduped
         ],
     }
-    got = sorted(extract_templated_secrets(mixed_args_obj))
+    got = _sorted_secret_paths(mixed_args_obj)
     assert got == sorted(["alpha.KEY", "beta.SECRET", "gamma.TOKEN"])
+
+
+def test_extract_templated_secrets_includes_oauth():
+    expr = "${{ OAUTH.github.USER_TOKEN }}"
+    extracted = extract_templated_secrets(expr)
+    assert extracted.oauth == {"github.USER_TOKEN"}
+    assert extracted.secrets == set()
+    assert extract_oauth_expressions(extracted) == ["github.USER_TOKEN"]
+
+
+def test_oauth_service_token_resolution():
+    context = {ExprContext.OAUTH: {"okta": {"SERVICE_TOKEN": "svc-token"}}}
+    result = eval_templated_object("${{ OAUTH.okta.SERVICE_TOKEN }}", operand=context)
+    assert result == "svc-token"
+
+
+def test_oauth_user_token_resolution():
+    context = {ExprContext.OAUTH: {"github": {"USER_TOKEN": "user-token-1"}}}
+    result = eval_templated_object("${{ OAUTH.github.USER_TOKEN }}", operand=context)
+    assert result == "user-token-1"
+
+
+def test_oauth_missing_provider_returns_none():
+    context = {ExprContext.OAUTH: {}}
+    result = eval_templated_object("${{ OAUTH.slack.USER_TOKEN }}", operand=context)
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_oauth_invalid_token_type_validation_error():
+    validation_context = ExprValidationContext(action_refs=set())
+    async with ExprValidator(validation_context=validation_context) as validator:
+        expr = TemplateExpression("${{ OAUTH.github.INVALID_TOKEN }}")
+        expr.expr.validate(validator, loc=("args",))
+        errors = validator.errors()
+
+    assert any("Invalid oauth token type" in err.msg for err in errors)

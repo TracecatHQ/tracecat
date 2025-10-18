@@ -179,6 +179,46 @@ class BaseExprValidator(Visitor):
         name, key = parts
         return name, key
 
+    def oauth(self, node: Tree[Token]) -> tuple[str, str] | None:
+        self.logger.trace("Visit oauth expression", expr=node)
+
+        expr = node.children[0]
+        if not isinstance(expr, Token):
+            raise ValueError("Expected a string token")
+        try:
+            oauth_path = expr.lstrip(".")
+        except ValueError:
+            oauth_jsonpath = ExprContext.OAUTH + expr
+            return self.add(
+                status="error",
+                msg=(
+                    f"Invalid oauth usage: {oauth_jsonpath!r}. "
+                    "Must be in the format `OAUTH.<provider>.(SERVICE_TOKEN|USER_TOKEN)`"
+                ),
+                type=ExprType.OAUTH,
+            )
+        parts = oauth_path.split(".")
+        if len(parts) != 2:
+            return self.add(
+                status="error",
+                msg=(
+                    f"Invalid oauth usage: {oauth_path!r}. "
+                    "Must be in the format `OAUTH.<provider>.(SERVICE_TOKEN|USER_TOKEN)`"
+                ),
+                type=ExprType.OAUTH,
+            )
+        provider, token_type = parts
+        if token_type not in {"SERVICE_TOKEN", "USER_TOKEN"}:
+            return self.add(
+                status="error",
+                msg=(
+                    f"Invalid oauth token type {token_type!r}. "
+                    "Supported token types: SERVICE_TOKEN, USER_TOKEN"
+                ),
+                type=ExprType.OAUTH,
+            )
+        return provider, token_type
+
     def function(self, node: Tree[Token]):
         fn_name = node.children[0]
         if not isinstance(fn_name, Token):

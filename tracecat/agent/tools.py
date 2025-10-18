@@ -23,15 +23,20 @@ from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
+    build_registry_oauth_context,
     flatten_secrets,
     get_action_secrets,
+    merge_oauth_contexts,
     run_template_action,
 )
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.eval import extract_templated_secrets
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.secrets.secrets_manager import env_sandbox, get_oauth_context
+from tracecat.types.exceptions import TracecatCredentialsError
 
 
 def create_tool_call_message(
@@ -97,11 +102,31 @@ async def call_tracecat_action(
     action_secrets = await service.fetch_all_action_secrets(reg_action)
     bound_action = service.get_bound(reg_action, mode="execution")
 
-    secrets = await get_action_secrets(args=args, action_secrets=action_secrets)
+    extracted_paths = extract_templated_secrets(args)
+    secrets = await get_action_secrets(
+        args=args,
+        action_secrets=action_secrets,
+        extracted_paths=extracted_paths,
+    )
+    registry_oauth_context = build_registry_oauth_context(
+        secrets=secrets, action_secrets={s for s in action_secrets if s.type == "oauth"}
+    )
+    expression_oauth_context: dict[str, dict[str, str]] = {}
+    try:
+        if extracted_paths.oauth:
+            expression_oauth_context = await get_oauth_context(
+                set(extracted_paths.oauth)
+            )
+    except TracecatCredentialsError as exc:
+        raise ModelRetry(str(exc)) from exc
+    oauth_context = merge_oauth_contexts(
+        registry_oauth_context, expression_oauth_context
+    )
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context.update(SECRETS=secrets)  # type: ignore
+    context[ExprContext.SECRETS] = secrets  # type: ignore[index]
+    context[ExprContext.OAUTH] = oauth_context  # type: ignore[index]
 
     flattened_secrets = flatten_secrets(secrets)
     try:
