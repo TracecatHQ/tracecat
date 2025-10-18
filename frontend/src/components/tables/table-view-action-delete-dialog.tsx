@@ -62,7 +62,7 @@ export function TableViewActionDeleteDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={handleDeleteRow}>
+          <AlertDialogAction variant="destructive" onClick={handleDeleteRow}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>
