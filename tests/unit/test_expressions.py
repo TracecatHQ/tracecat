@@ -1,5 +1,6 @@
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -1879,3 +1880,50 @@ async def test_oauth_invalid_token_type_validation_error():
         errors = validator.errors()
 
     assert any("Invalid oauth token type" in err.msg for err in errors)
+
+
+@pytest.mark.anyio
+async def test_oauth_validation_missing_integration_raises(mocker):
+    validation_context = ExprValidationContext(action_refs=set())
+    service = mocker.AsyncMock()
+    service.get_integration.return_value = None
+
+    @asynccontextmanager
+    async def service_cm():
+        yield service
+
+    mocker.patch(
+        "tracecat.expressions.validator.validator.IntegrationService.with_session",
+        return_value=service_cm(),
+    )
+
+    async with ExprValidator(validation_context=validation_context) as validator:
+        expr = TemplateExpression("${{ OAUTH.microsoft_teams.SERVICE_TOKEN }}")
+        expr.expr.validate(validator, loc=("args",))
+
+    errors = validator.errors()
+    assert len(errors) == 1
+    assert "microsoft_teams" in errors[0].msg
+    assert "client_credentials" in errors[0].msg
+
+
+@pytest.mark.anyio
+async def test_oauth_validation_passes_when_integration_exists(mocker):
+    validation_context = ExprValidationContext(action_refs=set())
+    service = mocker.AsyncMock()
+    service.get_integration.return_value = object()
+
+    @asynccontextmanager
+    async def service_cm():
+        yield service
+
+    mocker.patch(
+        "tracecat.expressions.validator.validator.IntegrationService.with_session",
+        return_value=service_cm(),
+    )
+
+    async with ExprValidator(validation_context=validation_context) as validator:
+        expr = TemplateExpression("${{ OAUTH.microsoft_teams.USER_TOKEN }}")
+        expr.expr.validate(validator, loc=("args",))
+
+    assert validator.errors() == []
