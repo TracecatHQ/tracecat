@@ -179,6 +179,7 @@ export const WorkflowCanvas = React.forwardRef<
   >([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { deleteAction } = useDeleteAction()
+  const openContextMenuId = useRef<string | null>(null)
   /**
    * Load the saved workflow
    */
@@ -258,8 +259,11 @@ export const WorkflowCanvas = React.forwardRef<
         data: { type: "selector" },
         origin: [0.5, 0.0],
       }
-
-      setNodes((nds) => nds.concat(newNode))
+      const prevContextMenuId = openContextMenuId.current
+      setNodes((nds) =>
+        nds.concat(newNode).filter((n) => n.id !== prevContextMenuId)
+      )
+      openContextMenuId.current = id
       return newNode
     },
     [screenToFlowPosition]
