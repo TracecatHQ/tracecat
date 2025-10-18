@@ -259,9 +259,9 @@ export const WorkflowCanvas = React.forwardRef<
         data: { type: "selector" },
         origin: [0.5, 0.0],
       }
-
+      const prevContextMenuId = openContextMenuId.current
       setNodes((nds) =>
-        nds.concat(newNode).filter((n) => n.id !== openContextMenuId.current)
+        nds.concat(newNode).filter((n) => n.id !== prevContextMenuId)
       )
       openContextMenuId.current = id
       return newNode
