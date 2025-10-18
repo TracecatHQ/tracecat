@@ -72,7 +72,7 @@ VISITOR_NODE_TO_EXPR_TYPE = {
     "expression": ExprType.GENERIC,
     "actions": ExprType.ACTION,
     "secrets": ExprType.SECRET,
-    "oauth": ExprType.SECRET,
+    "oauth": ExprType.OAUTH,
     "function": ExprType.FUNCTION,
     "inputs": ExprType.INPUT,
     "env": ExprType.ENV,
