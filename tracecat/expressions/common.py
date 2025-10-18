@@ -28,6 +28,9 @@ class ExprContext(TracecatEnum):
     SECRETS = "SECRETS"
     """Secrets context"""
 
+    OAUTH = "OAUTH"
+    """OAuth integrations context - provides access to OAuth tokens"""
+
     FN = "FN"
     """Function context"""
 
@@ -51,6 +54,7 @@ class ExprType(TracecatEnum):
     GENERIC = auto()
     ACTION = auto()
     SECRET = auto()
+    OAUTH = auto()
     FUNCTION = auto()
     INPUT = auto()
     ENV = auto()
@@ -68,6 +72,7 @@ VISITOR_NODE_TO_EXPR_TYPE = {
     "expression": ExprType.GENERIC,
     "actions": ExprType.ACTION,
     "secrets": ExprType.SECRET,
+    "oauth": ExprType.SECRET,
     "function": ExprType.FUNCTION,
     "inputs": ExprType.INPUT,
     "env": ExprType.ENV,

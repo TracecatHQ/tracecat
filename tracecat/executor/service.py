@@ -37,6 +37,7 @@ from tracecat.dsl.models import (
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
+    ExtractedSecretPaths,
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
@@ -51,7 +52,7 @@ from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.secrets.secrets_manager import env_sandbox, get_oauth_context
 from tracecat.ssh import get_ssh_command
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
@@ -212,15 +213,19 @@ async def run_template_action(
         validated_args = action.validate_args(**args)
 
     secrets_context = {}
+    env_context = {}
+    oauth_context = {}
     if context is not None:
         secrets_context = context.get(ExprContext.SECRETS, {})
         env_context = context.get(ExprContext.ENV, {})
+        oauth_context = context.get(ExprContext.OAUTH, {})
 
     template_context = cast(
         ExecutionContext,
         {
             ExprContext.SECRETS: secrets_context,
             ExprContext.ENV: env_context,
+            ExprContext.OAUTH: oauth_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
@@ -260,17 +265,31 @@ async def run_template_action(
 async def get_action_secrets(
     args: ArgsT,
     action_secrets: set[RegistrySecretType],
+    *,
+    extracted_paths: ExtractedSecretPaths | None = None,
 ) -> dict[str, Any]:
+    extracted_paths = extracted_paths or extract_templated_secrets(args)
+
     # Handle secrets from the task args
-    args_secrets = extract_templated_secrets(args)
-    # Get oauth integrations from the action secrets
-    args_oauth_secrets: set[str] = set()
+    args_secret_paths = extracted_paths.secrets
     args_basic_secrets: set[str] = set()
-    for secret in args_secrets:
-        if secret.endswith("_oauth"):
-            args_oauth_secrets.add(secret)
+    deprecated_oauth_secret_names: set[str] = set()
+    for secret_path in args_secret_paths:
+        secret_name = secret_path.split(".", 1)[0]
+        if secret_name.endswith("_oauth"):
+            deprecated_oauth_secret_names.add(secret_name)
         else:
-            args_basic_secrets.add(secret)
+            args_basic_secrets.add(secret_name)
+
+    for deprecated_secret in sorted(deprecated_oauth_secret_names):
+        provider_id = deprecated_secret.removesuffix("_oauth")
+        logger.warning(
+            "SECRETS.<provider>_oauth pattern is deprecated; migrate to OAUTH namespace.",
+            deprecated_secret=deprecated_secret,
+            provider_id=provider_id,
+            oauth_service_expr=f"OAUTH.{provider_id}.SERVICE_TOKEN",
+            oauth_user_expr=f"OAUTH.{provider_id}.USER_TOKEN",
+        )
 
     # Handle secrets from the action
     required_basic_secrets: set[str] = set()
@@ -296,7 +315,8 @@ async def get_action_secrets(
         required_basic_secrets=required_basic_secrets,
         optional_basic_secrets=optional_basic_secrets,
         oauth_provider_ids=oauth_secrets,
-        args_secrets=args_secrets,
+        args_secrets=sorted(args_secret_paths),
+        oauth_expressions=sorted(extracted_paths.oauth),
         secrets_to_fetch=all_basic_secrets,
     )
 
@@ -377,6 +397,42 @@ async def get_action_secrets(
     return secrets
 
 
+def build_registry_oauth_context(
+    *, secrets: dict[str, Any], action_secrets: set[RegistryOAuthSecret]
+) -> dict[str, dict[str, str]]:
+    """Extract OAuth tokens gathered via registry declarations."""
+    oauth_context: dict[str, dict[str, str]] = {}
+    for secret in action_secrets:
+        provider_tokens = secrets.get(secret.provider_id)
+        if provider_tokens is None:
+            continue
+        # Extract the simple token type (USER_TOKEN or SERVICE_TOKEN) from the full token name
+        full_token_name = secret.token_name
+        simple_token_type = (
+            "SERVICE_TOKEN"
+            if secret.grant_type == "client_credentials"
+            else "USER_TOKEN"
+        )
+
+        provider_context = oauth_context.setdefault(secret.provider_id, {})
+        provider_context[simple_token_type] = provider_tokens[full_token_name]
+    return oauth_context
+
+
+def merge_oauth_contexts(
+    *contexts: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Merge multiple OAuth contexts into a single mapping."""
+    merged: dict[str, dict[str, str]] = {}
+    for context in contexts:
+        if not context:
+            continue
+        for provider_id, tokens in context.items():
+            provider_context = merged.setdefault(provider_id, {})
+            provider_context.update(tokens)
+    return merged
+
+
 async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     """Main entrypoint for running an action."""
     ctx_role.set(role)
@@ -395,7 +451,21 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets = await service.fetch_all_action_secrets(reg_action)
         action = service.get_bound(reg_action, mode="execution")
 
-    secrets = await get_action_secrets(args=task.args, action_secrets=action_secrets)
+    extracted_paths = extract_templated_secrets(task.args)
+    secrets = await get_action_secrets(
+        args=task.args,
+        action_secrets=action_secrets,
+        extracted_paths=extracted_paths,
+    )
+    registry_oauth_context = build_registry_oauth_context(
+        secrets=secrets, action_secrets={s for s in action_secrets if s.type == "oauth"}
+    )
+    expression_oauth_context: dict[str, dict[str, str]] = {}
+    if extracted_paths.oauth:
+        expression_oauth_context = await get_oauth_context(set(extracted_paths.oauth))
+    oauth_context = merge_oauth_contexts(
+        registry_oauth_context, expression_oauth_context
+    )
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -415,6 +485,14 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
                 # Also mask the original value if it's already a string
                 if isinstance(secret_value, str) and len(secret_value) > 1:
                     mask_values.add(secret_value)
+        for _, token_value in traverse_leaves(oauth_context):
+            if token_value is None:
+                continue
+            token_str = str(token_value)
+            if len(token_str) > 1:
+                mask_values.add(token_str)
+            if isinstance(token_value, str) and len(token_value) > 1:
+                mask_values.add(token_value)
 
     # When we're here, we've populated the task arguments with shared context values
 
@@ -428,6 +506,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     context = input.exec_context.copy()
     context[ExprContext.SECRETS] = secrets
+    context[ExprContext.OAUTH] = oauth_context
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):

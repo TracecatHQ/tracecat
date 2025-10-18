@@ -173,6 +173,20 @@ class ExprValidator(BaseExprValidator):
         )
         self._task_group.create_task(coro)
 
+    def oauth(self, node: Tree[Token]):
+        parsed = super().oauth(node)
+        if parsed is None:
+            return
+        provider, token_type = parsed
+        logger.trace(
+            "Visit oauth expression",
+            provider_id=provider,
+            token_type=token_type,
+            environment=self._environment,
+        )
+        # OAuth tokens are validated during execution; record successful parse here.
+        self.add(status="success", type=ExprType.SECRET)
+
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)
         self.add(status="success", type=ExprType.TRIGGER)
