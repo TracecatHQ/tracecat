@@ -44,6 +44,7 @@ import {
   DollarSignIcon,
   FunctionSquareIcon,
   KeyIcon,
+  ShieldCheckIcon,
 } from "lucide-react"
 import { createRoot } from "react-dom/client"
 import {
@@ -53,6 +54,10 @@ import {
   editorListFunctions,
   editorValidateExpression,
   type SecretReadMinimal,
+  providersListProviders,
+  type IntegrationStatus,
+  type OAuthGrantType,
+  type ProviderReadMinimal,
   secretsListSecrets,
 } from "@/client"
 
@@ -107,6 +112,7 @@ export const CONTEXT_ICONS = {
   FN: () => <FunctionSquareIcon {...commonIconStyle} />,
   ENV: () => <DollarSignIcon {...commonIconStyle} />,
   SECRETS: () => <KeyIcon {...commonIconStyle} />,
+  OAUTH: () => <ShieldCheckIcon {...commonIconStyle} />,
   var: () => <BracesIcon {...commonIconStyle} />,
 } as const
 
@@ -156,6 +162,98 @@ export interface TemplateExpressionValidation {
 export const functionCache = new Map<string, EditorFunctionRead[]>()
 export const actionCache = new Map<string, ActionRead[]>()
 export const secretsCache = new Map<string, SecretReadMinimal[]>()
+
+type OAuthProvidersCacheEntry = {
+  providers: ProviderReadMinimal[]
+  fetchedAt: number
+}
+
+const oauthProvidersCache = new Map<string, OAuthProvidersCacheEntry>()
+const OAUTH_PROVIDERS_CACHE_TTL_MS = 30_000
+const INTEGRATION_STATUS_PRIORITY: Record<IntegrationStatus, number> = {
+  connected: 2,
+  configured: 1,
+  not_configured: 0,
+}
+const INTEGRATION_STATUS_LABEL: Record<IntegrationStatus, string> = {
+  connected: "connected",
+  configured: "configured",
+  not_configured: "not configured",
+}
+const INTEGRATION_STATUS_ICON: Record<IntegrationStatus, string> = {
+  connected: "✓",
+  configured: "⚠️",
+  not_configured: "ℹ️",
+}
+const GRANT_TYPE_LABEL: Record<OAuthGrantType, string> = {
+  authorization_code: "Authorization Code",
+  client_credentials: "Client Credentials",
+}
+const GRANT_TYPE_TOKEN_LABEL: Record<OAuthGrantType, string> = {
+  authorization_code: "USER_TOKEN",
+  client_credentials: "SERVICE_TOKEN",
+}
+
+type AggregatedOAuthProvider = {
+  id: string
+  name: string
+  description: string
+  status: IntegrationStatus
+  grantTypes: Set<OAuthGrantType>
+  grantStatuses: Partial<Record<OAuthGrantType, IntegrationStatus>>
+}
+
+function getStatusPriority(status: IntegrationStatus): number {
+  return INTEGRATION_STATUS_PRIORITY[status] ?? 0
+}
+
+function selectHigherStatus(
+  current: IntegrationStatus | undefined,
+  candidate: IntegrationStatus
+): IntegrationStatus {
+  if (!current) {
+    return candidate
+  }
+
+  return getStatusPriority(candidate) > getStatusPriority(current)
+    ? candidate
+    : current
+}
+
+function aggregateOAuthProviders(
+  providers: ProviderReadMinimal[]
+): Map<string, AggregatedOAuthProvider> {
+  const map = new Map<string, AggregatedOAuthProvider>()
+
+  for (const provider of providers) {
+    const existing = map.get(provider.id)
+    if (!existing) {
+      map.set(provider.id, {
+        id: provider.id,
+        name: provider.name,
+        description: provider.description,
+        status: provider.integration_status,
+        grantTypes: new Set<OAuthGrantType>([provider.grant_type]),
+        grantStatuses: {
+          [provider.grant_type]: provider.integration_status,
+        },
+      })
+      continue
+    }
+
+    existing.grantTypes.add(provider.grant_type)
+    existing.grantStatuses[provider.grant_type] = selectHigherStatus(
+      existing.grantStatuses[provider.grant_type],
+      provider.integration_status
+    )
+    existing.status = selectHigherStatus(
+      existing.status,
+      provider.integration_status
+    )
+  }
+
+  return map
+}
 
 export async function fetchFunctions(
   workspaceId: string
@@ -839,10 +937,10 @@ export async function createNodeTooltipForPosition(
 
       // Prefer tokens that start with context keywords (ACTIONS, FN, etc.)
       const currentIsContextToken = current.value.match(
-        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+        /^(ACTIONS|FN|SECRETS|ENV|OAUTH|TRIGGER|var)\b/
       )
       const longestIsContextToken = longest.value.match(
-        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+        /^(ACTIONS|FN|SECRETS|ENV|OAUTH|TRIGGER|var)\b/
       )
 
       if (currentIsContextToken && !longestIsContextToken) {
@@ -907,6 +1005,8 @@ async function createNodeTooltipContent(
     await addFunctionTooltipInfo(container, tokenValue, workspaceId)
   } else if (fullExpression.startsWith("SECRETS.")) {
     addSecretTooltipInfo(container, tokenValue)
+  } else if (fullExpression.startsWith("OAUTH.")) {
+    await addOAuthTooltipInfo(container, tokenValue, workspaceId)
   } else if (fullExpression.startsWith("ENV.")) {
     addEnvTooltipInfo(container, tokenValue)
   } else if (fullExpression.startsWith("TRIGGER")) {
@@ -915,6 +1015,7 @@ async function createNodeTooltipContent(
     token.type === "ACTIONS" ||
     token.type === "FN" ||
     token.type === "SECRETS" ||
+    token.type === "OAUTH" ||
     token.type === "ENV" ||
     token.type === "TRIGGER"
   ) {
@@ -925,6 +1026,8 @@ async function createNodeTooltipContent(
       await addFunctionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "SECRETS") {
       addSecretTooltipInfo(container, tokenValue)
+    } else if (token.type === "OAUTH") {
+      await addOAuthTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "ENV") {
       addEnvTooltipInfo(container, tokenValue)
     } else if (token.type === "TRIGGER") {
@@ -1052,6 +1155,106 @@ function addSecretTooltipInfo(container: HTMLElement, value: string) {
   container.appendChild(info)
 }
 
+async function addOAuthTooltipInfo(
+  container: HTMLElement,
+  value: string,
+  workspaceId: string
+): Promise<void> {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-oauth-info"
+
+  const match = value.match(/OAUTH(?:\.(\w+))?(?:\.(\w+))?/)
+  const providerId = match?.[1]
+  const tokenLabel = match?.[2]?.toUpperCase()
+
+  if (!providerId) {
+    info.innerHTML = `
+      <div class="oauth-context">OAuth namespace</div>
+      <div class="oauth-desc">Reference OAuth providers and tokens configured in this workspace</div>
+    `
+    container.appendChild(info)
+    return
+  }
+
+  try {
+    const providers = await fetchOAuthProviders(workspaceId)
+    const aggregatedProviders = aggregateOAuthProviders(providers)
+    const provider = aggregatedProviders.get(providerId)
+
+    if (!provider) {
+      info.innerHTML = `
+        <div class="oauth-provider">Provider: <strong>${providerId}</strong></div>
+        <div class="oauth-desc">Provider not available in this workspace</div>
+      `
+      container.appendChild(info)
+      return
+    }
+
+    const providerStatusText = `${INTEGRATION_STATUS_ICON[provider.status]} ${provider.name} (${INTEGRATION_STATUS_LABEL[provider.status]})`
+
+    const connectedGrantTypes = Array.from(provider.grantTypes).filter(
+      (grantType) => provider.grantStatuses[grantType] === "connected"
+    )
+
+    if (tokenLabel) {
+      const grantType =
+        tokenLabel === "USER_TOKEN"
+          ? "authorization_code"
+          : tokenLabel === "SERVICE_TOKEN"
+            ? "client_credentials"
+            : undefined
+
+      const tokenStatus =
+        grantType && provider.grantStatuses[grantType]
+          ? provider.grantStatuses[grantType]!
+          : undefined
+
+      const flowLabel = grantType
+        ? GRANT_TYPE_LABEL[grantType]
+        : "Unknown flow"
+
+      if (tokenStatus === "connected") {
+        info.innerHTML = `
+          <div class="oauth-provider">Provider: <strong>${provider.name}</strong> (${provider.id})</div>
+          <div class="oauth-status">${providerStatusText}</div>
+          <div class="oauth-token">Token: <strong>${tokenLabel}</strong> (${flowLabel})</div>
+          <div class="oauth-token-status">${INTEGRATION_STATUS_ICON.connected} ${INTEGRATION_STATUS_LABEL.connected}</div>
+          <div class="oauth-desc">${provider.description}</div>
+        `
+      } else {
+        info.innerHTML = `
+          <div class="oauth-provider">Provider: <strong>${provider.name}</strong> (${provider.id})</div>
+          <div class="oauth-status">${providerStatusText}</div>
+          <div class="oauth-token">Token: <strong>${tokenLabel}</strong> (${flowLabel})</div>
+          <div class="oauth-desc">Token is not currently connected</div>
+        `
+      }
+    } else {
+      const tokenLines = connectedGrantTypes
+        .map((grantType) => {
+          const tokenName = GRANT_TYPE_TOKEN_LABEL[grantType]
+          return `${INTEGRATION_STATUS_ICON.connected} ${tokenName} (${GRANT_TYPE_LABEL[grantType]} – ${INTEGRATION_STATUS_LABEL.connected})`
+        })
+        .join("<br/>")
+
+      info.innerHTML = `
+        <div class="oauth-provider">Provider: <strong>${provider.name}</strong> (${provider.id})</div>
+        <div class="oauth-status">${providerStatusText}</div>
+        <div class="oauth-token-list">${tokenLines || "No connected tokens"}</div>
+        <div class="oauth-desc">${provider.description}</div>
+      `
+    }
+  } catch (error) {
+    console.warn("Failed to build OAuth tooltip info:", error)
+    info.innerHTML = `
+      <div class="oauth-provider">Provider: <strong>${providerId}</strong></div>
+      <div class="oauth-desc">Unable to load OAuth provider details</div>
+    `
+  }
+
+  container.appendChild(info)
+}
+
 function addEnvTooltipInfo(container: HTMLElement, value: string) {
   const info = document.createElement("div")
   info.className = "cm-tooltip-env-info"
@@ -1121,6 +1324,12 @@ export const TEMPLATE_SUGGESTIONS = [
     label: "SECRETS",
     detail: "Workspace secrets",
     info: "Access configured secrets and credentials",
+  },
+  {
+    label: "OAUTH",
+    detail: "OAuth access tokens",
+    info:
+      "Access OAuth tokens using OAUTH.provider.SERVICE_TOKEN or OAUTH.provider.USER_TOKEN",
   },
   {
     label: "ENV",
@@ -1432,6 +1641,33 @@ export async function fetchSecrets(
   }
 }
 
+async function fetchOAuthProviders(
+  workspaceId: string,
+  { forceRefresh = false }: { forceRefresh?: boolean } = {}
+): Promise<ProviderReadMinimal[]> {
+  const cached = oauthProvidersCache.get(workspaceId)
+  if (
+    cached &&
+    !forceRefresh &&
+    Date.now() - cached.fetchedAt < OAUTH_PROVIDERS_CACHE_TTL_MS
+  ) {
+    return cached.providers
+  }
+
+  try {
+    const providers = await providersListProviders({ workspaceId })
+    const enabledProviders = providers.filter((provider) => provider.enabled)
+    oauthProvidersCache.set(workspaceId, {
+      providers: enabledProviders,
+      fetchedAt: Date.now(),
+    })
+    return enabledProviders
+  } catch (error) {
+    console.warn("Failed to fetch OAuth providers:", error)
+    return []
+  }
+}
+
 export function createSecretsCompletion(workspaceId: string) {
   return async (
     context: CompletionContext
@@ -1539,6 +1775,165 @@ export function createSecretsCompletion(workspaceId: string) {
       console.warn("Failed to get secrets completions:", error)
       return null
     }
+  }
+}
+
+export function createOAuthCompletion(workspaceId: string) {
+  return async (
+    context: CompletionContext
+  ): Promise<CompletionResult | null> => {
+    const textBefore = context.state.sliceDoc(
+      Math.max(0, context.pos - 200),
+      context.pos
+    )
+
+    const tokenMatch = textBefore.match(/OAUTH\.(\w+)\.(\w*)$/)
+    if (tokenMatch) {
+      const [, providerId, partialToken] = tokenMatch
+      try {
+        const providers = await fetchOAuthProviders(workspaceId)
+        if (providers.length === 0) {
+          return null
+        }
+
+        const aggregatedProviders = aggregateOAuthProviders(providers)
+        const provider = aggregatedProviders.get(providerId)
+
+        if (
+          !provider ||
+          provider.status !== "connected" ||
+          !Array.from(provider.grantTypes).some(
+            (grantType) => provider.grantStatuses[grantType] === "connected"
+          )
+        ) {
+          return null
+        }
+
+        const options: Completion[] = []
+        const grantStatuses = provider.grantStatuses
+
+        if (
+          provider.grantTypes.has("authorization_code") &&
+          grantStatuses.authorization_code === "connected"
+        ) {
+          options.push({
+            label: "USER_TOKEN",
+            type: "constant",
+            detail: `${INTEGRATION_STATUS_ICON.connected} User token (${INTEGRATION_STATUS_LABEL.connected})`,
+            info: "User-authorized OAuth token (Authorization Code flow)",
+            boost: getStatusPriority("connected"),
+          })
+        }
+
+        if (
+          provider.grantTypes.has("client_credentials") &&
+          grantStatuses.client_credentials === "connected"
+        ) {
+          options.push({
+            label: "SERVICE_TOKEN",
+            type: "constant",
+            detail: `${INTEGRATION_STATUS_ICON.connected} Service token (${INTEGRATION_STATUS_LABEL.connected})`,
+            info:
+              "Service-level OAuth token using client credentials (Client Credentials flow)",
+            boost: getStatusPriority("connected"),
+          })
+        }
+
+        if (options.length === 0) {
+          return null
+        }
+
+        return {
+          from: context.pos - partialToken.length,
+          options,
+          validFor: /^\w*$/,
+        }
+      } catch (error) {
+        console.warn("Failed to build OAuth token completions:", error)
+        return null
+      }
+    }
+
+    const providerMatch = textBefore.match(/OAUTH\.([\w]*)$/)
+    if (providerMatch) {
+      const [, partialProvider] = providerMatch
+      try {
+        const providers = await fetchOAuthProviders(workspaceId)
+        if (providers.length === 0) {
+          return null
+        }
+
+        const aggregatedProviders = aggregateOAuthProviders(providers)
+        const filteredProviders = Array.from(aggregatedProviders.values())
+          .filter(
+            (provider) =>
+              provider.status === "connected" &&
+              Array.from(provider.grantTypes).some(
+                (grantType) =>
+                  provider.grantStatuses[grantType] === "connected"
+              )
+          )
+          .filter((provider) =>
+            provider.id.toLowerCase().startsWith(partialProvider.toLowerCase())
+          )
+          .sort((a, b) => {
+            const priorityDiff =
+              getStatusPriority(b.status) - getStatusPriority(a.status)
+            if (priorityDiff !== 0) {
+              return priorityDiff
+            }
+            return a.id.localeCompare(b.id)
+          })
+
+        if (filteredProviders.length === 0) {
+          return null
+        }
+
+        const options = filteredProviders.map((provider) => {
+          const connectedGrantLabels = Array.from(provider.grantTypes)
+            .filter(
+              (grantType) => provider.grantStatuses[grantType] === "connected"
+            )
+            .map(
+              (grantType) =>
+                `${GRANT_TYPE_TOKEN_LABEL[grantType]} (${INTEGRATION_STATUS_LABEL.connected})`
+            )
+            .join(", ")
+
+          return {
+            label: provider.id,
+            type: "variable",
+            detail: `${INTEGRATION_STATUS_ICON[provider.status]} ${provider.name} (${INTEGRATION_STATUS_LABEL[provider.status]})`,
+            info: `${provider.description}\nTokens: ${connectedGrantLabels || "None connected"}`,
+            boost: getStatusPriority(provider.status),
+            apply: (
+              view: EditorView,
+              completion: Completion,
+              from: number,
+              to: number
+            ) => {
+              const insertText = `${provider.id}.`
+              view.dispatch({
+                changes: { from, to, insert: insertText },
+                selection: { anchor: from + insertText.length },
+              })
+              startCompletion(view)
+            },
+          }
+        })
+
+        return {
+          from: context.pos - partialProvider.length,
+          options,
+          validFor: /^\w*$/,
+        }
+      } catch (error) {
+        console.warn("Failed to build OAuth provider completions:", error)
+        return null
+      }
+    }
+
+    return null
   }
 }
 
@@ -1882,6 +2277,7 @@ export function createAutocomplete({
       createActionCompletion(Object.values(actions).map((a) => a)),
       createVarCompletion(forEach),
       createSecretsCompletion(workspaceId),
+      createOAuthCompletion(workspaceId),
       createEnvCompletion(),
     ],
   })
@@ -2030,6 +2426,36 @@ export const templatePillTheme = EditorView.theme({
     color: "#fed7aa",
   },
   ".cm-tooltip-secret-info .secret-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-oauth-info": {
+    color: "#38bdf8",
+  },
+  ".cm-tooltip-oauth-info .oauth-provider": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-oauth-info .oauth-status": {
+    marginBottom: "2px",
+    color: "#0ea5e9",
+  },
+  ".cm-tooltip-oauth-info .oauth-token": {
+    marginBottom: "2px",
+    color: "#bae6fd",
+  },
+  ".cm-tooltip-oauth-info .oauth-token-status": {
+    marginBottom: "2px",
+    color: "#7dd3fc",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-oauth-info .oauth-token-list": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-oauth-info .oauth-context": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-oauth-info .oauth-desc": {
     fontSize: "11px",
     color: "#9ca3af",
     fontStyle: "italic",
