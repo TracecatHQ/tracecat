@@ -267,7 +267,7 @@ async def get_action_secrets(
     action_secrets: set[RegistrySecretType],
     *,
     extracted_paths: ExtractedSecretPaths | None = None,
-) -> dict[str, Any]:
+) -> dict[str, dict[str, str]]:
     extracted_paths = extracted_paths or extract_templated_secrets(args)
 
     # Handle secrets from the task args
@@ -325,7 +325,7 @@ async def get_action_secrets(
     )
 
     # Get all basic secrets in one call
-    secrets: dict[str, Any] = {}
+    secrets: dict[str, dict[str, str]] = {}
     async with AuthSandbox(
         secrets=all_basic_secrets,
         environment=get_runtime_env(),
@@ -409,7 +409,7 @@ async def get_action_secrets(
 
 def _ensure_provider_secrets_from_legacy_oauth(
     *,
-    secrets: dict[str, Any],
+    secrets: dict[str, dict[str, str]],
     legacy_oauth_secret_names: set[str],
     oauth_provider_ids: set[str],
 ) -> None:
@@ -436,24 +436,16 @@ def _ensure_provider_secrets_from_legacy_oauth(
 
 
 def build_registry_oauth_context(
-    *, secrets: dict[str, Any], action_secrets: set[RegistryOAuthSecret]
+    *, secrets: dict[str, dict[str, str]], action_secrets: set[RegistryOAuthSecret]
 ) -> dict[str, dict[str, str]]:
     """Extract OAuth tokens gathered via registry declarations."""
     oauth_context: dict[str, dict[str, str]] = {}
     for secret in action_secrets:
-        provider_tokens = secrets.get(secret.provider_id) or secrets.get(secret.name)
-        if provider_tokens is None:
+        token_value = secrets.get(secret.provider_id, {}).get(secret.token_name)
+        if token_value is None:
             continue
-        # Extract the simple token type (USER_TOKEN or SERVICE_TOKEN) from the full token name
-        full_token_name = secret.token_name
-        simple_token_type = (
-            "SERVICE_TOKEN"
-            if secret.grant_type == "client_credentials"
-            else "USER_TOKEN"
-        )
-
         provider_context = oauth_context.setdefault(secret.provider_id, {})
-        provider_context[simple_token_type] = provider_tokens[full_token_name]
+        provider_context[secret.simple_token_name] = token_value
     return oauth_context
 
 

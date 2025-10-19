@@ -120,9 +120,10 @@ class RegistryOAuthSecret(BaseModel):
     def token_name(self) -> str:
         """The keyname for the OAuth secret.
 
-        `SECRETS.<provider_id>.<prefix>_[SERVICE|USER]_TOKEN`
+        `SECRETS.<provider_id>.<token_name>`
 
-        <prefix> is the provider_id in uppercase.
+        where <token_name> = <prefix>_[SERVICE|USER]_TOKEN
+        and <prefix> is <provider_id> in uppercase.
         """
         prefix = self.provider_id.upper()
         match self.grant_type:
@@ -130,6 +131,17 @@ class RegistryOAuthSecret(BaseModel):
                 return f"{prefix}_SERVICE_TOKEN"
             case "authorization_code":
                 return f"{prefix}_USER_TOKEN"
+            case _:
+                raise ValueError(f"Invalid grant type: {self.grant_type}")
+
+    @property
+    def simple_token_name(self) -> str:
+        """The simple token name for the OAuth secret."""
+        match self.grant_type:
+            case "client_credentials":
+                return "SERVICE_TOKEN"
+            case "authorization_code":
+                return "USER_TOKEN"
             case _:
                 raise ValueError(f"Invalid grant type: {self.grant_type}")
 
