@@ -273,15 +273,16 @@ async def get_action_secrets(
     # Handle secrets from the task args
     args_secret_paths = extracted_paths.secrets
     args_basic_secrets: set[str] = set()
-    deprecated_oauth_secret_names: set[str] = set()
+    legacy_oauth_secret_names: set[str] = set()
+    oauth_provider_ids: set[str] = set()
     for secret_path in args_secret_paths:
         secret_name = secret_path.split(".", 1)[0]
+        args_basic_secrets.add(secret_name)
         if secret_name.endswith("_oauth"):
-            deprecated_oauth_secret_names.add(secret_name)
-        else:
-            args_basic_secrets.add(secret_name)
+            legacy_oauth_secret_names.add(secret_name)
+            oauth_provider_ids.add(secret_name.removesuffix("_oauth"))
 
-    for deprecated_secret in sorted(deprecated_oauth_secret_names):
+    for deprecated_secret in sorted(legacy_oauth_secret_names):
         provider_id = deprecated_secret.removesuffix("_oauth")
         logger.warning(
             "SECRETS.<provider>_oauth pattern is deprecated; migrate to OAUTH namespace.",
@@ -301,6 +302,9 @@ async def get_action_secrets(
                 id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
             )
             oauth_secrets[key] = secret
+            legacy_oauth_secret_names.add(secret.name)
+            oauth_provider_ids.add(secret.provider_id)
+            continue
         elif secret.optional:
             optional_basic_secrets.add(secret.name)
         else:
@@ -328,6 +332,12 @@ async def get_action_secrets(
         optional_secrets=optional_basic_secrets,
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
+
+    _ensure_provider_secrets_from_legacy_oauth(
+        secrets=secrets,
+        legacy_oauth_secret_names=legacy_oauth_secret_names,
+        oauth_provider_ids=oauth_provider_ids,
+    )
 
     # Get oauth integrations
     if oauth_secrets:
@@ -397,13 +407,41 @@ async def get_action_secrets(
     return secrets
 
 
+def _ensure_provider_secrets_from_legacy_oauth(
+    *,
+    secrets: dict[str, Any],
+    legacy_oauth_secret_names: set[str],
+    oauth_provider_ids: set[str],
+) -> None:
+    """Mirror legacy _oauth secrets into provider-id keys for downstream consumers."""
+    if not (legacy_oauth_secret_names or oauth_provider_ids):
+        return
+
+    candidate_pairs: set[tuple[str, str]] = set()
+    for provider_id in oauth_provider_ids:
+        candidate_pairs.add((provider_id, f"{provider_id}_oauth"))
+    for legacy_name in legacy_oauth_secret_names:
+        provider_id = legacy_name.removesuffix("_oauth")
+        candidate_pairs.add((provider_id, legacy_name))
+
+    for provider_id, legacy_name in sorted(candidate_pairs):
+        if provider_id in secrets:
+            continue
+
+        legacy_tokens = secrets.get(legacy_name)
+        if not isinstance(legacy_tokens, dict):
+            continue
+
+        secrets[provider_id] = legacy_tokens
+
+
 def build_registry_oauth_context(
     *, secrets: dict[str, Any], action_secrets: set[RegistryOAuthSecret]
 ) -> dict[str, dict[str, str]]:
     """Extract OAuth tokens gathered via registry declarations."""
     oauth_context: dict[str, dict[str, str]] = {}
     for secret in action_secrets:
-        provider_tokens = secrets.get(secret.provider_id)
+        provider_tokens = secrets.get(secret.provider_id) or secrets.get(secret.name)
         if provider_tokens is None:
             continue
         # Extract the simple token type (USER_TOKEN or SERVICE_TOKEN) from the full token name
@@ -417,6 +455,32 @@ def build_registry_oauth_context(
         provider_context = oauth_context.setdefault(secret.provider_id, {})
         provider_context[simple_token_type] = provider_tokens[full_token_name]
     return oauth_context
+
+
+def build_legacy_oauth_context(secrets: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Derive OAuth context entries directly from secrets namespace."""
+    legacy_context: dict[str, dict[str, str]] = {}
+    for secret_name, provider_tokens in secrets.items():
+        if not isinstance(provider_tokens, dict):
+            continue
+
+        provider_id = (
+            secret_name.removesuffix("_oauth")
+            if secret_name.endswith("_oauth")
+            else secret_name
+        )
+        provider_context = legacy_context.setdefault(provider_id, {})
+        for key, value in provider_tokens.items():
+            if not isinstance(value, str):
+                continue
+            if key.endswith("_SERVICE_TOKEN"):
+                provider_context.setdefault("SERVICE_TOKEN", value)
+            elif key.endswith("_USER_TOKEN"):
+                provider_context.setdefault("USER_TOKEN", value)
+
+        if not provider_context:
+            legacy_context.pop(provider_id, None)
+    return legacy_context
 
 
 def merge_oauth_contexts(
@@ -457,6 +521,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets=action_secrets,
         extracted_paths=extracted_paths,
     )
+    legacy_oauth_context = build_legacy_oauth_context(secrets)
     registry_oauth_context = build_registry_oauth_context(
         secrets=secrets, action_secrets={s for s in action_secrets if s.type == "oauth"}
     )
@@ -464,7 +529,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     if extracted_paths.oauth:
         expression_oauth_context = await get_oauth_context(set(extracted_paths.oauth))
     oauth_context = merge_oauth_contexts(
-        registry_oauth_context, expression_oauth_context
+        legacy_oauth_context, registry_oauth_context, expression_oauth_context
     )
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(

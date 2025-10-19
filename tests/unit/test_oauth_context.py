@@ -4,7 +4,11 @@ import pytest
 from pydantic import SecretStr
 from tracecat_registry import RegistryOAuthSecret
 
-from tracecat.executor.service import build_registry_oauth_context, merge_oauth_contexts
+from tracecat.executor.service import (
+    build_legacy_oauth_context,
+    build_registry_oauth_context,
+    merge_oauth_contexts,
+)
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.secrets.secrets_manager import get_oauth_context
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -109,6 +113,34 @@ def test_build_registry_oauth_context_merges_tokens():
     assert context == {
         "github": {"USER_TOKEN": "user-token"},
         "okta": {"SERVICE_TOKEN": "service-token"},
+    }
+
+
+def test_build_legacy_oauth_context():
+    secrets = {
+        "microsoft_entra_oauth": {
+            "MICROSOFT_ENTRA_USER_TOKEN": "user-token",
+            "MICROSOFT_ENTRA_SERVICE_TOKEN": "svc-token",
+        },
+        "linear": {
+            "LINEAR_SERVICE_TOKEN": "linear-svc",
+            "LINEAR_USER_TOKEN": "linear-user",
+        },
+        "github": {"GITHUB_USER_TOKEN": "fresh-token"},
+    }
+
+    context = build_legacy_oauth_context(secrets)
+
+    assert context == {
+        "microsoft_entra": {
+            "USER_TOKEN": "user-token",
+            "SERVICE_TOKEN": "svc-token",
+        },
+        "linear": {
+            "SERVICE_TOKEN": "linear-svc",
+            "USER_TOKEN": "linear-user",
+        },
+        "github": {"USER_TOKEN": "fresh-token"},
     }
 
 

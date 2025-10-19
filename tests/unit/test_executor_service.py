@@ -284,6 +284,87 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
 
 
 @pytest.mark.anyio
+async def test_get_action_secrets_includes_legacy_oauth_names(mocker):
+    """Legacy `_oauth` secrets should be fetched and mirrored."""
+
+    extracted = ExtractedSecretPaths(
+        secrets={"microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN"}
+    )
+    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+
+    sandbox = mocker.AsyncMock()
+    sandbox.secrets = {
+        "microsoft_entra_oauth": {"MICROSOFT_ENTRA_USER_TOKEN": "token-value"}
+    }
+    sandbox.__aenter__.return_value = sandbox
+    sandbox.__aexit__.return_value = None
+
+    auth_sandbox_mock = mocker.patch(
+        "tracecat.executor.service.AuthSandbox", return_value=sandbox
+    )
+
+    secrets = await get_action_secrets(
+        args={},
+        action_secrets=set(),
+        extracted_paths=extracted,
+    )
+
+    auth_sandbox_mock.assert_called_once()
+    sandbox_kwargs = auth_sandbox_mock.call_args.kwargs
+    assert "microsoft_entra_oauth" in sandbox_kwargs["secrets"]
+    assert (
+        secrets["microsoft_entra_oauth"]["MICROSOFT_ENTRA_USER_TOKEN"] == "token-value"
+    )
+    assert secrets["microsoft_entra"]["MICROSOFT_ENTRA_USER_TOKEN"] == "token-value"
+
+
+@pytest.mark.anyio
+async def test_get_action_secrets_does_not_require_registry_oauth_secret_names(mocker):
+    """Registry OAuth secrets should not be fetched via AuthSandbox by `_oauth` name."""
+
+    action_secrets: set[RegistrySecretType] = {
+        RegistryOAuthSecret(
+            provider_id="github",
+            grant_type="authorization_code",
+        )
+    }
+
+    mocker.patch(
+        "tracecat.executor.service.extract_templated_secrets",
+        return_value=ExtractedSecretPaths(),
+    )
+    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+
+    sandbox = mocker.AsyncMock()
+    sandbox.secrets = {}
+    sandbox.__aenter__.return_value = sandbox
+    sandbox.__aexit__.return_value = None
+
+    auth_sandbox_mock = mocker.patch(
+        "tracecat.executor.service.AuthSandbox", return_value=sandbox
+    )
+
+    service = mocker.AsyncMock()
+    service.list_integrations.return_value = []
+
+    @asynccontextmanager
+    async def service_cm():
+        yield service
+
+    mocker.patch(
+        "tracecat.executor.service.IntegrationService.with_session",
+        return_value=service_cm(),
+    )
+
+    with pytest.raises(TracecatCredentialsError):
+        await get_action_secrets({}, action_secrets)
+
+    auth_sandbox_mock.assert_called_once()
+    sandbox_kwargs = auth_sandbox_mock.call_args.kwargs
+    assert "github_oauth" not in sandbox_kwargs["secrets"]
+
+
+@pytest.mark.anyio
 async def test_get_action_secrets_skips_optional_oauth(mocker):
     """Ensure optional OAuth integrations do not raise when missing."""
 

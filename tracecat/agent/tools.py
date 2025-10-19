@@ -23,6 +23,7 @@ from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
+    build_legacy_oauth_context,
     build_registry_oauth_context,
     flatten_secrets,
     get_action_secrets,
@@ -108,6 +109,7 @@ async def call_tracecat_action(
         action_secrets=action_secrets,
         extracted_paths=extracted_paths,
     )
+    legacy_oauth_context = build_legacy_oauth_context(secrets)
     registry_oauth_context = build_registry_oauth_context(
         secrets=secrets, action_secrets={s for s in action_secrets if s.type == "oauth"}
     )
@@ -120,7 +122,7 @@ async def call_tracecat_action(
     except TracecatCredentialsError as exc:
         raise ModelRetry(str(exc)) from exc
     oauth_context = merge_oauth_contexts(
-        registry_oauth_context, expression_oauth_context
+        legacy_oauth_context, registry_oauth_context, expression_oauth_context
     )
 
     # Call action with secrets in environment
