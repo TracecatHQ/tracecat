@@ -205,12 +205,12 @@ def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str
     return extractor.results()
 
 
-class SecretPathExtractor(ExprExtractor):
-    """Extracts full secret paths including keys."""
+class CredentialPathExtractor(ExprExtractor):
+    """Extracts full credential paths including keys for both secrets and OAuth."""
 
     def __init__(self) -> None:
         self._results = defaultdict[ExprContext, set[str]](set)
-        self.logger = logger.bind(visitor="SecretPathExtractor")
+        self.logger = logger.bind(visitor="CredentialPathExtractor")
 
     def results(self) -> Mapping[ExprContext, set[str]]:
         return self._results
@@ -224,17 +224,6 @@ class SecretPathExtractor(ExprExtractor):
         jsonpath = token.lstrip(".")
         # Store the full path (e.g., "a.K1" not just "a")
         self._results[ExprContext.SECRETS].add(jsonpath)
-
-
-class OAuthPathExtractor(ExprExtractor):
-    """Extract OAuth provider/token pairs from expressions."""
-
-    def __init__(self) -> None:
-        self._results = defaultdict[ExprContext, set[str]](set)
-        self.logger = logger.bind(visitor="OAuthPathExtractor")
-
-    def results(self) -> Mapping[ExprContext, set[str]]:
-        return self._results
 
     def oauth(self, node: Tree[Token]) -> None:
         token = node.children[0]

@@ -7,9 +7,8 @@ from typing import Any
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
 from tracecat.expressions.core import (
+    CredentialPathExtractor,
     Expression,
-    OAuthPathExtractor,
-    SecretPathExtractor,
     TemplateExpression,
 )
 from tracecat.parse import traverse_expressions
@@ -112,16 +111,13 @@ class ExtractedSecretPaths:
 def extract_templated_secrets(templated_obj: Any) -> ExtractedSecretPaths:
     """Extract secret and OAuth paths from templated objects using AST parsing."""
     # Extract and parse all template expressions from all strings
-    secret_extractor = SecretPathExtractor()
-    oauth_extractor = OAuthPathExtractor()
+    credential_extractor = CredentialPathExtractor()
     for expr_str in traverse_expressions(templated_obj):
-        Expression(expr_str, visitor=secret_extractor)()
-        Expression(expr_str, visitor=oauth_extractor)()
-    # Get the results and return only the secrets
-    secret_results = secret_extractor.results()
-    oauth_results = oauth_extractor.results()
-    secrets = set(secret_results.get(ExprContext.SECRETS, []))
-    oauth = set(oauth_results.get(ExprContext.OAUTH, []))
+        Expression(expr_str, visitor=credential_extractor)()
+    # Get the results and extract both credentials
+    results = credential_extractor.results()
+    secrets = set(results.get(ExprContext.SECRETS, []))
+    oauth = set(results.get(ExprContext.OAUTH, []))
     return ExtractedSecretPaths(secrets=secrets, oauth=oauth)
 
 

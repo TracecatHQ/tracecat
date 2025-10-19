@@ -125,8 +125,8 @@ async def call_tracecat_action(
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context[ExprContext.SECRETS] = secrets  # type: ignore[index]
-    context[ExprContext.OAUTH] = oauth_context  # type: ignore[index]
+    context[ExprContext.SECRETS] = secrets
+    context[ExprContext.OAUTH] = oauth_context
 
     flattened_secrets = flatten_secrets(secrets)
     try:
