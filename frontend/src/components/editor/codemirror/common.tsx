@@ -53,11 +53,11 @@ import {
   type ExpressionValidationResponse,
   editorListFunctions,
   editorValidateExpression,
-  type SecretReadMinimal,
-  providersListProviders,
   type IntegrationStatus,
   type OAuthGrantType,
   type ProviderReadMinimal,
+  providersListProviders,
+  type SecretReadMinimal,
   secretsListSecrets,
 } from "@/client"
 
@@ -1209,9 +1209,7 @@ async function addOAuthTooltipInfo(
           ? provider.grantStatuses[grantType]!
           : undefined
 
-      const flowLabel = grantType
-        ? GRANT_TYPE_LABEL[grantType]
-        : "Unknown flow"
+      const flowLabel = grantType ? GRANT_TYPE_LABEL[grantType] : "Unknown flow"
 
       if (tokenStatus === "connected") {
         info.innerHTML = `
@@ -1328,8 +1326,7 @@ export const TEMPLATE_SUGGESTIONS = [
   {
     label: "OAUTH",
     detail: "OAuth access tokens",
-    info:
-      "Access OAuth tokens using OAUTH.provider.SERVICE_TOKEN or OAUTH.provider.USER_TOKEN",
+    info: "Access OAuth tokens using OAUTH.provider.SERVICE_TOKEN or OAUTH.provider.USER_TOKEN",
   },
   {
     label: "ENV",
@@ -1833,8 +1830,7 @@ export function createOAuthCompletion(workspaceId: string) {
             label: "SERVICE_TOKEN",
             type: "constant",
             detail: `${INTEGRATION_STATUS_ICON.connected} Service token (${INTEGRATION_STATUS_LABEL.connected})`,
-            info:
-              "Service-level OAuth token using client credentials (Client Credentials flow)",
+            info: "Service-level OAuth token using client credentials (Client Credentials flow)",
             boost: getStatusPriority("connected"),
           })
         }
@@ -1869,8 +1865,7 @@ export function createOAuthCompletion(workspaceId: string) {
             (provider) =>
               provider.status === "connected" &&
               Array.from(provider.grantTypes).some(
-                (grantType) =>
-                  provider.grantStatuses[grantType] === "connected"
+                (grantType) => provider.grantStatuses[grantType] === "connected"
               )
           )
           .filter((provider) =>
