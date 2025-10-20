@@ -264,24 +264,41 @@ async def get_action_secrets(
     # Handle secrets from the task args
     args_secrets = extract_templated_secrets(args)
     # Get oauth integrations from the action secrets
-    args_oauth_secrets: set[str] = set()
+    args_oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     args_basic_secrets: set[str] = set()
     for secret in args_secrets:
-        if secret.endswith("_oauth"):
-            args_oauth_secrets.add(secret)
+        if "." not in secret:
+            # Single-segment secret like "my_secret"
+            args_basic_secrets.add(secret)
+            continue
+        name, key = secret.split(".", 1)
+        if name.endswith("_oauth"):
+            provider_id = name.removesuffix("_oauth")
+            if key.endswith("SERVICE_TOKEN"):
+                grant_type = OAuthGrantType.CLIENT_CREDENTIALS
+            elif key.endswith("USER_TOKEN"):
+                grant_type = OAuthGrantType.AUTHORIZATION_CODE
+            else:
+                raise ValueError(f"Invalid OAuth token type: {key}")
+            provider_key = ProviderKey(id=provider_id, grant_type=grant_type)
+            args_oauth_secrets[provider_key] = RegistryOAuthSecret(
+                provider_id=provider_id,
+                grant_type=grant_type.value,
+                optional=False,
+            )
         else:
             args_basic_secrets.add(secret)
 
     # Handle secrets from the action
     required_basic_secrets: set[str] = set()
     optional_basic_secrets: set[str] = set()
-    oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
+    action_oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     for secret in action_secrets:
         if secret.type == "oauth":
             key = ProviderKey(
                 id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
             )
-            oauth_secrets[key] = secret
+            action_oauth_secrets[key] = secret
         elif secret.optional:
             optional_basic_secrets.add(secret.name)
         else:
@@ -291,11 +308,12 @@ async def get_action_secrets(
     all_basic_secrets = (
         required_basic_secrets | args_basic_secrets | optional_basic_secrets
     )
+    oauth_secrets = action_oauth_secrets | args_oauth_secrets
     logger.info(
         "Handling secrets",
         required_basic_secrets=required_basic_secrets,
         optional_basic_secrets=optional_basic_secrets,
-        oauth_provider_ids=oauth_secrets,
+        oauth_secrets=oauth_secrets,
         args_secrets=args_secrets,
         secrets_to_fetch=all_basic_secrets,
     )
@@ -327,11 +345,11 @@ async def get_action_secrets(
                     try:
                         if access_token := await service.get_access_token(integration):
                             secret = oauth_secrets[provider_key]
-                            # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
+                            # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]
                             # NOTE: We are overriding the provider_id key here assuming its unique
                             # <prefix> is the provider_id in uppercase.
                             provider_secrets = secrets.setdefault(
-                                integration.provider_id, {}
+                                f"{integration.provider_id}_oauth", {}
                             )
                             provider_secrets[secret.token_name] = (
                                 access_token.get_secret_value()
