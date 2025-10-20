@@ -27,11 +27,15 @@ definition:
       type: str
       description: The content type of the reply message.
       default: html
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: post_replies
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages/${{ inputs.message_id }}/replies
+        url: ${{ inputs.base_url }}/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages/${{ inputs.message_id }}/replies
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams.MICROSOFT_TEAMS_USER_TOKEN }}

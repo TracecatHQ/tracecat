@@ -14,11 +14,15 @@ definition:
     email:
       type: str
       description: The email address to search for.
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: get_user_id_by_email
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/beta/users
+        url: ${{ inputs.base_url }}/beta/users
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN }}
