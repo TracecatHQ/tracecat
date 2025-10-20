@@ -386,6 +386,7 @@ export function MessagePart({
       <Reasoning
         key={`${id}-${partIdx}`}
         className="w-full"
+        defaultOpen={status === "streaming" && isLastMessage}
         isStreaming={status === "streaming" && isLastMessage}
       >
         <ReasoningTrigger />

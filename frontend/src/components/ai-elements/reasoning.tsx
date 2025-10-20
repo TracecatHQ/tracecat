@@ -61,6 +61,7 @@ export const Reasoning = memo(
       defaultProp: 0,
     })
 
+    const [shouldAutoClose, setShouldAutoClose] = useState(defaultOpen)
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const [startTime, setStartTime] = useState<number | null>(null)
 
@@ -76,9 +77,18 @@ export const Reasoning = memo(
       }
     }, [isStreaming, startTime, setDuration])
 
+    // Ensure reasoning stays open while streaming and auto-close again afterwards.
+    useEffect(() => {
+      if (isStreaming) {
+        setIsOpen(true)
+        setShouldAutoClose(true)
+        setHasAutoClosed(false)
+      }
+    }, [isStreaming, setIsOpen])
+
     // Auto-open when streaming starts, auto-close when streaming ends (once only)
     useEffect(() => {
-      if (defaultOpen && !isStreaming && isOpen && !hasAutoClosed) {
+      if (shouldAutoClose && !isStreaming && isOpen && !hasAutoClosed) {
         // Add a small delay before closing to allow user to see the content
         const timer = setTimeout(() => {
           setIsOpen(false)
@@ -87,7 +97,7 @@ export const Reasoning = memo(
 
         return () => clearTimeout(timer)
       }
-    }, [isStreaming, isOpen, defaultOpen, setIsOpen, hasAutoClosed])
+    }, [isStreaming, isOpen, shouldAutoClose, setIsOpen, hasAutoClosed])
 
     const handleOpenChange = (newOpen: boolean) => {
       setIsOpen(newOpen)
