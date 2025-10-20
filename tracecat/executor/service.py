@@ -388,7 +388,6 @@ async def get_action_secrets(
             raise
         except Exception as e:
             logger.warning("Could not get oauth secrets", error=e)
-    logger.warning("Secrets", secrets=secrets)
     return secrets
 
 
