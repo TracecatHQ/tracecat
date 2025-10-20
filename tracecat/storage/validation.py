@@ -30,6 +30,38 @@ from tracecat.storage.exceptions import (
     FileSizeError,
 )
 
+ALLOWED_IMAGE_MEDIA_TYPES: set[str] = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+}
+
+
+def infer_image_media_type(content: bytes) -> str:
+    """Infer the media type of an in-memory image using polyfile magic matching."""
+    if not content:
+        raise ValueError("Image content cannot be empty")
+
+    try:
+        matches = list(MagicMatcher.DEFAULT_INSTANCE.match(content))
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.error("Image media type detection failed")
+        raise ValueError("Unable to detect image media type") from exc
+
+    for match in matches:
+        mimetypes = getattr(match, "mimetypes", None)
+        if not mimetypes:
+            continue
+        for mt in mimetypes:
+            if not mt:
+                continue
+            normalized = FileSecurityValidator._normalize_mime_type(mt)
+            if normalized in ALLOWED_IMAGE_MEDIA_TYPES:
+                return normalized
+
+    raise ValueError("Unsupported image media type")
+
 
 class FileValidationResult(BaseModel):
     """Result of file validation."""
