@@ -327,9 +327,12 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
 
     secrets = await get_action_secrets({}, action_secrets)
     assert (
-        secrets["azure_log_analytics"]["AZURE_LOG_ANALYTICS_USER_TOKEN"] == "user-token"
+        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
+        == "user-token"
     )
-    assert "AZURE_LOG_ANALYTICS_SERVICE_TOKEN" not in secrets["azure_log_analytics"]
+    assert (
+        "AZURE_LOG_ANALYTICS_SERVICE_TOKEN" not in secrets["azure_log_analytics_oauth"]
+    )
 
 
 @pytest.mark.anyio
@@ -392,10 +395,11 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
 
     secrets = await get_action_secrets({}, action_secrets)
     assert (
-        secrets["azure_log_analytics"]["AZURE_LOG_ANALYTICS_USER_TOKEN"] == "user-token"
+        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
+        == "user-token"
     )
     assert (
-        secrets["azure_log_analytics"]["AZURE_LOG_ANALYTICS_SERVICE_TOKEN"]
+        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_SERVICE_TOKEN"]
         == "service-token"
     )
 
