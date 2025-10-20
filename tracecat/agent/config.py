@@ -31,6 +31,22 @@ MODEL_CONFIGS = {
             "required": ["bedrock"],
         },
     ),
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": ModelConfig(
+        name="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        provider="bedrock",
+        org_secret_name="agent-bedrock-credentials",
+        secrets={
+            "required": ["bedrock"],
+        },
+    ),
+    "openai.gpt-oss-120b-1:0": ModelConfig(
+        name="openai.gpt-oss-120b-1:0",
+        provider="bedrock",
+        org_secret_name="agent-bedrock-credentials",
+        secrets={
+            "required": ["bedrock"],
+        },
+    ),
     "custom": ModelConfig(
         name="custom",
         provider="custom-model-provider",
@@ -68,7 +84,7 @@ PROVIDER_CREDENTIAL_CONFIGS = {
     ),
     "bedrock": ProviderCredentialConfig(
         provider="bedrock",
-        label="Anthropic (Bedrock)",
+        label="AWS Bedrock",
         fields=[
             ProviderCredentialField(
                 key="AWS_ACCESS_KEY_ID",
