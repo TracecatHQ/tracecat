@@ -5785,7 +5785,7 @@ components:
       - fatal
       - other
       title: CaseSeverity
-      description: "Case severity values aligned with OCSF severity values.\n\nValues:\n\
+      description: "Case severity values used across Tracecat workflows.\n\nValues:\n\
         \    UNKNOWN (0): The event/finding severity is unknown\n    INFORMATIONAL\
         \ (1): Informational message. No action required\n    LOW (2): The user decides\
         \ if action is needed\n    MEDIUM (3): Action is required but the situation\
@@ -5804,7 +5804,7 @@ components:
       - closed
       - other
       title: CaseStatus
-      description: Case status values aligned with OCSF Incident Finding status.
+      description: Case status values used across Tracecat incident workflows.
     CaseUpdate:
       properties:
         summary:

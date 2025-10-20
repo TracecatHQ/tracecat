@@ -166,7 +166,6 @@ just gen-functions
 
 ### Action Templates and Registry
 - **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
 - **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
