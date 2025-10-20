@@ -1,7 +1,14 @@
 import uuid
 from collections.abc import Sequence
 
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ThinkingPart,
+    UserPromptPart,
+)
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 
@@ -309,6 +316,15 @@ class ChatService(BaseWorkspaceService):
         messages: list[ModelMessage] = []
         for db_msg in db_messages:
             validated_msg = ModelMessageTA.validate_python(db_msg.data)
+            # Filter out empty text parts from model responses to avoid Bedrock validation errors
+            if isinstance(validated_msg, ModelResponse):
+                validated_msg.parts = [
+                    part
+                    for part in validated_msg.parts
+                    if not (
+                        isinstance(part, (TextPart, ThinkingPart)) and not part.content
+                    )
+                ]
             messages.append(validated_msg)
         return messages
 

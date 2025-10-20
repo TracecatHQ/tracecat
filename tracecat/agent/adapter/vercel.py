@@ -442,9 +442,11 @@ def convert_ui_message(
         for part in ui_message.parts:
             # Type narrowing for the union
             if is_text_ui_part(part):
-                model_response_parts.append(TextPart(content=part["text"]))
+                if part["text"]:  # Skip empty text parts
+                    model_response_parts.append(TextPart(content=part["text"]))
             elif is_reasoning_ui_part(part):
-                model_response_parts.append(ThinkingPart(content=part["text"]))
+                if part["text"]:  # Skip empty reasoning parts
+                    model_response_parts.append(ThinkingPart(content=part["text"]))
             elif is_dynamic_tool_part(part) or is_tool_part(part):
                 # Now we have proper type narrowing for tool parts
                 tool_name = _get_tool_name(part)
