@@ -524,102 +524,102 @@ def convert_ui_messages(
 # ==============================================================================
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class StartEventPayload:
-    messageId: str
     type: Literal["start"] = dataclasses.field(init=False, default="start")
+    messageId: str
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class FinishEventPayload:
     type: Literal["finish"] = dataclasses.field(init=False, default="finish")
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class TextStartEventPayload:
-    id: str
     type: Literal["text-start"] = dataclasses.field(init=False, default="text-start")
+    id: str
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class TextDeltaEventPayload:
+    type: Literal["text-delta"] = dataclasses.field(init=False, default="text-delta")
     id: str
     delta: str
-    type: Literal["text-delta"] = dataclasses.field(init=False, default="text-delta")
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class TextEndEventPayload:
-    id: str
     type: Literal["text-end"] = dataclasses.field(init=False, default="text-end")
-
-
-@dataclasses.dataclass(slots=True)
-class ReasoningStartEventPayload:
     id: str
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ReasoningStartEventPayload:
     type: Literal["reasoning-start"] = dataclasses.field(
         init=False, default="reasoning-start"
     )
-
-
-@dataclasses.dataclass(slots=True)
-class ReasoningDeltaEventPayload:
     id: str
-    delta: str
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ReasoningDeltaEventPayload:
     type: Literal["reasoning-delta"] = dataclasses.field(
         init=False, default="reasoning-delta"
     )
-
-
-@dataclasses.dataclass(slots=True)
-class ReasoningEndEventPayload:
     id: str
+    delta: str
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ReasoningEndEventPayload:
     type: Literal["reasoning-end"] = dataclasses.field(
         init=False, default="reasoning-end"
     )
+    id: str
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class ToolInputStartEventPayload:
-    toolCallId: str
-    toolName: str
     type: Literal["tool-input-start"] = dataclasses.field(
         init=False, default="tool-input-start"
     )
-
-
-@dataclasses.dataclass(slots=True)
-class ToolInputDeltaEventPayload:
     toolCallId: str
-    inputTextDelta: str
+    toolName: str
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ToolInputDeltaEventPayload:
     type: Literal["tool-input-delta"] = dataclasses.field(
         init=False, default="tool-input-delta"
     )
-
-
-@dataclasses.dataclass(slots=True)
-class ToolInputAvailableEventPayload:
     toolCallId: str
-    toolName: str
-    input: Any
+    inputTextDelta: str
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ToolInputAvailableEventPayload:
     type: Literal["tool-input-available"] = dataclasses.field(
         init=False, default="tool-input-available"
     )
-
-
-@dataclasses.dataclass(slots=True)
-class ToolOutputAvailableEventPayload:
     toolCallId: str
-    output: Any
+    toolName: str
+    input: Any
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class ToolOutputAvailableEventPayload:
     type: Literal["tool-output-available"] = dataclasses.field(
         init=False, default="tool-output-available"
     )
+    toolCallId: str
+    output: Any
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class ErrorEventPayload:
-    errorText: str
     type: Literal["error"] = dataclasses.field(init=False, default="error")
+    errorText: str
 
 
 SSEPayload = (
@@ -641,7 +641,7 @@ SSEPayload = (
 
 def format_sse(data: SSEPayload) -> str:
     """Formats a dictionary into a Server-Sent Event string."""
-    json_bytes = to_json(data)
+    json_bytes = to_json(dataclasses.asdict(data))
     return f"data: {json_bytes.decode()}\n\n"
 
 
