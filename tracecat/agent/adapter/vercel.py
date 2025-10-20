@@ -53,6 +53,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
     VideoUrl,
 )
+from pydantic_core import to_json
 
 from tracecat.agent.stream.events import (
     StreamDelta,
@@ -521,10 +522,127 @@ def convert_ui_messages(
 # ==============================================================================
 # 8. Vercel AI SDK Data Stream Protocol Adapter
 # ==============================================================================
-def format_sse(data: dict[str, Any]) -> str:
+
+
+@dataclasses.dataclass(slots=True)
+class StartEventPayload:
+    messageId: str
+    type: Literal["start"] = dataclasses.field(init=False, default="start")
+
+
+@dataclasses.dataclass(slots=True)
+class FinishEventPayload:
+    type: Literal["finish"] = dataclasses.field(init=False, default="finish")
+
+
+@dataclasses.dataclass(slots=True)
+class TextStartEventPayload:
+    id: str
+    type: Literal["text-start"] = dataclasses.field(init=False, default="text-start")
+
+
+@dataclasses.dataclass(slots=True)
+class TextDeltaEventPayload:
+    id: str
+    delta: str
+    type: Literal["text-delta"] = dataclasses.field(init=False, default="text-delta")
+
+
+@dataclasses.dataclass(slots=True)
+class TextEndEventPayload:
+    id: str
+    type: Literal["text-end"] = dataclasses.field(init=False, default="text-end")
+
+
+@dataclasses.dataclass(slots=True)
+class ReasoningStartEventPayload:
+    id: str
+    type: Literal["reasoning-start"] = dataclasses.field(
+        init=False, default="reasoning-start"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ReasoningDeltaEventPayload:
+    id: str
+    delta: str
+    type: Literal["reasoning-delta"] = dataclasses.field(
+        init=False, default="reasoning-delta"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ReasoningEndEventPayload:
+    id: str
+    type: Literal["reasoning-end"] = dataclasses.field(
+        init=False, default="reasoning-end"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ToolInputStartEventPayload:
+    toolCallId: str
+    toolName: str
+    type: Literal["tool-input-start"] = dataclasses.field(
+        init=False, default="tool-input-start"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ToolInputDeltaEventPayload:
+    toolCallId: str
+    inputTextDelta: str
+    type: Literal["tool-input-delta"] = dataclasses.field(
+        init=False, default="tool-input-delta"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ToolInputAvailableEventPayload:
+    toolCallId: str
+    toolName: str
+    input: Any
+    type: Literal["tool-input-available"] = dataclasses.field(
+        init=False, default="tool-input-available"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ToolOutputAvailableEventPayload:
+    toolCallId: str
+    output: Any
+    type: Literal["tool-output-available"] = dataclasses.field(
+        init=False, default="tool-output-available"
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class ErrorEventPayload:
+    errorText: str
+    type: Literal["error"] = dataclasses.field(init=False, default="error")
+
+
+SSEPayload = (
+    StartEventPayload
+    | FinishEventPayload
+    | TextStartEventPayload
+    | TextDeltaEventPayload
+    | TextEndEventPayload
+    | ReasoningStartEventPayload
+    | ReasoningDeltaEventPayload
+    | ReasoningEndEventPayload
+    | ToolInputStartEventPayload
+    | ToolInputDeltaEventPayload
+    | ToolInputAvailableEventPayload
+    | ToolOutputAvailableEventPayload
+    | ErrorEventPayload
+)
+
+
+def format_sse(data: SSEPayload) -> str:
     """Formats a dictionary into a Server-Sent Event string."""
-    json_data = json.dumps(data, separators=(",", ":"))
-    return f"data: {json_data}\n\n"
+    json_bytes = to_json(data)
+    return f"data: {json_bytes.decode()}\n\n"
 
 
 @dataclasses.dataclass
@@ -575,20 +693,19 @@ class VercelStreamContext:
 
         events: list[str] = []
         if state.part_type == "text":
-            events.append(format_sse({"type": "text-end", "id": state.part_id}))
+            events.append(format_sse(TextEndEventPayload(id=state.part_id)))
         elif state.part_type == "reasoning":
-            events.append(format_sse({"type": "reasoning-end", "id": state.part_id}))
+            events.append(format_sse(ReasoningEndEventPayload(id=state.part_id)))
         elif state.part_type == "tool" and state.tool_call is not None:
             tool_call_id = state.tool_call.tool_call_id
             if not self.tool_input_emitted.get(tool_call_id, False):
                 events.append(
                     format_sse(
-                        {
-                            "type": "tool-input-available",
-                            "toolCallId": tool_call_id,
-                            "toolName": state.tool_call.tool_name,
-                            "input": state.tool_call.args_as_dict(),
-                        }
+                        ToolInputAvailableEventPayload(
+                            toolCallId=tool_call_id,
+                            toolName=state.tool_call.tool_name,
+                            input=state.tool_call.args_as_dict(),
+                        )
                     )
                 )
                 self.tool_input_emitted[tool_call_id] = True
@@ -622,44 +739,33 @@ class VercelStreamContext:
             part = event.part
             if isinstance(part, TextPart):
                 state = self._create_part_state(event.index, "text")
-                yield format_sse({"type": "text-start", "id": state.part_id})
+                yield format_sse(TextStartEventPayload(id=state.part_id))
                 if part.content:
                     yield format_sse(
-                        {
-                            "type": "text-delta",
-                            "id": state.part_id,
-                            "delta": part.content,
-                        }
+                        TextDeltaEventPayload(id=state.part_id, delta=part.content)
                     )
             elif isinstance(part, ThinkingPart):
                 state = self._create_part_state(event.index, "reasoning")
-                yield format_sse({"type": "reasoning-start", "id": state.part_id})
+                yield format_sse(ReasoningStartEventPayload(id=state.part_id))
                 if part.content:
                     yield format_sse(
-                        {
-                            "type": "reasoning-delta",
-                            "id": state.part_id,
-                            "delta": part.content,
-                        }
+                        ReasoningDeltaEventPayload(id=state.part_id, delta=part.content)
                     )
             elif isinstance(part, ToolCallPart):
                 state = self._create_part_state(event.index, "tool", tool_call=part)
                 self.tool_finished.pop(part.tool_call_id, None)
                 self.tool_input_emitted[part.tool_call_id] = False
                 yield format_sse(
-                    {
-                        "type": "tool-input-start",
-                        "toolCallId": part.tool_call_id,
-                        "toolName": part.tool_name,
-                    }
+                    ToolInputStartEventPayload(
+                        toolCallId=part.tool_call_id, toolName=part.tool_name
+                    )
                 )
                 if part.args:
                     yield format_sse(
-                        {
-                            "type": "tool-input-delta",
-                            "toolCallId": part.tool_call_id,
-                            "inputTextDelta": part.args_as_json_str(),
-                        }
+                        ToolInputDeltaEventPayload(
+                            toolCallId=part.tool_call_id,
+                            inputTextDelta=part.args_as_json_str(),
+                        )
                     )
             else:
                 logger.warning(
@@ -667,15 +773,11 @@ class VercelStreamContext:
                     part_type=type(part).__name__,
                 )
                 state = self._create_part_state(event.index, "text")
-                yield format_sse({"type": "text-start", "id": state.part_id})
+                yield format_sse(TextStartEventPayload(id=state.part_id))
                 part_str = str(part) if part else ""
                 if part_str:
                     yield format_sse(
-                        {
-                            "type": "text-delta",
-                            "id": state.part_id,
-                            "delta": part_str,
-                        }
+                        TextDeltaEventPayload(id=state.part_id, delta=part_str)
                     )
         elif isinstance(event, PartDeltaEvent):
             delta = event.delta
@@ -688,22 +790,16 @@ class VercelStreamContext:
                 )
             elif isinstance(delta, TextPartDelta) and state.part_type == "text":
                 yield format_sse(
-                    {
-                        "type": "text-delta",
-                        "id": state.part_id,
-                        "delta": delta.content_delta,
-                    }
+                    TextDeltaEventPayload(id=state.part_id, delta=delta.content_delta)
                 )
             elif (
                 isinstance(delta, ThinkingPartDelta) and state.part_type == "reasoning"
             ):
                 if delta.content_delta:
                     yield format_sse(
-                        {
-                            "type": "reasoning-delta",
-                            "id": state.part_id,
-                            "delta": delta.content_delta,
-                        }
+                        ReasoningDeltaEventPayload(
+                            id=state.part_id, delta=delta.content_delta
+                        )
                     )
             elif (
                 isinstance(delta, ToolCallPartDelta)
@@ -727,11 +823,10 @@ class VercelStreamContext:
                             else json.dumps(delta.args_delta)
                         )
                         yield format_sse(
-                            {
-                                "type": "tool-input-delta",
-                                "toolCallId": state.tool_call.tool_call_id,
-                                "inputTextDelta": delta_str,
-                            }
+                            ToolInputDeltaEventPayload(
+                                toolCallId=state.tool_call.tool_call_id,
+                                inputTextDelta=delta_str,
+                            )
                         )
 
         # Handle Tool Call and Result Events
@@ -752,11 +847,10 @@ class VercelStreamContext:
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
                 yield format_sse(
-                    {
-                        "type": "tool-output-available",
-                        "toolCallId": tool_call_id,
-                        "output": event.result.model_response_str(),
-                    }
+                    ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output=event.result.model_response_str(),
+                    )
                 )
             elif isinstance(event.result, RetryPromptPart):
                 if event.result.tool_call_id:
@@ -764,7 +858,7 @@ class VercelStreamContext:
                     self.tool_finished[tool_call_id] = True
                     self.tool_input_emitted.pop(tool_call_id, None)
                 yield format_sse(
-                    {"type": "error", "errorText": event.result.model_response()}
+                    ErrorEventPayload(errorText=event.result.model_response())
                 )
 
 
@@ -1015,7 +1109,7 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
 
     try:
         # 1. Start of the message stream
-        yield format_sse({"type": "start", "messageId": message_id})
+        yield format_sse(StartEventPayload(messageId=message_id))
 
         # 2. Process events from Redis stream
         async for stream_event in events:
@@ -1036,12 +1130,10 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     # Stream error - emit as text component
                     error_part_id = f"msg_{uuid.uuid4().hex}"
                     msg = StreamError.format(error)
-                    yield format_sse({"type": "text-start", "id": error_part_id})
-                    yield format_sse(
-                        {"type": "text-delta", "id": error_part_id, "delta": msg}
-                    )
-                    yield format_sse({"type": "text-end", "id": error_part_id})
-                    yield format_sse({"type": "error", "errorText": msg})
+                    yield format_sse(TextStartEventPayload(id=error_part_id))
+                    yield format_sse(TextDeltaEventPayload(id=error_part_id, delta=msg))
+                    yield format_sse(TextEndEventPayload(id=error_part_id))
+                    yield format_sse(ErrorEventPayload(errorText=msg))
                     break
                 case StreamEnd():
                     # End of stream marker from Redis
@@ -1055,10 +1147,10 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
     except Exception as e:
         # 4. Handle errors
         logger.error("Error in Vercel SSE stream", error=str(e))
-        yield format_sse({"type": "error", "errorText": str(e)})
+        yield format_sse(ErrorEventPayload(errorText=str(e)))
         raise e
     finally:
         # 5. Finish the message and terminate the stream
         logger.debug("Finishing Vercel SSE stream")
-        yield format_sse({"type": "finish"})
+        yield format_sse(FinishEventPayload())
         yield "data: [DONE]\n\n"
