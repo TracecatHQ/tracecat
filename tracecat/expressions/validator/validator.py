@@ -11,6 +11,9 @@ from tracecat.dsl.models import TaskResult
 from tracecat.expressions.common import ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
@@ -102,6 +105,51 @@ class ExprValidator(BaseExprValidator):
             )
         return None
 
+    async def _oauth_validator(
+        self,
+        *,
+        provider: str,
+        key: str,
+        grant_type: OAuthGrantType,
+        loc: tuple[str | int, ...],
+    ) -> None:
+        provider_key = ProviderKey(id=provider, grant_type=grant_type)
+        try:
+            async with IntegrationService.with_session() as service:
+                integration = await service.get_integration(provider_key=provider_key)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to validate OAuth provider",
+                provider_id=provider,
+                grant_type=grant_type.value,
+                error=str(exc),
+            )
+            self.add(
+                status="error",
+                msg=(
+                    "Encountered an error while validating OAuth provider"
+                    f" {provider!r} for grant type {grant_type.value!r}."
+                ),
+                type=ExprType.SECRET,
+                loc=loc,
+            )
+            return
+
+        if integration is None:
+            token_expr = f"{ExprContext.SECRETS.value}.{provider}.{key}"
+            self.add(
+                status="error",
+                msg=(
+                    f"OAuth provider {provider!r} is not configured for grant type"
+                    f" {grant_type.value!r} required by `{token_expr}`"
+                ),
+                type=ExprType.SECRET,
+                loc=loc,
+            )
+            return
+
+        self.add(status="success", type=ExprType.SECRET)
+
     @override
     def add(
         self,
@@ -167,11 +215,46 @@ class ExprValidator(BaseExprValidator):
         if name_key is None:
             return
         name, key = name_key
-        # Check that we've defined the secret in the SM
-        coro = self._secret_validator(
-            name=name, key=key, environment=self._environment, loc=self._loc
-        )
-        self._task_group.create_task(coro)
+        if name.endswith("_oauth"):  # <provider_id>_oauth.<key>
+            provider_id = name.removesuffix("_oauth")
+            expected_prefix = provider_id.upper()
+
+            def error_msg() -> str:
+                return f"OAuth token must be {expected_prefix}_SERVICE_TOKEN or {expected_prefix}_USER_TOKEN"
+
+            if key.endswith("SERVICE_TOKEN"):
+                grant_type = OAuthGrantType.CLIENT_CREDENTIALS
+                prefix = key.removesuffix("_SERVICE_TOKEN")
+            elif key.endswith("USER_TOKEN"):
+                grant_type = OAuthGrantType.AUTHORIZATION_CODE
+                prefix = key.removesuffix("_USER_TOKEN")
+            else:
+                self.add(
+                    status="error",
+                    msg=error_msg(),
+                    type=ExprType.SECRET,
+                    loc=self._loc,
+                )
+                return
+            # Prefix is the provider_id in uppercase.
+            if prefix != expected_prefix:
+                self.add(
+                    status="error",
+                    msg=error_msg(),
+                    type=ExprType.SECRET,
+                    loc=self._loc,
+                )
+                return
+            coro = self._oauth_validator(
+                provider=provider_id, key=key, grant_type=grant_type, loc=self._loc
+            )
+            self._task_group.create_task(coro)
+        else:
+            # Check that we've defined the secret in the SM
+            coro = self._secret_validator(
+                name=name, key=key, environment=self._environment, loc=self._loc
+            )
+            self._task_group.create_task(coro)
 
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)
