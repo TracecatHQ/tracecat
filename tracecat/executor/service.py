@@ -267,6 +267,10 @@ async def get_action_secrets(
     args_oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     args_basic_secrets: set[str] = set()
     for secret in args_secrets:
+        if "." not in secret:
+            # Single-segment secret like "my_secret"
+            args_basic_secrets.add(secret)
+            continue
         name, key = secret.split(".", 1)
         if name.endswith("_oauth"):
             provider_id = name.removesuffix("_oauth")
