@@ -30,6 +30,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseTaskStatus,
 )
 from tracecat.db.adapter import (
     SQLModelBaseAccessToken,
@@ -183,6 +184,12 @@ class User(SQLModelBaseUserDB, table=True):
         },
     )
     assigned_cases: list["Case"] = Relationship(
+        back_populates="assignee",
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
+    )
+    assigned_tasks: list["CaseTask"] = Relationship(
         back_populates="assignee",
         sa_relationship_kwargs={
             "lazy": "select",
@@ -1056,6 +1063,10 @@ class Case(Resource, table=True):
         back_populates="case",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    tasks: list["CaseTask"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -1128,6 +1139,46 @@ class CaseEvent(Resource, table=True):
         )
     )
     case: Case = Relationship(back_populates="events")
+
+
+class CaseTask(Resource, table=True):
+    __tablename__: str = "case_tasks"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+
+    title: str = Field(..., max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    priority: CasePriority = Field(
+        default=CasePriority.MEDIUM, description="Task priority level"
+    )
+    status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
+    assignee_id: uuid.UUID | None = Field(
+        default=None, sa_column=Column(UUID, ForeignKey("user.id", ondelete="SET NULL"))
+    )
+    workflow_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="SET NULL")),
+    )
+
+    case: Case = Relationship(back_populates="tasks")
+    assignee: User | None = Relationship(
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    workflow: Workflow | None = Relationship(
+        sa_relationship_kwargs={"lazy": "selectin"}
+    )
 
 
 class Interaction(Resource, table=True):

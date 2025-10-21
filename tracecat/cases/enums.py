@@ -72,3 +72,12 @@ class CaseEventType(StrEnum):
     ATTACHMENT_CREATED = "attachment_created"
     ATTACHMENT_DELETED = "attachment_deleted"
     PAYLOAD_CHANGED = "payload_changed"
+
+
+class CaseTaskStatus(StrEnum):
+    """Case task status values."""
+
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
