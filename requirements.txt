@@ -266,6 +266,7 @@ certifi==2025.8.3 \
     #   httpx
     #   minio
     #   modal
+    #   pysigma-backend-kusto
     #   requests
     #   sentry-sdk
 cffi==2.0.0 \
@@ -869,6 +870,7 @@ jinja2==3.1.6 \
     #   ansible-core
     #   fastapi
     #   polyfile
+    #   pysigma
 jiter==0.11.0 \
     --hash=sha256:07630bb46ea2a6b9c6ed986c6e17e35b26148cce2c535454b26ee3f0e8dcaba1 \
     --hash=sha256:089f9df9f69532d1339e83142438668f52c97cd22ee2d1195551c2b1a9e6cf33 \
@@ -1304,15 +1306,16 @@ orjson==3.10.3 \
     --hash=sha256:cf20465e74c6e17a104ecf01bf8cd3b7b252565b4ccee4548f18b012ff2f8069 \
     --hash=sha256:e852baafceff8da3c9defae29414cc8513a1586ad93e45f27b89a639c68e8176
     # via tracecat
-packaging==25.0 \
-    --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484 \
-    --hash=sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f
+packaging==24.2 \
+    --hash=sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759 \
+    --hash=sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f
     # via
     #   ansible-core
     #   ansible-runner
     #   hatchling
     #   langfuse
     #   marshmallow
+    #   pysigma
     #   pytest
     #   ray
 paramiko==3.5.0 \
@@ -1718,6 +1721,10 @@ pyopenssl==25.1.0 \
     --hash=sha256:2b11f239acc47ac2e5aca04fd7fa829800aeee22a2eb30d744572a157bd8a1ab \
     --hash=sha256:8d031884482e0c67ee92bf9a4d8cceb08d92aba7136432ffb0703c5280fc205b
     # via pysaml2
+pyparsing==3.2.5 \
+    --hash=sha256:2df8d5b7b2802ef88e8d016a2eb9c7aeaa923529cd251ed0fe4608275d4105b6 \
+    --hash=sha256:e38a4f02064cf41fe6593d328d0512495ad1f3d8a91c4f73fc401b3079a59a5e
+    # via pysigma
 pyreadline3==3.5.4 ; sys_platform == 'win32' \
     --hash=sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7 \
     --hash=sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6
@@ -1726,6 +1733,26 @@ pysaml2==7.5.0 \
     --hash=sha256:bc6627cc344476a83c757f440a73fda1369f13b6fda1b4e16bca63ffbabb5318 \
     --hash=sha256:f36871d4e5ee857c6b85532e942550d2cf90ea4ee943d75eb681044bbc4f54f7
     # via tracecat
+pysigma==0.11.23 \
+    --hash=sha256:21a7f627e8ec515b6fc90ac0d92dd93716f9f2c34cc82eeb7f4fdebeb1141340 \
+    --hash=sha256:9556852055ba28c8df4c8e283f58136f722c4a18d31c7ac3ede6dbcfdd14871a
+    # via
+    #   pysigma-backend-elasticsearch
+    #   pysigma-backend-kusto
+    #   pysigma-backend-splunk
+    #   tracecat-registry
+pysigma-backend-elasticsearch==1.1.6 \
+    --hash=sha256:beda1b48291dbac1123f0d96aeb25a6b114cdd9139359b14c848e1bf9f028e9f \
+    --hash=sha256:d72012b74866ca7a62109405f2af79be0627b0fc0aad3fa44d5f165e491d6b43
+    # via tracecat-registry
+pysigma-backend-kusto==0.4.4 \
+    --hash=sha256:99b37464cf2a809efc9c995fba1287d875c4c2e105276d5e2366a2bd832c4d90 \
+    --hash=sha256:acec3a949b64f6a741666e74570e4ccf9a975132628a6c86fe7e966ba9131e93
+    # via tracecat-registry
+pysigma-backend-splunk==1.1.3 \
+    --hash=sha256:2525f086f29f88699922e91180329c26108d0fdb6c06865ad40230dc19e43fbc \
+    --hash=sha256:92302f6f549d7da719bac971e6a96eef0b4160e081da7227402d2bef2adb1c33
+    # via tracecat-registry
 pytest==8.3.2 \
     --hash=sha256:4ba08f9ae7dcf84ded419494d229b48d0903ea6407b030eaec46df5e6a73bba5 \
     --hash=sha256:c132345d12ce551242c87269de812483f5bcc87cdbb4722e48487ba194f9fdce
@@ -1833,6 +1860,8 @@ pyyaml==6.0.3 \
     #   ansible-runner
     #   polyfile
     #   pre-commit
+    #   pysigma
+    #   pysigma-backend-elasticsearch
     #   ray
     #   uvicorn
 ray==2.43.0 \
@@ -1939,6 +1968,7 @@ requests==2.32.5 \
     #   opentelemetry-exporter-otlp-proto-http
     #   pygithub
     #   pysaml2
+    #   pysigma
     #   ray
     #   tavily-python
     #   tiktoken
