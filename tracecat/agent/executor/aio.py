@@ -1,9 +1,11 @@
 """Public agent execution service (CE)."""
 
 import asyncio
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from typing import Any, Final
 
-from pydantic_ai import UsageLimits
+from pydantic_ai import BinaryContent, UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import (
     ModelRequest,
@@ -18,6 +20,7 @@ from tracecat.agent.models import RunAgentArgs, StreamingAgentDeps
 from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.logger import logger
+from tracecat.storage.validation import infer_image_media_type
 from tracecat.types.auth import Role
 
 
@@ -47,6 +50,35 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
 
 
 # This is an execution harness for an agent that adds persistence + streaming
+def _build_prompt_parts(
+    user_prompt: str | list[Any],
+    images: list[str] | None = None,
+) -> list[Any]:
+    """Construct prompt parts including optional binary image content."""
+    if isinstance(user_prompt, list):
+        prompt_parts: list[Any] = list(user_prompt)
+    else:
+        prompt_parts = [user_prompt]
+
+    if images:
+        for index, image_b64 in enumerate(images):
+            if not isinstance(image_b64, str):
+                raise ValueError(
+                    f"Image at index {index} must be a base64-encoded string, "
+                    f"got {type(image_b64)!r}"
+                )
+            payload = image_b64.strip()
+            try:
+                image_bytes = b64decode(payload, validate=True)
+            except (BinasciiError, ValueError) as exc:
+                raise ValueError("Invalid base64-encoded image payload") from exc
+
+            media_type = infer_image_media_type(image_bytes)
+            prompt_parts.append(BinaryContent(data=image_bytes, media_type=media_type))
+
+    return prompt_parts
+
+
 class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
     """Execute an agent directly in an asyncio task."""
 
@@ -84,6 +116,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
 
         # 2. Prepare writer
         # Immediately stream the user's prompt to the client
+        prompt_parts = _build_prompt_parts(args.user_prompt, args.images)
         user_message = ModelRequest(parts=[UserPromptPart(content=args.user_prompt)])
         await self.deps.stream_writer.stream.append(user_message)
 
@@ -97,7 +130,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[AgentRunResult[str] | None]):
         )
         try:
             result = await agent.run(
-                user_prompt=args.user_prompt,
+                user_prompt=prompt_parts,
                 message_history=message_history,
                 deps=self.deps,
                 event_stream_handler=self._event_stream_handler,

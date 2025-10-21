@@ -1,13 +1,14 @@
 """Pydantic AI agents with tool calling."""
 
 import uuid
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from timeit import default_timer
 from typing import Any
 
 from langfuse import observe
-from pydantic_ai import Agent, UsageLimits
+from pydantic_ai import Agent, BinaryContent, UsageLimits
 from pydantic_ai.messages import ModelMessage
-from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
@@ -19,21 +20,53 @@ from tracecat.agent.models import (
 )
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
+from tracecat.agent.serialization import serialize_with_base64
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.logger import logger
+from tracecat.storage.validation import infer_image_media_type
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 # Initialize Pydantic AI instrumentation for Langfuse
 Agent.instrument_all()
 
 
+def _build_prompt_parts(
+    user_prompt: str | list[Any],
+    images: list[str] | None = None,
+) -> list[Any]:
+    """Construct prompt parts including optional binary image content."""
+    if isinstance(user_prompt, list):
+        prompt_parts: list[Any] = list(user_prompt)
+    else:
+        prompt_parts = [user_prompt]
+
+    if images:
+        for index, image_b64 in enumerate(images):
+            if not isinstance(image_b64, str):
+                raise ValueError(
+                    f"Image at index {index} must be a base64-encoded string, "
+                    f"got {type(image_b64)!r}"
+                )
+            payload = image_b64.strip()
+            try:
+                image_bytes = b64decode(payload, validate=True)
+            except (BinasciiError, ValueError) as exc:
+                raise ValueError("Invalid base64-encoded image payload") from exc
+
+            media_type = infer_image_media_type(image_bytes)
+            prompt_parts.append(BinaryContent(data=image_bytes, media_type=media_type))
+
+    return prompt_parts
+
+
 async def run_agent_sync(
     agent: Agent[Any, Any],
-    user_prompt: str,
+    user_prompt: str | list[Any],
     max_requests: int,
     max_tools_calls: int | None = None,
+    images: list[str] | None = None,
 ) -> AgentOutput:
     """Run an agent synchronously."""
 
@@ -48,7 +81,8 @@ async def run_agent_sync(
 
     start_time = default_timer()
     usage = UsageLimits(request_limit=max_requests, tool_calls_limit=max_tools_calls)
-    result = await agent.run(user_prompt, usage_limits=usage)
+    prompt_parts = _build_prompt_parts(user_prompt, images)
+    result = await agent.run(prompt_parts, usage_limits=usage)
     end_time = default_timer()
     return AgentOutput(
         output=try_parse_json(result.output),
@@ -61,7 +95,7 @@ async def run_agent_sync(
 
 @observe()
 async def run_agent(
-    user_prompt: str,
+    user_prompt: str | list[Any],
     model_name: str,
     model_provider: str,
     actions: list[str] | None = None,
@@ -74,6 +108,7 @@ async def run_agent(
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
+    images: list[str] | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -103,6 +138,7 @@ async def run_agent(
         max_requests: Maximum number of requests to make per agent run (default: 20).
         retries: Maximum number of retry attempts for agent execution (default: 3).
         base_url: Optional custom base URL for the model provider's API.
+        images: Optional list of base64-encoded images to include alongside the prompt.
         stream_id: Optional identifier for Redis streaming of execution events.
                   If provided, execution steps will be streamed to Redis.
 
@@ -176,6 +212,7 @@ async def run_agent(
             ),
             max_requests=max_requests,
             max_tool_calls=max_tool_calls,
+            images=images,
         )
         handle = await executor.start(args)
         result = await handle.result()
@@ -200,5 +237,5 @@ async def run_agent(
         raise AgentRunError(
             exc_cls=type(e),
             exc_msg=str(e),
-            message_history=to_jsonable_python(message_nodes),
+            message_history=serialize_with_base64(message_nodes),
         ) from e

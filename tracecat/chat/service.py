@@ -8,6 +8,10 @@ from sqlmodel import col, select
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.models import AgentConfig, ModelMessageTA, RunAgentArgs
+from tracecat.agent.serialization import (
+    restore_binary_content,
+    serialize_with_base64,
+)
 from tracecat.agent.service import AgentManagementService
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
@@ -240,7 +244,7 @@ class ChatService(BaseWorkspaceService):
             chat_id=chat_id,
             kind=kind.value,
             owner_id=self.workspace_id,
-            data=ModelMessageTA.dump_python(message, mode="json"),
+            data=serialize_with_base64(message),
         )
 
         self.session.add(db_message)
@@ -272,7 +276,7 @@ class ChatService(BaseWorkspaceService):
                 chat_id=chat_id,
                 kind=kind.value,
                 owner_id=self.workspace_id,
-                data=ModelMessageTA.dump_python(message, mode="json"),
+                data=serialize_with_base64(message),
             )
             for message in messages
         ]
@@ -308,7 +312,8 @@ class ChatService(BaseWorkspaceService):
 
         messages: list[ModelMessage] = []
         for db_msg in db_messages:
-            validated_msg = ModelMessageTA.validate_python(db_msg.data)
+            payload = restore_binary_content(db_msg.data)
+            validated_msg = ModelMessageTA.validate_python(payload)
             messages.append(validated_msg)
         return messages
 

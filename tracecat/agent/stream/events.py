@@ -7,6 +7,8 @@ import orjson
 from pydantic import Discriminator, TypeAdapter
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
+from tracecat.agent.serialization import serialize_with_base64
+
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
 
 
@@ -19,7 +21,10 @@ class StreamDelta:
     event: AgentStreamEvent
 
     def sse(self) -> str:
-        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
+        payload = serialize_with_base64(self.event)
+        return (
+            f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(payload).decode()}\n\n"
+        )
 
 
 @dataclass(slots=True, kw_only=True)
@@ -31,7 +36,10 @@ class StreamMessage:
     message: ModelMessage
 
     def sse(self) -> str:
-        return f"id: {self.id}\nevent: message\ndata: {orjson.dumps(self.message).decode()}\n\n"
+        payload = serialize_with_base64(self.message)
+        return (
+            f"id: {self.id}\nevent: message\ndata: {orjson.dumps(payload).decode()}\n\n"
+        )
 
 
 @dataclass(slots=True, kw_only=True)

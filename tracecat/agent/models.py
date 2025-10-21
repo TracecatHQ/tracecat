@@ -52,8 +52,8 @@ class AgentConfig:
 
 
 class RunAgentArgs(BaseModel):
-    user_prompt: str
-    """User prompt for the agent."""
+    user_prompt: str | list[Any]
+    """Raw user prompt for the agent run (string or structured parts)."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
     config: AgentConfig
@@ -62,6 +62,8 @@ class RunAgentArgs(BaseModel):
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
+    images: list[str] | None = None
+    """Base64 encoded images to append to the user prompt."""
 
 
 class RunAgentResult(BaseModel):

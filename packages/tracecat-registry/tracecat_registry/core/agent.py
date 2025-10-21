@@ -5,8 +5,6 @@ from tracecat_registry import registry, RegistrySecret
 from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
-
-
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 
@@ -168,6 +166,10 @@ async def agent(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
+    images: Annotated[
+        str | list[str] | None,
+        Doc("Base64 encoded image or list of images to append to the user prompt."),
+    ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
@@ -185,6 +187,7 @@ async def agent(
         actions=actions,
         instructions=instructions,
         output_type=output_type,
+        images=images if isinstance(images, list) else [images] if images else None,
         model_settings=model_settings,
         max_tool_calls=max_tool_calls,
         max_requests=max_requests,
@@ -219,6 +222,10 @@ async def action(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
+    images: Annotated[
+        str | list[str] | None,
+        Doc("Base64 encoded image or list of images to append to the user prompt."),
+    ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
@@ -237,5 +244,10 @@ async def action(
             base_url=base_url,
         )
     )
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
+    result = await run_agent_sync(
+        agent,
+        user_prompt,
+        max_requests=max_requests,
+        images=images if isinstance(images, list) else [images] if images else None,
+    )
     return result.model_dump()

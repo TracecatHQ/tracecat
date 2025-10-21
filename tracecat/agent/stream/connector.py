@@ -7,9 +7,9 @@ from time import monotonic
 from typing import Any
 
 import orjson
-from pydantic_core import to_jsonable_python
 
 from tracecat.agent.models import ModelMessageTA
+from tracecat.agent.serialization import restore_binary_content, serialize_with_base64
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -56,9 +56,10 @@ class AgentStream:
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""
+        payload = serialize_with_base64(event)
         await self.client.xadd(
             self._stream_key,
-            {tokens.DATA_KEY: orjson.dumps(event, default=to_jsonable_python).decode()},
+            {tokens.DATA_KEY: orjson.dumps(payload).decode()},
             maxlen=10000,
             approximate=True,
         )
@@ -127,6 +128,7 @@ class AgentStream:
                         for _stream_name, messages in result:
                             for msg_id, fields in messages:
                                 data = orjson.loads(fields[tokens.DATA_KEY])
+                                data = restore_binary_content(data)
                                 current_id = msg_id
                                 match data:
                                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
