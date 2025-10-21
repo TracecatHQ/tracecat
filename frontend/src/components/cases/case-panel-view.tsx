@@ -260,14 +260,17 @@ interface CaseDurationMetricsProps {
   durations?: CaseDurationRead[]
   definitions?: CaseDurationDefinitionRead[]
   isLoading?: boolean
+  variant?: "default" | "inline"
 }
 
 function CaseDurationMetrics({
   durations,
   definitions,
   isLoading = false,
+  variant = "default",
 }: CaseDurationMetricsProps) {
   const [now, setNow] = useState(() => new Date())
+  const isInline = variant === "inline"
 
   const hasOngoingDuration = useMemo(
     () =>
@@ -331,6 +334,10 @@ function CaseDurationMetrics({
   }, [definitionById, durations, now])
 
   if (isLoading && (!durations || durations.length === 0)) {
+    if (isInline) {
+      return <Skeleton className="h-4 w-24" />
+    }
+
     return (
       <div className="py-1.5 first:pt-0 last:pb-0">
         <Skeleton className="h-6 w-32" />
@@ -340,95 +347,105 @@ function CaseDurationMetrics({
 
   if (metrics.length === 0) return null
 
-  return (
-    <div className="py-1.5 first:pt-0 last:pb-0">
-      <TooltipProvider delayDuration={150}>
-        <div className="flex flex-wrap items-center gap-2">
-          {metrics.map((metric) => {
-            const IconComponent =
-              metric.state === "ongoing" ? Hourglass : FlagTriangleRight
-            const tooltipLabel =
-              metric.state === "ongoing" ? "Ongoing" : "Completed"
+  const metricsList = (
+    <div
+      className={`flex items-center gap-2 ${
+        isInline ? "flex-nowrap shrink-0" : "flex-wrap"
+      }`}
+    >
+      {metrics.map((metric) => {
+        const IconComponent =
+          metric.state === "ongoing" ? Hourglass : FlagTriangleRight
+        const tooltipLabel =
+          metric.state === "ongoing" ? "Ongoing" : "Completed"
 
-            return (
-              <HoverCard key={metric.id} openDelay={100} closeDelay={100}>
-                <HoverCardTrigger asChild>
-                  <Badge
-                    variant="outline"
-                    className="min-w-0 gap-2 px-2 py-1 text-xs font-medium bg-background text-foreground"
-                  >
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex text-muted-foreground">
-                          <IconComponent
-                            aria-hidden="true"
-                            className="h-3.5 w-3.5"
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
-                        {tooltipLabel}
-                      </TooltipContent>
-                    </Tooltip>
-                    <span className="max-w-[9rem] truncate">
-                      {metric.name}
+        return (
+          <HoverCard key={metric.id} openDelay={100} closeDelay={100}>
+            <HoverCardTrigger asChild>
+              <Badge
+                variant="outline"
+                className="min-w-0 gap-2 px-2 py-1 text-xs font-medium bg-background text-foreground"
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex text-muted-foreground">
+                      <IconComponent
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5"
+                      />
                     </span>
-                    <span className="font-mono text-muted-foreground">
-                      {metric.displayValue}
-                    </span>
-                  </Badge>
-                </HoverCardTrigger>
-                <HoverCardContent className="w-80">
-                  <div className="flex flex-col gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {metric.name}
-                      </p>
-                      {metric.description ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {metric.description}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="space-y-3 text-xs">
-                      <div>
-                        <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                          Start Event
-                        </p>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    {tooltipLabel}
+                  </TooltipContent>
+                </Tooltip>
+                <span className="max-w-[9rem] truncate">{metric.name}</span>
+                <span className="font-mono text-muted-foreground">
+                  {metric.displayValue}
+                </span>
+              </Badge>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-80">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {metric.name}
+                  </p>
+                  {metric.description ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {metric.description}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
+                      Start Event
+                    </p>
+                    <p className="mt-1">
+                      Local: {formatLocalDateTime(metric.startedAt)}
+                    </p>
+                    <p className="text-muted-foreground">
+                      UTC: {formatUtcDateTime(metric.startedAt)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
+                      End Event
+                    </p>
+                    {metric.endedAt ? (
+                      <>
                         <p className="mt-1">
-                          Local: {formatLocalDateTime(metric.startedAt)}
+                          Local: {formatLocalDateTime(metric.endedAt)}
                         </p>
                         <p className="text-muted-foreground">
-                          UTC: {formatUtcDateTime(metric.startedAt)}
+                          UTC: {formatUtcDateTime(metric.endedAt)}
                         </p>
-                      </div>
-                      <div>
-                        <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                          End Event
-                        </p>
-                        {metric.endedAt ? (
-                          <>
-                            <p className="mt-1">
-                              Local: {formatLocalDateTime(metric.endedAt)}
-                            </p>
-                            <p className="text-muted-foreground">
-                              UTC: {formatUtcDateTime(metric.endedAt)}
-                            </p>
-                          </>
-                        ) : (
-                          <p className="mt-1 text-muted-foreground">
-                            Not triggered
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-muted-foreground">Not triggered</p>
+                    )}
                   </div>
-                </HoverCardContent>
-              </HoverCard>
-            )
-          })}
-        </div>
-      </TooltipProvider>
+                </div>
+              </div>
+            </HoverCardContent>
+          </HoverCard>
+        )
+      })}
+    </div>
+  )
+
+  const content = (
+    <TooltipProvider delayDuration={150}>{metricsList}</TooltipProvider>
+  )
+
+  if (isInline) {
+    return content
+  }
+
+  return (
+    <div className="py-1.5 first:pt-0 last:pb-0">
+      {content}
     </div>
   )
 }
@@ -710,32 +727,33 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           {/* Main section */}
           <div className="flex-1 min-w-0">
             <div className="h-full overflow-auto min-w-0 bg-muted/20">
+              <div className="border-b bg-background">
+                <div className="mx-auto flex h-10 max-w-4xl items-center gap-x-4 overflow-x-auto px-6 text-sm">
+                  <PrioritySelect
+                    priority={caseData.priority || "unknown"}
+                    onValueChange={handlePriorityChange}
+                  />
+                  <SeveritySelect
+                    severity={caseData.severity || "unknown"}
+                    onValueChange={handleSeverityChange}
+                  />
+                  <AssigneeSelect
+                    assignee={caseData.assignee}
+                    workspaceMembers={members ?? []}
+                    onValueChange={handleAssigneeChange}
+                  />
+                  <CaseDurationMetrics
+                    durations={caseDurations}
+                    definitions={caseDurationDefinitions}
+                    isLoading={durationsAreLoading}
+                    variant="inline"
+                  />
+                </div>
+              </div>
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
                 <div className="mb-4">
                   <div className="flex flex-col">
-                    <CaseDurationMetrics
-                      durations={caseDurations}
-                      definitions={caseDurationDefinitions}
-                      isLoading={durationsAreLoading}
-                    />
-                    <div className="flex flex-wrap items-center gap-4 py-1.5 text-sm first:pt-0 last:pb-0 -ml-1">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <PrioritySelect
-                          priority={caseData.priority || "unknown"}
-                          onValueChange={handlePriorityChange}
-                        />
-                        <SeveritySelect
-                          severity={caseData.severity || "unknown"}
-                          onValueChange={handleSeverityChange}
-                        />
-                        <AssigneeSelect
-                          assignee={caseData.assignee}
-                          workspaceMembers={members ?? []}
-                          onValueChange={handleAssigneeChange}
-                        />
-                      </div>
-                    </div>
                     <div className="py-1.5 first:pt-0 last:pb-0">
                       {/* Case Summary */}
                       <CasePanelSummary
