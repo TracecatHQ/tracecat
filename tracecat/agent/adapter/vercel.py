@@ -1113,7 +1113,6 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     yield format_sse(TextDeltaEventPayload(id=error_part_id, delta=msg))
                     yield format_sse(TextEndEventPayload(id=error_part_id))
                     yield format_sse(ErrorEventPayload(errorText=msg))
-                    break
                 case StreamEnd():
                     # End of stream marker from Redis
                     logger.debug("End-of-stream marker from Redis")
