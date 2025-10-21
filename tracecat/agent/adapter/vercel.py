@@ -641,8 +641,7 @@ VercelSSEPayload = (
 
 def format_sse(data: VercelSSEPayload) -> str:
     """Formats a dictionary into a Server-Sent Event string."""
-    json_bytes = to_json(dataclasses.asdict(data))
-    return f"data: {json_bytes.decode()}\n\n"
+    return f"data: {to_json(data).decode()}\n\n"
 
 
 @dataclasses.dataclass
