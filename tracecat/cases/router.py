@@ -639,10 +639,10 @@ async def create_task(
         task = await service.create_task(case_id, params)
         return CaseTaskRead.model_validate(task, from_attributes=True)
     except Exception as e:
-        logger.error(f"Failed to create task: {e}")
+        logger.exception(f"Failed to create task: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Failed to create task",
         ) from e
 
 
@@ -658,13 +658,16 @@ async def update_task(
     """Update a task."""
     service = CaseTasksService(session, role)
     try:
+        existing = await service.get_task(task_id)
+        if existing.case_id != case_id:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
         task = await service.update_task(task_id, params)
         return CaseTaskRead.model_validate(task, from_attributes=True)
     except Exception as e:
-        logger.error(f"Failed to update task: {e}")
+        logger.exception(f"Failed to update task: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Failed to update task",
         ) from e
 
 
@@ -679,10 +682,13 @@ async def delete_task(
     """Delete a task."""
     service = CaseTasksService(session, role)
     try:
+        existing = await service.get_task(task_id)
+        if existing.case_id != case_id:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
         await service.delete_task(task_id)
     except Exception as e:
-        logger.error(f"Failed to delete task: {e}")
+        logger.exception(f"Failed to delete task: {e}")
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail="Task not found",
         ) from e
