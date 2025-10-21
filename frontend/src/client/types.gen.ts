@@ -1099,6 +1099,42 @@ export type CaseTagRead = {
   color: string | null
 }
 
+export type CaseTaskCreate = {
+  title: string
+  description?: string | null
+  priority?: CasePriority
+  status?: CaseTaskStatus
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
+export type CaseTaskRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  case_id: string
+  title: string
+  description: string | null
+  priority: CasePriority
+  status: CaseTaskStatus
+  assignee?: UserRead | null
+  workflow_id: string | null
+}
+
+/**
+ * Case task status values.
+ */
+export type CaseTaskStatus = "todo" | "in_progress" | "completed" | "blocked"
+
+export type CaseTaskUpdate = {
+  title?: string | null
+  description?: string | null
+  priority?: CasePriority | null
+  status?: CaseTaskStatus | null
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
 export type CaseUpdate = {
   summary?: string | null
   description?: string | null
@@ -6245,6 +6281,38 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
+export type CasesListTasksData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListTasksResponse = Array<CaseTaskRead>
+
+export type CasesCreateTaskData = {
+  caseId: string
+  requestBody: CaseTaskCreate
+  workspaceId: string
+}
+
+export type CasesCreateTaskResponse = CaseTaskRead
+
+export type CasesUpdateTaskData = {
+  caseId: string
+  requestBody: CaseTaskUpdate
+  taskId: string
+  workspaceId: string
+}
+
+export type CasesUpdateTaskResponse = CaseTaskRead
+
+export type CasesDeleteTaskData = {
+  caseId: string
+  taskId: string
+  workspaceId: string
+}
+
+export type CasesDeleteTaskResponse = void
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -9134,6 +9202,62 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tasks": {
+    get: {
+      req: CasesListTasksData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTaskRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTaskRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tasks/{task_id}": {
+    patch: {
+      req: CasesUpdateTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTaskRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

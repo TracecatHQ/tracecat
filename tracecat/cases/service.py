@@ -27,6 +27,8 @@ from tracecat.cases.models import (
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseReadMinimal,
+    CaseTaskCreate,
+    CaseTaskUpdate,
     CaseUpdate,
     ClosedEvent,
     CreatedEvent,
@@ -48,6 +50,7 @@ from tracecat.db.schemas import (
     CaseEvent,
     CaseFields,
     CaseTagLink,
+    CaseTask,
     User,
 )
 from tracecat.service import BaseWorkspaceService
@@ -935,3 +938,125 @@ class CaseEventsService(BaseWorkspaceService):
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
         return db_event
+
+
+class CaseTasksService(BaseWorkspaceService):
+    """Service for managing case tasks."""
+
+    service_name = "case_tasks"
+
+    async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
+        """List all tasks for a case.
+
+        Args:
+            case_id: The ID of the case to get tasks for
+
+        Returns:
+            A sequence of tasks for the case, ordered by priority (highest first) then creation date
+        """
+        statement = (
+            select(CaseTask)
+            .where(
+                CaseTask.owner_id == self.workspace_id,
+                CaseTask.case_id == case_id,
+            )
+            .order_by(
+                col(CaseTask.priority).desc(),
+                cast(CaseTask.created_at, sa.DateTime),
+            )
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def get_task(self, task_id: uuid.UUID) -> CaseTask:
+        """Get a task by ID.
+
+        Args:
+            task_id: The ID of the task to get
+
+        Returns:
+            The task
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        statement = select(CaseTask).where(
+            CaseTask.owner_id == self.workspace_id,
+            CaseTask.id == task_id,
+        )
+        result = await self.session.exec(statement)
+        task = result.first()
+        if not task:
+            raise TracecatNotFoundError(f"Task {task_id} not found")
+        return task
+
+    async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
+        """Create a new task for a case.
+
+        Args:
+            case_id: The ID of the case to create a task for
+            params: The task parameters
+
+        Returns:
+            The created task
+        """
+        task = CaseTask(
+            owner_id=self.workspace_id,
+            case_id=case_id,
+            title=params.title,
+            description=params.description,
+            priority=params.priority,
+            status=params.status,
+            assignee_id=params.assignee_id,
+            workflow_id=params.workflow_id,
+        )
+        self.session.add(task)
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
+        """Update a task.
+
+        Args:
+            task_id: The ID of the task to update
+            params: The task update parameters
+
+        Returns:
+            The updated task
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        task = await self.get_task(task_id)
+
+        # Update only provided fields
+        if params.title is not None:
+            task.title = params.title
+        if params.description is not None:
+            task.description = params.description
+        if params.priority is not None:
+            task.priority = params.priority
+        if params.status is not None:
+            task.status = params.status
+        if params.assignee_id is not None:
+            task.assignee_id = params.assignee_id
+        if params.workflow_id is not None:
+            task.workflow_id = params.workflow_id
+
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def delete_task(self, task_id: uuid.UUID) -> None:
+        """Delete a task.
+
+        Args:
+            task_id: The ID of the task to delete
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        task = await self.get_task(task_id)
+        await self.session.delete(task)
+        await self.session.commit()

@@ -32,12 +32,16 @@ from tracecat.cases.models import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
+    CaseTaskCreate,
+    CaseTaskRead,
+    CaseTaskUpdate,
     CaseUpdate,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
     CasesService,
+    CaseTasksService,
 )
 from tracecat.cases.tags.models import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
@@ -603,3 +607,82 @@ async def list_events_with_users(
     )
 
     return CaseEventsWithUsers(events=events, users=users)
+
+
+# Case Tasks
+
+
+@cases_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
+async def list_tasks(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseTaskRead]:
+    """List all tasks for a case."""
+    service = CaseTasksService(session, role)
+    tasks = await service.list_tasks(case_id)
+    return [CaseTaskRead.model_validate(task, from_attributes=True) for task in tasks]
+
+
+@cases_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
+async def create_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    params: CaseTaskCreate,
+) -> CaseTaskRead:
+    """Create a new task for a case."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.create_task(case_id, params)
+        return CaseTaskRead.model_validate(task, from_attributes=True)
+    except Exception as e:
+        logger.error(f"Failed to create task: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@cases_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
+async def update_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    task_id: uuid.UUID,
+    params: CaseTaskUpdate,
+) -> CaseTaskRead:
+    """Update a task."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.update_task(task_id, params)
+        return CaseTaskRead.model_validate(task, from_attributes=True)
+    except Exception as e:
+        logger.error(f"Failed to update task: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@cases_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+async def delete_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    task_id: uuid.UUID,
+) -> None:
+    """Delete a task."""
+    service = CaseTasksService(session, role)
+    try:
+        await service.delete_task(task_id)
+    except Exception as e:
+        logger.error(f"Failed to delete task: {e}")
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e

@@ -3187,6 +3187,228 @@ export const $CaseTagRead = {
   description: "Tag data.",
 } as const
 
+export const $CaseTaskCreate = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+      default: "unknown",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+      default: "todo",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  required: ["title"],
+  title: "CaseTaskCreate",
+} as const
+
+export const $CaseTaskRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "case_id",
+    "title",
+    "description",
+    "priority",
+    "status",
+    "workflow_id",
+  ],
+  title: "CaseTaskRead",
+} as const
+
+export const $CaseTaskStatus = {
+  type: "string",
+  enum: ["todo", "in_progress", "completed", "blocked"],
+  title: "CaseTaskStatus",
+  description: "Case task status values.",
+} as const
+
+export const $CaseTaskUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseTaskStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  title: "CaseTaskUpdate",
+} as const
+
 export const $CaseUpdate = {
   properties: {
     summary: {

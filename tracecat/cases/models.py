@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field, RootModel
 
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
-from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseTaskStatus,
+)
 from tracecat.cases.tags.models import CaseTagRead
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
@@ -148,6 +154,40 @@ class CaseCommentCreate(BaseModel):
 class CaseCommentUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=5_000)
     parent_id: uuid.UUID | None = Field(default=None)
+
+
+# Case Tasks
+
+
+class CaseTaskRead(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    case_id: uuid.UUID
+    title: str
+    description: str | None
+    priority: CasePriority
+    status: CaseTaskStatus
+    assignee: UserRead | None = None
+    workflow_id: uuid.UUID | None
+
+
+class CaseTaskCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    priority: CasePriority = Field(default=CasePriority.UNKNOWN)
+    status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
+    assignee_id: uuid.UUID | None = Field(default=None)
+    workflow_id: uuid.UUID | None = Field(default=None)
+
+
+class CaseTaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    priority: CasePriority | None = Field(default=None)
+    status: CaseTaskStatus | None = Field(default=None)
+    assignee_id: uuid.UUID | None = Field(default=None)
+    workflow_id: uuid.UUID | None = Field(default=None)
 
 
 # Case Events
