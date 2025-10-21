@@ -195,6 +195,15 @@ class WorkflowDSLCreateResponse(BaseModel):
     errors: list[ValidationResult] | None = None
 
 
+class WorkflowEntrypointValidationRequest(BaseModel):
+    expects: dict[str, ExpectedField] | None = None
+
+
+class WorkflowEntrypointValidationResponse(BaseModel):
+    valid: bool
+    errors: list[ValidationResult] = Field(default_factory=list)
+
+
 @dataclass
 class WorkflowDefinitionMinimal:
     """Workflow definition metadata domain model."""

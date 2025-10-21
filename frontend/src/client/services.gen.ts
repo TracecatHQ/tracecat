@@ -442,6 +442,8 @@ import type {
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
   WorkflowsUpdateWorkflowResponse,
+  WorkflowsValidateWorkflowEntrypointData,
+  WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesCreateWorkspaceData,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
@@ -965,6 +967,32 @@ export const workflowsCreateWorkflow = (
     },
     formData: data.formData,
     mediaType: "multipart/form-data",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Validate Workflow Entrypoint
+ * Validate a workflow entrypoint expects definition.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowEntrypointValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowsValidateWorkflowEntrypoint = (
+  data: WorkflowsValidateWorkflowEntrypointData
+): CancelablePromise<WorkflowsValidateWorkflowEntrypointResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/validate-entrypoint",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

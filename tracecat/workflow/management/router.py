@@ -35,7 +35,7 @@ from tracecat.validation.models import (
     ValidationResult,
     ValidationResultType,
 )
-from tracecat.validation.service import validate_dsl
+from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
 from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -47,6 +47,8 @@ from tracecat.workflow.management.models import (
     WorkflowCreate,
     WorkflowDefinitionMinimal,
     WorkflowDefinitionReadMinimal,
+    WorkflowEntrypointValidationRequest,
+    WorkflowEntrypointValidationResponse,
     WorkflowMoveToFolder,
     WorkflowRead,
     WorkflowReadMinimal,
@@ -103,6 +105,21 @@ async def list_workflows(
         prev_cursor=paginated_response.prev_cursor,
         has_more=paginated_response.has_more,
         has_previous=paginated_response.has_previous,
+    )
+
+
+@router.post("/validate-entrypoint", tags=["workflows"])
+async def validate_workflow_entrypoint(
+    _role: WorkspaceUserRole,
+    payload: WorkflowEntrypointValidationRequest,
+) -> WorkflowEntrypointValidationResponse:
+    """Validate a workflow entrypoint expects definition."""
+
+    errors = validate_entrypoint_expects(payload.expects)
+    validation_results = [ValidationResult.new(err) for err in errors]
+    return WorkflowEntrypointValidationResponse(
+        valid=len(validation_results) == 0,
+        errors=validation_results,
     )
 
 
@@ -253,6 +270,13 @@ async def get_workflow(
         action.id: ActionRead(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
+    try:
+        expects_schema = build_trigger_inputs_schema(workflow.expects)
+    except Exception as e:
+        logger.warning(
+            "Failed to build trigger inputs schema, falling back to None", error=e
+        )
+        expects_schema = None
     return WorkflowRead(
         id=WorkflowUUID.new(workflow.id).short(),
         owner_id=workflow.owner_id,
@@ -261,7 +285,7 @@ async def get_workflow(
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,
-        expects_schema=build_trigger_inputs_schema(workflow.expects),
+        expects_schema=expects_schema,
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         object=workflow.object,
