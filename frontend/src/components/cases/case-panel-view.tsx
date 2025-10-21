@@ -728,7 +728,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="flex-1 min-w-0">
             <div className="h-full overflow-auto min-w-0 bg-muted/20">
               <div className="border-b bg-background">
-                <div className="mx-auto flex h-10 max-w-4xl items-center gap-x-4 overflow-x-auto px-6 text-sm">
+                <div className="mx-auto flex h-11 max-w-4xl items-center justify-center gap-x-4 overflow-x-auto px-6 text-sm">
                   <PrioritySelect
                     priority={caseData.priority || "unknown"}
                     onValueChange={handlePriorityChange}
