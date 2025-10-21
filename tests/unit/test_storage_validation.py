@@ -1,5 +1,6 @@
 import io
 import zipfile
+from base64 import b64decode
 
 import pytest
 
@@ -9,7 +10,10 @@ from tracecat.storage.exceptions import (
     FileNameError,
     FileSizeError,
 )
-from tracecat.storage.validation import FileSecurityValidator
+from tracecat.storage.validation import FileSecurityValidator, infer_image_media_type
+
+PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="
+GIF_BASE64 = "R0lGODdhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw=="
 
 
 @pytest.fixture()
@@ -198,3 +202,21 @@ def test_vbscript_rejected_by_extension(
             filename="script.vbs",
             declared_mime_type="application/vbscript",
         )
+
+
+@pytest.mark.parametrize(
+    ("payload_b64", "expected_type"),
+    [
+        (PNG_BASE64, "image/png"),
+        (GIF_BASE64, "image/gif"),
+    ],
+)
+def test_infer_image_media_type_success(payload_b64: str, expected_type: str) -> None:
+    content = b64decode(payload_b64)
+    assert infer_image_media_type(content) == expected_type
+
+
+def test_infer_image_media_type_rejects_non_image() -> None:
+    data = b64decode("aGVsbG8=")  # "hello"
+    with pytest.raises(ValueError, match="Unsupported image media type"):
+        infer_image_media_type(data)
