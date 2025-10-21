@@ -1,4 +1,5 @@
 import pytest
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.durations import (
@@ -10,6 +11,7 @@ from tracecat.cases.durations import (
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
+from tracecat.db.schemas import CaseDuration
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -54,6 +56,13 @@ async def test_compute_case_durations_from_events(
     assert value.end_event_id is None
     assert value.duration is None
 
+    initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
+    initial_duration = await session.exec(initial_stmt)
+    initial_record = initial_duration.one()
+    assert initial_record.definition_id == metric.id
+    assert initial_record.start_event_id == value.start_event_id
+    assert initial_record.end_event_id is None
+
     updated_case = await cases_service.update_case(
         case,
         CaseUpdate(status=CaseStatus.RESOLVED),
@@ -67,6 +76,14 @@ async def test_compute_case_durations_from_events(
     assert value.ended_at is not None
     assert value.duration is not None
     assert value.duration.total_seconds() >= 0
+
+    duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
+    stored_duration = await session.exec(duration_stmt)
+    record = stored_duration.one()
+    assert record.definition_id == metric.id
+    assert record.start_event_id is not None
+    assert record.end_event_id == value.end_event_id
+    assert record.duration is not None
 
 
 @pytest.mark.anyio

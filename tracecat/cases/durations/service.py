@@ -19,13 +19,8 @@ from tracecat.cases.durations.models import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.db.schemas import (
-    Case,
-    CaseEvent,
-)
-from tracecat.db.schemas import (
-    CaseDurationDefinition as CaseDurationDefinitionDB,
-)
+from tracecat.db.schemas import Case, CaseDuration, CaseEvent
+from tracecat.db.schemas import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
@@ -144,6 +139,51 @@ class CaseDurationService(BaseWorkspaceService):
             )
 
         return results
+
+    async def sync_case_durations(
+        self, case: Case | uuid.UUID
+    ) -> list[CaseDurationComputation]:
+        """Persist computed duration values for a case.
+
+        Returns the latest computations so callers can reuse them if needed.
+        """
+
+        case_obj = await self._resolve_case(case)
+        computations = await self.compute_for_case(case_obj)
+
+        stmt = select(CaseDuration).where(
+            CaseDuration.owner_id == self.workspace_id,
+            CaseDuration.case_id == case_obj.id,
+        )
+        existing_result = await self.session.exec(stmt)
+        existing_by_definition = {
+            entity.definition_id: entity for entity in existing_result.all()
+        }
+
+        seen_definitions: set[uuid.UUID] = set()
+        for computation in computations:
+            seen_definitions.add(computation.duration_id)
+            entity = existing_by_definition.get(computation.duration_id)
+            if entity is None:
+                entity = CaseDuration(
+                    owner_id=self.workspace_id,
+                    case_id=case_obj.id,
+                    definition_id=computation.duration_id,
+                )
+
+            entity.start_event_id = computation.start_event_id
+            entity.end_event_id = computation.end_event_id
+            entity.started_at = computation.started_at
+            entity.ended_at = computation.ended_at
+            entity.duration = computation.duration
+            self.session.add(entity)
+
+        for definition_id, entity in existing_by_definition.items():
+            if definition_id not in seen_definitions:
+                await self.session.delete(entity)
+
+        await self.session.flush()
+        return computations
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID
