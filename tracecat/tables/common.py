@@ -34,7 +34,7 @@ def coerce_to_utc_datetime(value: Any) -> datetime:
             dt = datetime.fromisoformat(text)
         except ValueError as exc:
             raise TypeError(f"Invalid ISO datetime string: {value!r}") from exc
-    elif isinstance(value, (int, float)):
+    elif isinstance(value, int | float):
         dt = datetime.fromtimestamp(value, tz=UTC)
     else:
         raise TypeError(

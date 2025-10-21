@@ -7,8 +7,8 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
-import { deleteCaseDuration } from "@/lib/case-durations"
-import { useCaseDurations } from "@/lib/hooks"
+import { deleteCaseDurationDefinition } from "@/lib/case-durations"
+import { useCaseDurationDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CaseDurationsView() {
@@ -16,8 +16,11 @@ export function CaseDurationsView() {
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
 
-  const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
-    useCaseDurations(workspaceId)
+  const {
+    caseDurationDefinitions,
+    caseDurationDefinitionsIsLoading,
+    caseDurationDefinitionsError,
+  } = useCaseDurationDefinitions(workspaceId)
 
   const { mutateAsync: handleDelete, isPending: deleteIsPending } = useMutation(
     {
@@ -26,32 +29,32 @@ export function CaseDurationsView() {
           throw new Error("Workspace ID is required")
         }
 
-        await deleteCaseDuration(workspaceId, durationId)
+        await deleteCaseDurationDefinition(workspaceId, durationId)
       },
       onSuccess: async () => {
         await queryClient.invalidateQueries({
-          queryKey: ["case-durations", workspaceId],
+          queryKey: ["case-duration-definitions", workspaceId],
         })
         toast({
           title: "Duration deleted",
-          description: "The case duration was removed successfully.",
+          description: "The case duration definition was removed successfully.",
         })
       },
       onError: (error: unknown) => {
-        console.error("Failed to delete case duration", error)
+        console.error("Failed to delete case duration definition", error)
         toast({
           title: "Error deleting duration",
           description:
             error instanceof Error
               ? error.message
-              : "Failed to delete the case duration. Please try again.",
+              : "Failed to delete the case duration definition. Please try again.",
           variant: "destructive",
         })
       },
     }
   )
 
-  if (workspaceLoading || caseDurationsIsLoading) {
+  if (workspaceLoading || caseDurationDefinitionsIsLoading) {
     return <CenteredSpinner />
   }
 
@@ -68,16 +71,16 @@ export function CaseDurationsView() {
     return <AlertNotification level="error" message="Workspace not found." />
   }
 
-  if (caseDurationsError) {
+  if (caseDurationDefinitionsError) {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading case durations: ${caseDurationsError.message}`}
+        message={`Error loading case duration definitions: ${caseDurationDefinitionsError.message}`}
       />
     )
   }
 
-  if (!caseDurations || caseDurations.length === 0) {
+  if (!caseDurationDefinitions || caseDurationDefinitions.length === 0) {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] flex-col items-center justify-center space-y-4 py-8 text-center">
@@ -99,7 +102,7 @@ export function CaseDurationsView() {
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
         <CaseDurationsTable
-          durations={caseDurations}
+          durations={caseDurationDefinitions}
           onDeleteDuration={handleDelete}
           isDeleting={deleteIsPending}
         />

@@ -1,51 +1,61 @@
 import {
-  type CaseDurationCreate,
-  type CaseDurationRead,
-  type CaseDurationUpdate,
-  caseDurationsCreateCaseDuration,
-  caseDurationsDeleteCaseDuration,
-  caseDurationsGetCaseDuration,
-  caseDurationsListCaseDurations,
-  caseDurationsUpdateCaseDuration,
+  type CaseDurationDefinitionCreate,
+  type CaseDurationDefinitionRead,
+  type CaseDurationDefinitionUpdate,
+  caseDurationsCreateCaseDurationDefinition,
+  caseDurationsDeleteCaseDurationDefinition,
+  caseDurationsGetCaseDurationDefinition,
+  caseDurationsListCaseDurationDefinitions,
+  caseDurationsUpdateCaseDurationDefinition,
 } from "@/client"
 
-export type { CaseDurationRead, CaseDurationCreate, CaseDurationUpdate }
-
-export async function listCaseDurations(
-  workspaceId: string
-): Promise<CaseDurationRead[]> {
-  return await caseDurationsListCaseDurations({ workspaceId })
+export type {
+  CaseDurationDefinitionRead,
+  CaseDurationDefinitionCreate,
+  CaseDurationDefinitionUpdate,
 }
 
-export async function getCaseDuration(
+export async function listCaseDurationDefinitions(
+  workspaceId: string
+): Promise<CaseDurationDefinitionRead[]> {
+  return await caseDurationsListCaseDurationDefinitions({ workspaceId })
+}
+
+export async function getCaseDurationDefinition(
   workspaceId: string,
   durationId: string
-): Promise<CaseDurationRead> {
-  return await caseDurationsGetCaseDuration({ workspaceId, durationId })
+): Promise<CaseDurationDefinitionRead> {
+  return await caseDurationsGetCaseDurationDefinition({
+    workspaceId,
+    durationId,
+  })
 }
 
-export async function createCaseDuration(
+export async function createCaseDurationDefinition(
   workspaceId: string,
-  requestBody: CaseDurationCreate
-): Promise<CaseDurationRead> {
-  return await caseDurationsCreateCaseDuration({ workspaceId, requestBody })
+  requestBody: CaseDurationDefinitionCreate
+): Promise<CaseDurationDefinitionRead> {
+  return await caseDurationsCreateCaseDurationDefinition({
+    workspaceId,
+    requestBody,
+  })
 }
 
-export async function updateCaseDuration(
+export async function updateCaseDurationDefinition(
   workspaceId: string,
   durationId: string,
-  requestBody: CaseDurationUpdate
-): Promise<CaseDurationRead> {
-  return await caseDurationsUpdateCaseDuration({
+  requestBody: CaseDurationDefinitionUpdate
+): Promise<CaseDurationDefinitionRead> {
+  return await caseDurationsUpdateCaseDurationDefinition({
     workspaceId,
     durationId,
     requestBody,
   })
 }
 
-export async function deleteCaseDuration(
+export async function deleteCaseDurationDefinition(
   workspaceId: string,
   durationId: string
 ): Promise<void> {
-  await caseDurationsDeleteCaseDuration({ workspaceId, durationId })
+  await caseDurationsDeleteCaseDurationDefinition({ workspaceId, durationId })
 }
