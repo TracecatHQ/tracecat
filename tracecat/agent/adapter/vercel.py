@@ -730,10 +730,8 @@ class VercelStreamContext:
         """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
         # End the previous part if a new one is starting
         if isinstance(event, PartStartEvent):
-            logger.warning(f"Part start event: {event}")
             # Close any existing stream for this index so the next start begins cleanly.
             for message in self.collect_current_part_end_events(index=event.index):
-                logger.warning(f"Emitting end event: {message}")
                 yield message
 
         # Handle Model Response Stream Events
@@ -1097,12 +1095,10 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
 
         # 2. Process events from Redis stream
         async for stream_event in events:
-            logger.warning(f"SSE VERCEL STREAM EVENT:\n{stream_event.sse()}")
             match stream_event:
                 case StreamDelta(event=agent_event):
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        logger.error(f"SSE VERCEL EMIT DELTA:\n{msg}")
                         yield format_sse(msg)
                 case StreamMessage():
                     # Model messages don't need processing through handle_event
