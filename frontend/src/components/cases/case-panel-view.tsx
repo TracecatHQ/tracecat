@@ -40,6 +40,7 @@ import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -56,6 +57,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -64,17 +70,11 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
@@ -275,9 +275,7 @@ function CaseDurationMetrics({
   const hasOngoingDuration = useMemo(
     () =>
       Boolean(
-        durations?.some(
-          (duration) => duration.started_at && !duration.ended_at
-        )
+        durations?.some((duration) => duration.started_at && !duration.ended_at)
       ),
     [durations]
   )
@@ -293,7 +291,8 @@ function CaseDurationMetrics({
   }, [hasOngoingDuration])
 
   const definitionById = useMemo(() => {
-    if (!definitions || !definitions.length) return new Map<string, CaseDurationDefinitionRead>()
+    if (!definitions || !definitions.length)
+      return new Map<string, CaseDurationDefinitionRead>()
     return new Map(definitions.map((definition) => [definition.id, definition]))
   }, [definitions])
 
@@ -315,8 +314,8 @@ function CaseDurationMetrics({
 
         const resolvedDuration =
           state === "done"
-            ? formatIsoDurationCompact(duration.duration) ??
-              (endedAt ? formatElapsedDuration(startedAt, endedAt) : "—")
+            ? (formatIsoDurationCompact(duration.duration) ??
+              (endedAt ? formatElapsedDuration(startedAt, endedAt) : "—"))
             : formatElapsedDuration(startedAt, now)
 
         return {
@@ -423,7 +422,9 @@ function CaseDurationMetrics({
                         </p>
                       </>
                     ) : (
-                      <p className="mt-1 text-muted-foreground">Not triggered</p>
+                      <p className="mt-1 text-muted-foreground">
+                        Not triggered
+                      </p>
                     )}
                   </div>
                 </div>
@@ -443,11 +444,7 @@ function CaseDurationMetrics({
     return content
   }
 
-  return (
-    <div className="py-1.5 first:pt-0 last:pb-0">
-      {content}
-    </div>
-  )
+  return <div className="py-1.5 first:pt-0 last:pb-0">{content}</div>
 }
 
 interface CasePanelContentProps {
@@ -464,11 +461,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     caseId,
     workspaceId,
   })
-  const {
-    caseDurations,
-    caseDurationsIsLoading,
-    caseDurationsError,
-  } = useCaseDurations({ caseId, workspaceId })
+  const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
+    useCaseDurations({ caseId, workspaceId })
   const {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,

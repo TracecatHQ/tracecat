@@ -246,7 +246,10 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
 import { getBaseUrl } from "@/lib/api"
-import { listCaseDurationDefinitions, listCaseDurations } from "@/lib/case-durations"
+import {
+  listCaseDurationDefinitions,
+  listCaseDurations,
+} from "@/lib/case-durations"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"

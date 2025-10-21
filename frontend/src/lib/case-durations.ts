@@ -4,10 +4,10 @@ import {
   type CaseDurationDefinitionUpdate,
   type CaseDurationRead,
   caseDurationsCreateCaseDurationDefinition,
-  caseDurationsListCaseDurations,
   caseDurationsDeleteCaseDurationDefinition,
   caseDurationsGetCaseDurationDefinition,
   caseDurationsListCaseDurationDefinitions,
+  caseDurationsListCaseDurations,
   caseDurationsUpdateCaseDurationDefinition,
 } from "@/client"
 
