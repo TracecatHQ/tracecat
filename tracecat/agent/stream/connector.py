@@ -78,7 +78,7 @@ class AgentStream:
             if chat := await chat_svc.get_chat(self.session_id):
                 chat.last_stream_id = last_stream_id
                 await chat_svc.update_chat(chat)
-                logger.info(
+                logger.debug(
                     "Updated chat with last stream id",
                     chat_id=chat.id,
                     last_stream_id=last_stream_id,
