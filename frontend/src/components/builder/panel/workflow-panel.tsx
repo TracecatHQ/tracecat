@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type React from "react"
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 
 import "@radix-ui/react-dialog"
 
@@ -22,6 +22,7 @@ import {
   type ExpectedField,
   type WorkflowRead,
   type WorkflowUpdate,
+  workflowsValidateWorkflowEntrypoint,
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
@@ -54,59 +55,107 @@ import {
 } from "@/lib/errors"
 import { useWorkflow } from "@/providers/workflow"
 
-const workflowUpdateFormSchema = z.object({
-  title: z
-    .string()
-    .min(1, { message: "Name is required" })
-    .max(100, { message: "Name cannot exceed 100 characters" }),
-  description: z
-    .string()
-    .max(1000, { message: "Description cannot exceed 1000 characters" })
-    .optional(),
-  alias: z
-    .string()
-    .max(100, { message: "Alias cannot exceed 100 characters" })
-    .nullish(),
-  // Config fields
-  environment: z
-    .string()
-    .max(100, { message: "Environment cannot exceed 100 characters" })
-    .optional(),
-  timeout: z
-    .number()
-    .min(0, { message: "Timeout must be at least 0 seconds" })
-    .max(1209600, {
-      message: "Timeout cannot exceed 14 days (1209600 seconds)",
-    })
-    .optional(),
-  /* Input Schema */
-  expects: z
-    .record(
-      z.string(),
-      z
-        .object({
-          type: z.string(),
-          description: z.string().nullable().optional(),
-          default: z.unknown().nullable().optional(),
+const createWorkflowUpdateFormSchema = (workspaceId: string) =>
+  z
+    .object({
+      title: z
+        .string()
+        .min(1, { message: "Name is required" })
+        .max(100, { message: "Name cannot exceed 100 characters" }),
+      description: z
+        .string()
+        .max(1000, { message: "Description cannot exceed 1000 characters" })
+        .optional(),
+      alias: z
+        .string()
+        .max(100, { message: "Alias cannot exceed 100 characters" })
+        .nullish(),
+      // Config fields
+      environment: z
+        .string()
+        .max(100, { message: "Environment cannot exceed 100 characters" })
+        .optional(),
+      timeout: z
+        .number()
+        .min(0, { message: "Timeout must be at least 0 seconds" })
+        .max(1209600, {
+          message: "Timeout cannot exceed 14 days (1209600 seconds)",
         })
-        .refine((val): val is ExpectedField => true)
-    )
-    .nullish(),
-  returns: z.unknown().nullish(),
-  /* Error Handler */
-  error_handler: z
-    .string()
-    .max(100, { message: "Error handler cannot exceed 100 characters" })
-    .nullish(),
-})
+        .optional(),
+      /* Input Schema */
+      expects: z
+        .record(
+          z.string(),
+          z
+            .object({
+              type: z.string().min(1, { message: "Type is required" }),
+              description: z.string().nullable().optional(),
+              default: z.unknown().nullable().optional(),
+            })
+            .refine((val): val is ExpectedField => true)
+        )
+        .nullish(),
+      returns: z.unknown().nullish(),
+      /* Error Handler */
+      error_handler: z
+        .string()
+        .max(100, { message: "Error handler cannot exceed 100 characters" })
+        .nullish(),
+    })
+    .superRefine(async (values, ctx) => {
+      if (!values.expects || Object.keys(values.expects).length === 0) {
+        return
+      }
 
-type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
+      try {
+        const { valid, errors } = await workflowsValidateWorkflowEntrypoint({
+          workspaceId,
+          requestBody: {
+            expects: values.expects,
+          },
+        })
+
+        if (!valid) {
+          const messages = errors?.flatMap((error) => {
+            if (!error?.detail || !Array.isArray(error.detail)) {
+              return []
+            }
+            return error.detail.map((detail) => detail.msg).filter(Boolean)
+          })
+
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["expects"],
+            message:
+              messages && messages.length > 0
+                ? messages.join("\n")
+                : "Invalid trigger input definition.",
+          })
+        }
+      } catch (error) {
+        console.error("Failed to validate trigger inputs", error)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["expects"],
+          message: "Failed to validate trigger inputs. Please try again.",
+        })
+      }
+    })
+
+type WorkflowUpdateFormSchema = ReturnType<
+  typeof createWorkflowUpdateFormSchema
+>
+type WorkflowUpdateForm = z.infer<WorkflowUpdateFormSchema>
 export function WorkflowPanel({
   workflow,
 }: {
   workflow: WorkflowRead
 }): React.JSX.Element {
-  const { updateWorkflow } = useWorkflow()
+  const { updateWorkflow, workspaceId } = useWorkflow()
+  const workflowUpdateFormSchema = useMemo(
+    () => createWorkflowUpdateFormSchema(workspaceId),
+    [workspaceId]
+  )
   const methods = useForm<WorkflowUpdateForm>({
     resolver: zodResolver(workflowUpdateFormSchema),
     defaultValues: {
@@ -169,7 +218,10 @@ export function WorkflowPanel({
 
     // Parse values through zod schema first
     const result = await workflowUpdateFormSchema.safeParseAsync(values)
-    if (!result.success) {
+    if (result.success) {
+      methods.clearErrors()
+      await onSubmit(result.data)
+    } else {
       console.error("Validation failed:", result.error)
       // Set form errors with field name and message
       Object.entries(result.error.formErrors.fieldErrors).forEach(
@@ -180,10 +232,8 @@ export function WorkflowPanel({
           })
         }
       )
-      return
     }
-    await onSubmit(result.data)
-  }, [methods, onSubmit])
+  }, [methods, onSubmit, workflowUpdateFormSchema])
 
   return (
     <div onBlur={onPanelBlur}>
