@@ -466,6 +466,8 @@ class CasesService(BaseWorkspaceService):
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
             )
 
+            await self.durations.sync_case_durations(case)
+
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
@@ -593,6 +595,8 @@ class CasesService(BaseWorkspaceService):
             # If there are any remaining changed fields, record a general update activity
             for event in events:
                 await self.events.create_event(case=case, event=event)
+
+            await self.durations.sync_case_durations(case)
 
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()

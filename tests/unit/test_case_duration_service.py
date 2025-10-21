@@ -1,15 +1,18 @@
 import pytest
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
-    CaseDurationCreate,
+    CaseDurationDefinitionCreate,
     CaseDurationEventAnchor,
     CaseDurationService,
 )
+from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
+from tracecat.db.schemas import CaseDuration
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -19,10 +22,11 @@ async def test_compute_case_durations_from_events(
     session: AsyncSession, svc_role
 ) -> None:
     cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
 
-    metric = await duration_service.create_definition(
-        CaseDurationCreate(
+    metric = await definition_service.create(
+        CaseDurationDefinitionCreate(
             name="Time to Resolve",
             description="Elapsed time from creation to resolution",
             start_anchor=CaseDurationEventAnchor(
@@ -54,6 +58,13 @@ async def test_compute_case_durations_from_events(
     assert value.end_event_id is None
     assert value.duration is None
 
+    initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
+    initial_duration = await session.exec(initial_stmt)
+    initial_record = initial_duration.one()
+    assert initial_record.definition_id == metric.id
+    assert initial_record.start_event_id == value.start_event_id
+    assert initial_record.end_event_id is None
+
     updated_case = await cases_service.update_case(
         case,
         CaseUpdate(status=CaseStatus.RESOLVED),
@@ -68,16 +79,25 @@ async def test_compute_case_durations_from_events(
     assert value.duration is not None
     assert value.duration.total_seconds() >= 0
 
+    duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
+    stored_duration = await session.exec(duration_stmt)
+    record = stored_duration.one()
+    assert record.definition_id == metric.id
+    assert record.start_event_id is not None
+    assert record.end_event_id == value.end_event_id
+    assert record.duration is not None
+
 
 @pytest.mark.anyio
 async def test_duration_filters_match_event_payload(
     session: AsyncSession, svc_role
 ) -> None:
     cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
 
-    await duration_service.create_definition(
-        CaseDurationCreate(
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
             name="Time to Close",
             start_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.CASE_CREATED,
@@ -122,10 +142,11 @@ async def test_duration_anchor_selection_first_vs_last(
     session: AsyncSession, svc_role
 ) -> None:
     cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
 
-    await duration_service.create_definition(
-        CaseDurationCreate(
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
             name="Time to first resolution",
             start_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.CASE_CREATED,
@@ -137,8 +158,8 @@ async def test_duration_anchor_selection_first_vs_last(
             ),
         )
     )
-    await duration_service.create_definition(
-        CaseDurationCreate(
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
             name="Time to last resolution",
             start_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.CASE_CREATED,
@@ -197,10 +218,11 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
     session: AsyncSession, svc_role
 ) -> None:
     cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
 
-    await duration_service.create_definition(
-        CaseDurationCreate(
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
             name="Time to reopen",
             start_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.CASE_CLOSED,

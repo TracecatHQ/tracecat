@@ -60,7 +60,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { createCaseDuration } from "@/lib/case-durations"
+import { createCaseDurationDefinition } from "@/lib/case-durations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -402,7 +402,7 @@ export function AddCaseDurationDialog({
         },
       }
 
-      await createCaseDuration(workspaceId, payload)
+      await createCaseDurationDefinition(workspaceId, payload)
     },
     onSuccess: async () => {
       if (!workspaceId) {
@@ -410,25 +410,25 @@ export function AddCaseDurationDialog({
       }
 
       await queryClient.invalidateQueries({
-        queryKey: ["case-durations", workspaceId],
+        queryKey: ["case-duration-definitions", workspaceId],
       })
 
       toast({
         title: "Duration created",
-        description: "The case duration was added successfully.",
+        description: "The case duration definition was added successfully.",
       })
 
       form.reset()
       onOpenChange(false)
     },
     onError: (error: unknown) => {
-      console.error("Failed to create case duration", error)
+      console.error("Failed to create case duration definition", error)
       toast({
         title: "Error creating duration",
         description:
           error instanceof Error
             ? error.message
-            : "Failed to create the case duration. Please try again.",
+            : "Failed to create the case duration definition. Please try again.",
         variant: "destructive",
       })
     },

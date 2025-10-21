@@ -862,6 +862,87 @@ class CaseDurationDefinition(Resource, table=True):
     )
 
     owner: "Workspace" = Relationship(back_populates="case_duration_definitions")
+    case_durations: list["CaseDuration"] = Relationship(
+        back_populates="definition",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
+    )
+
+
+class CaseDuration(Resource, table=True):
+    """Computed duration values for a case tied to a duration definition."""
+
+    __tablename__: str = "case_duration"
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id",
+            "definition_id",
+            name="uq_case_duration_case_definition",
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    definition_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("case_duration_definition.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    start_event_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID,
+            ForeignKey("case_event.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    end_event_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID,
+            ForeignKey("case_event.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+    )
+    ended_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+    )
+    duration: timedelta | None = Field(
+        default=None,
+        sa_column=Column(Interval(), nullable=True),
+    )
+
+    case: "Case" = Relationship(
+        back_populates="durations",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    definition: "CaseDurationDefinition" = Relationship(
+        back_populates="case_durations",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
 
 
 class RunbookCaseLink(SQLModel, table=True):
@@ -941,6 +1022,13 @@ class Case(Resource, table=True):
     events: list["CaseEvent"] = Relationship(
         back_populates="case",
         sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    durations: list["CaseDuration"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "lazy": "selectin",
+        },
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="case",

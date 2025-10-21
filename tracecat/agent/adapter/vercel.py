@@ -817,7 +817,7 @@ class VercelStreamContext:
         # Handle Tool Call and Result Events
         elif isinstance(event, FunctionToolResultEvent):
             tool_call_id: str | None = None
-            if isinstance(event.result, (ToolReturnPart, RetryPromptPart)):
+            if isinstance(event.result, ToolReturnPart | RetryPromptPart):
                 tool_call_id = event.result.tool_call_id
 
             if tool_call_id is not None and tool_call_id in self.tool_index:

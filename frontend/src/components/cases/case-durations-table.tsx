@@ -3,7 +3,10 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Info } from "lucide-react"
 import { useState } from "react"
-import type { CaseDurationAnchorSelection, CaseDurationRead } from "@/client"
+import type {
+  CaseDurationAnchorSelection,
+  CaseDurationDefinitionRead,
+} from "@/client"
 import {
   CASE_EVENT_FILTER_OPTIONS,
   getCaseEventOption,
@@ -40,7 +43,7 @@ import {
 } from "@/components/ui/tooltip"
 
 interface CaseDurationsTableProps {
-  durations: CaseDurationRead[]
+  durations: CaseDurationDefinitionRead[]
   onDeleteDuration: (durationId: string) => Promise<void>
   isDeleting?: boolean
 }
@@ -71,7 +74,7 @@ const normalizeFilterValues = (value: unknown): string[] => {
   return []
 }
 
-const defaultToolbarProps: DataTableToolbarProps<CaseDurationRead> = {
+const defaultToolbarProps: DataTableToolbarProps<CaseDurationDefinitionRead> = {
   filterProps: {
     placeholder: "Filter durations...",
     column: "name",
@@ -84,9 +87,9 @@ export function CaseDurationsTable({
   isDeleting,
 }: CaseDurationsTableProps) {
   const [selectedDuration, setSelectedDuration] =
-    useState<CaseDurationRead | null>(null)
+    useState<CaseDurationDefinitionRead | null>(null)
 
-  const renderAnchor = (anchor: CaseDurationRead["start_anchor"]) => {
+  const renderAnchor = (anchor: CaseDurationDefinitionRead["start_anchor"]) => {
     const { icon: Icon, label } = getCaseEventOption(anchor.event_type)
 
     const selection = anchor.selection ?? "first"
@@ -143,7 +146,9 @@ export function CaseDurationsTable({
             ),
             cell: ({ row }) => (
               <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <span>{row.getValue<CaseDurationRead["name"]>("name")}</span>
+                <span>
+                  {row.getValue<CaseDurationDefinitionRead["name"]>("name")}
+                </span>
                 {row.original.description ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
