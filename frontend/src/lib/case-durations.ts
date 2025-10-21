@@ -2,7 +2,9 @@ import {
   type CaseDurationDefinitionCreate,
   type CaseDurationDefinitionRead,
   type CaseDurationDefinitionUpdate,
+  type CaseDurationRead,
   caseDurationsCreateCaseDurationDefinition,
+  caseDurationsListCaseDurations,
   caseDurationsDeleteCaseDurationDefinition,
   caseDurationsGetCaseDurationDefinition,
   caseDurationsListCaseDurationDefinitions,
@@ -13,6 +15,7 @@ export type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionCreate,
   CaseDurationDefinitionUpdate,
+  CaseDurationRead,
 }
 
 export async function listCaseDurationDefinitions(
@@ -58,4 +61,11 @@ export async function deleteCaseDurationDefinition(
   durationId: string
 ): Promise<void> {
   await caseDurationsDeleteCaseDurationDefinition({ workspaceId, durationId })
+}
+
+export async function listCaseDurations(
+  workspaceId: string,
+  caseId: string
+): Promise<CaseDurationRead[]> {
+  return await caseDurationsListCaseDurations({ workspaceId, caseId })
 }

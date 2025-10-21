@@ -33,6 +33,7 @@ import {
   type CaseCommentUpdate,
   type CaseCreate,
   type CaseDurationDefinitionRead,
+  type CaseDurationRead,
   type CaseEventsWithUsers,
   type CaseFieldRead,
   type CaseRead,
@@ -245,7 +246,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useGetRunbook } from "@/hooks/use-runbook"
 import { getBaseUrl } from "@/lib/api"
-import { listCaseDurationDefinitions } from "@/lib/case-durations"
+import { listCaseDurationDefinitions, listCaseDurations } from "@/lib/case-durations"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
@@ -3271,6 +3272,30 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     deleteCase,
     deleteCaseIsPending,
     deleteCaseError,
+  }
+}
+
+export function useCaseDurations({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const {
+    data: caseDurations,
+    isLoading: caseDurationsIsLoading,
+    error: caseDurationsError,
+  } = useQuery<CaseDurationRead[], TracecatApiError>({
+    queryKey: ["case-durations", caseId, workspaceId],
+    queryFn: async () => await listCaseDurations(workspaceId, caseId),
+    enabled: Boolean(caseId && workspaceId),
+  })
+
+  return {
+    caseDurations,
+    caseDurationsIsLoading,
+    caseDurationsError,
   }
 }
 
