@@ -2077,6 +2077,87 @@ export const $CaseDurationAnchorSelection = {
 
 export const $CaseDurationCreate = {
   properties: {
+    definition_id: {
+      type: "string",
+      format: "uuid",
+      title: "Definition Id",
+      description:
+        "Identifier of the case duration definition generating this duration.",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+      description: "Case event that started the duration, if available.",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+      description: "Case event that ended the duration, if available.",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+      description: "Timestamp when the duration began.",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+      description: "Timestamp when the duration ended.",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+      description: "Total elapsed time between start and end timestamps.",
+    },
+  },
+  type: "object",
+  required: ["definition_id"],
+  title: "CaseDurationCreate",
+  description: "Create payload for case duration records.",
+} as const
+
+export const $CaseDurationDefinitionCreate = {
+  properties: {
     name: {
       type: "string",
       maxLength: 255,
@@ -2107,45 +2188,11 @@ export const $CaseDurationCreate = {
   },
   type: "object",
   required: ["name", "start_anchor", "end_anchor"],
-  title: "CaseDurationCreate",
+  title: "CaseDurationDefinitionCreate",
   description: "Create payload for case duration definitions.",
 } as const
 
-export const $CaseDurationEventAnchor = {
-  properties: {
-    event_type: {
-      $ref: "#/components/schemas/CaseEventType",
-      description: "Case event type that should be matched for this anchor.",
-    },
-    timestamp_path: {
-      type: "string",
-      title: "Timestamp Path",
-      description:
-        "Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.",
-      default: "created_at",
-    },
-    field_filters: {
-      additionalProperties: true,
-      type: "object",
-      title: "Field Filters",
-      description:
-        "Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.",
-    },
-    selection: {
-      $ref: "#/components/schemas/CaseDurationAnchorSelection",
-      description:
-        "Whether to use the first or last matching event for this anchor. Defaults to the first match.",
-      default: "first",
-    },
-  },
-  type: "object",
-  required: ["event_type"],
-  title: "CaseDurationEventAnchor",
-  description:
-    "Selection criteria describing an event boundary for a duration.",
-} as const
-
-export const $CaseDurationRead = {
+export const $CaseDurationDefinitionRead = {
   properties: {
     name: {
       type: "string",
@@ -2182,11 +2229,11 @@ export const $CaseDurationRead = {
   },
   type: "object",
   required: ["name", "start_anchor", "end_anchor", "id"],
-  title: "CaseDurationRead",
+  title: "CaseDurationDefinitionRead",
   description: "Read model for case duration definitions.",
 } as const
 
-export const $CaseDurationUpdate = {
+export const $CaseDurationDefinitionUpdate = {
   properties: {
     name: {
       anyOf: [
@@ -2234,8 +2281,213 @@ export const $CaseDurationUpdate = {
     },
   },
   type: "object",
-  title: "CaseDurationUpdate",
+  title: "CaseDurationDefinitionUpdate",
   description: "Patch payload for case duration definitions.",
+} as const
+
+export const $CaseDurationEventAnchor = {
+  properties: {
+    event_type: {
+      $ref: "#/components/schemas/CaseEventType",
+      description: "Case event type that should be matched for this anchor.",
+    },
+    timestamp_path: {
+      type: "string",
+      title: "Timestamp Path",
+      description:
+        "Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.",
+      default: "created_at",
+    },
+    field_filters: {
+      additionalProperties: true,
+      type: "object",
+      title: "Field Filters",
+      description:
+        "Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.",
+    },
+    selection: {
+      $ref: "#/components/schemas/CaseDurationAnchorSelection",
+      description:
+        "Whether to use the first or last matching event for this anchor. Defaults to the first match.",
+      default: "first",
+    },
+  },
+  type: "object",
+  required: ["event_type"],
+  title: "CaseDurationEventAnchor",
+  description:
+    "Selection criteria describing an event boundary for a duration.",
+} as const
+
+export const $CaseDurationRead = {
+  properties: {
+    definition_id: {
+      type: "string",
+      format: "uuid",
+      title: "Definition Id",
+      description:
+        "Identifier of the case duration definition generating this duration.",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+      description: "Case event that started the duration, if available.",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+      description: "Case event that ended the duration, if available.",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+      description: "Timestamp when the duration began.",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+      description: "Timestamp when the duration ended.",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+      description: "Total elapsed time between start and end timestamps.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+  },
+  type: "object",
+  required: ["definition_id", "id", "case_id"],
+  title: "CaseDurationRead",
+  description: "Read model for case duration records.",
+} as const
+
+export const $CaseDurationUpdate = {
+  properties: {
+    definition_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Id",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+    },
+  },
+  type: "object",
+  title: "CaseDurationUpdate",
+  description: "Patch payload for case duration records.",
 } as const
 
 export const $CaseEventRead = {

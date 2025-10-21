@@ -48,7 +48,7 @@ class CaseDurationEventAnchor(BaseModel):
     )
 
 
-class CaseDurationBase(BaseModel):
+class CaseDurationDefinitionBase(BaseModel):
     """Shared fields for duration definitions."""
 
     name: str = Field(
@@ -67,11 +67,11 @@ class CaseDurationBase(BaseModel):
     )
 
 
-class CaseDurationCreate(CaseDurationBase):
+class CaseDurationDefinitionCreate(CaseDurationDefinitionBase):
     """Create payload for case duration definitions."""
 
 
-class CaseDurationUpdate(BaseModel):
+class CaseDurationDefinitionUpdate(BaseModel):
     """Patch payload for case duration definitions."""
 
     name: str | None = Field(default=None, max_length=255)
@@ -80,10 +80,62 @@ class CaseDurationUpdate(BaseModel):
     end_anchor: CaseDurationEventAnchor | None = None
 
 
-class CaseDurationRead(CaseDurationBase):
+class CaseDurationDefinitionRead(CaseDurationDefinitionBase):
     """Read model for case duration definitions."""
 
     id: uuid.UUID = Field(...)
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CaseDurationBase(BaseModel):
+    """Shared fields for persisted case durations."""
+
+    definition_id: uuid.UUID = Field(
+        ...,
+        description="Identifier of the case duration definition generating this duration.",
+    )
+    start_event_id: uuid.UUID | None = Field(
+        default=None,
+        description="Case event that started the duration, if available.",
+    )
+    end_event_id: uuid.UUID | None = Field(
+        default=None,
+        description="Case event that ended the duration, if available.",
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the duration began.",
+    )
+    ended_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the duration ended.",
+    )
+    duration: timedelta | None = Field(
+        default=None,
+        description="Total elapsed time between start and end timestamps.",
+    )
+
+
+class CaseDurationCreate(CaseDurationBase):
+    """Create payload for case duration records."""
+
+
+class CaseDurationUpdate(BaseModel):
+    """Patch payload for case duration records."""
+
+    definition_id: uuid.UUID | None = None
+    start_event_id: uuid.UUID | None = None
+    end_event_id: uuid.UUID | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    duration: timedelta | None = None
+
+
+class CaseDurationRead(CaseDurationBase):
+    """Read model for case duration records."""
+
+    id: uuid.UUID = Field(...)
+    case_id: uuid.UUID = Field(...)
     model_config = ConfigDict(from_attributes=True)
 
 

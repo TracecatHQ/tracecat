@@ -60,14 +60,24 @@ import type {
   CaseAttachmentsListAttachmentsData,
   CaseAttachmentsListAttachmentsResponse,
   CaseDurationsCreateCaseDurationData,
+  CaseDurationsCreateCaseDurationDefinitionData,
+  CaseDurationsCreateCaseDurationDefinitionResponse,
   CaseDurationsCreateCaseDurationResponse,
   CaseDurationsDeleteCaseDurationData,
+  CaseDurationsDeleteCaseDurationDefinitionData,
+  CaseDurationsDeleteCaseDurationDefinitionResponse,
   CaseDurationsDeleteCaseDurationResponse,
   CaseDurationsGetCaseDurationData,
+  CaseDurationsGetCaseDurationDefinitionData,
+  CaseDurationsGetCaseDurationDefinitionResponse,
   CaseDurationsGetCaseDurationResponse,
+  CaseDurationsListCaseDurationDefinitionsData,
+  CaseDurationsListCaseDurationDefinitionsResponse,
   CaseDurationsListCaseDurationsData,
   CaseDurationsListCaseDurationsResponse,
   CaseDurationsUpdateCaseDurationData,
+  CaseDurationsUpdateCaseDurationDefinitionData,
+  CaseDurationsUpdateCaseDurationDefinitionResponse,
   CaseDurationsUpdateCaseDurationResponse,
   CaseRecordsCreateCaseRecordData,
   CaseRecordsCreateCaseRecordResponse,
@@ -5090,16 +5100,16 @@ export const caseAttachmentsDeleteAttachment = (
 }
 
 /**
- * List Case Durations
+ * List Case Duration Definitions
  * List all case duration definitions for the active workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns CaseDurationRead Successful Response
+ * @returns CaseDurationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const caseDurationsListCaseDurations = (
-  data: CaseDurationsListCaseDurationsData
-): CancelablePromise<CaseDurationsListCaseDurationsResponse> => {
+export const caseDurationsListCaseDurationDefinitions = (
+  data: CaseDurationsListCaseDurationDefinitionsData
+): CancelablePromise<CaseDurationsListCaseDurationDefinitionsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/case-durations",
@@ -5113,17 +5123,17 @@ export const caseDurationsListCaseDurations = (
 }
 
 /**
- * Create Case Duration
+ * Create Case Duration Definition
  * Create a new case duration definition.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns CaseDurationRead Successful Response
+ * @returns CaseDurationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const caseDurationsCreateCaseDuration = (
-  data: CaseDurationsCreateCaseDurationData
-): CancelablePromise<CaseDurationsCreateCaseDurationResponse> => {
+export const caseDurationsCreateCaseDurationDefinition = (
+  data: CaseDurationsCreateCaseDurationDefinitionData
+): CancelablePromise<CaseDurationsCreateCaseDurationDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/case-durations",
@@ -5139,17 +5149,17 @@ export const caseDurationsCreateCaseDuration = (
 }
 
 /**
- * Get Case Duration
+ * Get Case Duration Definition
  * Retrieve a single case duration definition.
  * @param data The data for the request.
  * @param data.durationId
  * @param data.workspaceId
- * @returns CaseDurationRead Successful Response
+ * @returns CaseDurationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const caseDurationsGetCaseDuration = (
-  data: CaseDurationsGetCaseDurationData
-): CancelablePromise<CaseDurationsGetCaseDurationResponse> => {
+export const caseDurationsGetCaseDurationDefinition = (
+  data: CaseDurationsGetCaseDurationDefinitionData
+): CancelablePromise<CaseDurationsGetCaseDurationDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/case-durations/{duration_id}",
@@ -5166,18 +5176,18 @@ export const caseDurationsGetCaseDuration = (
 }
 
 /**
- * Update Case Duration
+ * Update Case Duration Definition
  * Update an existing case duration definition.
  * @param data The data for the request.
  * @param data.durationId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns CaseDurationRead Successful Response
+ * @returns CaseDurationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const caseDurationsUpdateCaseDuration = (
-  data: CaseDurationsUpdateCaseDurationData
-): CancelablePromise<CaseDurationsUpdateCaseDurationResponse> => {
+export const caseDurationsUpdateCaseDurationDefinition = (
+  data: CaseDurationsUpdateCaseDurationDefinitionData
+): CancelablePromise<CaseDurationsUpdateCaseDurationDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/case-durations/{duration_id}",
@@ -5196,9 +5206,155 @@ export const caseDurationsUpdateCaseDuration = (
 }
 
 /**
- * Delete Case Duration
+ * Delete Case Duration Definition
  * Delete a case duration definition.
  * @param data The data for the request.
+ * @param data.durationId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseDurationsDeleteCaseDurationDefinition = (
+  data: CaseDurationsDeleteCaseDurationDefinitionData
+): CancelablePromise<CaseDurationsDeleteCaseDurationDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/case-durations/{duration_id}",
+    path: {
+      duration_id: data.durationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Durations
+ * List persisted case durations for the provided case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseDurationRead Successful Response
+ * @throws ApiError
+ */
+export const caseDurationsListCaseDurations = (
+  data: CaseDurationsListCaseDurationsData
+): CancelablePromise<CaseDurationsListCaseDurationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/durations",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Case Duration
+ * Create a persisted case duration.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDurationRead Successful Response
+ * @throws ApiError
+ */
+export const caseDurationsCreateCaseDuration = (
+  data: CaseDurationsCreateCaseDurationData
+): CancelablePromise<CaseDurationsCreateCaseDurationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/durations",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case Duration
+ * Retrieve a persisted case duration.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.durationId
+ * @param data.workspaceId
+ * @returns CaseDurationRead Successful Response
+ * @throws ApiError
+ */
+export const caseDurationsGetCaseDuration = (
+  data: CaseDurationsGetCaseDurationData
+): CancelablePromise<CaseDurationsGetCaseDurationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/durations/{duration_id}",
+    path: {
+      case_id: data.caseId,
+      duration_id: data.durationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Case Duration
+ * Update a persisted case duration.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.durationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDurationRead Successful Response
+ * @throws ApiError
+ */
+export const caseDurationsUpdateCaseDuration = (
+  data: CaseDurationsUpdateCaseDurationData
+): CancelablePromise<CaseDurationsUpdateCaseDurationResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/cases/{case_id}/durations/{duration_id}",
+    path: {
+      case_id: data.caseId,
+      duration_id: data.durationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Case Duration
+ * Delete a persisted case duration.
+ * @param data The data for the request.
+ * @param data.caseId
  * @param data.durationId
  * @param data.workspaceId
  * @returns void Successful Response
@@ -5209,8 +5365,9 @@ export const caseDurationsDeleteCaseDuration = (
 ): CancelablePromise<CaseDurationsDeleteCaseDurationResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/case-durations/{duration_id}",
+    url: "/cases/{case_id}/durations/{duration_id}",
     path: {
+      case_id: data.caseId,
       duration_id: data.durationId,
     },
     query: {

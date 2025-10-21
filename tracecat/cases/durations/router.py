@@ -9,10 +9,16 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.cases.durations.models import (
     CaseDurationCreate,
+    CaseDurationDefinitionCreate,
+    CaseDurationDefinitionRead,
+    CaseDurationDefinitionUpdate,
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.service import (
+    CaseDurationDefinitionService,
+    CaseDurationService,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.types.exceptions import (
@@ -20,31 +26,35 @@ from tracecat.types.exceptions import (
     TracecatValidationError,
 )
 
-router = APIRouter(prefix="/case-durations", tags=["case-durations"])
+router = APIRouter(tags=["case-durations"])
+definitions_router = APIRouter(prefix="/case-durations", tags=["case-durations"])
+durations_router = APIRouter(
+    prefix="/cases/{case_id}/durations", tags=["case-durations"]
+)
 
 
-@router.get("", response_model=list[CaseDurationRead])
-async def list_case_durations(
+@definitions_router.get("", response_model=list[CaseDurationDefinitionRead])
+async def list_case_duration_definitions(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-) -> list[CaseDurationRead]:
+) -> list[CaseDurationDefinitionRead]:
     """List all case duration definitions for the active workspace."""
-    service = CaseDurationService(session=session, role=role)
-    return await service.list_definitions()
+    service = CaseDurationDefinitionService(session=session, role=role)
+    return await service.list()
 
 
-@router.get("/{duration_id}", response_model=CaseDurationRead)
-async def get_case_duration(
+@definitions_router.get("/{duration_id}", response_model=CaseDurationDefinitionRead)
+async def get_case_duration_definition(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
-) -> CaseDurationRead:
+) -> CaseDurationDefinitionRead:
     """Retrieve a single case duration definition."""
-    service = CaseDurationService(session=session, role=role)
+    service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.get_definition(duration_id)
+        return await service.get(duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found",
@@ -57,17 +67,21 @@ async def get_case_duration(
         ) from err
 
 
-@router.post("", response_model=CaseDurationRead, status_code=status.HTTP_201_CREATED)
-async def create_case_duration(
+@definitions_router.post(
+    "",
+    response_model=CaseDurationDefinitionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_case_duration_definition(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    params: CaseDurationCreate,
-) -> CaseDurationRead:
+    params: CaseDurationDefinitionCreate,
+) -> CaseDurationDefinitionRead:
     """Create a new case duration definition."""
-    service = CaseDurationService(session=session, role=role)
+    service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.create_definition(params)
+        return await service.create(params)
     except TracecatValidationError as err:
         logger.warning(
             "Validation error creating case duration definition",
@@ -91,18 +105,18 @@ async def create_case_duration(
         ) from err
 
 
-@router.patch("/{duration_id}", response_model=CaseDurationRead)
-async def update_case_duration(
+@definitions_router.patch("/{duration_id}", response_model=CaseDurationDefinitionRead)
+async def update_case_duration_definition(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
-    params: CaseDurationUpdate,
-) -> CaseDurationRead:
+    params: CaseDurationDefinitionUpdate,
+) -> CaseDurationDefinitionRead:
     """Update an existing case duration definition."""
-    service = CaseDurationService(session=session, role=role)
+    service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.update_definition(duration_id, params)
+        return await service.update(duration_id, params)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found for update",
@@ -138,19 +152,19 @@ async def update_case_duration(
         ) from err
 
 
-@router.delete(
+@definitions_router.delete(
     "/{duration_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
-async def delete_case_duration(
+async def delete_case_duration_definition(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
 ) -> None:
     """Delete a case duration definition."""
-    service = CaseDurationService(session=session, role=role)
+    service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        await service.delete_definition(duration_id)
+        await service.delete(duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found for deletion",
@@ -161,3 +175,158 @@ async def delete_case_duration(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(err),
         ) from err
+
+
+@durations_router.get("", response_model=list[CaseDurationRead])
+async def list_case_durations(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseDurationRead]:
+    """List persisted case durations for the provided case."""
+    service = CaseDurationService(session=session, role=role)
+    try:
+        return await service.list(case_id)
+    except TracecatNotFoundError as err:
+        logger.warning(
+            "Case not found while listing durations",
+            case_id=str(case_id),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+
+@durations_router.get("/{duration_id}", response_model=CaseDurationRead)
+async def get_case_duration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    duration_id: uuid.UUID,
+) -> CaseDurationRead:
+    """Retrieve a persisted case duration."""
+    service = CaseDurationService(session=session, role=role)
+    try:
+        return await service.get(case_id, duration_id)
+    except TracecatNotFoundError as err:
+        logger.warning(
+            "Case duration not found",
+            case_id=str(case_id),
+            duration_id=str(duration_id),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+
+@durations_router.post(
+    "", response_model=CaseDurationRead, status_code=status.HTTP_201_CREATED
+)
+async def create_case_duration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    params: CaseDurationCreate,
+) -> CaseDurationRead:
+    """Create a persisted case duration."""
+    service = CaseDurationService(session=session, role=role)
+    try:
+        return await service.create(case_id, params)
+    except TracecatValidationError as err:
+        logger.warning(
+            "Validation error creating case duration",
+            case_id=str(case_id),
+            error=str(err),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(err),
+        ) from err
+    except TracecatNotFoundError as err:
+        logger.warning(
+            "Case or definition not found during duration creation",
+            case_id=str(case_id),
+            error=str(err),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+
+@durations_router.patch("/{duration_id}", response_model=CaseDurationRead)
+async def update_case_duration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    duration_id: uuid.UUID,
+    params: CaseDurationUpdate,
+) -> CaseDurationRead:
+    """Update a persisted case duration."""
+    service = CaseDurationService(session=session, role=role)
+    try:
+        return await service.update(case_id, duration_id, params)
+    except TracecatNotFoundError as err:
+        logger.warning(
+            "Case duration not found for update",
+            case_id=str(case_id),
+            duration_id=str(duration_id),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+    except TracecatValidationError as err:
+        logger.warning(
+            "Validation error updating case duration",
+            case_id=str(case_id),
+            duration_id=str(duration_id),
+            error=str(err),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(err),
+        ) from err
+
+
+@durations_router.delete(
+    "/{duration_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
+async def delete_case_duration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    duration_id: uuid.UUID,
+) -> None:
+    """Delete a persisted case duration."""
+    service = CaseDurationService(session=session, role=role)
+    try:
+        await service.delete(case_id, duration_id)
+    except TracecatNotFoundError as err:
+        logger.warning(
+            "Case duration not found for deletion",
+            case_id=str(case_id),
+            duration_id=str(duration_id),
+            workspace_id=str(role.workspace_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+
+router.include_router(definitions_router)
+router.include_router(durations_router)

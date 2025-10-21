@@ -629,9 +629,39 @@ export type CaseCustomFieldRead = {
 export type CaseDurationAnchorSelection = "first" | "last"
 
 /**
- * Create payload for case duration definitions.
+ * Create payload for case duration records.
  */
 export type CaseDurationCreate = {
+  /**
+   * Identifier of the case duration definition generating this duration.
+   */
+  definition_id: string
+  /**
+   * Case event that started the duration, if available.
+   */
+  start_event_id?: string | null
+  /**
+   * Case event that ended the duration, if available.
+   */
+  end_event_id?: string | null
+  /**
+   * Timestamp when the duration began.
+   */
+  started_at?: string | null
+  /**
+   * Timestamp when the duration ended.
+   */
+  ended_at?: string | null
+  /**
+   * Total elapsed time between start and end timestamps.
+   */
+  duration?: string | null
+}
+
+/**
+ * Create payload for case duration definitions.
+ */
+export type CaseDurationDefinitionCreate = {
   /**
    * Human readable name for the metric.
    */
@@ -648,6 +678,39 @@ export type CaseDurationCreate = {
    * Event configuration that marks the end of the duration.
    */
   end_anchor: CaseDurationEventAnchor
+}
+
+/**
+ * Read model for case duration definitions.
+ */
+export type CaseDurationDefinitionRead = {
+  /**
+   * Human readable name for the metric.
+   */
+  name: string
+  /**
+   * Optional description providing more context.
+   */
+  description?: string | null
+  /**
+   * Event configuration that marks the start of the duration.
+   */
+  start_anchor: CaseDurationEventAnchor
+  /**
+   * Event configuration that marks the end of the duration.
+   */
+  end_anchor: CaseDurationEventAnchor
+  id: string
+}
+
+/**
+ * Patch payload for case duration definitions.
+ */
+export type CaseDurationDefinitionUpdate = {
+  name?: string | null
+  description?: string | null
+  start_anchor?: CaseDurationEventAnchor | null
+  end_anchor?: CaseDurationEventAnchor | null
 }
 
 /**
@@ -675,36 +738,47 @@ export type CaseDurationEventAnchor = {
 }
 
 /**
- * Read model for case duration definitions.
+ * Read model for case duration records.
  */
 export type CaseDurationRead = {
   /**
-   * Human readable name for the metric.
+   * Identifier of the case duration definition generating this duration.
    */
-  name: string
+  definition_id: string
   /**
-   * Optional description providing more context.
+   * Case event that started the duration, if available.
    */
-  description?: string | null
+  start_event_id?: string | null
   /**
-   * Event configuration that marks the start of the duration.
+   * Case event that ended the duration, if available.
    */
-  start_anchor: CaseDurationEventAnchor
+  end_event_id?: string | null
   /**
-   * Event configuration that marks the end of the duration.
+   * Timestamp when the duration began.
    */
-  end_anchor: CaseDurationEventAnchor
+  started_at?: string | null
+  /**
+   * Timestamp when the duration ended.
+   */
+  ended_at?: string | null
+  /**
+   * Total elapsed time between start and end timestamps.
+   */
+  duration?: string | null
   id: string
+  case_id: string
 }
 
 /**
- * Patch payload for case duration definitions.
+ * Patch payload for case duration records.
  */
 export type CaseDurationUpdate = {
-  name?: string | null
-  description?: string | null
-  start_anchor?: CaseDurationEventAnchor | null
-  end_anchor?: CaseDurationEventAnchor | null
+  definition_id?: string | null
+  start_event_id?: string | null
+  end_event_id?: string | null
+  started_at?: string | null
+  ended_at?: string | null
+  duration?: string | null
 }
 
 /**
@@ -6270,13 +6344,54 @@ export type CaseAttachmentsDeleteAttachmentData = {
 
 export type CaseAttachmentsDeleteAttachmentResponse = void
 
+export type CaseDurationsListCaseDurationDefinitionsData = {
+  workspaceId: string
+}
+
+export type CaseDurationsListCaseDurationDefinitionsResponse =
+  Array<CaseDurationDefinitionRead>
+
+export type CaseDurationsCreateCaseDurationDefinitionData = {
+  requestBody: CaseDurationDefinitionCreate
+  workspaceId: string
+}
+
+export type CaseDurationsCreateCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsGetCaseDurationDefinitionData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsGetCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsUpdateCaseDurationDefinitionData = {
+  durationId: string
+  requestBody: CaseDurationDefinitionUpdate
+  workspaceId: string
+}
+
+export type CaseDurationsUpdateCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsDeleteCaseDurationDefinitionData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsDeleteCaseDurationDefinitionResponse = void
+
 export type CaseDurationsListCaseDurationsData = {
+  caseId: string
   workspaceId: string
 }
 
 export type CaseDurationsListCaseDurationsResponse = Array<CaseDurationRead>
 
 export type CaseDurationsCreateCaseDurationData = {
+  caseId: string
   requestBody: CaseDurationCreate
   workspaceId: string
 }
@@ -6284,6 +6399,7 @@ export type CaseDurationsCreateCaseDurationData = {
 export type CaseDurationsCreateCaseDurationResponse = CaseDurationRead
 
 export type CaseDurationsGetCaseDurationData = {
+  caseId: string
   durationId: string
   workspaceId: string
 }
@@ -6291,6 +6407,7 @@ export type CaseDurationsGetCaseDurationData = {
 export type CaseDurationsGetCaseDurationResponse = CaseDurationRead
 
 export type CaseDurationsUpdateCaseDurationData = {
+  caseId: string
   durationId: string
   requestBody: CaseDurationUpdate
   workspaceId: string
@@ -6299,6 +6416,7 @@ export type CaseDurationsUpdateCaseDurationData = {
 export type CaseDurationsUpdateCaseDurationResponse = CaseDurationRead
 
 export type CaseDurationsDeleteCaseDurationData = {
+  caseId: string
   durationId: string
   workspaceId: string
 }
@@ -9211,6 +9329,75 @@ export type $OpenApiTs = {
   }
   "/case-durations": {
     get: {
+      req: CaseDurationsListCaseDurationDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDurationDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseDurationsCreateCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-durations/{duration_id}": {
+    get: {
+      req: CaseDurationsGetCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseDurationsUpdateCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDurationsDeleteCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/durations": {
+    get: {
       req: CaseDurationsListCaseDurationsData
       res: {
         /**
@@ -9237,7 +9424,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-durations/{duration_id}": {
+  "/cases/{case_id}/durations/{duration_id}": {
     get: {
       req: CaseDurationsGetCaseDurationData
       res: {
