@@ -4422,6 +4422,17 @@ export type WorkflowDslPublish = {
   message?: string | null
 }
 
+export type WorkflowEntrypointValidationRequest = {
+  expects?: {
+    [key: string]: ExpectedField
+  } | null
+}
+
+export type WorkflowEntrypointValidationResponse = {
+  valid: boolean
+  errors?: Array<ValidationResult>
+}
+
 /**
  * The event types we care about.
  */
@@ -5031,6 +5042,14 @@ export type WorkflowsCreateWorkflowData = {
 }
 
 export type WorkflowsCreateWorkflowResponse = WorkflowReadMinimal
+
+export type WorkflowsValidateWorkflowEntrypointData = {
+  requestBody: WorkflowEntrypointValidationRequest
+  workspaceId: string
+}
+
+export type WorkflowsValidateWorkflowEntrypointResponse =
+  WorkflowEntrypointValidationResponse
 
 export type WorkflowsGetWorkflowData = {
   workflowId: string
@@ -7008,6 +7027,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: WorkflowReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/validate-entrypoint": {
+    post: {
+      req: WorkflowsValidateWorkflowEntrypointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowEntrypointValidationResponse
         /**
          * Validation Error
          */

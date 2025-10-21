@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 
+import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -21,6 +22,7 @@ from tracecat.dsl.models import ActionStatement
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
+from tracecat.expressions.expectations import ExpectedField, parse_type
 from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
@@ -37,6 +39,7 @@ from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundE
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.models import (
     ActionValidationResult,
+    DSLValidationResult,
     ExprValidationResult,
     SecretValidationDetail,
     SecretValidationResult,
@@ -519,10 +522,83 @@ async def validate_dsl_expressions(
     return results
 
 
+def validate_entrypoint_expects(
+    expects: Mapping[str, Any] | None,
+) -> list[DSLValidationResult]:
+    """Validate a workflow entrypoint expects mapping."""
+
+    if not expects:
+        return []
+
+    results: list[DSLValidationResult] = []
+    for field_name, raw_field in expects.items():
+        details: list[ValidationDetail] = []
+        try:
+            validated_field = ExpectedField.model_validate(raw_field)
+        except ValidationError as e:
+            for detail in ValidationDetail.list_from_pydantic(e):
+                loc = ("entrypoint", "expects", field_name)
+                if detail.loc:
+                    loc = (*loc, *detail.loc)
+                details.append(
+                    ValidationDetail(
+                        type=f"entrypoint.{detail.type}",
+                        msg=detail.msg,
+                        loc=loc,
+                    )
+                )
+        else:
+            try:
+                parse_type(validated_field.type, field_name)
+            except lark.UnexpectedInput as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=f"Failed to parse type {validated_field.type!r}: {e}",
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+            except ValueError as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=str(e),
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+            except Exception as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=f"Unexpected error validating type: {e}",
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+
+        if details:
+            results.append(
+                DSLValidationResult(
+                    status="error",
+                    msg=f"Invalid entrypoint expected field '{field_name}'.",
+                    detail=details,
+                    ref=field_name,
+                )
+            )
+
+    return results
+
+
+def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
+    """Validate the DSL entrypoint schema."""
+
+    return validate_entrypoint_expects(dsl.entrypoint.expects)
+
+
 async def validate_dsl(
     session: AsyncSession,
     dsl: DSLInput,
     *,
+    validate_entrypoint: bool = True,
     validate_args: bool = True,
     validate_expressions: bool = True,
     validate_secrets: bool = True,
@@ -532,10 +608,21 @@ async def validate_dsl(
 
     This function calls and combines all results from each validation tier.
     """
-    if not any((validate_args, validate_expressions, validate_secrets)):
+    if not any(
+        (validate_entrypoint, validate_args, validate_expressions, validate_secrets)
+    ):
         return set()
 
     iterables: list[ValidationResult] = []
+
+    # Tier 1: Entrypoint schema validation
+    if validate_entrypoint:
+        entrypoint_errs = validate_dsl_entrypoint(dsl)
+        logger.debug(
+            f"{len(entrypoint_errs)} DSL entrypoint validation errors",
+            errs=entrypoint_errs,
+        )
+        iterables.extend(ValidationResult.new(err) for err in entrypoint_errs)
 
     # Tier 2: Action Args validation
     if validate_args:

@@ -13011,6 +13011,46 @@ export const $WorkflowDslPublish = {
   title: "WorkflowDslPublish",
 } as const
 
+export const $WorkflowEntrypointValidationRequest = {
+  properties: {
+    expects: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/ExpectedField",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expects",
+    },
+  },
+  type: "object",
+  title: "WorkflowEntrypointValidationRequest",
+} as const
+
+export const $WorkflowEntrypointValidationResponse = {
+  properties: {
+    valid: {
+      type: "boolean",
+      title: "Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationResult",
+      },
+      type: "array",
+      title: "Errors",
+    },
+  },
+  type: "object",
+  required: ["valid"],
+  title: "WorkflowEntrypointValidationResponse",
+} as const
+
 export const $WorkflowEventType = {
   type: "string",
   enum: [
