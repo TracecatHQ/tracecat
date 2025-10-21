@@ -189,12 +189,6 @@ class User(SQLModelBaseUserDB, table=True):
             "lazy": "select",
         },
     )
-    assigned_tasks: list["CaseTask"] = Relationship(
-        back_populates="assignee",
-        sa_relationship_kwargs={
-            "lazy": "select",
-        },
-    )
     access_tokens: list["AccessToken"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={
@@ -1173,6 +1167,7 @@ class CaseTask(Resource, table=True):
     )
 
     case: Case = Relationship(back_populates="tasks")
+
     assignee: User | None = Relationship(
         sa_relationship_kwargs={"lazy": "selectin"},
     )

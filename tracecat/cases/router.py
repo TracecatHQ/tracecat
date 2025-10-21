@@ -48,6 +48,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -638,8 +639,13 @@ async def create_task(
     try:
         task = await service.create_task(case_id, params)
         return CaseTaskRead.model_validate(task, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Case not found",
+        ) from e
     except Exception as e:
-        logger.exception(f"Failed to create task: {e}")
+        logger.exception("Failed to create task")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail="Failed to create task",

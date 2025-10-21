@@ -999,7 +999,19 @@ class CaseTasksService(BaseWorkspaceService):
 
         Returns:
             The created task
+
+        Raises:
+            TracecatNotFoundError: If the case is not found in the current workspace
         """
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
+
         task = CaseTask(
             owner_id=self.workspace_id,
             case_id=case_id,

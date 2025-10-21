@@ -371,3 +371,30 @@ class TestCaseTasksService:
         assert task.status == CaseTaskStatus.TODO
         assert task.assignee_id is None
         assert task.workflow_id is None
+
+    async def test_create_task_cross_workspace_isolation(
+        self,
+        session: AsyncSession,
+        test_case: Case,
+        task_create_params: CaseTaskCreate,
+    ) -> None:
+        """Test that creating a task for a case in a different workspace fails."""
+        # Create a different workspace and role
+        other_workspace = Workspace(name="Other Workspace")
+        session.add(other_workspace)
+        await session.commit()
+
+        other_role = Role(
+            workspace_id=other_workspace.id,
+            user_id=uuid.uuid4(),
+        )
+
+        # Create service with different workspace
+        other_service = CaseTasksService(session=session, role=other_role)
+
+        # Attempt to create task for a case in the original workspace
+        # This should fail with TracecatNotFoundError, not reveal that the case exists
+        with pytest.raises(
+            TracecatNotFoundError, match=f"Case {test_case.id} not found"
+        ):
+            await other_service.create_task(test_case.id, task_create_params)
