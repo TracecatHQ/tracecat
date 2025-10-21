@@ -222,7 +222,7 @@ export function WorkflowPanel({
       methods.clearErrors()
       await onSubmit(result.data)
     } else {
-      console.error("Validation failed:", result.error)
+      console.warn("Validation failed:", result.error)
       // Set form errors with field name and message
       Object.entries(result.error.formErrors.fieldErrors).forEach(
         ([fieldName, error]) => {
