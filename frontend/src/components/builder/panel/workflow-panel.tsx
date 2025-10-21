@@ -157,7 +157,9 @@ export function WorkflowPanel({
     [workspaceId]
   )
   const methods = useForm<WorkflowUpdateForm>({
-    resolver: zodResolver(workflowUpdateFormSchema),
+    resolver: zodResolver(workflowUpdateFormSchema, undefined, {
+      mode: "async",
+    }),
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
