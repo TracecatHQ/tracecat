@@ -981,15 +981,18 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
+    console.log("pagePath", pagePath)
     if (
       pagePath === "/cases/custom-fields" ||
       pagePath === "/cases/durations"
     ) {
+      console.log("returning cases actions")
       return {
         title: "Cases",
         actions: <CasesActions />,
       }
     }
+    console.log("returning case breadcrumb")
 
     // Check if this is a case detail page
     const caseMatch = pagePath.match(/^\/cases\/([^/]+)$/)
@@ -1125,7 +1128,9 @@ export function ControlsHeader({
   const pagePath = pathname
     ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
     : "/"
-  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+  const isCaseDetail = pagePath.match(
+    /^\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+  )
   const caseId = isCaseDetail ? isCaseDetail[1] : null
 
   const pageConfig = pathname
