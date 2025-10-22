@@ -1,0 +1,84 @@
+"""Add owner_id to case_fields table."""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+import sqlmodel.sql.sqltypes
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = "a6c2d9e7f5b1"
+down_revision: str | None = "d4fd132ccb50"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    # Step 1: Add the owner_id column to case_fields table as nullable initially
+    # This allows the column to be added without violating NOT NULL constraints
+    op.add_column(
+        "case_fields",
+        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=True),
+        schema="public",
+    )
+
+    # Step 2: Create an index on the owner_id column for better query performance
+    # This will speed up lookups and joins on the owner_id field
+    op.create_index(
+        op.f("ix_case_fields_owner_id"),
+        "case_fields",
+        ["owner_id"],
+        unique=False,
+        schema="public",
+    )
+
+    # Step 3: Create a foreign key constraint linking owner_id to workspace.id
+    # This ensures referential integrity and cascades deletes from workspace to case_fields
+    op.create_foreign_key(
+        "fk_case_fields_owner_id",
+        "case_fields",
+        "workspace",
+        ["owner_id"],
+        ["id"],
+        source_schema="public",
+        referent_schema="public",
+        ondelete="CASCADE",
+    )
+
+    # Step 4: Populate the new owner_id column with data from the related cases table
+    # This copies the owner_id from each case to all its associated case_fields
+    op.execute(
+        sa.text(
+            """
+            UPDATE public.case_fields AS cf
+            SET owner_id = c.owner_id
+            FROM public.cases AS c
+            WHERE cf.case_id = c.id
+            """
+        )
+    )
+
+    # Step 5: Make the owner_id column NOT NULL after populating it with data
+    # This ensures data integrity going forward - all case_fields must have an owner
+    op.alter_column(
+        "case_fields",
+        "owner_id",
+        nullable=False,
+        schema="public",
+    )
+
+
+def downgrade() -> None:
+    # Step 1: Remove the foreign key constraint first (dependencies must be removed before columns)
+    op.drop_constraint("fk_case_fields_owner_id", "case_fields", schema="public")
+
+    # Step 2: Remove the index on owner_id column
+    op.drop_index(
+        op.f("ix_case_fields_owner_id"),
+        table_name="case_fields",
+        schema="public",
+    )
+
+    # Step 3: Finally, drop the owner_id column entirely
+    # This removes all owner_id data and the column structure
+    op.drop_column("case_fields", "owner_id", schema="public")

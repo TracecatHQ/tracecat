@@ -60,9 +60,13 @@ from tracecat.db.schemas import (
     CaseTask,
     User,
 )
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import WorkspaceUUID,WorkflowUUID
 from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
+from tracecat.tables.service import (
+    TableEditorService,
+    TablesService,
+    sanitize_identifier,
+)
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
@@ -660,101 +664,140 @@ class CasesService(BaseWorkspaceService):
 
 
 class CaseFieldsService(BaseWorkspaceService):
-    """Service that manages the fields table."""
+    """Service that manages workspace-specific case fields."""
 
     service_name = "case_fields"
     _table = CaseFields.__tablename__
-    _schema = "public"
+    _schema_prefix = "case_fields_"
+    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
+        self._workspace_uuid = WorkspaceUUID.new(self.workspace_id)
+        self.schema_name = self._get_schema_name()
+        self._schema_initialized = False
+        self._sanitized_table = sanitize_identifier(self._table)
         self.editor = TableEditorService(
             session=self.session,
             role=self.role,
             table_name=self._table,
-            schema_name=self._schema,
+            schema_name=self.schema_name,
         )
+
+    def _get_schema_name(self) -> str:
+        """Generate the schema name for this workspace."""
+        return f"{self._schema_prefix}{self._workspace_uuid.short()}"
+
+    def _workspace_table(self) -> str:
+        """Fully qualified workspace table name."""
+        return f'"{self.schema_name}".{self._sanitized_table}'
+
+    async def initialize_workspace_schema(self) -> None:
+        """Create the workspace schema and base case_fields table if absent."""
+        conn = await self.session.connection()
+        await conn.execute(sa.DDL(f'CREATE SCHEMA IF NOT EXISTS "{self.schema_name}"'))
+        await conn.execute(
+            sa.text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._workspace_table()} (
+                    id UUID PRIMARY KEY,
+                    case_id UUID UNIQUE NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_case_fields_case
+                        FOREIGN KEY (case_id)
+                        REFERENCES public.cases(id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        self._schema_initialized = True
+
+    async def _ensure_schema_ready(self) -> None:
+        if self._schema_initialized:
+            return
+        await self.initialize_workspace_schema()
+
+    async def drop_workspace_schema(self) -> None:
+        """Drop the workspace schema and all contained objects."""
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(f'DROP SCHEMA IF EXISTS "{self.schema_name}" CASCADE')
+        )
+        self._schema_initialized = False
 
     async def list_fields(
         self,
     ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """List all case fields.
-
-        Returns:
-            The case fields
-        """
-
+        """List all case fields for the workspace."""
+        await self._ensure_schema_ready()
         return await self.editor.get_columns()
 
     async def create_field(self, params: CaseFieldCreate) -> None:
-        """Create a new case field.
-
-        Args:
-            params: The parameters for the field to create
-        """
-        params.nullable = True  # For now, all fields are nullable
+        """Create a new case field column."""
+        await self._ensure_schema_ready()
+        params.nullable = True  # Custom fields remain nullable by default
         await self.editor.create_column(params)
         await self.session.commit()
 
     async def update_field(self, field_id: str, params: CaseFieldUpdate) -> None:
-        """Update a case field.
-
-        Args:
-            field_id: The name of the field to update
-            params: The parameters for the field to update
-        """
+        """Update a case field column."""
+        await self._ensure_schema_ready()
         await self.editor.update_column(field_id, params)
         await self.session.commit()
 
     async def delete_field(self, field_id: str) -> None:
-        """Delete a case field.
-
-        Args:
-            field_id: The name of the field to delete
-        """
-        if field_id in CaseFields.model_fields:
+        """Delete a custom case field column."""
+        await self._ensure_schema_ready()
+        if field_id in self._reserved_columns:
             raise ValueError(f"Field {field_id} is a reserved field")
-
         await self.editor.delete_column(field_id)
         await self.session.commit()
 
-    async def get_fields(self, case: Case) -> dict[str, Any] | None:
-        """Get the fields for a case.
+    async def _ensure_workspace_row(self, case_fields: CaseFields) -> None:
+        """Ensure a workspace data row exists for the metadata record."""
+        await self._ensure_schema_ready()
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.text(
+                f"""
+                INSERT INTO {self._workspace_table()} (id, case_id)
+                VALUES (:id, :case_id)
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {"id": case_fields.id, "case_id": case_fields.case_id},
+        )
+        await self.session.flush()
 
-        Args:
-            case: The case to get fields for
-        """
+    async def get_fields(self, case: Case) -> dict[str, Any] | None:
+        """Retrieve custom field values for a case."""
         if case.fields is None:
             return None
+        await self._ensure_workspace_row(case.fields)
         return await self.editor.get_row(case.fields.id)
 
     async def create_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
-        """Add fields to a case. Non-transactional.
-
-        Args:
-            case: The case to add fields to
-            fields: The fields to add
-        """
-        # Create a new CaseFields record with case_id
-        case_fields = CaseFields(case_id=case.id)
+        """Add custom field values to a case."""
+        if case.owner_id is None:
+            raise TracecatException(
+                "Cannot create case fields without an owning workspace."
+            )
+        case_fields = CaseFields(case_id=case.id, owner_id=case.owner_id)
         self.session.add(case_fields)
-        await self.session.flush()  # Populate the ID
+        await self.session.flush()
+        await self._ensure_workspace_row(case_fields)
 
-        # This will use the created case_fields ID
         try:
             if fields:
-                # If fields provided, update the row with those values
                 res = await self.editor.update_row(row_id=case_fields.id, data=fields)
                 await self.session.flush()
                 return res
-            else:
-                # If no fields provided, just get the row to return defaults
-                res = await self.editor.get_row(row_id=case_fields.id)
-                return res
+            return await self.editor.get_row(row_id=case_fields.id)
         except TracecatNotFoundError as e:
-            # This happens when UPDATE/SELECT finds no row - shouldn't occur after INSERT
             self.logger.error(
                 "Case fields row not found after creation",
                 case_fields_id=case_fields.id,
@@ -762,14 +805,13 @@ class CaseFieldsService(BaseWorkspaceService):
                 fields=fields,
                 error=str(e),
             )
-            # Extract field names for better error message
             field_names = list(fields.keys()) if fields else []
             field_info = (
                 f" Fields attempted: {', '.join(field_names)}." if field_names else ""
             )
             raise TracecatException(
-                f"Failed to save custom field values for case. The field row was created but could not be updated.{field_info} "
-                "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+                "Failed to save custom field values for case. The field row was created but could not be updated."
+                f"{field_info} Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
             ) from e
         except ProgrammingError as e:
             while cause := e.__cause__:
@@ -783,12 +825,8 @@ class CaseFieldsService(BaseWorkspaceService):
             ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
-        """Update a case field value. Non-transactional.
-
-        Args:
-            id: The id of the case field to update
-            fields: The fields to update
-        """
+        """Update existing custom field values."""
+        await self._ensure_schema_ready()
         try:
             await self.editor.update_row(id, fields)
         except ProgrammingError as e:

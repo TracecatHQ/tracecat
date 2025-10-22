@@ -789,6 +789,7 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
 
     __tablename__: str = "case_fields"
     model_config = ConfigDict(extra="allow")  # type: ignore
+    __table_args__ = (UniqueConstraint("case_id"),)
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -797,12 +798,20 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
         unique=True,
         index=True,
     )
+    owner_id: OwnerID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("workspace.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
     # Add required foreign key to Case
     case_id: uuid.UUID = Field(
         sa_column=Column(
             UUID,
             ForeignKey("cases.id", ondelete="CASCADE"),
-            unique=True,  # Ensures one-to-one
+            unique=True,
             nullable=False,  # Ensures CaseFields must have a Case
         )
     )
