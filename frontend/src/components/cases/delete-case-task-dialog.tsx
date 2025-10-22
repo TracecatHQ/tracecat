@@ -19,6 +19,7 @@ interface DeleteCaseTaskDialogProps {
   task: CaseTaskRead | null
   caseId: string
   workspaceId: string
+  onDeleteSuccess?: () => void
 }
 
 export function DeleteCaseTaskDialog({
@@ -27,6 +28,7 @@ export function DeleteCaseTaskDialog({
   task,
   caseId,
   workspaceId,
+  onDeleteSuccess,
 }: DeleteCaseTaskDialogProps) {
   const { deleteTask, deleteTaskIsPending } = useDeleteCaseTask({
     caseId,
@@ -40,6 +42,7 @@ export function DeleteCaseTaskDialog({
     deleteTask(undefined, {
       onSuccess: () => {
         onOpenChange(false)
+        onDeleteSuccess?.()
       },
     })
   }

@@ -369,6 +369,7 @@ export function CaseTaskDialog({
         task={task}
         caseId={caseId}
         workspaceId={workspaceId}
+        onDeleteSuccess={() => onOpenChange(false)}
       />
     </Dialog>
   )
