@@ -1,9 +1,13 @@
+import logging
 import os
 import uuid
 from typing import Literal
 
 from tracecat.auth.enums import AuthType
 from tracecat.feature_flags.enums import FeatureFlag
+
+# === Logger === #
+logger = logging.getLogger(__name__)
 
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
@@ -442,11 +446,16 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
 """Whether the enterprise edition is enabled."""
 
 # === Feature Flags === #
-TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = {
-    FeatureFlag(f)
-    for flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(",")
-    if (f := flag.strip())
-}
+TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
+for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
+    if not (_flag_value := _flag.strip()):
+        continue
+    try:
+        TRACECAT__FEATURE_FLAGS.add(FeatureFlag(_flag_value))
+    except ValueError:
+        logger.warning(
+            "Ignoring unknown feature flag '%s' from TRACECAT__FEATURE_FLAGS", _flag_value
+        )
 """Set of enabled feature flags."""
 
 
