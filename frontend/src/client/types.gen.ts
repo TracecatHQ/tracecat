@@ -797,6 +797,12 @@ export type CaseEventRead =
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
   | PayloadChangedEventRead
+  | TaskCreatedEventRead
+  | TaskStatusChangedEventRead
+  | TaskPriorityChangedEventRead
+  | TaskWorkflowChangedEventRead
+  | TaskDeletedEventRead
+  | TaskAssigneeChangedEventRead
 
 /**
  * Case activity type values.
@@ -814,6 +820,12 @@ export type CaseEventType =
   | "attachment_created"
   | "attachment_deleted"
   | "payload_changed"
+  | "task_created"
+  | "task_deleted"
+  | "task_status_changed"
+  | "task_priority_changed"
+  | "task_workflow_changed"
+  | "task_assignee_changed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -3928,6 +3940,140 @@ export type TagUpdate = {
    * Hex color code
    */
   color?: string | null
+}
+
+/**
+ * Event for when a task assignee is changed.
+ */
+export type TaskAssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_assignee_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is created for a case.
+ */
+export type TaskCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_created"
+  task_id: string
+  title: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is deleted for a case.
+ */
+export type TaskDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_deleted"
+  task_id: string
+  title?: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task priority is changed.
+ */
+export type TaskPriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_priority_changed"
+  task_id: string
+  title: string
+  old: CasePriority
+  new: CasePriority
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task status is changed.
+ */
+export type TaskStatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_status_changed"
+  task_id: string
+  title: string
+  old: CaseTaskStatus
+  new: CaseTaskStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task workflow is changed.
+ */
+export type TaskWorkflowChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_workflow_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type TemplateAction_Input = {

@@ -2528,6 +2528,24 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/PayloadChangedEventRead",
     },
+    {
+      $ref: "#/components/schemas/TaskCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskStatusChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskPriorityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskWorkflowChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskDeletedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskAssigneeChangedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -2546,6 +2564,15 @@ export const $CaseEventRead = {
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
+      task_assignee_changed:
+        "#/components/schemas/TaskAssigneeChangedEventRead",
+      task_created: "#/components/schemas/TaskCreatedEventRead",
+      task_deleted: "#/components/schemas/TaskDeletedEventRead",
+      task_priority_changed:
+        "#/components/schemas/TaskPriorityChangedEventRead",
+      task_status_changed: "#/components/schemas/TaskStatusChangedEventRead",
+      task_workflow_changed:
+        "#/components/schemas/TaskWorkflowChangedEventRead",
     },
   },
 } as const
@@ -2565,6 +2592,12 @@ export const $CaseEventType = {
     "attachment_created",
     "attachment_deleted",
     "payload_changed",
+    "task_created",
+    "task_deleted",
+    "task_status_changed",
+    "task_priority_changed",
+    "task_workflow_changed",
+    "task_assignee_changed",
   ],
   title: "CaseEventType",
   description: "Case activity type values.",
@@ -11434,6 +11467,417 @@ export const $TagUpdate = {
   type: "object",
   title: "TagUpdate",
   description: "Model for updating existing tags with validation.",
+} as const
+
+export const $TaskAssigneeChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_assignee_changed",
+      title: "Type",
+      default: "task_assignee_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskAssigneeChangedEventRead",
+  description: "Event for when a task assignee is changed.",
+} as const
+
+export const $TaskCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_created",
+      title: "Type",
+      default: "task_created",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "created_at"],
+  title: "TaskCreatedEventRead",
+  description: "Event for when a task is created for a case.",
+} as const
+
+export const $TaskDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_deleted",
+      title: "Type",
+      default: "task_deleted",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "created_at"],
+  title: "TaskDeletedEventRead",
+  description: "Event for when a task is deleted for a case.",
+} as const
+
+export const $TaskPriorityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_priority_changed",
+      title: "Type",
+      default: "task_priority_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    new: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskPriorityChangedEventRead",
+  description: "Event for when a task priority is changed.",
+} as const
+
+export const $TaskStatusChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_status_changed",
+      title: "Type",
+      default: "task_status_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskStatusChangedEventRead",
+  description: "Event for when a task status is changed.",
+} as const
+
+export const $TaskWorkflowChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_workflow_changed",
+      title: "Type",
+      default: "task_workflow_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskWorkflowChangedEventRead",
+  description: "Event for when a task workflow is changed.",
 } as const
 
 export const $TemplateAction_Input = {

@@ -18,6 +18,12 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TaskAssigneeChangedEvent,
+  TaskCreatedEvent,
+  TaskDeletedEvent,
+  TaskPriorityChangedEvent,
+  TaskStatusChangedEvent,
+  TaskWorkflowChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
 import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -91,6 +97,30 @@ function ActivityFeedEvent({
         {/* Assignee events */}
         {event.type === "assignee_changed" && (
           <AssigneeChangedEvent event={event} actor={actor} userMap={users} />
+        )}
+
+        {/* Task events */}
+        {event.type === "task_created" && (
+          <TaskCreatedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_deleted" && (
+          <TaskDeletedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_status_changed" && (
+          <TaskStatusChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_priority_changed" && (
+          <TaskPriorityChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_workflow_changed" && (
+          <TaskWorkflowChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_assignee_changed" && (
+          <TaskAssigneeChangedEvent
+            event={event}
+            actor={actor}
+            userMap={users}
+          />
         )}
 
         {/* Attachment events */}

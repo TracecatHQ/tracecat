@@ -36,6 +36,7 @@ from tracecat.cases.models import (
     CaseTaskRead,
     CaseTaskUpdate,
     CaseUpdate,
+    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -590,6 +591,11 @@ async def list_events_with_users(
         )
         root_evt = evt.root
         if isinstance(root_evt, AssigneeChangedEventRead):
+            if root_evt.old is not None:
+                user_ids.add(root_evt.old)
+            if root_evt.new is not None:
+                user_ids.add(root_evt.new)
+        if isinstance(root_evt, TaskAssigneeChangedEventRead):
             if root_evt.old is not None:
                 user_ids.add(root_evt.old)
             if root_evt.new is not None:

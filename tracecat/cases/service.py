@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from tracecat.auth.models import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -39,6 +41,12 @@ from tracecat.cases.models import (
     ReopenedEvent,
     SeverityChangedEvent,
     StatusChangedEvent,
+    TaskAssigneeChangedEvent,
+    TaskCreatedEvent,
+    TaskDeletedEvent,
+    TaskPriorityChangedEvent,
+    TaskStatusChangedEvent,
+    TaskWorkflowChangedEvent,
     UpdatedEvent,
 )
 from tracecat.cases.tags.models import CaseTagRead
@@ -910,6 +918,46 @@ class CaseEventsService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
+        self._enum_checked: bool = False
+
+    async def _ensure_event_enum_values(self) -> None:
+        """Ensure new CaseEventType enum values exist in PostgreSQL enum.
+
+        Avoids migration by adding missing enum labels at runtime. Safe to call
+        multiple times; uses IF NOT EXISTS per value.
+        """
+        if self._enum_checked:
+            return
+
+        # Fetch existing enum labels for type 'caseeventtype'
+        result = await self.session.exec(
+            sa.text(
+                """
+                SELECT e.enumlabel
+                FROM pg_type t
+                JOIN pg_enum e ON t.oid = e.enumtypid
+                WHERE t.typname = 'caseeventtype'
+                """
+            )
+        )
+        existing = {row[0] for row in result.fetchall()}
+
+        # Compute desired labels from Python Enum names (Postgres stores names)
+        desired = {member.name for member in CaseEventType}
+        missing = [label for label in desired if label not in existing]
+
+        safe_label_pattern = re.compile(r"^[A-Z_]+$")
+        for label in missing:
+            # Basic safety: enum labels are UPPER_CASE_WITH_UNDERSCORES
+            if not safe_label_pattern.fullmatch(label):
+                continue
+            ddl = sa.text(f"ALTER TYPE caseeventtype ADD VALUE IF NOT EXISTS '{label}'")
+            await self.session.exec(ddl)
+        if missing:
+            # Must commit before using new enum values
+            await self.session.commit()
+        # Mark as checked for this service instance
+        self._enum_checked = True
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
@@ -928,6 +976,9 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
         """
+        # Ensure enum values exist before inserting
+        await self._ensure_event_enum_values()
+
         db_event = CaseEvent(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -1031,6 +1082,21 @@ class CaseTasksService(BaseWorkspaceService):
             workflow_id=workflow_uuid,
         )
         self.session.add(task)
+        # Flush to get task ID before emitting event
+        await self.session.flush()
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        # Emit task created event
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+        await events_svc.create_event(
+            case=case,
+            event=TaskCreatedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
+            ),
+        )
+
         await self.session.commit()
         await self.session.refresh(task)
         return task
@@ -1050,27 +1116,99 @@ class CaseTasksService(BaseWorkspaceService):
         """
         task = await self.get_task(task_id)
 
-        # Update only provided fields
-        if params.title is not None:
-            task.title = params.title
-        if params.description is not None:
-            task.description = params.description
-        if params.priority is not None:
-            task.priority = params.priority
-        if params.status is not None:
-            task.status = params.status
-        if params.assignee_id is not None:
-            task.assignee_id = params.assignee_id
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
 
-        # Handle workflow_id separately to allow clearing (setting to None)
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Update only provided fields and emit events
+        set_fields = params.model_dump(exclude_unset=True)
+
+        # Status change
+        if (new_status := set_fields.pop("status", None)) is not None:
+            old_status = task.status
+            if old_status != new_status:
+                task.status = new_status
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskStatusChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_status,
+                        new=new_status,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Assignee change
+        if (new_assignee := set_fields.pop("assignee_id", None)) is not None:
+            old_assignee = task.assignee_id
+            if old_assignee != new_assignee:
+                task.assignee_id = new_assignee
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskAssigneeChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_assignee,
+                        new=new_assignee,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Priority change
+        if (new_priority := set_fields.pop("priority", None)) is not None:
+            old_priority = task.priority
+            if old_priority != new_priority:
+                task.priority = new_priority
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskPriorityChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_priority,
+                        new=new_priority,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Workflow change - handle separately to allow clearing (setting to None)
         # Check if the field was provided in the update payload using model_fields_set
         if "workflow_id" in params.model_fields_set:
+            old_wfid = task.workflow_id
+            new_wfid = None
             if params.workflow_id is not None:
                 # Convert workflow_id from AnyWorkflowID to UUID
-                task.workflow_id = uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
-            else:
-                # Explicitly set to None to clear the workflow
-                task.workflow_id = None
+                new_wfid = uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
+
+            if old_wfid != new_wfid:
+                task.workflow_id = new_wfid
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskWorkflowChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_wfid,
+                        new=new_wfid,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Title and description - update silently without events
+        if (new_title := set_fields.pop("title", None)) is not None:
+            task.title = new_title
+
+        if (new_desc := set_fields.pop("description", None)) is not None:
+            task.description = new_desc
 
         await self.session.commit()
         await self.session.refresh(task)
@@ -1086,5 +1224,28 @@ class CaseTasksService(BaseWorkspaceService):
             TracecatNotFoundError: If the task is not found
         """
         task = await self.get_task(task_id)
+
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Emit delete event before deleting to capture title
+        await events_svc.create_event(
+            case=case,
+            event=TaskDeletedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
+            ),
+        )
+
         await self.session.delete(task)
         await self.session.commit()

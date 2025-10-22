@@ -1,13 +1,20 @@
 "use client"
 
 import { Check, Loader2, Play, XCircle } from "lucide-react"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { CaseTaskRead } from "@/client"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import {
   useCompactWorkflowExecution,
   useCreateManualWorkflowExecution,
+  useWorkflowExecution,
 } from "@/lib/hooks"
 
 interface TaskWorkflowStatusProps {
@@ -24,6 +31,7 @@ export function TaskWorkflowStatus({
   onExecutionStart,
 }: TaskWorkflowStatusProps) {
   const { toast } = useToast()
+  const [tooltipOpen, setTooltipOpen] = useState(false)
 
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(task.workflow_id || "")
@@ -31,13 +39,18 @@ export function TaskWorkflowStatus({
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId || undefined)
 
+  const shouldFetch =
+    tooltipOpen && execution?.status === "COMPLETED" && !!executionId
+  const { execution: fullExecution } = useWorkflowExecution(
+    shouldFetch ? encodeURIComponent(executionId!) : ""
+  )
+
   const prevStatusRef = useRef<string | undefined>()
 
   useEffect(() => {
     if (!execution) {
       return
     }
-
     const prevStatus = prevStatusRef.current
     const currentStatus = execution.status
 
@@ -83,19 +96,62 @@ export function TaskWorkflowStatus({
     }
   }, [task.workflow_id, task.id, createExecution, toast, onExecutionStart])
 
-  if (createExecutionIsPending || executionIsLoading) {
-    return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-  }
-
-  if (execution?.status === "RUNNING") {
+  if (
+    createExecutionIsPending ||
+    executionIsLoading ||
+    execution?.status === "RUNNING"
+  ) {
     return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
   }
 
   if (execution?.status === "COMPLETED") {
+    const completedActivityEvents =
+      fullExecution?.events?.filter(
+        (event) => event.event_type === "ACTIVITY_TASK_COMPLETED"
+      ) || []
+
+    const lastActivityEvent =
+      completedActivityEvents.length > 0
+        ? completedActivityEvents.reduce((latest, current) =>
+            current.event_id > latest.event_id ? current : latest
+          )
+        : null
+
+    const result = lastActivityEvent?.result
+    const actionTitle = lastActivityEvent?.event_group?.action_title
+
     return (
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500">
-        <Check className="h-3 w-3 text-white" />
-      </span>
+      <TooltipProvider>
+        <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500 cursor-pointer"
+              onClick={(e) => e.preventDefault()}
+            >
+              <Check className="h-3 w-3 text-white" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent
+            side="left"
+            className="max-w-sm max-h-64 overflow-hidden bg-white border border-border shadow-lg"
+          >
+            {result !== null && result !== undefined ? (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-foreground">
+                  {actionTitle ? `${actionTitle} result:` : "Result:"}
+                </div>
+                <pre className="text-xs overflow-auto max-h-48 bg-muted/30 p-2 rounded border border-border text-foreground">
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                No result available
+              </div>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     )
   }
 

@@ -338,7 +338,83 @@ class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
 
 
-# aevents for assignee changes for tasks, priority changes for tasks, status changes for tasks, etc.
+# Task Events
+
+
+class TaskCreatedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_CREATED] = CaseEventType.TASK_CREATED
+    task_id: uuid.UUID
+    title: str
+
+
+class TaskDeletedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_DELETED] = CaseEventType.TASK_DELETED
+    task_id: uuid.UUID
+    title: str | None = None
+
+
+class TaskAssigneeChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_ASSIGNEE_CHANGED] = (
+        CaseEventType.TASK_ASSIGNEE_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: uuid.UUID | None
+    new: uuid.UUID | None
+
+
+class TaskStatusChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_STATUS_CHANGED] = CaseEventType.TASK_STATUS_CHANGED
+    task_id: uuid.UUID
+    title: str
+    old: CaseTaskStatus
+    new: CaseTaskStatus
+
+
+class TaskPriorityChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_PRIORITY_CHANGED] = (
+        CaseEventType.TASK_PRIORITY_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: CasePriority
+    new: CasePriority
+
+
+class TaskWorkflowChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_WORKFLOW_CHANGED] = (
+        CaseEventType.TASK_WORKFLOW_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: AnyWorkflowID | None
+    new: AnyWorkflowID | None
+
+
+class TaskCreatedEventRead(CaseEventReadBase, TaskCreatedEvent):
+    """Event for when a task is created for a case."""
+
+
+class TaskDeletedEventRead(CaseEventReadBase, TaskDeletedEvent):
+    """Event for when a task is deleted for a case."""
+
+
+class TaskAssigneeChangedEventRead(CaseEventReadBase, TaskAssigneeChangedEvent):
+    """Event for when a task assignee is changed."""
+
+
+class TaskStatusChangedEventRead(CaseEventReadBase, TaskStatusChangedEvent):
+    """Event for when a task status is changed."""
+
+
+class TaskPriorityChangedEventRead(CaseEventReadBase, TaskPriorityChangedEvent):
+    """Event for when a task priority is changed."""
+
+
+class TaskWorkflowChangedEventRead(CaseEventReadBase, TaskWorkflowChangedEvent):
+    """Event for when a task workflow is changed."""
+
+
 # Type unions
 type CaseEventVariant = Annotated[
     CreatedEvent
@@ -352,7 +428,13 @@ type CaseEventVariant = Annotated[
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
     | AttachmentDeletedEvent
-    | PayloadChangedEvent,
+    | PayloadChangedEvent
+    | TaskCreatedEvent
+    | TaskStatusChangedEvent
+    | TaskDeletedEvent
+    | TaskAssigneeChangedEvent
+    | TaskPriorityChangedEvent
+    | TaskWorkflowChangedEvent,
     Field(discriminator="type"),
 ]
 
@@ -373,6 +455,12 @@ class CaseEventRead(RootModel):
         | AttachmentCreatedEventRead
         | AttachmentDeletedEventRead
         | PayloadChangedEventRead
+        | TaskCreatedEventRead
+        | TaskStatusChangedEventRead
+        | TaskPriorityChangedEventRead
+        | TaskWorkflowChangedEventRead
+        | TaskDeletedEventRead
+        | TaskAssigneeChangedEventRead
     ) = Field(discriminator="type")
 
 

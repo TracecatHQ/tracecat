@@ -72,6 +72,12 @@ class CaseEventType(StrEnum):
     ATTACHMENT_CREATED = "attachment_created"
     ATTACHMENT_DELETED = "attachment_deleted"
     PAYLOAD_CHANGED = "payload_changed"
+    TASK_CREATED = "task_created"
+    TASK_DELETED = "task_deleted"
+    TASK_STATUS_CHANGED = "task_status_changed"
+    TASK_PRIORITY_CHANGED = "task_priority_changed"
+    TASK_WORKFLOW_CHANGED = "task_workflow_changed"
+    TASK_ASSIGNEE_CHANGED = "task_assignee_changed"
 
 
 class CaseTaskStatus(StrEnum):
