@@ -1863,7 +1863,11 @@ export type ExpressionValidationResponse = {
 /**
  * Feature flag enum.
  */
-export type FeatureFlag = "git-sync" | "agent-sandbox" | "runbooks"
+export type FeatureFlag =
+  | "git-sync"
+  | "agent-sandbox"
+  | "runbooks"
+  | "case-durations"
 
 /**
  * Response model for feature flags.

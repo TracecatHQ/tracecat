@@ -227,7 +227,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
     app.include_router(case_attachments_router)
-    app.include_router(case_durations_router)
+    app.include_router(
+        case_durations_router,
+        dependencies=[Depends(feature_flag_dep("case-durations"))],
+    )
     app.include_router(case_records_router)
     app.include_router(chat_router)
     app.include_router(
