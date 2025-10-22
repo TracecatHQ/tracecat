@@ -446,16 +446,25 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
 """Whether the enterprise edition is enabled."""
 
 # === Feature Flags === #
-TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
-for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
-    if not (_flag_value := _flag.strip()):
-        continue
-    try:
-        TRACECAT__FEATURE_FLAGS.add(FeatureFlag(_flag_value))
-    except ValueError:
-        logger.warning(
-            "Ignoring unknown feature flag '%s' from TRACECAT__FEATURE_FLAGS", _flag_value
-        )
+def _load_feature_flags() -> set[FeatureFlag]:
+    """Parse the configured feature flags while ignoring unknown values."""
+
+    flags: set[FeatureFlag] = set()
+    raw_flags = os.environ.get("TRACECAT__FEATURE_FLAGS", "")
+    for raw_flag in raw_flags.split(","):
+        if not (flag_value := raw_flag.strip()):
+            continue
+        try:
+            flags.add(FeatureFlag(flag_value))
+        except ValueError:
+            logger.warning(
+                "Ignoring unknown feature flag '%s' from TRACECAT__FEATURE_FLAGS",
+                flag_value,
+            )
+    return flags
+
+
+TRACECAT__FEATURE_FLAGS = _load_feature_flags()
 """Set of enabled feature flags."""
 
 
