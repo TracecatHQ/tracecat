@@ -848,7 +848,7 @@ def test_flatten_json_string_input(input_str: str, expected: dict[str, Any]) -> 
 )
 def test_flatten_json_errors(input_json: str, error_match: str) -> None:
     """Test flatten_json error cases."""
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError, match=error_match):
         flatten_json(input_json)
 
 
