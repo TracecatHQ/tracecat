@@ -33,7 +33,6 @@ const caseUpdateActions = [
   "core__cases__create_comment",
 ]
 
-
 const assistantMarkdownStyle =
   "text-sm max-w-full text-foreground dark:prose-invert"
 
@@ -134,7 +133,6 @@ export function Messages({
         queryKey: ["case-comments", entityId, workspaceId],
       })
     }
-
   }, [messages, entityType, entityId, workspaceId, queryClient])
 
   return (

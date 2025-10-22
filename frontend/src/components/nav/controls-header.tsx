@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { CaseStatus, EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
