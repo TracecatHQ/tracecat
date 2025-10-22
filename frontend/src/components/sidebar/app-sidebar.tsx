@@ -3,7 +3,6 @@
 import {
   BoxIcon,
   KeyRoundIcon,
-  ListTodoIcon,
   type LucideIcon,
   ShapesIcon,
   SquareStackIcon,
@@ -32,7 +31,6 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -45,7 +43,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const params = useParams<{ caseId?: string }>()
   const { setOpen: setSidebarOpen } = useSidebar()
   const setSidebarOpenRef = useRef(setSidebarOpen)
-  const { isFeatureEnabled } = useFeatureFlag()
   const basePath = `/workspaces/${workspaceId}`
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
@@ -84,13 +81,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/cases`,
       icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
-    },
-    {
-      title: "Runbooks",
-      url: `${basePath}/runbooks`,
-      icon: ListTodoIcon,
-      isActive: pathname?.startsWith(`${basePath}/runbooks`),
-      visible: isFeatureEnabled("runbooks"),
     },
   ]
 

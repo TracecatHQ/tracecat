@@ -20,11 +20,10 @@ from tracecat.chat.models import (
     VercelChatRequest,
 )
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.schemas import Case, Chat, Runbook
+from tracecat.db.schemas import Case, Chat
 from tracecat.db.schemas import ChatMessage as DBChatMessage
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.runbook.prompts import RunbookCopilotPrompts
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -76,25 +75,12 @@ class ChatService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case with ID {case_id} not found")
         return case
 
-    async def _get_runbook(self, runbook_id: uuid.UUID) -> Runbook | None:
-        """Get a runbook by ID. Can be None if not found."""
-        stmt = select(Runbook).where(
-            Runbook.id == runbook_id,
-            Runbook.owner_id == self.workspace_id,
-        )
-        result = await self.session.exec(stmt)
-        runbook = result.first()
-        return runbook
-
     async def _chat_entity_to_prompt(self, entity_type: str, chat: Chat) -> str:
         """Get the prompt for a given entity type."""
 
         if entity_type == ChatEntity.CASE:
             case = await self._get_case(chat.entity_id)
             return CaseCopilotPrompts(case=case).instructions
-        elif entity_type == ChatEntity.RUNBOOK:
-            runbook = await self._get_runbook(chat.entity_id)
-            return RunbookCopilotPrompts(runbook=runbook).instructions
         else:
             raise ValueError(
                 f"Unsupported chat entity type: {entity_type}. Expected one of: {list(ChatEntity)}"

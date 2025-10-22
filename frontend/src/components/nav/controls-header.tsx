@@ -89,15 +89,12 @@ import {
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
-import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
-  useGetRunbook,
   useGetTable,
   useIntegrationProvider,
   useUpdateCase,
@@ -631,45 +628,6 @@ function EntitiesActions() {
   )
 }
 
-function RunbooksActions() {
-  const workspaceId = useWorkspaceId()
-  const router = useRouter()
-  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
-
-  const handleCreateRunbook = async () => {
-    try {
-      // Create a runbook without chat_id - backend will auto-generate title and content
-      const runbook = await createRunbook({})
-
-      // Navigate to the new runbook
-      router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
-    } catch (error) {
-      toast({
-        title: "Failed to create runbook",
-        description:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-7 bg-white"
-      onClick={handleCreateRunbook}
-      disabled={createRunbookPending}
-      title="Create runbooks"
-    >
-      <Plus className="mr-1 h-3.5 w-3.5" />
-      {createRunbookPending ? "Creating..." : "Add runbook"}
-    </Button>
-  )
-}
-
 function RecordsActions() {
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -886,36 +844,6 @@ function IntegrationBreadcrumb({
   )
 }
 
-function RunbookBreadcrumb({
-  runbookId,
-  workspaceId,
-}: {
-  runbookId: string
-  workspaceId: string
-}) {
-  const { data: runbook } = useGetRunbook({ workspaceId, runbookId })
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {runbook?.title || runbookId}
-          </BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  )
-}
-
 function EntityBreadcrumb({
   entityId,
   workspaceId,
@@ -963,10 +891,8 @@ function EntityBreadcrumb({
 function getPageConfig(
   pathname: string,
   workspaceId: string,
-  searchParams: ReturnType<typeof useSearchParams> | null,
-  options: { runbooksEnabled: boolean }
+  searchParams: ReturnType<typeof useSearchParams> | null
 ): PageConfig | null {
-  const { runbooksEnabled } = options
   const basePath = `/workspaces/${workspaceId}`
 
   // Remove base path to get the page route
@@ -1081,28 +1007,6 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/runbooks")) {
-    if (!runbooksEnabled) {
-      return null
-    }
-    // Check if this is a runbook detail page
-    const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
-    if (runbookMatch) {
-      const runbookId = runbookMatch[1]
-      return {
-        title: (
-          <RunbookBreadcrumb runbookId={runbookId} workspaceId={workspaceId} />
-        ),
-        // No actions for runbook detail pages
-      }
-    }
-
-    return {
-      title: "Runbooks",
-      actions: <RunbooksActions />,
-    }
-  }
-
   if (pagePath.startsWith("/records")) {
     return {
       title: "Records",
@@ -1120,8 +1024,6 @@ export function ControlsHeader({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
-  const { isFeatureEnabled } = useFeatureFlag()
-  const runbooksEnabled = isFeatureEnabled("runbooks")
   const pagePath = pathname
     ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
     : "/"
@@ -1129,9 +1031,7 @@ export function ControlsHeader({
   const caseId = isCaseDetail ? isCaseDetail[1] : null
 
   const pageConfig = pathname
-    ? getPageConfig(pathname, workspaceId, searchParams ?? null, {
-        runbooksEnabled,
-      })
+    ? getPageConfig(pathname, workspaceId, searchParams ?? null)
     : null
   const { caseData } = useGetCase(
     { caseId: caseId ?? "", workspaceId },

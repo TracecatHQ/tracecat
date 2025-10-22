@@ -5,7 +5,6 @@ class ChatEntity(StrEnum):
     """The type of entity associated with a chat."""
 
     CASE = "case"
-    RUNBOOK = "runbook"
 
 
 class MessageKind(StrEnum):

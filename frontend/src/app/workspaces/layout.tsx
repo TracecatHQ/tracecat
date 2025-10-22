@@ -89,12 +89,10 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{
     workflowId?: string
     caseId?: string
-    runbookId?: string
   }>()
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
-  const isRunbookDetail = !!params?.runbookId
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -116,11 +114,6 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   // Case detail pages have their own layout with dual SidebarInset
   if (isCaseDetail) {
-    return <>{children}</>
-  }
-
-  // Runbook detail pages have their own layout with chat sidebar
-  if (isRunbookDetail) {
     return <>{children}</>
   }
 

@@ -1139,7 +1139,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case" | "runbook"
+export type ChatEntity = "case"
 
 /**
  * Model for chat metadata with a single message.
@@ -1863,7 +1863,7 @@ export type ExpressionValidationResponse = {
 /**
  * Feature flag enum.
  */
-export type FeatureFlag = "git-sync" | "agent-sandbox" | "runbooks"
+export type FeatureFlag = "git-sync" | "agent-sandbox"
 
 /**
  * Response model for feature flags.
@@ -3259,110 +3259,6 @@ export type RunUsage = {
   }
   requests?: number
   tool_calls?: number
-}
-
-export type RunbookAlias_Input = string
-
-export type RunbookAlias_Output = string
-
-/**
- * Request model for creating a runbook.
- */
-export type RunbookCreate = {
-  /**
-   * ID of the chat to freeze into a runbook
-   */
-  chat_id?: string | null
-  /**
-   * Alias for the runbook
-   */
-  alias?: RunbookAlias_Input | null
-}
-
-/**
- * Request model for executing a runbook on cases.
- */
-export type RunbookExecuteRequest = {
-  /**
-   * IDs of the cases to execute the runbook on
-   */
-  case_ids: Array<string>
-}
-
-/**
- * Response model for executing a runbook on cases.
- */
-export type RunbookExecuteResponse = {
-  /**
-   * Mapping of case ID to stream URL
-   */
-  stream_urls: {
-    [key: string]: string
-  }
-}
-
-/**
- * Model for runbook details.
- */
-export type RunbookRead = {
-  /**
-   * Unique runbook identifier
-   */
-  id: string
-  /**
-   * Human-readable title for the runbook
-   */
-  title: string
-  /**
-   * The tools available to the agent for this runbook
-   */
-  tools: Array<string>
-  /**
-   * When the runbook was created
-   */
-  created_at: string
-  /**
-   * When the runbook was last updated
-   */
-  updated_at: string
-  /**
-   * The instructions for the runbook
-   */
-  instructions: string
-  /**
-   * The cases that the runbook is related to
-   */
-  related_cases: Array<string> | null
-  /**
-   * Alias for the runbook
-   */
-  alias?: RunbookAlias_Output | null
-}
-
-/**
- * Request model for updating runbook properties.
- */
-export type RunbookUpdate = {
-  /**
-   * New title for the runbook
-   */
-  title?: string | null
-  /**
-   * New tools for the runbook
-   */
-  tools?: Array<string> | null
-  /**
-   * New instructions for the runbook
-   */
-  instructions?: string | null
-  /**
-   * New related cases for the runbook
-   */
-  related_cases?: Array<string> | null
-  /**
-   * New alias for the runbook (must be unique within workspace)
-   */
-  alias?: RunbookAlias_Input | null
 }
 
 export type SAMLDatabaseLoginResponse = {
@@ -6572,69 +6468,6 @@ export type ChatStreamChatEventsResponse = Array<
   | BuiltinToolResultEvent
 >
 
-export type RunbookCreateRunbookData = {
-  requestBody: RunbookCreate
-  workspaceId: string
-}
-
-export type RunbookCreateRunbookResponse = RunbookRead
-
-export type RunbookListRunbooksData = {
-  /**
-   * Maximum number of runbooks to return
-   */
-  limit?: number
-  /**
-   * Sort order: 'asc' or 'desc'
-   */
-  order?: string
-  /**
-   * Field to sort by: 'created_at' or 'updated_at'
-   */
-  sortBy?: string
-  workspaceId: string
-}
-
-export type RunbookListRunbooksResponse = Array<RunbookRead>
-
-export type RunbookGetRunbookData = {
-  runbookId: string
-  workspaceId: string
-}
-
-export type RunbookGetRunbookResponse = RunbookRead
-
-export type RunbookUpdateRunbookData = {
-  requestBody: RunbookUpdate
-  runbookId: string
-  workspaceId: string
-}
-
-export type RunbookUpdateRunbookResponse = RunbookRead
-
-export type RunbookDeleteRunbookData = {
-  runbookId: string
-  workspaceId: string
-}
-
-export type RunbookDeleteRunbookResponse = void
-
-export type RunbookExecuteRunbookData = {
-  requestBody: RunbookExecuteRequest
-  runbookId: string
-  workspaceId: string
-}
-
-export type RunbookExecuteRunbookResponse = RunbookExecuteResponse
-
-export type RunbookStreamRunbookExecutionData = {
-  caseId: string
-  runbookId: string
-  workspaceId: string
-}
-
-export type RunbookStreamRunbookExecutionResponse = unknown
-
 export type FoldersGetDirectoryData = {
   /**
    * Folder path
@@ -9698,105 +9531,6 @@ export type $OpenApiTs = {
           | BuiltinToolCallEvent
           | BuiltinToolResultEvent
         >
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/runbooks": {
-    post: {
-      req: RunbookCreateRunbookData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RunbookRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: RunbookListRunbooksData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<RunbookRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/runbooks/{runbook_id}": {
-    get: {
-      req: RunbookGetRunbookData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RunbookRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: RunbookUpdateRunbookData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RunbookRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: RunbookDeleteRunbookData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/runbooks/{runbook_id}/execute": {
-    post: {
-      req: RunbookExecuteRunbookData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RunbookExecuteResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/runbooks/{runbook_id}/case/{case_id}/stream": {
-    get: {
-      req: RunbookStreamRunbookExecutionData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: unknown
         /**
          * Validation Error
          */

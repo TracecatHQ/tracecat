@@ -147,7 +147,7 @@ export function ChatInput({
           <ChatControls
             sendMessage={form.handleSubmit(handleMessageSubmit)}
             sendDisabled={disabled || isMessageEmpty}
-            toolsDisabled={disabled || entityType === "runbook"}
+            toolsDisabled={disabled}
             chatId={chatId}
           />
         </Form>
