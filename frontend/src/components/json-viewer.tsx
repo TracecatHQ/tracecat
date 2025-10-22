@@ -20,9 +20,7 @@ function isSimpleIdentifier(segment: string): boolean {
 }
 
 function quoteJsonPathKey(segment: string): string {
-  const escaped = String(segment)
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
+  const escaped = String(segment).replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return `"${escaped}"`
 }
 

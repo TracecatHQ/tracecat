@@ -492,6 +492,84 @@ def dict_values(x: dict[Any, Any]) -> list[Any]:
     return list(x.values())
 
 
+def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
+    """Return object with single level of fields (as jsonpath) and values.
+
+    Flattens nested dictionaries and lists into a single-level dictionary with
+    JSONPath-like keys. Uses dot notation for object keys and bracket notation
+    for array indices.
+
+    Args:
+        x: Dictionary or list to flatten
+        max_depth: Maximum recursion depth to prevent stack overflow (default: 100)
+
+    Returns:
+        Flattened dictionary with JSONPath-like keys
+
+    Raises:
+        ValueError: If max_depth is exceeded during flattening
+
+    Examples:
+        >>> flatten_dict({"a": {"b": 1}})
+        {"a.b": 1}
+        >>> flatten_dict({"items": [1, 2, 3]})
+        {"items[0]": 1, "items[1]": 2, "items[2]": 3}
+        >>> flatten_dict([{"a": 1}, {"b": 2}])
+        {"[0].a": 1, "[1].b": 2}
+        >>> flatten_dict({"a": {"b": {"c": 1}}}, max_depth=1)
+        ValueError: Maximum recursion depth (1) exceeded while flattening object
+    """
+
+    def _flatten(
+        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
+    ) -> dict[str, Any]:
+        if depth > max_depth:
+            raise ValueError(
+                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
+            )
+
+        result: dict[str, Any] = {}
+
+        # Handle arrays
+        if isinstance(obj, list):
+            for index, item in enumerate(obj):
+                array_path = f"[{index}]"
+                full_path = f"{prefix}{array_path}" if prefix else array_path
+
+                if isinstance(item, (dict, list)):
+                    result.update(_flatten(item, full_path, depth + 1))
+                else:
+                    result[full_path] = item
+            return result
+
+        # Handle dictionaries
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                # Build the path with dot notation
+                full_path = f"{prefix}.{key}" if prefix else key
+
+                if isinstance(value, dict):
+                    # Recursively flatten nested dicts
+                    result.update(_flatten(value, full_path, depth + 1))
+                elif isinstance(value, list):
+                    # Handle arrays within objects
+                    for index, item in enumerate(value):
+                        array_path = f"{full_path}[{index}]"
+                        if isinstance(item, (dict, list)):
+                            result.update(_flatten(item, array_path, depth + 1))
+                        else:
+                            result[array_path] = item
+                else:
+                    # Leaf value
+                    result[full_path] = value
+            return result
+
+        # Shouldn't reach here, but handle primitives
+        return {prefix: obj} if prefix else {"": obj}
+
+    return _flatten(x)
+
+
 def zip_map(x: list[str], y: list[str]) -> dict[str, str]:
     """Zip two arrays into list of key-value pairs, then convert into mapping."""
     return dict(zip(x, y, strict=False))
@@ -1049,6 +1127,7 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
+    "flatten_jsonpath": flatten_dict,
     "index_by_key": index_by_key,
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
