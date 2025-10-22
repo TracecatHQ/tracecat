@@ -10,6 +10,11 @@ definition:
     - type: oauth
       provider_id: microsoft_sentinel
       grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: client_credentials
+      optional: true
   expects:
     subscription_id:
       type: str
@@ -38,7 +43,7 @@ definition:
         url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents/${{ FN.url_encode(inputs.incident_id) }}/entities
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_sentinel.MICROSOFT_SENTINEL_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
         params:
           api-version: ${{ inputs.api_version }}
   returns: ${{ steps.list_entities.result.data }}
