@@ -37,6 +37,7 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CaseRecordsSection } from "@/components/cases/case-records-section"
+import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
@@ -946,6 +947,11 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     caseData={caseData}
                     updateCase={updateCase}
                   />
+                </div>
+
+                {/* Tasks Section */}
+                <div className="mb-6">
+                  <CaseTasksSection caseId={caseId} workspaceId={workspaceId} />
                 </div>
 
                 {/* Tabs using shadcn components */}

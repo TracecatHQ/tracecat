@@ -46,6 +46,7 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.models import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -623,7 +624,23 @@ async def list_tasks(
     """List all tasks for a case."""
     service = CaseTasksService(session, role)
     tasks = await service.list_tasks(case_id)
-    return [CaseTaskRead.model_validate(task, from_attributes=True) for task in tasks]
+    return [
+        CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=task.assignee,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
+        for task in tasks
+    ]
 
 
 @cases_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
@@ -638,7 +655,20 @@ async def create_task(
     service = CaseTasksService(session, role)
     try:
         task = await service.create_task(case_id, params)
-        return CaseTaskRead.model_validate(task, from_attributes=True)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=task.assignee,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -668,7 +698,20 @@ async def update_task(
         if existing.case_id != case_id:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
         task = await service.update_task(task_id, params)
-        return CaseTaskRead.model_validate(task, from_attributes=True)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=task.assignee,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
     except Exception as e:
         logger.exception(f"Failed to update task: {e}")
         raise HTTPException(

@@ -3231,7 +3231,11 @@ export const $CaseTaskCreate = {
       anyOf: [
         {
           type: "string",
-          format: "uuid",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
         },
         {
           type: "null",
@@ -3302,7 +3306,7 @@ export const $CaseTaskRead = {
       anyOf: [
         {
           type: "string",
-          format: "uuid",
+          pattern: "wf_[0-9a-zA-Z]+",
         },
         {
           type: "null",
@@ -3396,7 +3400,11 @@ export const $CaseTaskUpdate = {
       anyOf: [
         {
           type: "string",
-          format: "uuid",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
         },
         {
           type: "null",

@@ -17,6 +17,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
 )
 from tracecat.cases.tags.models import CaseTagRead
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
@@ -169,7 +170,7 @@ class CaseTaskRead(BaseModel):
     priority: CasePriority
     status: CaseTaskStatus
     assignee: UserRead | None = None
-    workflow_id: uuid.UUID | None
+    workflow_id: WorkflowIDShort | None
 
 
 class CaseTaskCreate(BaseModel):
@@ -178,7 +179,7 @@ class CaseTaskCreate(BaseModel):
     priority: CasePriority = Field(default=CasePriority.UNKNOWN)
     status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
     assignee_id: uuid.UUID | None = Field(default=None)
-    workflow_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
 
 
 class CaseTaskUpdate(BaseModel):
@@ -187,7 +188,7 @@ class CaseTaskUpdate(BaseModel):
     priority: CasePriority | None = Field(default=None)
     status: CaseTaskStatus | None = Field(default=None)
     assignee_id: uuid.UUID | None = Field(default=None)
-    workflow_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
 
 
 # Case Events
@@ -337,6 +338,7 @@ class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
 
 
+# aevents for assignee changes for tasks, priority changes for tasks, status changes for tasks, etc.
 # Type unions
 type CaseEventVariant = Annotated[
     CreatedEvent

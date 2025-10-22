@@ -53,6 +53,7 @@ from tracecat.db.schemas import (
     CaseTask,
     User,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
@@ -1012,6 +1013,13 @@ class CaseTasksService(BaseWorkspaceService):
         if not case:
             raise TracecatNotFoundError(f"Case {case_id} not found")
 
+        # Convert workflow_id from AnyWorkflowID to UUID
+        workflow_uuid = (
+            uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
+            if params.workflow_id
+            else None
+        )
+
         task = CaseTask(
             owner_id=self.workspace_id,
             case_id=case_id,
@@ -1020,7 +1028,7 @@ class CaseTasksService(BaseWorkspaceService):
             priority=params.priority,
             status=params.status,
             assignee_id=params.assignee_id,
-            workflow_id=params.workflow_id,
+            workflow_id=workflow_uuid,
         )
         self.session.add(task)
         await self.session.commit()
@@ -1053,8 +1061,16 @@ class CaseTasksService(BaseWorkspaceService):
             task.status = params.status
         if params.assignee_id is not None:
             task.assignee_id = params.assignee_id
-        if params.workflow_id is not None:
-            task.workflow_id = params.workflow_id
+
+        # Handle workflow_id separately to allow clearing (setting to None)
+        # Check if the field was provided in the update payload using model_fields_set
+        if "workflow_id" in params.model_fields_set:
+            if params.workflow_id is not None:
+                # Convert workflow_id from AnyWorkflowID to UUID
+                task.workflow_id = uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
+            else:
+                # Explicitly set to None to clear the workflow
+                task.workflow_id = None
 
         await self.session.commit()
         await self.session.refresh(task)
