@@ -751,8 +751,15 @@ class DSLWorkflow:
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
+        # Evaluate the workflow alias as a templated expression
+        evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
+        if not isinstance(evaluated_alias, str):
+            raise TypeError(
+                f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
+            )
+
         activity_inputs = ResolveWorkflowAliasActivityInputs(
-            workflow_alias=wf_alias, role=self.role
+            workflow_alias=evaluated_alias, role=self.role
         )
         wf_id = await workflow.execute_activity(
             WorkflowsManagementService.resolve_workflow_alias_activity,
@@ -761,7 +768,7 @@ class DSLWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not wf_id:
-            raise ValueError(f"Workflow alias {wf_alias} not found")
+            raise ValueError(f"Workflow alias {evaluated_alias!r} not found")
         return wf_id
 
     async def _get_workflow_definition(

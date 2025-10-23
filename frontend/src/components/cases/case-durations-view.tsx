@@ -1,11 +1,20 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Timer } from "lucide-react"
+import { ArrowUpRight, Lock, Timer } from "lucide-react"
 import { CaseDurationsTable } from "@/components/cases/case-durations-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { deleteCaseDurationDefinition } from "@/lib/case-durations"
 import { useCaseDurationDefinitions } from "@/lib/hooks"
@@ -15,12 +24,16 @@ export function CaseDurationsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
+  const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
 
   const {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
     caseDurationDefinitionsError,
-  } = useCaseDurationDefinitions(workspaceId)
+  } = useCaseDurationDefinitions(
+    workspaceId,
+    isFeatureEnabled("case-durations")
+  )
 
   const { mutateAsync: handleDelete, isPending: deleteIsPending } = useMutation(
     {
@@ -54,6 +67,48 @@ export function CaseDurationsView() {
     }
   )
 
+  // Check feature flag loading first - fastest check
+  if (featureFlagLoading) {
+    return <CenteredSpinner />
+  }
+
+  // Show enterprise-only message if feature is not enabled
+  // This shows immediately after feature flags load (~200ms)
+  if (!isFeatureEnabled("case-durations")) {
+    return (
+      <div className="size-full overflow-auto">
+        <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Lock />
+              </EmptyMedia>
+              <EmptyTitle>Enterprise only</EmptyTitle>
+              <EmptyDescription>
+                Case durations are only available on enterprise plans.
+              </EmptyDescription>
+            </EmptyHeader>
+            <Button
+              variant="link"
+              asChild
+              className="text-muted-foreground"
+              size="sm"
+            >
+              <a
+                href="https://tracecat.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more <ArrowUpRight />
+              </a>
+            </Button>
+          </Empty>
+        </div>
+      </div>
+    )
+  }
+
+  // Only check workspace and case durations loading if feature is enabled
   if (workspaceLoading || caseDurationDefinitionsIsLoading) {
     return <CenteredSpinner />
   }

@@ -1052,6 +1052,74 @@ async def test_child_workflow_alias_with_loop(
 
 
 @pytest.mark.anyio
+async def test_child_workflow_with_expression_alias(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    test_worker_factory: Callable[[Client], Worker],
+):
+    """Test that child workflows can be executed using expression-based aliases."""
+    test_name = test_child_workflow_with_expression_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Create child workflow with an alias
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias="expression_child"
+    )
+
+    assert child_workflow.alias == "expression_child"
+
+    # Parent workflow that resolves the alias from an expression
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can resolve child alias from expression",
+        entrypoint=DSLEntrypoint(ref="get_alias", expects={}),
+        actions=[
+            ActionStatement(
+                ref="get_alias",
+                action="core.transform.reshape",
+                args={
+                    "value": "expression_child",  # This will be the alias
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": "${{ ACTIONS.get_alias.result }}",  # Use expression
+                    "trigger_inputs": {
+                        "data": "Test data",
+                        "index": 42,
+                    },
+                },
+                depends_on=["get_alias"],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
+
+    # Verify the child workflow was called correctly
+    assert result == {"data": "Test data", "index": 42}
+
+
+@pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
     test_role, temporal_client, test_worker_factory
 ):

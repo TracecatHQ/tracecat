@@ -3299,7 +3299,10 @@ export function useCaseDurations({
   }
 }
 
-export function useCaseDurationDefinitions(workspaceId: string) {
+export function useCaseDurationDefinitions(
+  workspaceId: string,
+  enabled = true
+) {
   const {
     data: caseDurationDefinitions,
     isLoading: caseDurationDefinitionsIsLoading,
@@ -3307,7 +3310,7 @@ export function useCaseDurationDefinitions(workspaceId: string) {
   } = useQuery<CaseDurationDefinitionRead[], Error>({
     queryKey: ["case-duration-definitions", workspaceId],
     queryFn: async () => await listCaseDurationDefinitions(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && enabled,
   })
 
   return {
