@@ -907,18 +907,15 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
-    console.log("pagePath", pagePath)
     if (
       pagePath === "/cases/custom-fields" ||
       pagePath === "/cases/durations"
     ) {
-      console.log("returning cases actions")
       return {
         title: "Cases",
         actions: <CasesActions />,
       }
     }
-    console.log("returning case breadcrumb")
 
     // Check if this is a case detail page
     const caseMatch = pagePath.match(/^\/cases\/([^/]+)$/)

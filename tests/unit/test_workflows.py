@@ -47,6 +47,7 @@ from tracecat.dsl.enums import (
     WaitStrategy,
 )
 from tracecat.dsl.models import (
+    ActionErrorInfoAdapter,
     ActionStatement,
     DSLConfig,
     ExecutionContext,
@@ -1666,6 +1667,8 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "type": "ExecutorClientError",
     "expr_context": "ACTIONS",
     "attempt": 1,
+    "stream_id": "<root>:0",
+    "children": None,
 }
 
 
@@ -2568,6 +2571,8 @@ def assert_error_handler_initiated_correctly(
                 ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
+                "stream_id": "<root>:0",
+                "children": None,
             }
         ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
@@ -4479,6 +4484,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
@@ -4486,6 +4493,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "error_typename": "list",
@@ -4584,6 +4593,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
@@ -4591,6 +4602,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "result_typename": "list",
@@ -4682,6 +4695,86 @@ async def test_workflow_scatter_gather(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_gather_error_strategy_raise(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+) -> None:
+    """Gather should fail-fast when configured with the raise error strategy."""
+
+    dsl = DSLInput(
+        title="Gather raise on errors",
+        description="Gather configured to raise when any scatter branch errors",
+        entrypoint=DSLEntrypoint(ref="scatter1"),
+        actions=[
+            ActionStatement(
+                ref="scatter1",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2]).model_dump(),
+            ),
+            ActionStatement(
+                ref="throw",
+                action="core.transform.reshape",
+                depends_on=["scatter1"],
+                run_if="${{ FN.mod(ACTIONS.scatter1.result, 2) == 1 }}",
+                args={"value": "${{ 1/0 }}"},
+            ),
+            ActionStatement(
+                ref="gather1",
+                action="core.transform.gather",
+                depends_on=["throw"],
+                args=GatherArgs(
+                    items="${{ ACTIONS.throw.result }}",
+                    error_strategy=StreamErrorHandlingStrategy.RAISE,
+                ).model_dump(),
+            ),
+        ],
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    wf_exec_id = generate_test_exec_id(
+        test_workflow_gather_error_strategy_raise.__name__
+    )
+
+    async with test_worker_factory(temporal_client):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Gather 'gather1' encountered" in str(cause)
+    assert cause.details, "ApplicationError should include gather error details"
+
+    # The details[0] is a dict mapping gather_ref to ActionErrorInfo
+    detail = cause.details[0]
+    assert isinstance(detail, Mapping)
+    assert "gather1" in detail, "Details should contain gather1 error"
+
+    # Validate the gather error structure (stream-aware)
+    gather_error = detail["gather1"]
+    validated_error = ActionErrorInfoAdapter.validate_python(gather_error)
+    assert validated_error.ref == "gather1", "Gather error ref should be gather1"
+    assert validated_error.stream_id == "<root>:0", (
+        "Gather error should have parent stream_id"
+    )
+    assert validated_error.children is not None, "Gather error should have children"
+
+    # Validate the child errors from scatter branches
+    children = validated_error.children
+    assert len(children) == 1, "Should have 1 error from scatter branch"
+    child_error = children[0]
+    assert child_error.ref == "throw", "Child error should be from 'throw' action"
 
 
 @pytest.mark.anyio
