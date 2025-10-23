@@ -1425,6 +1425,11 @@ class TestCoreSearchCasesWithDateFilters:
         updated_after = datetime.now(UTC) - timedelta(hours=1)
         updated_before = datetime.now(UTC) + timedelta(hours=1)
 
+        naive_start = start_time.replace(tzinfo=None)
+        naive_end = end_time.replace(tzinfo=None)
+        naive_updated_after = updated_after.replace(tzinfo=None)
+        naive_updated_before = updated_before.replace(tzinfo=None)
+
         # Call the search_cases function with date filters
         result = await search_cases(
             search_term="test",
@@ -1434,10 +1439,10 @@ class TestCoreSearchCasesWithDateFilters:
             limit=10,
             order_by="updated_at",
             sort="asc",
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
+            start_time=naive_start,
+            end_time=naive_end,
+            updated_after=naive_updated_after,
+            updated_before=naive_updated_before,
         )
 
         # Assert search_cases was called with expected parameters including date filters
@@ -1451,10 +1456,14 @@ class TestCoreSearchCasesWithDateFilters:
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
-        assert call_args["start_time"] == start_time
-        assert call_args["end_time"] == end_time
-        assert call_args["updated_after"] == updated_after
-        assert call_args["updated_before"] == updated_before
+        assert call_args["start_time"].tzinfo == UTC
+        assert call_args["end_time"].tzinfo == UTC
+        assert call_args["updated_after"].tzinfo == UTC
+        assert call_args["updated_before"].tzinfo == UTC
+        assert call_args["start_time"].isoformat() == start_time.isoformat()
+        assert call_args["end_time"].isoformat() == end_time.isoformat()
+        assert call_args["updated_after"].isoformat() == updated_after.isoformat()
+        assert call_args["updated_before"].isoformat() == updated_before.isoformat()
 
         # Verify result structure
         assert len(result) == 1

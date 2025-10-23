@@ -477,31 +477,40 @@ class TestCoreSearchRecords:
         updated_after = datetime.now(UTC) - timedelta(hours=1)
         updated_before = datetime.now(UTC) + timedelta(hours=1)
 
+        naive_start = start_time.replace(tzinfo=None)
+        naive_end = end_time.replace(tzinfo=None)
+        naive_updated_after = updated_after.replace(tzinfo=None)
+        naive_updated_before = updated_before.replace(tzinfo=None)
+
         # Call the search_rows function with date filters
         result = await search_rows(
             table="test_table",
             limit=50,
             offset=10,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
+            start_time=naive_start,
+            end_time=naive_end,
+            updated_after=naive_updated_after,
+            updated_before=naive_updated_before,
         )
 
         # Assert get_table_by_name was called
         mock_service.get_table_by_name.assert_called_once_with("test_table")
 
         # Assert search_rows was called with date filters
-        mock_service.search_rows.assert_called_once_with(
-            table=mock_table,
-            search_term=None,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-            limit=50,
-            offset=10,
-        )
+        mock_service.search_rows.assert_called_once()
+        call_args = mock_service.search_rows.call_args[1]
+        assert call_args["table"] == mock_table
+        assert call_args["search_term"] is None
+        assert call_args["start_time"].tzinfo == UTC
+        assert call_args["end_time"].tzinfo == UTC
+        assert call_args["updated_before"].tzinfo == UTC
+        assert call_args["updated_after"].tzinfo == UTC
+        assert call_args["start_time"].isoformat() == start_time.isoformat()
+        assert call_args["end_time"].isoformat() == end_time.isoformat()
+        assert call_args["updated_before"].isoformat() == updated_before.isoformat()
+        assert call_args["updated_after"].isoformat() == updated_after.isoformat()
+        assert call_args["limit"] == 50
+        assert call_args["offset"] == 10
 
         # Verify the result
         assert len(result) == 1

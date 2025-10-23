@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -52,6 +52,7 @@ from tracecat.db.schemas import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
+from tracecat.types.datetime import ensure_aware_datetime
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
@@ -80,13 +81,17 @@ def _normalize_filter_values(values: Any) -> list[Any]:
     return [values]
 
 
-def _normalize_datetime(dt: datetime | None) -> datetime | None:
-    """Ensure datetimes are timezone-aware and normalised to UTC."""
+def _normalize_datetime(
+    dt: datetime | date | str | int | float | None,
+) -> datetime | None:
+    """Ensure datetime inputs are timezone-aware and normalised to UTC."""
     if dt is None:
         return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+
+    try:
+        return ensure_aware_datetime(dt)
+    except TypeError as exc:
+        raise ValueError(f"Invalid datetime value: {dt!r}") from exc
 
 
 class CasesService(BaseWorkspaceService):
@@ -306,10 +311,10 @@ class CasesService(BaseWorkspaceService):
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
         tag_ids: list[uuid.UUID] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
+        start_time: datetime | date | str | int | float | None = None,
+        end_time: datetime | date | str | int | float | None = None,
+        updated_before: datetime | date | str | int | float | None = None,
+        updated_after: datetime | date | str | int | float | None = None,
         order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,

@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.tables.enums import SqlType
+from tracecat.types.datetime import ensure_aware_datetime
 
 
 def is_valid_sql_type(type: str | SqlType) -> bool:
@@ -22,28 +23,12 @@ def is_valid_sql_type(type: str | SqlType) -> bool:
 
 def coerce_to_utc_datetime(value: Any) -> datetime:
     """Convert supported inputs into a timezone-aware UTC datetime."""
-    if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, date):
-        dt = datetime(value.year, value.month, value.day)
-    elif isinstance(value, str):
-        text = value.strip()
-        if text.endswith(("Z", "z")):
-            text = f"{text[:-1]}+00:00"
-        try:
-            dt = datetime.fromisoformat(text)
-        except ValueError as exc:
-            raise TypeError(f"Invalid ISO datetime string: {value!r}") from exc
-    elif isinstance(value, int | float):
-        dt = datetime.fromtimestamp(value, tz=UTC)
-    else:
+    try:
+        return ensure_aware_datetime(value)
+    except TypeError as exc:
         raise TypeError(
             f"Unsupported value for TIMESTAMP/TIMESTAMPTZ column: {type(value).__name__}"
-        )
-
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+        ) from exc
 
 
 def handle_default_value(type: SqlType, default: Any) -> str:

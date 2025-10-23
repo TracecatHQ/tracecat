@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -834,10 +834,10 @@ class BaseTablesService(BaseService):
         table: Table,
         *,
         search_term: str | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
+        start_time: datetime | date | str | int | float | None = None,
+        end_time: datetime | date | str | int | float | None = None,
+        updated_before: datetime | date | str | int | float | None = None,
+        updated_after: datetime | date | str | int | float | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -918,13 +918,21 @@ class BaseTablesService(BaseService):
 
         # Add date filters
         if start_time:
-            where_conditions.append(sa.column("created_at") >= start_time)
+            where_conditions.append(
+                sa.column("created_at") >= coerce_to_utc_datetime(start_time)
+            )
         if end_time:
-            where_conditions.append(sa.column("created_at") <= end_time)
+            where_conditions.append(
+                sa.column("created_at") <= coerce_to_utc_datetime(end_time)
+            )
         if updated_after:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
+            where_conditions.append(
+                sa.column("updated_at") >= coerce_to_utc_datetime(updated_after)
+            )
         if updated_before:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
+            where_conditions.append(
+                sa.column("updated_at") <= coerce_to_utc_datetime(updated_before)
+            )
 
         # Apply WHERE conditions if any
         if where_conditions:
@@ -1043,13 +1051,21 @@ class BaseTablesService(BaseService):
 
         # Add date filters
         if start_time:
-            where_conditions.append(sa.column("created_at") >= start_time)
+            where_conditions.append(
+                sa.column("created_at") >= coerce_to_utc_datetime(start_time)
+            )
         if end_time:
-            where_conditions.append(sa.column("created_at") <= end_time)
+            where_conditions.append(
+                sa.column("created_at") <= coerce_to_utc_datetime(end_time)
+            )
         if updated_after:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
+            where_conditions.append(
+                sa.column("updated_at") >= coerce_to_utc_datetime(updated_after)
+            )
         if updated_before:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
+            where_conditions.append(
+                sa.column("updated_at") <= coerce_to_utc_datetime(updated_before)
+            )
 
         # Apply WHERE conditions if any
         if where_conditions:

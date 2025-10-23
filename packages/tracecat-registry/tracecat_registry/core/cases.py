@@ -32,6 +32,7 @@ from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
 from tracecat.tags.models import TagRead
+from tracecat.types.datetime import ensure_aware_datetime
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -448,6 +449,14 @@ async def search_cases(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
 
+    def _coerce_datetime(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        try:
+            return ensure_aware_datetime(value)
+        except TypeError as exc:
+            raise ValueError("Invalid datetime filter provided") from exc
+
     async with CasesService.with_session() as service:
         tag_ids: list[UUID] = []
         if tags:
@@ -468,10 +477,10 @@ async def search_cases(
                 limit=limit,
                 order_by=order_by,
                 sort=sort,
-                start_time=start_time,
-                end_time=end_time,
-                updated_before=updated_before,
-                updated_after=updated_after,
+                start_time=_coerce_datetime(start_time),
+                end_time=_coerce_datetime(end_time),
+                updated_before=_coerce_datetime(updated_before),
+                updated_after=_coerce_datetime(updated_after),
             )
         except ProgrammingError as exc:
             raise ValueError(

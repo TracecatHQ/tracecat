@@ -44,10 +44,8 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.types.pagination import (
-    CursorPaginatedResponse,
-    CursorPaginationParams,
-)
+from tracecat.types.datetime import ensure_aware_datetime
+from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
@@ -157,6 +155,18 @@ async def list_cases(
     return cases
 
 
+def _coerce_query_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return ensure_aware_datetime(value)
+    except TypeError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Invalid datetime filter provided",
+        ) from exc
+
+
 @cases_router.get("/search")
 async def search_cases(
     *,
@@ -219,10 +229,10 @@ async def search_cases(
             limit=limit,
             order_by=order_by,
             sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
+            start_time=_coerce_query_datetime(start_time),
+            end_time=_coerce_query_datetime(end_time),
+            updated_after=_coerce_query_datetime(updated_after),
+            updated_before=_coerce_query_datetime(updated_before),
         )
     except ProgrammingError as exc:
         logger.exception(

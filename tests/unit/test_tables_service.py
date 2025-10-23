@@ -180,6 +180,28 @@ class TestTablesService:
                 ),
             )
 
+    async def test_search_rows_coerces_naive_filters(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Naive datetime strings should be coerced before querying."""
+
+        inserted = await tables_service.insert_row(
+            table,
+            TableRowInsert(data={"name": "Alice", "age": 30}),
+        )
+
+        naive_timestamp = inserted["created_at"].replace(tzinfo=None).isoformat()
+
+        results = await tables_service.search_rows(
+            table=table,
+            start_time=naive_timestamp,
+            end_time=naive_timestamp,
+            updated_after=naive_timestamp,
+            updated_before=naive_timestamp,
+        )
+
+        assert any(row["id"] == inserted["id"] for row in results)
+
 
 class TestParsePostgresDefault:
     @pytest.fixture

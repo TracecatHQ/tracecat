@@ -16,6 +16,7 @@ from tracecat.tables.models import (
     TableRowInsert,
 )
 from tracecat.tables.service import TablesService
+from tracecat.types.datetime import ensure_aware_datetime
 from tracecat_registry import registry
 from tracecat.expressions.functions import tabulate
 
@@ -135,16 +136,24 @@ async def search_rows(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
 
+    def _coerce_datetime(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        try:
+            return ensure_aware_datetime(value)
+        except TypeError as exc:
+            raise ValueError("Invalid datetime filter provided") from exc
+
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
 
         rows = await service.search_rows(
             table=db_table,
             search_term=search_term,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+            start_time=_coerce_datetime(start_time),
+            end_time=_coerce_datetime(end_time),
+            updated_before=_coerce_datetime(updated_before),
+            updated_after=_coerce_datetime(updated_after),
             limit=limit,
             offset=offset,
         )

@@ -690,6 +690,17 @@ class TestCasesService:
         assert second_case.id in case_ids
         assert first_case.id not in case_ids  # Different priority
 
+        # Naive ISO string inputs should be coerced to UTC-aware values
+        cases = await cases_service.search_cases(
+            start_time=first_created.replace(tzinfo=None).isoformat(),
+            end_time=second_created.replace(tzinfo=None).isoformat(),
+            updated_after=first_created.replace(tzinfo=None).isoformat(),
+            updated_before=second_created.replace(tzinfo=None).isoformat(),
+        )
+        case_ids = {case.id for case in cases}
+        assert first_case.id in case_ids
+        assert second_case.id in case_ids
+
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService
     ) -> None:
