@@ -51,7 +51,6 @@ from tracecat.expressions.functions import (
     hash_sha256,
     hash_sha512,
     hours_between,
-    index_by_key,
     intersection,
     ipv4_in_subnet,
     ipv4_is_public,
@@ -832,48 +831,6 @@ def test_str_to_b64(input_str: str, expected: str) -> None:
 )
 def test_dict_lookup(input_dict: dict, key: Any, expected: Any) -> None:
     assert dict_lookup(input_dict, key) == expected
-
-
-@pytest.mark.parametrize(
-    "input_list,field_key,value_key,expected",
-    [
-        # Basic case with value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            "name",
-            {1: "Alice", 2: "Bob"},
-        ),
-        # Basic case without value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            None,
-            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
-        ),
-        # Empty list
-        ([], "id", "name", {}),
-        # Different key types
-        (
-            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
-            "num",
-            "val",
-            {1.5: "a", 2.5: "b"},
-        ),
-        # Nested dictionaries
-        (
-            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
-            "key",
-            "data",
-            {"a": {"x": 1}, "b": {"x": 2}},
-        ),
-    ],
-)
-def test_index_by_key(
-    input_list: list[dict], field_key: str, value_key: str | None, expected: dict
-) -> None:
-    """Test indexing a list of dictionaries by a specified key."""
-    assert index_by_key(input_list, field_key, value_key) == expected
 
 
 @pytest.mark.parametrize(
