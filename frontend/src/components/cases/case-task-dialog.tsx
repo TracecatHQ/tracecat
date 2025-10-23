@@ -58,6 +58,7 @@ interface CaseTaskDialogProps {
   task: CaseTaskRead | null // null = create mode, populated = edit mode
   caseId: string
   workspaceId: string
+  onCreateSuccess?: () => void
 }
 
 const UNASSIGNED = "unassigned"
@@ -68,6 +69,7 @@ export function CaseTaskDialog({
   task,
   caseId,
   workspaceId,
+  onCreateSuccess,
 }: CaseTaskDialogProps) {
   const { members } = useWorkspaceMembers(workspaceId)
   const { workflows } = useWorkflowManager()
@@ -131,6 +133,7 @@ export function CaseTaskDialog({
         onSuccess: () => {
           onOpenChange(false)
           form.reset()
+          onCreateSuccess?.()
         },
       })
     }
@@ -227,10 +230,12 @@ export function CaseTaskDialog({
                           <SelectValue placeholder="Select priority" />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="unknown">Unknown</SelectItem>
                           <SelectItem value="low">Low</SelectItem>
                           <SelectItem value="medium">Medium</SelectItem>
                           <SelectItem value="high">High</SelectItem>
                           <SelectItem value="critical">Critical</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormControl>

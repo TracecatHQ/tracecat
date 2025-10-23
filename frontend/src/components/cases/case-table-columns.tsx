@@ -34,9 +34,10 @@ import { User } from "@/lib/auth"
 import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 
 export function createColumns(
-  setSelectedCase: (case_: CaseReadMinimal) => void
+  setSelectedCase: (case_: CaseReadMinimal) => void,
+  caseTasksEnabled = false
 ): ColumnDef<CaseReadMinimal>[] {
-  return [
+  const columns: ColumnDef<CaseReadMinimal>[] = [
     {
       id: "select",
       header: ({ table }) => (
@@ -340,4 +341,49 @@ export function createColumns(
       },
     },
   ]
+
+  // Conditionally add tasks column if feature flag is enabled
+  if (caseTasksEnabled) {
+    // Insert tasks column before the created_at column (which is at index -3)
+    columns.splice(-3, 0, {
+      accessorKey: "tasks",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Tasks"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
+      ),
+      cell: ({ row }) => {
+        const completed = row.original.num_tasks_completed ?? 0
+        const total = row.original.num_tasks_total ?? 0
+
+        if (total === 0) {
+          return (
+            <div className="flex w-full justify-end text-xs text-muted-foreground">
+              –
+            </div>
+          )
+        }
+
+        return (
+          <div className="flex w-full justify-end text-xs">
+            <span className={completed === total ? "text-green-600" : ""}>
+              {completed}/{total}
+            </span>
+          </div>
+        )
+      },
+      meta: {
+        headerClassName:
+          "w-[72px] min-w-[72px] max-w-[72px] justify-end px-0 text-right",
+        cellClassName: "w-[72px] min-w-[72px] max-w-[72px] px-0 text-right",
+        headerStyle: { width: "72px" },
+        cellStyle: { width: "72px" },
+      },
+    })
+  }
+
+  return columns
 }

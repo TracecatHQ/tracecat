@@ -940,6 +940,8 @@ export type CaseReadMinimal = {
   severity: CaseSeverity
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
+  num_tasks_completed?: number
+  num_tasks_total?: number
 }
 
 /**
@@ -1916,6 +1918,7 @@ export type FeatureFlag =
   | "agent-sandbox"
   | "runbooks"
   | "case-durations"
+  | "case-tasks"
 
 /**
  * Response model for feature flags.

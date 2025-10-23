@@ -8,3 +8,4 @@ class FeatureFlag(StrEnum):
     AGENT_SANDBOX = "agent-sandbox"
     RUNBOOKS = "runbooks"
     CASE_DURATIONS = "case-durations"
+    CASE_TASKS = "case-tasks"

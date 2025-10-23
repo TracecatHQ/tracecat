@@ -686,6 +686,7 @@ export function useWorkflowExecution(
   executionId: string,
   options?: {
     refetchInterval?: number
+    enabled?: boolean
   }
 ) {
   const workspaceId = useWorkspaceId()
@@ -701,7 +702,8 @@ export function useWorkflowExecution(
         executionId: executionId,
       }),
     retry: retryHandler,
-    ...options,
+    enabled: options?.enabled ?? !!executionId,
+    refetchInterval: options?.refetchInterval,
   })
   return {
     execution,

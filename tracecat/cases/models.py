@@ -34,6 +34,8 @@ class CaseReadMinimal(BaseModel):
     severity: CaseSeverity
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    num_tasks_completed: int = Field(default=0)
+    num_tasks_total: int = Field(default=0)
 
 
 class CaseRead(BaseModel):

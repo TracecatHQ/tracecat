@@ -1,4 +1,3 @@
-import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -19,6 +18,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseTaskStatus,
 )
 from tracecat.cases.models import (
     AssigneeChangedEvent,
@@ -112,6 +112,38 @@ class CasesService(BaseWorkspaceService):
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.durations = CaseDurationService(session=self.session, role=self.role)
+
+    async def _get_task_counts(
+        self, case_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Get task counts (completed/total) for cases."""
+        if not case_ids:
+            return {}
+
+        stmt = (
+            select(
+                CaseTask.case_id,
+                func.count().label("total"),
+                func.sum(
+                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
+                ).label("completed"),
+            )
+            .where(CaseTask.case_id.in_(case_ids))
+            .group_by(CaseTask.case_id)
+        )
+
+        result = await self.session.exec(stmt)
+        rows = result.all()
+
+        # Build result dict with defaults for cases without tasks
+        counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
+        for row in rows:
+            counts[row.case_id] = {
+                "completed": int(row.completed or 0),
+                "total": int(row.total or 0),
+            }
+
+        return counts
 
     async def list_cases(
         self,
@@ -274,6 +306,9 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
+        # Fetch task counts for all cases in one query
+        task_counts = await self._get_task_counts([case.id for case in cases])
+
         # Convert to CaseReadMinimal objects with tags
         case_items = []
         for case in cases:
@@ -299,6 +334,8 @@ class CasesService(BaseWorkspaceService):
                     if case.assignee
                     else None,
                     tags=tag_reads,
+                    num_tasks_completed=task_counts[case.id]["completed"],
+                    num_tasks_total=task_counts[case.id]["total"],
                 )
             )
 
@@ -921,10 +958,11 @@ class CaseEventsService(BaseWorkspaceService):
         self._enum_checked: bool = False
 
     async def _ensure_event_enum_values(self) -> None:
-        """Ensure new CaseEventType enum values exist in PostgreSQL enum.
+        """Verify that CaseEventType enum values exist in PostgreSQL enum.
 
-        Avoids migration by adding missing enum labels at runtime. Safe to call
-        multiple times; uses IF NOT EXISTS per value.
+        Note: Enum values must be added via Alembic migrations. This method
+        only verifies they exist and logs warnings for missing values.
+        It does not commit the session, preserving transaction atomicity.
         """
         if self._enum_checked:
             return
@@ -946,16 +984,13 @@ class CaseEventsService(BaseWorkspaceService):
         desired = {member.name for member in CaseEventType}
         missing = [label for label in desired if label not in existing]
 
-        safe_label_pattern = re.compile(r"^[A-Z_]+$")
-        for label in missing:
-            # Basic safety: enum labels are UPPER_CASE_WITH_UNDERSCORES
-            if not safe_label_pattern.fullmatch(label):
-                continue
-            ddl = sa.text(f"ALTER TYPE caseeventtype ADD VALUE IF NOT EXISTS '{label}'")
-            await self.session.exec(ddl)
         if missing:
-            # Must commit before using new enum values
-            await self.session.commit()
+            self.logger.warning(
+                "Missing enum values in caseeventtype",
+                missing=missing,
+                hint="Run database migrations to add these values",
+            )
+
         # Mark as checked for this service instance
         self._enum_checked = True
 
@@ -1097,6 +1132,9 @@ class CaseTasksService(BaseWorkspaceService):
             ),
         )
 
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
         await self.session.commit()
         await self.session.refresh(task)
         return task
@@ -1210,6 +1248,9 @@ class CaseTasksService(BaseWorkspaceService):
         if (new_desc := set_fields.pop("description", None)) is not None:
             task.description = new_desc
 
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
         await self.session.commit()
         await self.session.refresh(task)
         return task
@@ -1246,6 +1287,9 @@ class CaseTasksService(BaseWorkspaceService):
                 task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
             ),
         )
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
 
         await self.session.delete(task)
         await self.session.commit()

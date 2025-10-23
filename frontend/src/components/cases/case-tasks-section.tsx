@@ -28,6 +28,9 @@ export function CaseTasksSection({
     workspaceId,
   })
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [accordionValue, setAccordionValue] = useState<string | undefined>(
+    "tasks"
+  )
 
   if (caseTasksIsLoading) {
     return (
@@ -54,15 +57,22 @@ export function CaseTasksSection({
 
   return (
     <>
-      <Accordion type="single" collapsible defaultValue="tasks">
-        <AccordionItem value="tasks" className="border-none">
+      <Accordion
+        type="single"
+        collapsible
+        value={accordionValue}
+        dir="rtl"
+        onValueChange={setAccordionValue}
+      >
+        <AccordionItem value="tasks" className="border-none px-0">
           <div className="flex items-center justify-between gap-2">
-            <AccordionTrigger className="py-0 hover:no-underline flex-row-reverse justify-end gap-1">
+            <AccordionTrigger className="py-0 px-0 hover:no-underline flex-row-reverse justify-end gap-2.5">
               <h3 className="text-sm font-medium text-muted-foreground">
                 Tasks
               </h3>
             </AccordionTrigger>
             <Button
+              aria-label="Create task"
               size="icon"
               variant="ghost"
               className="size-6"
@@ -71,7 +81,7 @@ export function CaseTasksSection({
               <Plus className="size-4" />
             </Button>
           </div>
-          <AccordionContent className="pb-0 pt-3">
+          <AccordionContent className="pb-0 pt-3 px-0">
             <CaseTasksTable
               tasks={caseTasks || []}
               isLoading={caseTasksIsLoading}
@@ -89,6 +99,7 @@ export function CaseTasksSection({
         task={null}
         caseId={caseId}
         workspaceId={workspaceId}
+        onCreateSuccess={() => setAccordionValue("tasks")}
       />
     </>
   )

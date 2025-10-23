@@ -241,6 +241,9 @@ async def search_cases(
             detail="Invalid filter parameters supplied for case search",
         ) from exc
 
+    # Fetch task counts for all cases
+    task_counts = await service._get_task_counts([case.id for case in cases])
+
     # Build case responses with tags (tags are already loaded via selectinload)
     case_responses = []
     for case in cases:
@@ -262,6 +265,8 @@ async def search_cases(
                 if case.assignee
                 else None,
                 tags=tag_reads,
+                num_tasks_completed=task_counts[case.id]["completed"],
+                num_tasks_total=task_counts[case.id]["total"],
             )
         )
 
@@ -718,6 +723,11 @@ async def update_task(
             if task.workflow_id
             else None,
         )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
     except Exception as e:
         logger.exception(f"Failed to update task: {e}")
         raise HTTPException(
@@ -741,9 +751,14 @@ async def delete_task(
         if existing.case_id != case_id:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
         await service.delete_task(task_id)
-    except Exception as e:
-        logger.exception(f"Failed to delete task: {e}")
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
+        ) from e
+    except Exception as e:
+        logger.exception(f"Failed to delete task: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task",
         ) from e

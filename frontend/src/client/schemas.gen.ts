@@ -2929,6 +2929,16 @@ export const $CaseReadMinimal = {
       type: "array",
       title: "Tags",
     },
+    num_tasks_completed: {
+      type: "integer",
+      title: "Num Tasks Completed",
+      default: 0,
+    },
+    num_tasks_total: {
+      type: "integer",
+      title: "Num Tasks Total",
+      default: 0,
+    },
   },
   type: "object",
   required: [
@@ -5751,7 +5761,13 @@ export const $ExpressionValidationResponse = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["git-sync", "agent-sandbox", "runbooks", "case-durations"],
+  enum: [
+    "git-sync",
+    "agent-sandbox",
+    "runbooks",
+    "case-durations",
+    "case-tasks",
+  ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
 } as const
