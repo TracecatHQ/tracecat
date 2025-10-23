@@ -1667,6 +1667,8 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "type": "ExecutorClientError",
     "expr_context": "ACTIONS",
     "attempt": 1,
+    "stream_id": "<root>:0",
+    "children": None,
 }
 
 
@@ -2569,6 +2571,8 @@ def assert_error_handler_initiated_correctly(
                 ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
+                "stream_id": "<root>:0",
+                "children": None,
             }
         ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
@@ -4480,6 +4484,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
@@ -4487,6 +4493,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "error_typename": "list",
@@ -4585,6 +4593,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
@@ -4592,6 +4602,8 @@ async def test_workflow_detached_child_workflow(
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "result_typename": "list",
