@@ -33,8 +33,6 @@ const caseUpdateActions = [
   "core__cases__create_comment",
 ]
 
-const runbookUpdateActions = ["core__runbooks__update_runbook"]
-
 const assistantMarkdownStyle =
   "text-sm max-w-full text-foreground dark:prose-invert"
 
@@ -104,7 +102,7 @@ export function Messages({
     }
   }, [])
 
-  // Real-time invalidation when the agent updates a case or runbook
+  // Real-time invalidation when the agent updates a case
   // TODO: Make this generic and injectable from the parent component
   useEffect(() => {
     if (messages.length === 0) {
@@ -134,21 +132,6 @@ export function Messages({
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],
       })
-    }
-
-    // Handle runbook updates (on tool-call or tool-return)
-    if (
-      entityType === "runbook" &&
-      lastMsg.parts.some(
-        (p) =>
-          "tool_name" in p &&
-          p.tool_name &&
-          runbookUpdateActions.includes(p.tool_name)
-      )
-    ) {
-      console.log("Invalidating runbook queries")
-      // Force-refetch the runbook & related queries so the UI updates instantly
-      queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
     }
   }, [messages, entityType, entityId, workspaceId, queryClient])
 

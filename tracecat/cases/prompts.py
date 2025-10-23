@@ -7,7 +7,7 @@ from tracecat.db.schemas import Case
 
 
 class CaseCopilotPrompts(BaseModel):
-    """Prompts for building a runbook to case."""
+    """Prompts for the case copilot chat assistant."""
 
     case: Case
 
