@@ -1,3 +1,5 @@
+"""AI utilities. Actions that use LLMs to perform specific predefined tasks."""
+
 from typing import Annotated, Any, cast
 
 from typing_extensions import Doc
