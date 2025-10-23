@@ -47,6 +47,7 @@ from tracecat.dsl.enums import (
     WaitStrategy,
 )
 from tracecat.dsl.models import (
+    ActionErrorInfoAdapter,
     ActionStatement,
     DSLConfig,
     ExecutionContext,
@@ -4742,9 +4743,26 @@ async def test_workflow_gather_error_strategy_raise(
     assert isinstance(cause, ApplicationError)
     assert "Gather 'gather1' encountered" in str(cause)
     assert cause.details, "ApplicationError should include gather error details"
+
+    # The details[0] is a dict mapping gather_ref to ActionErrorInfo
     detail = cause.details[0]
     assert isinstance(detail, Mapping)
-    assert detail.get("ref") == "throw"
+    assert "gather1" in detail, "Details should contain gather1 error"
+
+    # Validate the gather error structure (stream-aware)
+    gather_error = detail["gather1"]
+    validated_error = ActionErrorInfoAdapter.validate_python(gather_error)
+    assert validated_error.ref == "gather1", "Gather error ref should be gather1"
+    assert validated_error.stream_id == "<root>:0", (
+        "Gather error should have parent stream_id"
+    )
+    assert validated_error.children is not None, "Gather error should have children"
+
+    # Validate the child errors from scatter branches
+    children = validated_error.children
+    assert len(children) == 1, "Should have 1 error from scatter branch"
+    child_error = children[0]
+    assert child_error.ref == "throw", "Child error should be from 'throw' action"
 
 
 @pytest.mark.anyio
