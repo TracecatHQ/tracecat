@@ -379,12 +379,13 @@ def gather(
         ),
     ] = False,
     error_strategy: Annotated[
-        Literal["partition", "include", "drop"],
+        Literal["partition", "include", "drop", "raise"],
         Doc(
             "Controls how errors are handled when gathering. "
             '"partition" puts successful results in `.result` and errors in `.error`. '
             '"include" puts errors in `.result` as JSON objects. '
-            '"drop" removes errors from `.result`.'
+            '"drop" removes errors from `.result`. '
+            '"raise" fails the gather if any branch errors.'
         ),
     ] = "partition",
 ) -> list[Any]:
