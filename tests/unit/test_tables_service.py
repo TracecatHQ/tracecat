@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -152,6 +153,52 @@ class TestTablesService:
         # Retrieve the updated table
         retrieved_table = await tables_service.get_table(updated_table.id)
         assert retrieved_table.name == "updated_table"
+
+    async def test_create_table_ignore_if_exists_returns_existing_table(
+        self, tables_service: TablesService
+    ) -> None:
+        """Calling create_table with ignore_if_exists returns existing metadata."""
+
+        table = await tables_service.create_table(TableCreate(name="existing_table"))
+
+        duplicate = await tables_service.create_table(
+            TableCreate(name="existing_table", ignore_if_exists=True)
+        )
+
+        assert duplicate.id == table.id
+        assert duplicate.name == table.name
+
+    async def test_create_table_ignore_if_exists_rebuilds_metadata(
+        self, tables_service: TablesService
+    ) -> None:
+        """Ensure metadata is recreated if missing but the physical table exists."""
+
+        params = TableCreate(
+            name="ghost_table",
+            columns=[
+                TableColumnCreate(
+                    name="username", type=SqlType.TEXT, nullable=False, default=None
+                ),
+                TableColumnCreate(
+                    name="age", type=SqlType.INTEGER, nullable=True, default=None
+                ),
+            ],
+        )
+        created_table = await tables_service.create_table(params)
+
+        # Remove metadata rows without touching the physical table.
+        await tables_service.session.exec(
+            sa.delete(Table).where(Table.id == created_table.id)
+        )
+        await tables_service.session.commit()
+
+        recreated = await tables_service.create_table(
+            params.model_copy(update={"ignore_if_exists": True})
+        )
+
+        assert recreated.name == created_table.name
+        # Metadata should now contain the expected columns again
+        assert {col.name for col in recreated.columns} == {"username", "age"}
 
     async def test_delete_table(self, tables_service: TablesService) -> None:
         """Test deleting a table and expecting a not found error on retrieval."""

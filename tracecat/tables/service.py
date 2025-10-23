@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
@@ -5,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sa
+from asyncpg import DuplicateTableError
 from asyncpg.exceptions import (
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
@@ -76,6 +78,121 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
         return f'"{schema_name}".{sanitized_table_name}'
+
+    async def _get_table_by_name_optional(
+        self, table_name: str, *, attempts: int = 1, delay: float = 0.1
+    ) -> Table | None:
+        """Return table metadata if it exists, optionally waiting for it to appear."""
+
+        for attempt in range(attempts):
+            try:
+                return await self.get_table_by_name(table_name)
+            except TracecatNotFoundError:
+                if attempt == attempts - 1:
+                    return None
+                await asyncio.sleep(delay)
+
+        return None
+
+    async def _handle_existing_physical_table(
+        self,
+        conn: Any,
+        params: TableCreate,
+        ws_id: WorkspaceUUID,
+        schema_name: str,
+        *,
+        wait_for_metadata: bool = False,
+    ) -> Table | None:
+        """Return metadata for an already-existing physical table."""
+
+        table_name = self._sanitize_identifier(params.name)
+
+        def has_table(sync_conn: sa.Connection) -> bool:
+            inspector = sa.inspect(sync_conn)
+            return inspector.has_table(table_name, schema=schema_name)
+
+        table_exists = await conn.run_sync(has_table)
+        if not table_exists:
+            return None
+
+        self.logger.info(
+            "Table already exists, skipping physical creation",
+            table_name=table_name,
+            schema_name=schema_name,
+        )
+
+        attempts = 5 if wait_for_metadata else 1
+        existing_table = await self._get_table_by_name_optional(
+            params.name, attempts=attempts
+        )
+        if existing_table is not None:
+            return existing_table
+
+        self.logger.warning(
+            "Table exists without metadata, recreating metadata",
+            table_name=table_name,
+            schema_name=schema_name,
+        )
+
+        return await self._recreate_table_metadata(
+            ws_id=ws_id,
+            table_name=table_name,
+            schema_name=schema_name,
+            column_params=params.columns,
+            conn=conn,
+        )
+
+    async def _recreate_table_metadata(
+        self,
+        ws_id: WorkspaceUUID,
+        table_name: str,
+        schema_name: str,
+        column_params: Sequence[TableColumnCreate],
+        conn: Any,
+    ) -> Table:
+        """Rebuild metadata rows for an existing physical table."""
+
+        table = Table(owner_id=ws_id, name=table_name)
+        self.session.add(table)
+        await self.session.flush()
+
+        if not column_params:
+            return table
+
+        def get_physical_columns(sync_conn: sa.Connection) -> set[str]:
+            inspector = sa.inspect(sync_conn)
+            columns = inspector.get_columns(table_name, schema=schema_name)
+            return {column["name"] for column in columns}
+
+        physical_columns = await conn.run_sync(get_physical_columns)
+
+        for col_params in column_params:
+            column_name = self._sanitize_identifier(col_params.name)
+            if column_name not in physical_columns:
+                self.logger.warning(
+                    "Skipping metadata recreation for missing physical column",
+                    table_name=table_name,
+                    column_name=column_name,
+                    schema_name=schema_name,
+                )
+                continue
+
+            sql_type = SqlType(col_params.type)
+            default_value = col_params.default
+            if default_value is not None:
+                default_value = handle_default_value(sql_type, default_value)
+
+            column = TableColumn(
+                table_id=table.id,
+                name=column_name,
+                type=sql_type.value,
+                nullable=col_params.nullable,
+                default=default_value,
+            )
+            self.session.add(column)
+
+        await self.session.flush()
+        return table
 
     def _workspace_id(self) -> WorkspaceUUID:
         """Get the workspace ID for the current role."""
@@ -212,17 +329,20 @@ class BaseTablesService(BaseService):
         await conn.execute(sa.DDL('CREATE SCHEMA IF NOT EXISTS "%s"', schema_name))
 
         if params.ignore_if_exists:
-            try:
-                existing_table = await self.get_table_by_name(params.name)
-            except TracecatNotFoundError:
-                existing_table = None
-            else:
+            existing_table = await self._get_table_by_name_optional(params.name)
+            if existing_table is not None:
                 self.logger.info(
                     "Table already exists, skipping creation",
                     table_name=table_name,
                     schema_name=schema_name,
                 )
                 return existing_table
+
+            handled_table = await self._handle_existing_physical_table(
+                conn, params, ws_id, schema_name
+            )
+            if handled_table is not None:
+                return handled_table
 
         # Define table using SQLAlchemy schema objects
         new_table = sa.Table(
@@ -254,7 +374,22 @@ class BaseTablesService(BaseService):
         )
 
         # Create the physical table
-        await conn.run_sync(new_table.create)
+        try:
+            await conn.run_sync(new_table.create)
+        except DuplicateTableError:
+            if not params.ignore_if_exists:
+                raise
+
+            handled_table = await self._handle_existing_physical_table(
+                conn,
+                params,
+                ws_id,
+                schema_name,
+                wait_for_metadata=True,
+            )
+            if handled_table is not None:
+                return handled_table
+            raise
 
         # Create metadata entry
         table = Table(owner_id=ws_id, name=table_name)
