@@ -147,8 +147,6 @@ const CASE_UPDATE_ACTIONS = new Set([
   "core__cases__create_comment",
 ])
 
-const RUNBOOK_UPDATE_ACTIONS = new Set(["core__runbooks__update_runbook"])
-
 // mapping from chatentity to
 /**
  * Maps chat entity types to their query invalidation logic.
@@ -180,13 +178,6 @@ export const ENTITY_TO_INVALIDATION: Record<
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],
       })
-    },
-  },
-  runbook: {
-    predicate: (toolName: string) => RUNBOOK_UPDATE_ACTIONS.has(toolName),
-    handler: (queryClient, workspaceId, entityId) => {
-      // Invalidate all runbook queries (non-exact match)
-      queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
     },
   },
 }

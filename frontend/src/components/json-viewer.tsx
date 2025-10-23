@@ -15,6 +15,19 @@ import { cn } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 
+function isSimpleIdentifier(segment: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment)
+}
+
+function quoteJsonPathKey(segment: string): string {
+  const escaped = String(segment).replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  return `"${escaped}"`
+}
+
+function escapePathSegment(segment: string): string {
+  return isSimpleIdentifier(segment) ? segment : quoteJsonPathKey(segment)
+}
+
 function flattenObject(
   obj: Record<string, unknown> | unknown[],
   prefix = ""
@@ -41,11 +54,12 @@ function flattenObject(
   // Original object handling
   return Object.keys(obj).reduce((acc: Record<string, unknown>, k: string) => {
     const pre = prefix.length ? `${prefix}.` : ""
+    const safeKey = escapePathSegment(k)
 
     if (typeof obj[k] === "object" && obj[k] !== null) {
       if (Array.isArray(obj[k])) {
         ;(obj[k] as unknown[]).forEach((item, index) => {
-          const arrayPath = `${k}[${index}]`
+          const arrayPath = `${safeKey}[${index}]`
           if (typeof item === "object" && item !== null) {
             Object.assign(
               acc,
@@ -63,12 +77,12 @@ function flattenObject(
           acc,
           flattenObject(
             obj[k] as Record<string, unknown>,
-            pre ? `${pre}${k}` : k
+            pre ? `${pre}${safeKey}` : safeKey
           )
         )
       }
     } else {
-      acc[pre ? `${pre}${k}` : k] = obj[k]
+      acc[pre ? `${pre}${safeKey}` : safeKey] = obj[k]
     }
     return acc
   }, {})
@@ -229,27 +243,29 @@ function buildJsonPath(path: string[], prefix?: string): string | undefined {
   if (path.length === 0 && !prefix) {
     return undefined
   }
-  const allSegments = []
-  if (prefix) {
-    allSegments.push(prefix)
-  }
-  if (path.length > 0) {
-    allSegments.push(...path)
-  }
-  return allSegments.reduce((path, segment, index) => {
-    // Convert segment to string for type safety
+
+  // Start from the raw prefix (do not escape/modify it), then append the processed segments
+  const seed = prefix ?? ""
+  const remainingSegments = path ?? []
+
+  return remainingSegments.reduce((accPath, segment) => {
     const currentSegment = String(segment)
 
-    // Handle different cases
+    if (currentSegment.startsWith("[")) {
+      // Already bracketed array/index path like [0]
+      return `${accPath}${currentSegment}`
+    }
     if (isNumeric(currentSegment)) {
       // For numeric segments, use bracket notation
-      return `${path}[${currentSegment}]`
-    } else if (currentSegment.startsWith("[")) {
-      // For array segments, use bracket notation
-      return `${path}${currentSegment}`
-    } else {
-      // For string segments, use dot notation unless it's the first segment
-      return index === 0 ? currentSegment : `${path}.${currentSegment}`
+      return `${accPath}[${currentSegment}]`
     }
-  }, "")
+
+    const safeSegment = escapePathSegment(currentSegment)
+
+    // If there's no accumulated path yet (no prefix), start with the segment directly
+    if (accPath.length === 0) {
+      return safeSegment
+    }
+    return `${accPath}.${safeSegment}`
+  }, seed)
 }

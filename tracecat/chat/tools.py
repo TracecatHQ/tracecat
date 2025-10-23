@@ -9,14 +9,6 @@ TOOL_DEFAULTS = {
         "core.cases.create_comment",
         "core.cases.list_comments",
     ],
-    ChatEntity.RUNBOOK: [
-        "core.runbooks.get_runbook",
-        "core.runbooks.list_runbooks",
-        "core.runbooks.update_runbook",
-        "tools.exa.search",
-        "tools.exa.answer",
-        "tools.exa.get_contents",
-    ],
 }
 
 

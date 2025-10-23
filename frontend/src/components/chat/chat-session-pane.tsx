@@ -102,7 +102,6 @@ export function ChatSessionPane({
 
   const [input, setInput] = useState<string>("")
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
-  const toolsDisabled = entityType === "runbook"
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -119,12 +118,6 @@ export function ChatSessionPane({
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
-
-  useEffect(() => {
-    if (toolsDisabled && toolsDialogOpen) {
-      setToolsDialogOpen(false)
-    }
-  }, [toolsDisabled, toolsDialogOpen])
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -321,7 +314,6 @@ export function ChatSessionPane({
                   <TooltipTrigger asChild>
                     <PromptInputButton
                       aria-label="Configure tools"
-                      disabled={toolsDisabled}
                       size="sm"
                       onClick={() => setToolsDialogOpen(true)}
                       className="h-7 gap-1 px-2"
@@ -332,9 +324,7 @@ export function ChatSessionPane({
                     </PromptInputButton>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    {toolsDisabled
-                      ? "Tools are unavailable for runbooks"
-                      : "Configure tools for the agent"}
+                    Configure tools for the agent
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

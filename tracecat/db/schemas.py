@@ -946,21 +946,6 @@ class CaseDuration(Resource, table=True):
     )
 
 
-class RunbookCaseLink(SQLModel, table=True):
-    """Link table for runbooks and cases."""
-
-    runbook_id: uuid.UUID = Field(
-        sa_column=Column(
-            UUID, ForeignKey("runbook.id", ondelete="CASCADE"), primary_key=True
-        )
-    )
-    case_id: uuid.UUID = Field(
-        sa_column=Column(
-            UUID, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
-        )
-    )
-
-
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -1048,10 +1033,6 @@ class Case(Resource, table=True):
         back_populates="cases",
         link_model=CaseTagLink,
         sa_relationship_kwargs={"lazy": "selectin"},
-    )
-    runbooks: list["Runbook"] = Relationship(
-        back_populates="related_cases",
-        link_model=RunbookCaseLink,
     )
     record_links: list["CaseRecord"] = Relationship(
         back_populates="case",
@@ -1557,48 +1538,6 @@ class ChatMessage(Resource, table=True):
     )
     # Relationships
     chat: Chat = Relationship(back_populates="messages")
-
-
-class Runbook(Resource, table=True):
-    """A runbook that can be executed on cases."""
-
-    __tablename__: str = "runbook"
-
-    __table_args__ = (
-        UniqueConstraint("alias", "owner_id", name="uq_runbook_alias_owner_id"),
-    )
-
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    version: int = Field(
-        default=1,
-        description="Version of the runbook",
-        nullable=False,
-    )
-    title: str = Field(
-        ...,
-        description="Human-readable title for the runbook",
-        nullable=False,
-    )
-    tools: list[str] = Field(
-        default_factory=list,
-        sa_column=Column(JSONB),
-        description="The tools available to the agent for this runbook.",
-    )
-    instructions: str = Field(
-        ...,
-        description="The instructions for the runbook",
-        nullable=False,
-    )
-    alias: str | None = Field(default=None, description="Alias for the prompt")
-    related_cases: list["Case"] = Relationship(
-        back_populates="runbooks",
-        link_model=RunbookCaseLink,
-    )
 
 
 class Tag(Resource, table=True):

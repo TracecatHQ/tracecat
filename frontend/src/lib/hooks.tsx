@@ -252,7 +252,6 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { useGetRunbook } from "@/hooks/use-runbook"
 import { getBaseUrl } from "@/lib/api"
 import {
   listCaseDurationDefinitions,
@@ -3147,8 +3146,6 @@ export function useUnlinkCaseRecord({
     unlinkCaseRecordError,
   }
 }
-
-export { useGetRunbook }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()
