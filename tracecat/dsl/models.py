@@ -47,36 +47,6 @@ class TaskResult[TResult: Any, TError: Any](TypedDict):
     interaction_type: NotRequired[str]
 
 
-@dataclass(frozen=True)
-class ActionErrorInfo:
-    """Contains information about an action error."""
-
-    ref: str
-    """The task reference."""
-
-    message: str
-    """The error message."""
-
-    type: str
-    """The error type."""
-
-    expr_context: ExprContext = ExprContext.ACTIONS
-    """The expression context where the error occurred."""
-
-    attempt: int = 1
-    """The attempt number."""
-
-    children: list[ActionErrorInfo] | None = None
-    """Child errors."""
-
-    def format(self, loc: str = "run_action") -> str:
-        locator = f"{self.expr_context}.{self.ref} -> {loc}"
-        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
-
-
-ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
-
-
 class ActionRetryPolicy(BaseModel):
     max_attempts: int = Field(
         default=1,
@@ -404,3 +374,36 @@ class GatherArgs(BaseModel):
     error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ActionErrorInfo:
+    """Contains information about an action error."""
+
+    ref: str
+    """The task reference."""
+
+    message: str
+    """The error message."""
+
+    type: str
+    """The error type."""
+
+    expr_context: ExprContext = ExprContext.ACTIONS
+    """The expression context where the error occurred."""
+
+    attempt: int = 1
+    """The attempt number."""
+
+    stream_id: StreamID = ROOT_STREAM
+    """Execution stream where the error occurred."""
+
+    children: list[ActionErrorInfo] | None = None
+    """Child errors."""
+
+    def format(self, loc: str = "run_action") -> str:
+        locator = f"{self.expr_context}.{self.ref} -> {loc}"
+        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
+
+
+ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)

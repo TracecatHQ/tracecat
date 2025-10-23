@@ -180,6 +180,7 @@ class DSLScheduler:
                         ref=ref,
                         message=message,
                         type=exc.__class__.__name__,
+                        stream_id=task.stream_id,
                     )
                 elif all(k in details for k in ("ref", "message", "type")):
                     # Regular action error
@@ -209,6 +210,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
                 else:
                     # Child workflow error
@@ -239,6 +241,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
             else:
                 self.logger.info(
@@ -259,6 +262,7 @@ class DSLScheduler:
                     ref=ref,
                     message=message,
                     type=exc.__class__.__name__,
+                    stream_id=task.stream_id,
                 )
             if task.stream_id == ROOT_STREAM:
                 self.logger.debug(
@@ -1053,6 +1057,7 @@ class DSLScheduler:
                         message=message,
                         type=ApplicationError.__name__,
                         children=errors,
+                        stream_id=parent_stream_id,
                     )
                     app_error = ApplicationError(
                         message,
