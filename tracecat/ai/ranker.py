@@ -6,17 +6,53 @@ for integration with Tracecat's agent infrastructure.
 """
 
 import asyncio
-import json
 import random
+import textwrap
 from typing import Any, TypedDict
+
+from pydantic_ai import Agent
 
 from tracecat.agent.factory import build_agent
 from tracecat.agent.models import AgentConfig
-from tracecat.agent.runtime import run_agent_sync
+from tracecat.agent.runtime import AgentOutput, run_agent_sync
 from tracecat.logger import logger
 
 # Global constraint to defend against resource consumption attacks
 MAX_ITEMS: int = 100
+
+
+RANKING_REQUIREMENTS = textwrap.dedent("""
+- Analyze each item against the criteria
+- Return ONLY a JSON array of the IDs in ranked order (best to worst)
+- The final output must be JSON deserializable
+- Do not include explanations, reasoning, or any additional text
+- Always respond with IDs, never with actual item values
+
+Examples of correct output formats:
+- [1, 3, 2]
+- ["ID1", "ID3", "ID2"]
+- ["alert-critical", "alert-high", "alert-medium"]
+""").strip()
+
+
+RANKING_INSTRUCTIONS_TEMPLATE = textwrap.dedent("""
+    You must rank the items in the <Items> section based on the following criteria and requirements:
+
+    <Criteria>
+    {criteria_prompt}
+    </Criteria>
+
+    <Requirements>
+    {RANKING_REQUIREMENTS}
+    </Requirements>
+""").strip()
+
+
+ITEMS_PROMPT_TEMPLATE = textwrap.dedent("""
+    <Items>
+    {items}
+    </Items>
+""").strip()
 
 
 class RankableItem(TypedDict):
@@ -24,104 +60,24 @@ class RankableItem(TypedDict):
     text: str
 
 
-async def rank_items(
-    items: list[dict[str, Any]],
+def format_items(items: list[RankableItem]) -> str:
+    return "\n\n".join([f"id: `{item['id']}`\ntext: {item['text']}" for item in items])
+
+
+async def _build_ranking_agent(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
-    id_field: str = "id",
     model_settings: dict[str, Any] | None = None,
-    max_requests: int = 5,
     retries: int = 3,
     base_url: str | None = None,
-) -> list[Any]:
-    """Rank items using an LLM based on natural language criteria.
-
-    Given a list of items and a criteria prompt, returns the item IDs ranked
-    according to the criteria. Uses prompting (not structured outputs) to
-    get the LLM to return a JSON list of IDs in ranked order.
-
-    Args:
-        items: List of items to rank, each must contain the id_field
-        criteria_prompt: Natural language criteria for ranking (e.g., "by severity", "most relevant to security")
-        model_name: LLM model to use
-        model_provider: LLM provider
-        id_field: Field name containing the item ID (default: "id")
-        model_settings: Optional model settings dict (temperature, etc.)
-        max_requests: Maximum number of LLM requests (default: 5)
-        retries: Number of retries on failure (default: 3)
-        base_url: Optional base URL for custom providers
-
-    Returns:
-        List of item IDs in ranked order (best to worst according to criteria)
-
-    Raises:
-        ValueError: If items are empty, missing ID field, LLM response cannot be
-                   parsed as a JSON list, or if the LLM requests clarification
-                   instead of ranking
-
-    Examples:
-        >>> items = [
-        ...     {"id": "A", "text": "Critical security vulnerability"},
-        ...     {"id": "B", "text": "Minor UI bug"},
-        ...     {"id": "C", "text": "Data breach incident"}
-        ... ]
-        >>> ranked = await rank_items(items, "by severity for security team")
-        >>> ranked
-        ["C", "A", "B"]
-
-        >>> alerts = [
-        ...     {"id": "alert-1", "severity": "low", "type": "info"},
-        ...     {"id": "alert-2", "severity": "critical", "type": "security"},
-        ...     {"id": "alert-3", "severity": "medium", "type": "performance"}
-        ... ]
-        >>> ranked = await rank_items(alerts, "prioritize security issues")
-        >>> ranked
-        ["alert-2", "alert-3", "alert-1"]
-    """
-    if not items:
-        return []
-
-    if len(items) > MAX_ITEMS:
-        raise ValueError(f"Too many items to rank: received {len(items)}.")
-
-    # Validate and extract item descriptions
-    item_descriptions = []
-    for idx, item in enumerate(items):
-        if id_field not in item:
-            raise ValueError(
-                f"Item at index {idx} missing required field '{id_field}': {item}"
-            )
-        item_id = item[id_field]
-        # Format each item with its ID and full content
-        item_descriptions.append(
-            f"id: `{item_id}`\nvalue:\n```\n{json.dumps(item, indent=2)}\n```"
-        )
-
-    items_text = "\n\n".join(item_descriptions)
-
-    # Build the ranking prompt with clear instructions and examples
-    user_prompt = f"""Rank the following items based on this criteria: {criteria_prompt}
-
-Items to rank:
-{items_text}
-
-INSTRUCTIONS:
-- Analyze each item against the criteria
-- Return ONLY a JSON array of the IDs in ranked order (best to worst)
-- Do not include explanations, reasoning, or any additional text
-- Always respond with IDs, never with actual item values
-
-Examples of correct output format:
-["ID1", "ID3", "ID2"]
-["alert-critical", "alert-high", "alert-medium"]
-[123, 456, 789]
-
-Your response (JSON array only):"""
-
-    # Build and run the agent
-    agent = await build_agent(
+) -> Agent:
+    return await build_agent(
         AgentConfig(
+            instructions=RANKING_INSTRUCTIONS_TEMPLATE.format(
+                criteria_prompt=criteria_prompt,
+                RANKING_REQUIREMENTS=RANKING_REQUIREMENTS,
+            ),
             model_name=model_name,
             model_provider=model_provider,
             model_settings=model_settings,
@@ -130,58 +86,64 @@ Your response (JSON array only):"""
         )
     )
 
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
 
-    # Extract the output from the result
-    result_dict = result.model_dump()
-
-    # Try different possible fields where the output might be stored
-    output_text = (
-        result_dict.get("output") or result_dict.get("data") or str(result_dict)
+async def _run_ranking_agent(
+    agent: Agent[Any, Any],
+    items: list[RankableItem],
+    max_requests: int,
+) -> AgentOutput:
+    return await run_agent_sync(
+        agent,
+        ITEMS_PROMPT_TEMPLATE.format(items=format_items(items)),
+        max_requests=max_requests,
     )
 
-    # Parse and validate the response
-    try:
-        if isinstance(output_text, list):
-            ranked_ids = output_text
-        else:
-            # Clean up the output - LLMs sometimes wrap responses in markdown code blocks
-            cleaned = str(output_text).strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            elif cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
 
-            # Parse as JSON
-            ranked_ids = json.loads(cleaned)
+async def rank_items(
+    items: list[RankableItem],
+    criteria_prompt: str,
+    model_name: str,
+    model_provider: str,
+    model_settings: dict[str, Any] | None = None,
+    max_requests: int = 5,
+    retries: int = 3,
+    base_url: str | None = None,
+) -> list[str | int]:
+    """Rank items using an LLM based on natural language criteria.
 
-        if not isinstance(ranked_ids, list):
-            raise ValueError(
-                f"LLM did not return a list. It may be requesting clarification. "
-                f"Response: {output_text}"
-            )
+    Args:
+        items: List of items to rank.
+        criteria_prompt: Natural language criteria for ranking.
+        model_name: LLM model to use.
+        model_provider: LLM provider.
+        model_settings: Optional model settings.
+        max_requests: Maximum number of LLM requests.
+        retries: Number of retries on failure.
+        base_url: Optional base URL for custom providers.
 
-        return ranked_ids
+    Returns:
+        List of item IDs in ranked order (best to worst according to criteria).
 
-    except json.JSONDecodeError as e:
-        # LLM likely asking for clarification or provided non-JSON response
-        raise ValueError(
-            f"LLM response is not valid JSON. The criteria may need clarification. "
-            f"Response: {output_text}"
-        ) from e
+    Raises:
+        ValueError: If items are empty or too many items to rank.
+        ValueError: If LLM response cannot be parsed or is invalid.
+    """
+    if not items:
+        return []
 
+    if len(items) > MAX_ITEMS:
+        raise ValueError(f"Expected at most {MAX_ITEMS} items, got {len(items)} items.")
 
-# Helper functions for pairwise ranking algorithm
-
-
-def _shuffle_items(items: list[RankableItem]) -> list[RankableItem]:
-    """Shuffle items randomly to reduce positional bias."""
-    shuffled = items.copy()
-    random.shuffle(shuffled)
-    return shuffled
+    agent = await _build_ranking_agent(
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        model_settings=model_settings,
+        retries=retries,
+        base_url=base_url,
+    )
+    result = await _run_ranking_agent(agent, items, max_requests)
+    return result.output
 
 
 def _create_batches(
@@ -212,8 +174,6 @@ def _average_scores(scores: dict[str | int, list[float]]) -> dict[str | int, flo
 
 async def _rank_batch(
     batch: list[RankableItem],
-    criteria_prompt: str,
-    id_field: str,
     agent: Any,
     max_requests: int,
 ) -> list[str | int]:
@@ -221,8 +181,6 @@ async def _rank_batch(
 
     Args:
         batch: List of items to rank
-        criteria_prompt: Natural language criteria for ranking
-        id_field: Field name containing the item ID
         agent: Pre-built agent instance
         max_requests: Maximum number of LLM requests
 
@@ -232,68 +190,9 @@ async def _rank_batch(
     Raises:
         ValueError: If LLM response cannot be parsed or is invalid
     """
-    # Format batch items using only 'text' field
-    item_descriptions = []
-    for item in batch:
-        item_id = item[id_field]
-        text_content = item.get("text", "")
-        if not text_content:
-            # Fallback: if no 'text' field, use JSON dump
-            text_content = json.dumps(item, indent=2)
-        item_descriptions.append(f"id: `{item_id}`\ntext: {text_content}")
 
-    items_text = "\n\n".join(item_descriptions)
-
-    # Build ranking prompt
-    user_prompt = f"""Rank the following items based on this criteria: {criteria_prompt}
-
-Items to rank:
-{items_text}
-
-INSTRUCTIONS:
-- Analyze each item against the criteria
-- Return ONLY a JSON array of the IDs in ranked order (best to worst)
-- Do not include explanations, reasoning, or any additional text
-- Always respond with IDs, never with actual item values
-
-Examples of correct output format:
-["ID1", "ID3", "ID2"]
-["alert-critical", "alert-high", "alert-medium"]
-[123, 456, 789]
-
-Your response (JSON array only):"""
-
-    # Run the agent
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
-
-    # Extract and parse output
-    result_dict = result.model_dump()
-    output_text = (
-        result_dict.get("output") or result_dict.get("data") or str(result_dict)
-    )
-
-    # Parse as JSON, allowing pre-parsed list outputs
-    try:
-        if isinstance(output_text, list):
-            ranked_ids = output_text
-        else:
-            cleaned = str(output_text).strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            elif cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-            ranked_ids = json.loads(cleaned)
-
-        if not isinstance(ranked_ids, list):
-            raise ValueError(f"LLM did not return a list. Response: {output_text}")
-        return ranked_ids
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"LLM response is not valid JSON. Response: {output_text}"
-        ) from e
+    result = await _run_ranking_agent(agent, batch, max_requests)
+    return result.output
 
 
 async def rank_items_pairwise(
@@ -356,7 +255,7 @@ async def rank_items_pairwise(
         return []
 
     if len(items) > MAX_ITEMS:
-        raise ValueError(f"Too many items to rank: received {len(items)}.")
+        raise ValueError(f"Expected at most {MAX_ITEMS} items, got {len(items)} items.")
 
     # Validate items have ID field
     for idx, item in enumerate(items):
@@ -372,6 +271,10 @@ async def rank_items_pairwise(
     # Build agent once for reuse
     agent = await build_agent(
         AgentConfig(
+            instructions=RANKING_INSTRUCTIONS_TEMPLATE.format(
+                criteria_prompt=criteria_prompt,
+                RANKING_REQUIREMENTS=RANKING_REQUIREMENTS,
+            ),
             model_name=model_name,
             model_provider=model_provider,
             model_settings=model_settings,
@@ -441,7 +344,7 @@ async def _multi_pass_rank(
 
     for pass_num in range(num_passes):
         # Shuffle items to reduce positional bias
-        shuffled_items = _shuffle_items(items)
+        shuffled_items = random.sample(items, len(items))
 
         # Create batches
         batches = _create_batches(shuffled_items, batch_size)
@@ -450,8 +353,6 @@ async def _multi_pass_rank(
         batch_tasks = [
             _rank_batch(
                 batch=batch,
-                criteria_prompt=criteria_prompt,
-                id_field=id_field,
                 agent=agent,
                 max_requests=max_requests,
             )

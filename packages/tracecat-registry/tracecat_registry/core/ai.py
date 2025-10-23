@@ -1,11 +1,16 @@
 """AI utilities. Actions that use LLMs to perform specific predefined tasks."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 
 from typing_extensions import Doc
 
 from tracecat.ai.ranker import RankableItem, rank_items_pairwise
+from tracecat_registry.core.transform import flatten_dict
 from tracecat_registry import registry
+
+
+MAX_KEYS: int = 100
+"""Maximum number of keys rankable by the AI."""
 
 
 @registry.register(
@@ -79,12 +84,21 @@ async def rank_documents(
     return [id_to_text[int(item_id)] for item_id in ranked_ids]
 
 
+def _get_keys(json: dict[str, Any]) -> list[RankableItem]:
+    return [{"id": key, "text": str(key)} for key in json.keys()]
+
+
+class ExtractFieldResult(TypedDict):
+    key: str
+    value: Any
+
+
 @registry.register(
     default_title="Extract field",
     description="Use AI to extract a field from a JSON object. The field name and field value are returned as a dict with `key` and `value`.",
     namespace="ai",
 )
-def extract_field(
+async def extract_field(
     json: Annotated[
         dict[str, Any],
         Doc("JSON object to extract the field from."),
@@ -99,8 +113,35 @@ def extract_field(
             "Extract from and return a flattened single level object with JSONPath notation as keys."
         ),
     ] = False,
-) -> None:
-    pass
+    model_name: Annotated[
+        str,
+        Doc("LLM model to use for ranking."),
+    ] = "gpt-5-mini-2025-08-07",
+    model_provider: Annotated[
+        str,
+        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
+    ] = "openai",
+) -> ExtractFieldResult:
+    if flatten:
+        json = flatten_dict(json)
+
+    # Get keys
+    keys = _get_keys(json)
+
+    if len(keys) > MAX_KEYS:
+        raise ValueError(f"Expected at most {MAX_KEYS} keys, got {len(keys)} keys.")
+
+    # Rank keys by criteria
+    ranked_ids = await rank_items_pairwise(
+        items=keys,
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+    )
+    # Get most relevant key
+    most_relevant_key = str(ranked_ids[0])
+    most_relevant_value = json[most_relevant_key]
+    return ExtractFieldResult(key=most_relevant_key, value=most_relevant_value)
 
 
 @registry.register(
@@ -108,7 +149,7 @@ def extract_field(
     description="Use AI to select fields from a JSON object. Returns the JSON object with only the selected fields.",
     namespace="ai",
 )
-def select_fields(
+async def select_fields(
     json: Annotated[
         dict[str, Any],
         Doc("JSON object to select the fields from."),
@@ -123,5 +164,33 @@ def select_fields(
             "Extract from and return a flattened single level object with JSONPath notation as keys."
         ),
     ] = False,
-) -> None:
-    pass
+    model_name: Annotated[
+        str,
+        Doc("LLM model to use for ranking."),
+    ] = "gpt-5-mini-2025-08-07",
+    model_provider: Annotated[
+        str,
+        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
+    ] = "openai",
+) -> dict[str, Any]:
+    if flatten:
+        json = flatten_dict(json)
+
+    if len(json.keys()) > MAX_KEYS:
+        raise ValueError(
+            f"Expected at most {MAX_KEYS} keys, got {len(json.keys())} keys."
+        )
+
+    # Get keys
+    keys = _get_keys(json)
+    # Rank keys by criteria
+    ranked_ids = await rank_items_pairwise(
+        items=keys,
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+    )
+    # Get most relevant keys
+    most_relevant_keys = [str(ranked_id) for ranked_id in ranked_ids]
+    # Return JSON object with only the selected fields
+    return {key: json[key] for key in most_relevant_keys}
