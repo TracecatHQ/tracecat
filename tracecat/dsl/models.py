@@ -66,6 +66,9 @@ class ActionErrorInfo:
     attempt: int = 1
     """The attempt number."""
 
+    children: list[ActionErrorInfo] | None = None
+    """Child errors."""
+
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"

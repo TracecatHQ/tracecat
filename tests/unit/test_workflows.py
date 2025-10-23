@@ -4685,6 +4685,69 @@ async def test_workflow_scatter_gather(
 
 
 @pytest.mark.anyio
+async def test_workflow_gather_error_strategy_raise(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+) -> None:
+    """Gather should fail-fast when configured with the raise error strategy."""
+
+    dsl = DSLInput(
+        title="Gather raise on errors",
+        description="Gather configured to raise when any scatter branch errors",
+        entrypoint=DSLEntrypoint(ref="scatter1"),
+        actions=[
+            ActionStatement(
+                ref="scatter1",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2]).model_dump(),
+            ),
+            ActionStatement(
+                ref="throw",
+                action="core.transform.reshape",
+                depends_on=["scatter1"],
+                run_if="${{ FN.mod(ACTIONS.scatter1.result, 2) == 1 }}",
+                args={"value": "${{ 1/0 }}"},
+            ),
+            ActionStatement(
+                ref="gather1",
+                action="core.transform.gather",
+                depends_on=["throw"],
+                args=GatherArgs(
+                    items="${{ ACTIONS.throw.result }}",
+                    error_strategy=StreamErrorHandlingStrategy.RAISE,
+                ).model_dump(),
+            ),
+        ],
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    wf_exec_id = generate_test_exec_id(
+        test_workflow_gather_error_strategy_raise.__name__
+    )
+
+    async with test_worker_factory(temporal_client):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Gather 'gather1' encountered" in str(cause)
+    assert cause.details, "ApplicationError should include gather error details"
+    detail = cause.details[0]
+    assert isinstance(detail, Mapping)
+    assert detail.get("ref") == "throw"
+
+
+@pytest.mark.anyio
 async def test_workflow_env_and_trigger_access_in_stream(
     test_role: Role, temporal_client: Client, test_worker_factory
 ) -> None:

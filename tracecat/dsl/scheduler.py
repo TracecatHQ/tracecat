@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
@@ -1029,21 +1029,48 @@ class DSLScheduler:
 
         # Error handling strategy
         results = []
-        errors = []
+        errors: list[ActionErrorInfo] = []
         # Consume generator here
         match err_strategy := gather_args.error_strategy:
             # Default behavior
             case StreamErrorHandlingStrategy.PARTITION:
                 # Filter out and place in task result error
-                for item in filtered_items:
-                    if _is_error_info(item):
-                        errors.append(item)
-                    else:
-                        results.append(item)
+                results, errors = _partition_errors(filtered_items)
             case StreamErrorHandlingStrategy.DROP:
                 results = [item for item in filtered_items if not _is_error_info(item)]
             case StreamErrorHandlingStrategy.INCLUDE:
                 results = list(filtered_items)
+            case StreamErrorHandlingStrategy.RAISE:
+                # 'raise' partitions first so we can raise an error if there are errors in the stream
+                # Only raise an error if there are errors in the stream
+                results, errors = _partition_errors(filtered_items)
+                if errors:
+                    message = (
+                        f"Gather '{gather_ref}' encountered {len(errors)} error(s)"
+                    )
+                    gather_error = ActionErrorInfo(
+                        ref=gather_ref,
+                        message=message,
+                        type=ApplicationError.__name__,
+                        children=errors,
+                    )
+                    app_error = ApplicationError(
+                        message,
+                        {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                        non_retryable=True,
+                    )
+                    self.logger.warning(
+                        "Raising gather error", errors=errors, app_error=app_error
+                    )
+
+                    # Register the gather failure so the scheduler halts and the workflow error
+                    # handler can run, even though the exception originates from a non-root stream.
+                    self.task_exceptions[gather_ref] = TaskExceptionInfo(
+                        exception=app_error,
+                        details=gather_error,
+                    )
+                    raise app_error
+
             case _:
                 raise ApplicationError(
                     f"Invalid error handling strategy: {err_strategy}"
@@ -1061,7 +1088,6 @@ class DSLScheduler:
         task_result.update(result=results)
         if errors:
             task_result.update(error=errors, error_typename=type(errors).__name__)
-
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
             task=task,
@@ -1162,6 +1188,17 @@ class DSLScheduler:
                     raise
 
 
+def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results = []
+    errors = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
+
+
 def _is_error_info(detail: Any) -> bool:
     if isinstance(detail, ActionErrorInfo):
         return True
@@ -1172,3 +1209,10 @@ def _is_error_info(detail: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None
