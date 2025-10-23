@@ -483,11 +483,11 @@ export function TaskAssigneeChangedEvent({
           <>
             to <EventActor user={newAssignee} />
           </>
-        ) : (
+        ) : oldAssignee ? (
           <>
-            from <EventActor user={oldAssignee!} />
+            from <EventActor user={oldAssignee} />
           </>
-        )}
+        ) : null}
       </span>
     </div>
   )

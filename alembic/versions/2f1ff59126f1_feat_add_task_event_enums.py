@@ -25,7 +25,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_CREATED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_CREATED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_CREATED''';
       END IF;
     END$$;
     """)
@@ -36,7 +36,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_DELETED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_DELETED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_DELETED''';
       END IF;
     END$$;
     """)
@@ -47,7 +47,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_STATUS_CHANGED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_STATUS_CHANGED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_STATUS_CHANGED''';
       END IF;
     END$$;
     """)
@@ -58,7 +58,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_PRIORITY_CHANGED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_PRIORITY_CHANGED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_PRIORITY_CHANGED''';
       END IF;
     END$$;
     """)
@@ -69,7 +69,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_WORKFLOW_CHANGED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_WORKFLOW_CHANGED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_WORKFLOW_CHANGED''';
       END IF;
     END$$;
     """)
@@ -80,7 +80,7 @@ def upgrade() -> None:
         SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'caseeventtype' AND e.enumlabel = 'TASK_ASSIGNEE_CHANGED'
       ) THEN
-        ALTER TYPE caseeventtype ADD VALUE 'TASK_ASSIGNEE_CHANGED';
+        EXECUTE 'ALTER TYPE caseeventtype ADD VALUE ''TASK_ASSIGNEE_CHANGED''';
       END IF;
     END$$;
     """)

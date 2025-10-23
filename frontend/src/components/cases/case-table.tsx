@@ -30,7 +30,6 @@ import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
 import { useAuth } from "@/hooks/use-auth"
 import { useDebounce } from "@/hooks/use-debounce"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -164,8 +163,6 @@ export default function CaseTable() {
   const [clearSelectionTrigger, setClearSelectionTrigger] = useState(0)
   const router = useRouter()
   const { updateSelection, resetSelection } = useCaseSelection()
-  const { isFeatureEnabled } = useFeatureFlag()
-  const caseTasksEnabled = isFeatureEnabled("case-tasks")
   const storageKey = getFilterStorageKey(workspaceId, user?.id)
   const storedFilters = useMemo(
     () => loadFiltersFromStorage(storageKey),
@@ -421,8 +418,8 @@ export default function CaseTable() {
   ])
 
   const memoizedColumns = useMemo(
-    () => createColumns(setSelectedCase, caseTasksEnabled),
-    [setSelectedCase, caseTasksEnabled]
+    () => createColumns(setSelectedCase),
+    [setSelectedCase]
   )
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
