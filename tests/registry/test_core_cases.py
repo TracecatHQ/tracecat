@@ -232,6 +232,44 @@ class TestCoreUpdate:
         assert result == updated_case.model_dump.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_append_description(self, mock_with_session, mock_case):
+        """Test appending to the existing case description when requested."""
+        # Set up the mock service context manager
+        original_description = "Existing description. "
+        mock_case.description = original_description
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "description": f"{original_description}\nNew details.",
+            "priority": mock_case.priority.value,
+            "severity": mock_case.severity.value,
+            "status": mock_case.status.value,
+            "fields": {"field1": "value1", "field2": "value2"},
+        }
+        mock_service.update_case.return_value = updated_case
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await update_case(
+            case_id=str(mock_case.id),
+            description="New details.",
+            append=True,
+        )
+
+        mock_service.update_case.assert_called_once()
+        _, update_arg = mock_service.update_case.call_args[0]
+        assert isinstance(update_arg, CaseUpdate)
+        assert update_arg.description == f"{original_description}\nNew details."
+
+        assert result == updated_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_partial_base_data(self, mock_with_session, mock_case):
         """Test updating only some base fields (not all fields present)."""
         # Set up the mock service context manager
