@@ -1,6 +1,6 @@
 """AI utilities. Actions that use LLMs to perform specific predefined tasks."""
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
@@ -44,7 +44,7 @@ async def rank_documents(
         float,
         Doc("Portion of top items to recursively refine (0-1, default 0.5)."),
     ] = 0.5,
-) -> list[str] | list[dict[str, Any]]:
+) -> list[str]:
     """Rank items using multi-pass pairwise LLM ranking with progressive refinement.
 
     This implements the BishopFox raink algorithm:
@@ -74,19 +74,9 @@ async def rank_documents(
         refinement_ratio=refinement_ratio,
     )
 
-    # Return in original format
-    if items and isinstance(items[0], str):
-        # Map back to original strings
-        str_items = cast(list[str], items)
-        id_to_text: dict[int, str] = {i: text for i, text in enumerate(str_items)}
-        return [id_to_text[cast(int, item_id)] for item_id in ranked_ids]
-    else:
-        # Return full dict items in ranked order
-        dict_items_input = cast(list[dict[str, Any]], items)
-        id_to_item: dict[str | int, dict[str, Any]] = {
-            item["id"]: item for item in dict_items_input
-        }
-        return [id_to_item[item_id] for item_id in ranked_ids]
+    # Map back to original strings
+    id_to_text: dict[int, str] = {i: text for i, text in enumerate(items)}
+    return [id_to_text[int(item_id)] for item_id in ranked_ids]
 
 
 @registry.register(
@@ -103,6 +93,12 @@ def extract_field(
         str,
         Doc("Criteria to use for extracting the field."),
     ],
+    flatten: Annotated[
+        bool,
+        Doc(
+            "Extract from and return a flattened single level object with JSONPath notation as keys."
+        ),
+    ] = False,
 ) -> None:
     pass
 
@@ -121,5 +117,11 @@ def select_fields(
         str,
         Doc("Criteria to use for selecting the fields."),
     ],
+    flatten: Annotated[
+        bool,
+        Doc(
+            "Extract from and return a flattened single level object with JSONPath notation as keys."
+        ),
+    ] = False,
 ) -> None:
     pass

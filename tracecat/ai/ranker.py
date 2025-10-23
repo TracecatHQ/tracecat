@@ -15,6 +15,9 @@ from tracecat.agent.models import AgentConfig
 from tracecat.agent.runtime import run_agent_sync
 from tracecat.logger import logger
 
+# Global constraint to defend against resource consumption attacks
+MAX_ITEMS: int = 100
+
 
 class RankableItem(TypedDict):
     id: str | int
@@ -79,6 +82,9 @@ async def rank_items(
     if not items:
         return []
 
+    if len(items) > MAX_ITEMS:
+        raise ValueError(f"Too many items to rank: received {len(items)}.")
+
     # Validate and extract item descriptions
     item_descriptions = []
     for idx, item in enumerate(items):
@@ -136,18 +142,21 @@ Your response (JSON array only):"""
 
     # Parse and validate the response
     try:
-        # Clean up the output - LLMs sometimes wrap responses in markdown code blocks
-        cleaned = output_text.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        elif cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
+        if isinstance(output_text, list):
+            ranked_ids = output_text
+        else:
+            # Clean up the output - LLMs sometimes wrap responses in markdown code blocks
+            cleaned = str(output_text).strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
 
-        # Parse as JSON
-        ranked_ids = json.loads(cleaned)
+            # Parse as JSON
+            ranked_ids = json.loads(cleaned)
 
         if not isinstance(ranked_ids, list):
             raise ValueError(
@@ -263,19 +272,21 @@ Your response (JSON array only):"""
         result_dict.get("output") or result_dict.get("data") or str(result_dict)
     )
 
-    # Clean up markdown code blocks
-    cleaned = output_text.strip()
-    if cleaned.startswith("```json"):
-        cleaned = cleaned[7:]
-    elif cleaned.startswith("```"):
-        cleaned = cleaned[3:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-    cleaned = cleaned.strip()
-
-    # Parse as JSON
+    # Parse as JSON, allowing pre-parsed list outputs
     try:
-        ranked_ids = json.loads(cleaned)
+        if isinstance(output_text, list):
+            ranked_ids = output_text
+        else:
+            cleaned = str(output_text).strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            ranked_ids = json.loads(cleaned)
+
         if not isinstance(ranked_ids, list):
             raise ValueError(f"LLM did not return a list. Response: {output_text}")
         return ranked_ids
@@ -343,6 +354,9 @@ async def rank_items_pairwise(
     """
     if not items:
         return []
+
+    if len(items) > MAX_ITEMS:
+        raise ValueError(f"Too many items to rank: received {len(items)}.")
 
     # Validate items have ID field
     for idx, item in enumerate(items):
