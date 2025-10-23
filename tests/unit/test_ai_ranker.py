@@ -13,10 +13,7 @@ class DummyAgentOutput:
     """Lightweight stand-in for AgentOutput with configurable payload."""
 
     def __init__(self, output: Any):
-        self._output = output
-
-    def model_dump(self) -> dict[str, Any]:
-        return {"output": self._output}
+        self.output = output
 
 
 def _build_fake_agent() -> object:
@@ -39,7 +36,7 @@ async def test_rank_items_returns_empty_list_without_building_agent(
     result = await ranker.rank_items(
         items=[],
         criteria_prompt="anything",
-        model_name="gpt-4o-mini",
+        model_name="gpt5-nano",
         model_provider="openai",
     )
 
@@ -48,47 +45,21 @@ async def test_rank_items_returns_empty_list_without_building_agent(
 
 
 @pytest.mark.anyio
-async def test_rank_items_missing_identifier_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="missing required field 'id'"):
-        await ranker.rank_items(
-            items=[{"text": "Sample"}],
-            criteria_prompt="rank by relevance",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-        )
-
-
-@pytest.mark.anyio
-async def test_rank_items_parses_markdown_wrapped_json(
+async def test_rank_items_missing_identifier_raises_key_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_build_agent(config: Any) -> object:
         return _build_fake_agent()
 
-    async def fake_run_agent_sync(
-        agent: Any,
-        user_prompt: str,
-        *,
-        max_requests: int,
-    ) -> DummyAgentOutput:
-        return DummyAgentOutput('```json\n["A", "B"]\n```')
-
     monkeypatch.setattr(ranker, "build_agent", fake_build_agent)
-    monkeypatch.setattr(ranker, "run_agent_sync", fake_run_agent_sync)
 
-    items = [
-        {"id": "A", "text": "Critical issue"},
-        {"id": "B", "text": "Minor bug"},
-    ]
-
-    ranked = await ranker.rank_items(
-        items=items,
-        criteria_prompt="rank by severity descending",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-    )
-
-    assert ranked == ["A", "B"]
+    with pytest.raises(KeyError, match="id"):
+        await ranker.rank_items(
+            items=cast(list[ranker.RankableItem], [{"text": "Sample"}]),
+            criteria_prompt="rank by relevance",
+            model_name="gpt5-nano",
+            model_provider="openai",
+        )
 
 
 @pytest.mark.anyio
@@ -109,37 +80,39 @@ async def test_rank_items_accepts_already_parsed_list(
     monkeypatch.setattr(ranker, "build_agent", fake_build_agent)
     monkeypatch.setattr(ranker, "run_agent_sync", fake_run_agent_sync)
 
-    items = [{"id": "A", "text": "alpha"}, {"id": "B", "text": "beta"}]
+    items: list[ranker.RankableItem] = [
+        {"id": "A", "text": "alpha"},
+        {"id": "B", "text": "beta"},
+    ]
 
     ranked = await ranker.rank_items(
         items=items,
         criteria_prompt="return list as-is",
-        model_name="gpt-4o-mini",
+        model_name="gpt5-nano",
         model_provider="openai",
     )
 
     assert ranked == ["B", "A"]
 
 
-def test_shuffle_items_uses_random_shuffle(monkeypatch: pytest.MonkeyPatch) -> None:
-    initial = cast(
-        list[ranker.RankableItem],
-        [
-            {"id": 1, "text": "one"},
-            {"id": 2, "text": "two"},
-            {"id": 3, "text": "three"},
-        ],
-    )
+@pytest.mark.anyio
+async def test_rank_items_enforces_max_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_build_agent(config: Any) -> object:
+        return _build_fake_agent()
 
-    def fake_shuffle(seq: list[ranker.RankableItem]) -> None:
-        seq.reverse()
+    monkeypatch.setattr(ranker, "build_agent", fake_build_agent)
 
-    monkeypatch.setattr(ranker.random, "shuffle", fake_shuffle)
+    items = [{"id": idx, "text": "item"} for idx in range(ranker.MAX_ITEMS + 1)]
 
-    shuffled_result = ranker._shuffle_items(initial)
-
-    assert shuffled_result is not initial
-    assert [item["id"] for item in shuffled_result] == [3, 2, 1]
+    with pytest.raises(ValueError, match="Expected at most"):
+        await ranker.rank_items(
+            items=cast(list[ranker.RankableItem], items),
+            criteria_prompt="any",
+            model_name="gpt5-nano",
+            model_provider="openai",
+        )
 
 
 def test_create_batches_chunks_items_evenly() -> None:
@@ -175,7 +148,7 @@ async def test_rank_batch_formats_prompt_and_parses_ids(
         max_requests: int,
     ) -> DummyAgentOutput:
         captured_prompt["value"] = user_prompt
-        return DummyAgentOutput('["item-1", "item-2"]')
+        return DummyAgentOutput(["item-1", "item-2"])
 
     monkeypatch.setattr(ranker, "run_agent_sync", fake_run_agent_sync)
 
@@ -189,8 +162,6 @@ async def test_rank_batch_formats_prompt_and_parses_ids(
 
     ranked = await ranker._rank_batch(
         batch=batch,
-        criteria_prompt="rank alphabetically",
-        id_field="id",
         agent=_build_fake_agent(),
         max_requests=3,
     )
@@ -198,7 +169,8 @@ async def test_rank_batch_formats_prompt_and_parses_ids(
     assert ranked == ["item-1", "item-2"]
     prompt = captured_prompt["value"]
     assert "Alpha vulnerability" in prompt
-    assert '"detail": "Fallback text path"' in prompt
+    assert "id: `item-1`" in prompt
+    assert "detail" not in prompt
 
 
 @pytest.mark.anyio
@@ -225,42 +197,11 @@ async def test_rank_batch_accepts_already_parsed_list(
 
     ranked = await ranker._rank_batch(
         batch=batch,
-        criteria_prompt="reverse order",
-        id_field="id",
         agent=_build_fake_agent(),
         max_requests=3,
     )
 
     assert ranked == ["item-2", "item-1"]
-
-
-@pytest.mark.anyio
-async def test_rank_batch_raises_for_non_list_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_run_agent_sync(
-        agent: Any,
-        user_prompt: str,
-        *,
-        max_requests: int,
-    ) -> DummyAgentOutput:
-        return DummyAgentOutput('{"unexpected": "format"}')
-
-    monkeypatch.setattr(ranker, "run_agent_sync", fake_run_agent_sync)
-
-    batch = cast(
-        list[ranker.RankableItem],
-        [{"id": "item-1", "text": "Only item"}],
-    )
-
-    with pytest.raises(ValueError, match="did not return a list"):
-        await ranker._rank_batch(
-            batch=batch,
-            criteria_prompt="rank alphabetically",
-            id_field="id",
-            agent=_build_fake_agent(),
-            max_requests=3,
-        )
 
 
 @pytest.mark.anyio
@@ -271,21 +212,20 @@ async def test_rank_items_pairwise_combines_refined_and_remaining(
         return _build_fake_agent()
 
     async def fake_rank_batch(
-        *,
         batch: list[ranker.RankableItem],
-        criteria_prompt: str,
-        id_field: str,
         agent: Any,
         max_requests: int,
     ) -> list[str | int]:
-        return [item[id_field] for item in batch]
+        return [item["id"] for item in batch]
 
-    def identity_shuffle(items: list[ranker.RankableItem]) -> list[ranker.RankableItem]:
+    def identity_sample(
+        items: list[ranker.RankableItem], k: int
+    ) -> list[ranker.RankableItem]:
         return list(items)
 
     monkeypatch.setattr(ranker, "build_agent", fake_build_agent)
     monkeypatch.setattr(ranker, "_rank_batch", fake_rank_batch)
-    monkeypatch.setattr(ranker, "_shuffle_items", identity_shuffle)
+    monkeypatch.setattr(ranker.random, "sample", identity_sample)
 
     items = cast(
         list[ranker.RankableItem],
@@ -300,7 +240,7 @@ async def test_rank_items_pairwise_combines_refined_and_remaining(
     ranked = await ranker.rank_items_pairwise(
         items=items,
         criteria_prompt="no-op ordering",
-        model_name="gpt-4o-mini",
+        model_name="gpt5-nano",
         model_provider="openai",
         batch_size=2,
         num_passes=2,
@@ -315,22 +255,21 @@ async def test_multi_pass_rank_handles_missing_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_rank_batch(
-        *,
         batch: list[ranker.RankableItem],
-        criteria_prompt: str,
-        id_field: str,
         agent: Any,
         max_requests: int,
     ) -> list[str | int]:
         return [
-            batch[0][id_field]
+            batch[0]["id"]
         ]  # Drop all but the first item to trigger missing-id handling
 
-    def identity_shuffle(items: list[ranker.RankableItem]) -> list[ranker.RankableItem]:
+    def identity_sample(
+        items: list[ranker.RankableItem], k: int
+    ) -> list[ranker.RankableItem]:
         return list(items)
 
     monkeypatch.setattr(ranker, "_rank_batch", fake_rank_batch)
-    monkeypatch.setattr(ranker, "_shuffle_items", identity_shuffle)
+    monkeypatch.setattr(ranker.random, "sample", identity_sample)
 
     items = cast(
         list[ranker.RankableItem],
@@ -358,7 +297,7 @@ async def test_multi_pass_rank_handles_missing_ids(
 @pytest.mark.anyio
 @requires_openai_mocks
 async def test_rank_items_live_openai() -> None:
-    items = [
+    items: list[ranker.RankableItem] = [
         {"id": "high", "text": "priority: 3 (highest)"},
         {"id": "medium", "text": "priority: 2"},
         {"id": "low", "text": "priority: 1 (lowest)"},
@@ -371,7 +310,7 @@ async def test_rank_items_live_openai() -> None:
             "Each item's text contains 'priority: N'. The correct ordering is the IDs "
             "whose priority numbers are sorted descending."
         ),
-        model_name="gpt-5-nano-2025-08-07",
+        model_name="gpt5-nano",
         model_provider="openai",
     )
     assert ranked == ["high", "medium", "low"]
