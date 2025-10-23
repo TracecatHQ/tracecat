@@ -203,7 +203,7 @@ async def deduplicate(
     keys: Annotated[
         list[str],
         Doc(
-            "List of JSONPath fields to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
+            "List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
         ),
     ],
     expire_seconds: Annotated[
@@ -270,7 +270,7 @@ async def is_duplicate(
     ],
     keys: Annotated[
         list[str],
-        Doc("List of JSONPath fields to check."),
+        Doc("List of JSONPath keys to check."),
     ],
     expire_seconds: Annotated[
         int,
@@ -392,7 +392,7 @@ def gather(
 
 
 def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
-    """Return object with single level of fields (as jsonpath) and values."""
+    """Return object with single level of keys (as jsonpath) and values."""
 
     def _flatten(
         obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
