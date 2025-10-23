@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from "react"
 import type { CaseTaskRead, WorkflowReadMinimal } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
@@ -127,9 +128,12 @@ export function CaseTasksTable({
 
           return (
             <div key={task.id} className="flex items-center gap-2">
-              <div
-                className="group relative flex items-center gap-2.5 rounded-md border border-border/40 bg-background/60 px-3 py-2 backdrop-blur-sm transition-all hover:border-border hover:bg-muted/30 cursor-pointer flex-1"
+              <Button
+                type="button"
+                variant="ghost"
+                className="group relative w-full flex items-center gap-2.5 rounded-md border border-border/40 bg-background/60 px-3 py-2 backdrop-blur-sm transition-all hover:border-border hover:bg-muted/30 cursor-pointer flex-1 justify-start text-left"
                 onClick={() => handleEditTask(task)}
+                aria-label={`Edit task ${task.title}`}
               >
                 <TooltipProvider>
                   <Tooltip>
@@ -174,7 +178,7 @@ export function CaseTasksTable({
                     </span>
                   )}
                 </div>
-              </div>
+              </Button>
 
               {workflow && (
                 <TaskWorkflowStatus
