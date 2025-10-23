@@ -305,9 +305,7 @@ export function CaseTaskDialog({
                           <SelectValue placeholder="Select workflow (optional)" />
                         </SelectTrigger>
                         <SelectContent>
-                          {isEditMode && (
-                            <SelectItem value="__none__">&nbsp;</SelectItem>
-                          )}
+                          <SelectItem value="__none__">None</SelectItem>
                           {workflows?.map((workflow) => (
                             <SelectItem key={workflow.id} value={workflow.id}>
                               <span>

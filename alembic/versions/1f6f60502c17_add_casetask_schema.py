@@ -74,6 +74,7 @@ def upgrade() -> None:
         ),
         sa.Column("assignee_id", sa.UUID(), nullable=True),
         sa.Column("workflow_id", sa.UUID(), nullable=True),
+        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["assignee_id"], ["user.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="SET NULL"),

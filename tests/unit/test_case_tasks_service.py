@@ -385,6 +385,8 @@ class TestCaseTasksService:
         await session.commit()
 
         other_role = Role(
+            type="service",
+            service_id="tracecat-tests",
             workspace_id=other_workspace.id,
             user_id=uuid.uuid4(),
         )

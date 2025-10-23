@@ -61,12 +61,11 @@ export function CaseTasksSection({
         type="single"
         collapsible
         value={accordionValue}
-        dir="rtl"
         onValueChange={setAccordionValue}
       >
         <AccordionItem value="tasks" className="border-none px-0">
           <div className="flex items-center justify-between gap-2">
-            <AccordionTrigger className="py-0 px-0 hover:no-underline flex-row-reverse justify-end gap-2.5">
+            <AccordionTrigger className="py-0 px-0 hover:no-underline justify-between gap-2.5">
               <h3 className="text-sm font-medium text-muted-foreground">
                 Tasks
               </h3>
