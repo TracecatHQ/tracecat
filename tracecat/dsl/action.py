@@ -145,6 +145,7 @@ class DSLActivities:
                 message=msg,
                 type=kind,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(err_msg, err_info, type=kind) from e
@@ -156,6 +157,7 @@ class DSLActivities:
                 message=str(e),
                 type=e.type or e.__class__.__name__,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(
@@ -172,6 +174,7 @@ class DSLActivities:
                 message=raw_msg,
                 type=kind,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(
