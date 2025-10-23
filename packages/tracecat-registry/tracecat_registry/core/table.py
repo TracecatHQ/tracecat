@@ -272,6 +272,10 @@ async def create_table(
             "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
         ),
     ] = None,
+    ignore_if_exists: Annotated[
+        bool,
+        Doc("If true, skip creation when the table already exists."),
+    ] = False,
 ) -> dict[str, Any]:
     column_objects = []
     if columns:
@@ -285,7 +289,11 @@ async def create_table(
                 )
             )
 
-    params = TableCreate(name=name, columns=column_objects)
+    params = TableCreate(
+        name=name,
+        columns=column_objects,
+        ignore_if_exists=ignore_if_exists,
+    )
     async with TablesService.with_session() as service:
         table = await service.create_table(params)
     return table.model_dump()

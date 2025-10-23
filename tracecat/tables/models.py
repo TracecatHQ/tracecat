@@ -135,6 +135,10 @@ class TableCreate(BaseModel):
         default_factory=list,
         description="The columns of the table",
     )
+    ignore_if_exists: bool = Field(
+        default=False,
+        description="If True, do not raise an error when the table already exists.",
+    )
 
     @field_validator("name")
     @classmethod

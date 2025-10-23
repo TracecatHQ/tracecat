@@ -211,6 +211,19 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
         await conn.execute(sa.DDL('CREATE SCHEMA IF NOT EXISTS "%s"', schema_name))
 
+        if params.ignore_if_exists:
+            try:
+                existing_table = await self.get_table_by_name(params.name)
+            except TracecatNotFoundError:
+                existing_table = None
+            else:
+                self.logger.info(
+                    "Table already exists, skipping creation",
+                    table_name=table_name,
+                    schema_name=schema_name,
+                )
+                return existing_table
+
         # Define table using SQLAlchemy schema objects
         new_table = sa.Table(
             table_name,

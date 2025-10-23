@@ -359,6 +359,7 @@ class TestCoreCreateTable:
         table_create_arg = mock_service.create_table.call_args[0][0]
         assert table_create_arg.name == "test_table"
         assert table_create_arg.columns == []
+        assert table_create_arg.ignore_if_exists is False
 
         # Verify the result
         assert result == mock_table.model_dump.return_value
@@ -389,6 +390,7 @@ class TestCoreCreateTable:
         table_create_arg = mock_service.create_table.call_args[0][0]
         assert table_create_arg.name == "test_table"
         assert len(table_create_arg.columns) == 2
+        assert table_create_arg.ignore_if_exists is False
 
         # Check first column
         col1 = table_create_arg.columns[0]
@@ -405,6 +407,27 @@ class TestCoreCreateTable:
         assert col2.default == 0
 
         # Verify the result
+        assert result == mock_table.model_dump.return_value
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_create_table_ignore_if_exists(
+        self, mock_with_session, mock_table
+    ):
+        """Test table creation when ignoring existing tables."""
+
+        mock_service = AsyncMock()
+        mock_service.create_table.return_value = mock_table
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_table(name="test_table", ignore_if_exists=True)
+
+        mock_service.create_table.assert_called_once()
+        table_create_arg = mock_service.create_table.call_args[0][0]
+        assert table_create_arg.ignore_if_exists is True
+
         assert result == mock_table.model_dump.return_value
 
 
