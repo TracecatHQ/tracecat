@@ -77,6 +77,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
@@ -457,6 +458,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { isFeatureEnabled } = useFeatureFlag()
+  const caseTasksEnabled = isFeatureEnabled("case-tasks")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
@@ -950,9 +953,14 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 </div>
 
                 {/* Tasks Section */}
-                <div className="mb-6">
-                  <CaseTasksSection caseId={caseId} workspaceId={workspaceId} />
-                </div>
+                {caseTasksEnabled && (
+                  <div className="mb-6">
+                    <CaseTasksSection
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                    />
+                  </div>
+                )}
 
                 {/* Tabs using shadcn components */}
                 <Tabs

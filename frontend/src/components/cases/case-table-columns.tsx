@@ -34,7 +34,8 @@ import { User } from "@/lib/auth"
 import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 
 export function createColumns(
-  setSelectedCase: (case_: CaseReadMinimal) => void
+  setSelectedCase: (case_: CaseReadMinimal) => void,
+  caseTasksEnabled = false
 ): ColumnDef<CaseReadMinimal>[] {
   const columns: ColumnDef<CaseReadMinimal>[] = [
     {
@@ -341,50 +342,53 @@ export function createColumns(
     },
   ]
 
-  // Find created_at column index and insert tasks before it
-  const createdAtIndex = columns.findIndex(
-    (col) => col.accessorKey === "created_at"
-  )
-  const insertIndex =
-    createdAtIndex !== -1 ? createdAtIndex : columns.length - 3
-  columns.splice(insertIndex, 0, {
-    accessorKey: "tasks",
-    header: ({ column }) => (
-      <DataTableColumnHeader
-        column={column}
-        title="Tasks"
-        className="justify-end"
-        buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
-      />
-    ),
-    cell: ({ row }) => {
-      const completed = row.original.num_tasks_completed ?? 0
-      const total = row.original.num_tasks_total ?? 0
+  // Conditionally add tasks column if feature flag is enabled
+  if (caseTasksEnabled) {
+    // Find created_at column index and insert tasks before it
+    const createdAtIndex = columns.findIndex(
+      (col) => "accessorKey" in col && col.accessorKey === "created_at"
+    )
+    const insertIndex =
+      createdAtIndex !== -1 ? createdAtIndex : columns.length - 3
+    columns.splice(insertIndex, 0, {
+      accessorKey: "tasks",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Tasks"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
+      ),
+      cell: ({ row }) => {
+        const completed = row.original.num_tasks_completed ?? 0
+        const total = row.original.num_tasks_total ?? 0
 
-      if (total === 0) {
+        if (total === 0) {
+          return (
+            <div className="flex w-full justify-end text-xs text-muted-foreground">
+              –
+            </div>
+          )
+        }
+
         return (
-          <div className="flex w-full justify-end text-xs text-muted-foreground">
-            –
+          <div className="flex w-full justify-end text-xs">
+            <span className={completed === total ? "text-green-600" : ""}>
+              {completed}/{total}
+            </span>
           </div>
         )
-      }
-
-      return (
-        <div className="flex w-full justify-end text-xs">
-          <span className={completed === total ? "text-green-600" : ""}>
-            {completed}/{total}
-          </span>
-        </div>
-      )
-    },
-    meta: {
-      headerClassName:
-        "w-[72px] min-w-[72px] max-w-[72px] justify-end px-0 text-right",
-      cellClassName: "w-[72px] min-w-[72px] max-w-[72px] px-0 text-right",
-      headerStyle: { width: "72px" },
-      cellStyle: { width: "72px" },
-    },
-  })
+      },
+      meta: {
+        headerClassName:
+          "w-[72px] min-w-[72px] max-w-[72px] justify-end px-0 text-right",
+        cellClassName: "w-[72px] min-w-[72px] max-w-[72px] px-0 text-right",
+        headerStyle: { width: "72px" },
+        cellStyle: { width: "72px" },
+      },
+    })
+  }
 
   return columns
 }
