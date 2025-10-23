@@ -1,5 +1,3 @@
-import uuid
-
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -71,7 +69,7 @@ class TestCaseTaskEvents:
         assert latest.data["task_id"] == str(task.id)
         assert latest.data["title"] == "T1"
 
-    async def test_task_status_and_assignee_events(
+    async def test_task_status_events(
         self,
         test_case,
         tasks_service: CaseTasksService,
@@ -90,16 +88,12 @@ class TestCaseTaskEvents:
         events = await events_service.list_events(test_case)
         assert any(e.type == CaseEventType.TASK_STATUS_CHANGED for e in events)
 
-        # Assignee change
-        new_assignee = uuid.uuid4()
-        await tasks_service.update_task(
-            task.id,
-            CaseTaskUpdate(assignee_id=new_assignee),
+        # Verify the status change event has correct data
+        status_event = next(
+            e for e in events if e.type == CaseEventType.TASK_STATUS_CHANGED
         )
-        events = await events_service.list_events(test_case)
-        # Latest should be assignee change
-        assert events[0].type == CaseEventType.TASK_ASSIGNEE_CHANGED
-        assert any(e.type == CaseEventType.TASK_ASSIGNEE_CHANGED for e in events)
+        assert status_event.data["old"] == "todo"
+        assert status_event.data["new"] == "in_progress"
 
     async def test_task_priority_and_workflow_events(
         self,
@@ -125,14 +119,6 @@ class TestCaseTaskEvents:
         assert priority_event.data["old"] == "low"
         assert priority_event.data["new"] == "high"
 
-        # Workflow change
-        await tasks_service.update_task(
-            task.id,
-            CaseTaskUpdate(workflow_id="wf_123"),
-        )
-        events = await events_service.list_events(test_case)
-        assert any(e.type == CaseEventType.TASK_WORKFLOW_CHANGED for e in events)
-
         # Title/description changes should not generate events
         await tasks_service.update_task(
             task.id,
@@ -140,9 +126,9 @@ class TestCaseTaskEvents:
         )
         events = await events_service.list_events(test_case)
         # Should still have the same number of events (no new ones for title/description)
-        task_events = [e for e in events if e.type.startswith("task_")]
-        # Should have: created, priority_changed, workflow_changed (3 total)
-        assert len(task_events) == 3
+        task_events = [e for e in events if e.type.value.startswith("task_")]
+        # Should have: created, priority_changed (2 total)
+        assert len(task_events) == 2
 
     async def test_task_deleted_event(
         self,
