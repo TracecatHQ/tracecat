@@ -3527,15 +3527,13 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
         workspaceId,
         requestBody: params,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error creating task", error)
@@ -3577,15 +3575,13 @@ export function useUpdateCaseTask({
         taskId,
         requestBody: params,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error updating task", error)
@@ -3626,15 +3622,13 @@ export function useDeleteCaseTask({
         workspaceId,
         taskId,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error deleting task", error)

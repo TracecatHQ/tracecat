@@ -242,7 +242,7 @@ async def search_cases(
         ) from exc
 
     # Fetch task counts for all cases
-    task_counts = await service._get_task_counts([case.id for case in cases])
+    task_counts = await service.get_task_counts([case.id for case in cases])
 
     # Build case responses with tags (tags are already loaded via selectinload)
     case_responses = []
