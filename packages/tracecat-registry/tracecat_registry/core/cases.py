@@ -190,7 +190,7 @@ async def update_case(
         if summary is not None:
             params["summary"] = summary
         if description is not None:
-            if append and case.description is not None:
+            if append and case.description:
                 params["description"] = f"{case.description}\n{description}"
             else:
                 params["description"] = description
