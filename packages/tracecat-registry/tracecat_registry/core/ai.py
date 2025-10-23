@@ -25,7 +25,7 @@ async def rank_documents(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
-    ] = "gpt-4o-mini",
+    ] = "gpt-5-mini-2025-08-07",
     model_provider: Annotated[
         str,
         Doc("LLM provider (e.g., 'openai', 'anthropic')."),

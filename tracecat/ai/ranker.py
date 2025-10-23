@@ -24,8 +24,8 @@ class RankableItem(TypedDict):
 async def rank_items(
     items: list[dict[str, Any]],
     criteria_prompt: str,
-    model_name: str = "gpt-4o-mini",
-    model_provider: str = "openai",
+    model_name: str,
+    model_provider: str,
     id_field: str = "id",
     model_settings: dict[str, Any] | None = None,
     max_requests: int = 5,
@@ -41,8 +41,8 @@ async def rank_items(
     Args:
         items: List of items to rank, each must contain the id_field
         criteria_prompt: Natural language criteria for ranking (e.g., "by severity", "most relevant to security")
-        model_name: LLM model to use (default: gpt-4o-mini)
-        model_provider: LLM provider (default: openai)
+        model_name: LLM model to use
+        model_provider: LLM provider
         id_field: Field name containing the item ID (default: "id")
         model_settings: Optional model settings dict (temperature, etc.)
         max_requests: Maximum number of LLM requests (default: 5)
@@ -288,8 +288,8 @@ Your response (JSON array only):"""
 async def rank_items_pairwise(
     items: list[RankableItem],
     criteria_prompt: str,
-    model_name: str = "gpt-4o-mini",
-    model_provider: str = "openai",
+    model_name: str,
+    model_provider: str,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -308,12 +308,10 @@ async def rank_items_pairwise(
     4. Parallel LLM calls for batch processing
 
     Args:
-        items: List of items to rank. Each item must be a dict with:
-               - 'id' (str|int): Unique identifier for tracking
-               - 'text' (str): Content to rank on (if missing, falls back to JSON dump)
+        items: List of items to rank. Each item must be a RankableItem.
         criteria_prompt: Natural language criteria for ranking (e.g., "by severity")
-        model_name: LLM model to use (default: gpt-4o-mini)
-        model_provider: LLM provider (default: openai)
+        model_name: LLM model to use
+        model_provider: LLM provider
         id_field: Field name containing the item ID (default: "id")
         batch_size: Number of items per batch (default: 10)
         num_passes: Number of shuffle-batch-rank iterations (default: 10)
