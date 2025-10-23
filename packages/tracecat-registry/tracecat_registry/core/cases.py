@@ -174,6 +174,12 @@ async def update_case(
             "List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags."
         ),
     ] = None,
+    append: Annotated[
+        bool,
+        Doc(
+            "If true, append the provided description to the existing description when it is not empty."
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
@@ -184,7 +190,10 @@ async def update_case(
         if summary is not None:
             params["summary"] = summary
         if description is not None:
-            params["description"] = description
+            if append and case.description is not None:
+                params["description"] = f"{case.description}\n{description}"
+            else:
+                params["description"] = description
         if priority is not None:
             params["priority"] = CasePriority(priority)
         if severity is not None:
