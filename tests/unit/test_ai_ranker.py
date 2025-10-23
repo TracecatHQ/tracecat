@@ -9,6 +9,9 @@ from tracecat.ai import ranker
 requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
 
 
+MODEL_NAME = "gpt-5-nano-2025-08-07"
+
+
 class DummyAgentOutput:
     """Lightweight stand-in for AgentOutput with configurable payload."""
 
@@ -36,7 +39,7 @@ async def test_rank_items_returns_empty_list_without_building_agent(
     result = await ranker.rank_items(
         items=[],
         criteria_prompt="anything",
-        model_name="gpt5-nano",
+        model_name=MODEL_NAME,
         model_provider="openai",
     )
 
@@ -57,7 +60,7 @@ async def test_rank_items_missing_identifier_raises_key_error(
         await ranker.rank_items(
             items=cast(list[ranker.RankableItem], [{"text": "Sample"}]),
             criteria_prompt="rank by relevance",
-            model_name="gpt5-nano",
+            model_name=MODEL_NAME,
             model_provider="openai",
         )
 
@@ -88,7 +91,7 @@ async def test_rank_items_accepts_already_parsed_list(
     ranked = await ranker.rank_items(
         items=items,
         criteria_prompt="return list as-is",
-        model_name="gpt5-nano",
+        model_name=MODEL_NAME,
         model_provider="openai",
     )
 
@@ -110,7 +113,7 @@ async def test_rank_items_enforces_max_items(
         await ranker.rank_items(
             items=cast(list[ranker.RankableItem], items),
             criteria_prompt="any",
-            model_name="gpt5-nano",
+            model_name=MODEL_NAME,
             model_provider="openai",
         )
 
@@ -240,7 +243,7 @@ async def test_rank_items_pairwise_combines_refined_and_remaining(
     ranked = await ranker.rank_items_pairwise(
         items=items,
         criteria_prompt="no-op ordering",
-        model_name="gpt5-nano",
+        model_name=MODEL_NAME,
         model_provider="openai",
         batch_size=2,
         num_passes=2,
@@ -310,7 +313,7 @@ async def test_rank_items_live_openai() -> None:
             "Each item's text contains 'priority: N'. The correct ordering is the IDs "
             "whose priority numbers are sorted descending."
         ),
-        model_name="gpt5-nano",
+        model_name=MODEL_NAME,
         model_provider="openai",
     )
     assert ranked == ["high", "medium", "low"]

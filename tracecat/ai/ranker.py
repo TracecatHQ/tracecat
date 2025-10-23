@@ -172,6 +172,18 @@ def _average_scores(scores: dict[str | int, list[float]]) -> dict[str | int, flo
     }
 
 
+def _assign_worst_scores(
+    scores: dict[str | int, list[float]],
+    item_ids: list[str | int],
+    worst_position: float,
+) -> None:
+    """Ensure every item has a fallback score when ranking fails."""
+    for item_id in item_ids:
+        if item_id not in scores:
+            scores[item_id] = []
+        scores[item_id].append(float(worst_position))
+
+
 async def _rank_batch(
     batch: list[RankableItem],
     agent: Any,
@@ -363,6 +375,9 @@ async def _multi_pass_rank(
 
         # Process results and collect scores
         for batch_idx, result in enumerate(batch_results):
+            batch = batches[batch_idx]
+            batch_ids = [item[id_field] for item in batch]
+
             if isinstance(result, Exception):
                 logger.warning(
                     "Batch ranking failed",
@@ -370,7 +385,7 @@ async def _multi_pass_rank(
                     batch_idx=batch_idx,
                     error=str(result),
                 )
-                # Skip failed batches
+                _assign_worst_scores(scores, batch_ids, len(batch))
                 continue
 
             # Type assertion: after Exception check, result must be list[str | int]
@@ -382,10 +397,10 @@ async def _multi_pass_rank(
                     batch_idx=batch_idx,
                     result_type=type(result).__name__,
                 )
+                _assign_worst_scores(scores, batch_ids, len(batch))
                 continue
 
             ranked_ids: list[str | int] = result
-            batch = batches[batch_idx]
 
             # Assign positional scores (0-based index within batch)
             # Lower position = better rank = lower score
@@ -395,9 +410,8 @@ async def _multi_pass_rank(
                 scores[item_id].append(float(position))
 
             # Handle items that weren't returned by LLM
-            batch_ids: set[str | int] = {item[id_field] for item in batch}
             returned_ids: set[str | int] = set(ranked_ids)
-            missing_ids = batch_ids - returned_ids
+            missing_ids = set(batch_ids) - returned_ids
 
             if missing_ids:
                 logger.warning(
@@ -408,10 +422,7 @@ async def _multi_pass_rank(
                 )
                 # Assign worst position to missing items
                 worst_position = len(ranked_ids)
-                for item_id in missing_ids:
-                    if item_id not in scores:
-                        scores[item_id] = []
-                    scores[item_id].append(float(worst_position))
+                _assign_worst_scores(scores, list(missing_ids), worst_position)
 
     # Average scores across passes
     avg_scores = _average_scores(scores)
