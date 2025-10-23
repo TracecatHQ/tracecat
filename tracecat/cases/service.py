@@ -980,8 +980,8 @@ class CaseEventsService(BaseWorkspaceService):
         )
         existing = {row[0] for row in result.fetchall()}
 
-        # Compute desired labels from Python Enum names (Postgres stores names)
-        desired = {member.name for member in CaseEventType}
+        # Compute desired labels from Python Enum values (Postgres stores uppercase names as labels)
+        desired = {member.value.upper() for member in CaseEventType}
         missing = [label for label in desired if label not in existing]
 
         if missing:

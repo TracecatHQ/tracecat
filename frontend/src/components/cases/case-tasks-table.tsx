@@ -4,8 +4,8 @@ import { Circle, CircleCheck, CircleDashed, CircleDot } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import type { CaseTaskRead, WorkflowReadMinimal } from "@/client"
 import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +31,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   medium: "bg-orange-500/10 text-orange-700 border-orange-500/20",
   high: "bg-red-500/10 text-red-700 border-red-500/20",
   critical: "bg-fuchsia-500/10 text-fuchsia-700 border-fuchsia-500/20",
+  other: "",
 }
 
 const STATUS_LABELS: Record<string, string> = {
