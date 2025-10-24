@@ -298,6 +298,48 @@ async def test_multi_pass_rank_handles_missing_ids(
 
 
 @pytest.mark.anyio
+async def test_multi_pass_rank_filters_hallucinated_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_rank_batch(
+        batch: list[ranker.RankableItem],
+        agent: Any,
+        max_requests: int,
+    ) -> list[str | int]:
+        return ["ghost-id", batch[1]["id"], batch[0]["id"]]
+
+    def identity_sample(
+        items: list[ranker.RankableItem], k: int
+    ) -> list[ranker.RankableItem]:
+        return list(items)
+
+    monkeypatch.setattr(ranker, "_rank_batch", fake_rank_batch)
+    monkeypatch.setattr(ranker.random, "sample", identity_sample)
+
+    items = cast(
+        list[ranker.RankableItem],
+        [
+            {"id": "alpha", "text": "first"},
+            {"id": "beta", "text": "second"},
+        ],
+    )
+
+    ranked = await ranker._multi_pass_rank(
+        items=items,
+        criteria_prompt="return hallucination first",
+        id_field="id",
+        agent=_build_fake_agent(),
+        batch_size=2,
+        num_passes=1,
+        refinement_ratio=0.0,
+        max_requests=1,
+    )
+
+    assert ranked == ["beta", "alpha"]
+    assert "ghost-id" not in ranked
+
+
+@pytest.mark.anyio
 @requires_openai_mocks
 async def test_rank_items_live_openai() -> None:
     items: list[ranker.RankableItem] = [

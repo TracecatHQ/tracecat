@@ -401,17 +401,34 @@ async def _multi_pass_rank(
                 continue
 
             ranked_ids: list[str | int] = result
+            batch_id_set = set(batch_ids)
+
+            # Filter out hallucinated IDs that aren't part of this batch
+            filtered_ranked_ids = [
+                item_id for item_id in ranked_ids if item_id in batch_id_set
+            ]
+            hallucinated_ids = [
+                item_id for item_id in ranked_ids if item_id not in batch_id_set
+            ]
+
+            if hallucinated_ids:
+                logger.warning(
+                    "LLM returned IDs outside current batch",
+                    pass_num=pass_num,
+                    batch_idx=batch_idx,
+                    hallucinated_count=len(hallucinated_ids),
+                )
 
             # Assign positional scores (0-based index within batch)
             # Lower position = better rank = lower score
-            for position, item_id in enumerate(ranked_ids):
+            for position, item_id in enumerate(filtered_ranked_ids):
                 if item_id not in scores:
                     scores[item_id] = []
                 scores[item_id].append(float(position))
 
             # Handle items that weren't returned by LLM
-            returned_ids: set[str | int] = set(ranked_ids)
-            missing_ids = set(batch_ids) - returned_ids
+            returned_ids: set[str | int] = set(filtered_ranked_ids)
+            missing_ids = batch_id_set - returned_ids
 
             if missing_ids:
                 logger.warning(
@@ -421,7 +438,7 @@ async def _multi_pass_rank(
                     missing_count=len(missing_ids),
                 )
                 # Assign worst position to missing items
-                worst_position = len(ranked_ids)
+                worst_position = len(batch_ids)
                 _assign_worst_scores(scores, list(missing_ids), worst_position)
 
     # Average scores across passes

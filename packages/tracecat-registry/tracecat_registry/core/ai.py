@@ -125,6 +125,9 @@ async def extract_field(
     if flatten:
         json = flatten_dict(json)
 
+    if not json:
+        raise ValueError("Expected JSON object with at least one key to rank.")
+
     # Get keys
     keys = _get_keys(json)
 
@@ -138,9 +141,21 @@ async def extract_field(
         model_name=model_name,
         model_provider=model_provider,
     )
+    if not ranked_ids:
+        raise ValueError("Ranking did not return any keys to extract.")
+
     # Get most relevant key
-    most_relevant_key = str(ranked_ids[0])
-    most_relevant_value = json[most_relevant_key]
+    selected_id = ranked_ids[0]
+    most_relevant_key = str(selected_id)
+
+    if most_relevant_key in json:
+        most_relevant_value = json[most_relevant_key]
+    elif selected_id in json:
+        most_relevant_value = json[selected_id]
+    else:
+        raise KeyError(
+            f"Ranked key '{most_relevant_key}' not found in JSON object keys."
+        )
     return ExtractFieldResult(key=most_relevant_key, value=most_relevant_value)
 
 
@@ -172,14 +187,24 @@ async def select_fields(
         str,
         Doc("LLM provider (e.g., 'openai', 'anthropic')."),
     ] = "openai",
+    num_fields: Annotated[
+        int,
+        Doc("Number of fields to return from the ranked list."),
+    ] = 3,
 ) -> dict[str, Any]:
     if flatten:
         json = flatten_dict(json)
+
+    if not json:
+        raise ValueError("Expected JSON object with at least one key to rank.")
 
     if len(json.keys()) > MAX_KEYS:
         raise ValueError(
             f"Expected at most {MAX_KEYS} keys, got {len(json.keys())} keys."
         )
+
+    if num_fields < 1:
+        raise ValueError("num_fields must be at least 1.")
 
     # Get keys
     keys = _get_keys(json)
@@ -190,7 +215,25 @@ async def select_fields(
         model_name=model_name,
         model_provider=model_provider,
     )
+    if not ranked_ids:
+        raise ValueError("Ranking did not return any keys to select.")
+
     # Get most relevant keys
-    most_relevant_keys = [str(ranked_id) for ranked_id in ranked_ids]
+    selected_fields: dict[str, Any] = {}
+    for ranked_id in ranked_ids:
+        key_str = str(ranked_id)
+        if key_str in json:
+            selected_fields[key_str] = json[key_str]
+        elif ranked_id in json:
+            selected_fields[key_str] = json[ranked_id]
+        else:
+            continue
+
+        if len(selected_fields) >= num_fields:
+            break
+
+    if not selected_fields:
+        raise ValueError("Unable to match ranked keys to JSON fields.")
+
     # Return JSON object with only the selected fields
-    return {key: json[key] for key in most_relevant_keys}
+    return selected_fields
