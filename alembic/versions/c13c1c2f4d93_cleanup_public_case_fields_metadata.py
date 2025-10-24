@@ -6,8 +6,9 @@ import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.engine.interfaces import ReflectedColumn
+
+from alembic import op
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 # Alembic migration metadata
