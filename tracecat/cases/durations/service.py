@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -25,6 +25,7 @@ from tracecat.cases.durations.models import (
 from tracecat.db.schemas import Case, CaseDuration, CaseEvent
 from tracecat.db.schemas import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatNotFoundError,
@@ -486,7 +487,10 @@ class CaseDurationService(BaseWorkspaceService):
         self, event: CaseEvent, anchor: CaseDurationEventAnchor
     ) -> datetime | None:
         value = self._resolve_field(event, anchor.timestamp_path)
-        return self._coerce_datetime(value)
+        try:
+            return coerce_to_utc_datetime(value)
+        except (TypeError, ValueError):
+            return None
 
     def _resolve_field(self, event: CaseEvent, path: str) -> Any:
         value: Any = event
@@ -498,24 +502,6 @@ class CaseDurationService(BaseWorkspaceService):
             if value is None:
                 return None
         return value
-
-    def _coerce_datetime(self, value: Any) -> datetime | None:
-        if isinstance(value, datetime):
-            if value.tzinfo is None:
-                return value.replace(tzinfo=UTC)
-            return value.astimezone(UTC)
-        if isinstance(value, str):
-            text = value
-            if text.endswith("Z"):
-                text = text[:-1] + "+00:00"
-            try:
-                parsed = datetime.fromisoformat(text)
-            except ValueError:
-                return None
-            if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=UTC)
-            return parsed.astimezone(UTC)
-        return None
 
     def _to_read_model(self, entity: CaseDuration) -> CaseDurationRead:
         return CaseDurationRead(
