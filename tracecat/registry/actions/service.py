@@ -445,7 +445,7 @@ async def validate_action_template(
 
         # (B) Validate that the step is correctly formatted
         try:
-            bound_action.validate_args(**step.args)
+            bound_action.validate_args(args=step.args)
         except RegistryValidationError as e:
             if isinstance(e.err, ValidationError):
                 details = []

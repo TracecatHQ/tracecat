@@ -130,10 +130,10 @@ def test_udf_validate_args(mock_package):
     assert udf.author == "Tracecat"
 
     # Test the UDF
-    udf.validate_args(num="${{ path.to.number }}")
-    udf.validate_args(num=1)
+    udf.validate_args(args={"num": "${{ path.to.number }}"})
+    udf.validate_args(args={"num": 1})
     with pytest.raises(RegistryValidationError):
-        udf.validate_args(num="not a number")
+        udf.validate_args(args={"num": "not a number"})
 
 
 def test_deprecated_function_can_be_registered(mock_package):

@@ -52,8 +52,8 @@ def test_validator_function_wrap_handler():
 
     # Test the registered UDF
     udf = repo.get("test.f1")
-    udf.validate_args(num="${{ path.to.number }}")
-    udf.validate_args(num=1)
+    udf.validate_args(args={"num": "${{ path.to.number }}"})
+    udf.validate_args(args={"num": 1})
 
     @registry.register(
         description="This is a test function",
@@ -74,10 +74,10 @@ def test_validator_function_wrap_handler():
 
     # Test the UDF with an invalid object
     with pytest.raises(RegistryValidationError):
-        udf2.validate_args(obj={"a": "not a list"})
+        udf2.validate_args(args={"obj": {"a": "not a list"}})
 
     # Should not raise
-    udf2.validate_args(obj={"a": "${{ not a list }}"})
+    udf2.validate_args(args={"obj": {"a": "${{ not a list }}"}})
 
     @registry.register(
         description="This is a test function",
@@ -97,13 +97,13 @@ def test_validator_function_wrap_handler():
     udf3 = repo.get("test.f3")
 
     # Should not raise
-    udf3.validate_args(obj=[{"a": 1}])
+    udf3.validate_args(args={"obj": [{"a": 1}]})
     x = udf3.args_cls.model_validate({"obj": [{"a": 1}]})
     assert x.model_dump(warnings=True) == {"obj": [{"a": 1}]}
-    udf3.validate_args(obj=[{"a": "${{ a number }}"}])
+    udf3.validate_args(args={"obj": [{"a": "${{ a number }}"}]})
     x = udf3.args_cls.model_validate({"obj": [{"a": "${{ a number }}"}]})
     assert x.model_dump(warnings=True) == {"obj": [{"a": "${{ a number }}"}]}
-    udf3.validate_args(obj=["${{ a number }}", {"a": "${{ a number }}"}])
+    udf3.validate_args(args={"obj": ["${{ a number }}", {"a": "${{ a number }}"}]})
     x = udf3.args_cls.model_validate(
         {"obj": ["${{ a number }}", {"a": "${{ a number }}"}]}
     )
@@ -113,10 +113,10 @@ def test_validator_function_wrap_handler():
 
     # Should raise
     with pytest.raises(RegistryValidationError):
-        udf3.validate_args(obj=["string"])
+        udf3.validate_args(args={"obj": ["string"]})
 
     with pytest.raises(RegistryValidationError):
-        udf3.validate_args(obj=[{"a": "string"}])
+        udf3.validate_args(args={"obj": [{"a": "string"}]})
 
     # Test deeply nested types
     @registry.register(
@@ -138,19 +138,19 @@ def test_validator_function_wrap_handler():
 
     # Valid nested structure
     valid_obj = {"level1": [{"level2": [{"level3": 1}, {"level3": 2}]}]}
-    udf4.validate_args(complex_obj=valid_obj)
+    udf4.validate_args(args={"complex_obj": valid_obj})
 
     # Valid with template expressions
     template_obj = {"level1": [{"level2": "${{ template.level2 }}"}]}
-    udf4.validate_args(complex_obj=template_obj)
+    udf4.validate_args(args={"complex_obj": template_obj})
 
     template_obj = {"level1": [{"level2": [{"level3": "${{ template.level3 }}"}]}]}
-    udf4.validate_args(complex_obj=template_obj)
+    udf4.validate_args(args={"complex_obj": template_obj})
 
     # Invalid nested structure
     with pytest.raises(RegistryValidationError):
         invalid_obj = {"level1": [{"level2": [{"level3": "not an int"}]}]}
-        udf4.validate_args(complex_obj=invalid_obj)
+        udf4.validate_args(args={"complex_obj": invalid_obj})
 
     @registry.register(
         description="Test function with tuple and set types",
@@ -171,13 +171,13 @@ def test_validator_function_wrap_handler():
 
     # Valid nested collections
     valid_collections = {"data": ({1, 2, 3}, [{"strings": {"a", "b", "c"}}])}
-    udf5.validate_args(nested_collections=valid_collections)
+    udf5.validate_args(args={"nested_collections": valid_collections})
 
     # Valid with templates
     template_collections = {
         "data": ("${{ template.numbers }}", [{"strings": "${{ template.strings }}"}])
     }
-    udf5.validate_args(nested_collections=template_collections)
+    udf5.validate_args(args={"nested_collections": template_collections})
 
     # Invalid collections
     with pytest.raises(RegistryValidationError):
@@ -187,7 +187,7 @@ def test_validator_function_wrap_handler():
                 [{"strings": {1, 2, 3}}],  # Should be set of strings
             )
         }
-        udf5.validate_args(nested_collections=invalid_collections)
+        udf5.validate_args(args={"nested_collections": invalid_collections})
 
 
 @pytest.mark.anyio
