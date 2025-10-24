@@ -53,6 +53,34 @@ async def lookup(
 
 
 @registry.register(
+    default_title="Is in table",
+    description="Check if a value exists in a table column.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def is_in(
+    table: Annotated[
+        str,
+        Doc("The table to check."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The column to check in."),
+    ],
+    value: Annotated[
+        Any,
+        Doc("The value to check for."),
+    ],
+) -> bool:
+    async with TablesService.with_session() as service:
+        return await service.exists_rows(
+            table_name=table,
+            columns=[column],
+            values=[value],
+        )
+
+
+@registry.register(
     default_title="Lookup many rows",
     description="Get multiple rows from a table corresponding to the given column and values.",
     display_group="Tables",

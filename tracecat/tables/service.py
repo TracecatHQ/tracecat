@@ -829,6 +829,77 @@ class BaseTablesService(BaseService):
                 )
                 raise
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
+    async def exists_rows(
+        self,
+        table_name: str,
+        *,
+        columns: Sequence[str],
+        values: Sequence[Any],
+    ) -> bool:
+        """Efficient existence check for rows matching column/value pairs.
+
+        Uses a SQL EXISTS query so the database can short-circuit at the first match.
+        """
+        if len(values) != len(columns):
+            raise ValueError("Values and column names must have the same length")
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table_name)
+
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        condition = sa.and_(
+            *[col == value for col, value in zip(cols, values, strict=True)]
+        )
+
+        exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
+        stmt = sa.select(exists_stmt)
+
+        async with self.session.begin() as txn:
+            conn = await txn.session.connection()
+            try:
+                result = await conn.execute(
+                    stmt,
+                    execution_options={
+                        "isolation_level": "READ COMMITTED",
+                    },
+                )
+                exists_val = result.scalar()
+                return bool(exists_val)
+            except _RETRYABLE_DB_EXCEPTIONS as e:
+                self.logger.warning(
+                    "Retryable DB exception occurred during exists_rows",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                await conn.rollback()
+                raise
+            except ProgrammingError as e:
+                while (cause := e.__cause__) is not None:
+                    e = cause
+                if isinstance(e, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from e
+                raise ValueError(str(e)) from e
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected DB exception occurred during exists_rows",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
+
     async def search_rows(
         self,
         table: Table,
