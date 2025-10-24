@@ -22,7 +22,7 @@ MAX_ITEMS: int = 100
 
 
 RANKING_SYSTEM_PROMPT = textwrap.dedent("""
-You are a ranking assistant. Your task is to rank items based on a given criteria.
+You are a ranking assistant. Your task is to rank items based on the given criteria.
 
 Criteria:
 {criteria_prompt}
@@ -31,13 +31,9 @@ Requirements:
 - Rank each item against the criteria from most to least relevant
 - Return ONLY a JSON array of IDs in ranked order: ["id1", "id2", "id3"]
 - Include ALL item IDs exactly as provided - do not skip, modify, or add IDs
+- Each ID must appear exactly once; the array length must equal the number of input items
 - Do not include explanations, reasoning, markdown formatting, or other text
 - The response must be valid, parseable JSON
-
-Examples:
-- [1, 3, 2]
-- ["ID1", "ID3", "ID2"]
-- ["critical", "high", "medium"]
 """).strip()
 
 
@@ -45,6 +41,8 @@ RANKING_USER_PROMPT = textwrap.dedent("""
 Rank these items:
 
 {items}
+
+Return a JSON array of IDs only, nothing else.
 """).strip()
 
 
