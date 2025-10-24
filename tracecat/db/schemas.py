@@ -789,7 +789,6 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
 
     __tablename__: str = "case_fields"
     model_config = ConfigDict(extra="allow")  # type: ignore
-    __table_args__ = (UniqueConstraint("case_id"),)
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
