@@ -10,6 +10,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine.interfaces import ReflectedColumn
 
 from alembic import op
+from sqlalchemy.engine.interfaces import ReflectedColumn
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 revision: str = "b4d8b2f2c9dd"
@@ -55,37 +56,30 @@ def _prepare_identifier(name: str, bind: sa.engine.Connection) -> str:
     return preparer.quote(name)
 
 
-def _create_workspace_table(
+def _ensure_workspace_table(
     bind: sa.engine.Connection,
     schema_name: str,
     dynamic_columns: list[ReflectedColumn],
 ) -> None:
     """
-    Create a workspace-specific case_fields table with custom columns.
+    Ensure the workspace-scoped case_fields table exists and carries all dynamic columns.
 
-    This function:
-    1. Creates the workspace schema if it doesn't exist
-    2. Creates a new case_fields table with base columns + custom columns
-    3. Adds a foreign key constraint to the main cases table
-
-    Args:
-        bind: Database connection
-        schema_name: Name of the workspace schema to create
-        dynamic_columns: List of custom columns to add beyond the base columns
+    If the table already exists (for example, created by runtime code before this migration),
+    we add any missing dynamic columns so that the bulk INSERT later will succeed.
     """
     preparer = sa.sql.compiler.IdentifierPreparer(bind.dialect)
     schema_quoted = preparer.quote_schema(schema_name)
     table_quoted = preparer.quote(TABLE_NAME)
 
-    # Create the workspace schema if it doesn't already exist
+    # Always ensure the schema exists first.
     op.execute(sa.DDL(f"CREATE SCHEMA IF NOT EXISTS {schema_quoted}"))
 
-    # Define the table structure with base columns + dynamic custom columns
+    inspector = sa.inspect(bind)
+    # Create the base table (with dynamic columns) if it's not already present.
     metadata = sa.MetaData()
     workspace_table = sa.Table(
         TABLE_NAME,
         metadata,
-        # Base system columns that every case_fields table needs
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column(
             "case_id", postgresql.UUID(as_uuid=True), nullable=False, unique=True
@@ -102,7 +96,6 @@ def _create_workspace_table(
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
-        # Add all the custom columns that were defined in the original public table
         *(
             sa.Column(  # Dynamic custom columns
                 column["name"],
@@ -115,19 +108,47 @@ def _create_workspace_table(
     )
     workspace_table.create(bind=bind, checkfirst=True)
 
-    # Add foreign key constraint in a separate step to avoid SQLAlchemy metadata tracking issues
-    # This ensures referential integrity with the main cases table
+    # Ensure the FK constraint is present exactly once.
     fk_name = f"fk_{TABLE_NAME}_case_id"
-    op.execute(
-        sa.DDL(
-            f"""
-            ALTER TABLE {schema_quoted}.{table_quoted}
-            ADD CONSTRAINT {preparer.quote(fk_name)}
-            FOREIGN KEY (case_id) REFERENCES {PUBLIC_SCHEMA}.cases(id)
-            ON DELETE CASCADE
-            """
+    existing_fks = {
+        fk["name"] for fk in inspector.get_foreign_keys(TABLE_NAME, schema=schema_name)
+    }
+    if fk_name not in existing_fks:
+        op.execute(
+            sa.DDL(
+                f"""
+                ALTER TABLE {schema_quoted}.{table_quoted}
+                ADD CONSTRAINT {preparer.quote(fk_name)}
+                FOREIGN KEY (case_id) REFERENCES {PUBLIC_SCHEMA}.cases(id)
+                ON DELETE CASCADE
+                """
+            )
         )
-    )
+
+    # Refresh column metadata (table may have been created above).
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns(TABLE_NAME, schema=schema_name)
+    }
+
+    # Add any missing dynamic columns that might exist in the shared table.
+    for column in dynamic_columns:
+        column_name = column["name"]
+        if column_name in existing_columns:
+            continue
+
+        column_identifier = _prepare_identifier(column_name, bind)
+        column_type = column["type"]
+        type_sql = bind.dialect.type_compiler.process(column_type)
+
+        op.execute(
+            sa.text(
+                f"""
+                ALTER TABLE {schema_quoted}.{table_quoted}
+                ADD COLUMN {column_identifier} {type_sql}
+                """
+            )
+        )
 
 
 def upgrade() -> None:
@@ -181,8 +202,8 @@ def upgrade() -> None:
         )
         schema_name = _workspace_schema(workspace_uuid)
 
-        # Create the workspace-specific table structure
-        _create_workspace_table(bind, schema_name, dynamic_columns)
+        # Ensure the workspace-specific table exists and contains every custom column
+        _ensure_workspace_table(bind, schema_name, dynamic_columns)
 
         # Prepare identifiers for the data copy operation
         schema_quoted = _prepare_identifier(schema_name, bind)
