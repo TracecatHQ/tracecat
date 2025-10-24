@@ -3540,7 +3540,6 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
       toast({
         title: "Error creating task",
         description: `An error occurred while creating the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })

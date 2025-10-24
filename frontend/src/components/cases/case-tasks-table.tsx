@@ -112,7 +112,7 @@ export function CaseTasksTable({
   if (tasks.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-        No tasks yet
+        No tasks
       </div>
     )
   }

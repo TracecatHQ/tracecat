@@ -954,7 +954,6 @@ class CaseEventsService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        self._enum_checked: bool = False
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""

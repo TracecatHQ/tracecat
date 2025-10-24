@@ -343,7 +343,7 @@ export function createColumns(
 
   // Find created_at column index and insert tasks before it
   const createdAtIndex = columns.findIndex(
-    (col) => col.accessorKey === "created_at"
+    (col) => "accessorKey" in col && col.accessorKey === "created_at"
   )
   const insertIndex =
     createdAtIndex !== -1 ? createdAtIndex : columns.length - 3
