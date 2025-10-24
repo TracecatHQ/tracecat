@@ -3587,7 +3587,6 @@ export function useUpdateCaseTask({
       toast({
         title: "Error updating task",
         description: `An error occurred while updating the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })
@@ -3634,7 +3633,6 @@ export function useDeleteCaseTask({
       toast({
         title: "Error deleting task",
         description: `An error occurred while deleting the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })
