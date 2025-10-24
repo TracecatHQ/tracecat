@@ -3,7 +3,9 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import orjson
+from asyncpg import DuplicateTableError
 from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import ProgrammingError
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
@@ -301,6 +303,12 @@ async def create_table(
             "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
         ),
     ] = None,
+    if_not_exists: Annotated[
+        bool,
+        Doc(
+            "Return table metadata instead of raising an error if table already exists."
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     column_objects = []
     if columns:
@@ -316,7 +324,22 @@ async def create_table(
 
     params = TableCreate(name=name, columns=column_objects)
     async with TablesService.with_session() as service:
-        table = await service.create_table(params)
+        try:
+            table = await service.create_table(params)
+        except ProgrammingError as e:
+            # Drill down to the root cause
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, DuplicateTableError):
+                if if_not_exists:
+                    # Rollback the failed transaction before querying
+                    await service.session.rollback()
+                    # Return existing table instead of raising error
+                    table = await service.get_table_by_name(name)
+                else:
+                    raise ValueError("Table already exists") from e
+            else:
+                raise
     return table.model_dump()
 
 
