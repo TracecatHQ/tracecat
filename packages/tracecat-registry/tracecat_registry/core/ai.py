@@ -35,7 +35,7 @@ DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
 
 @registry.register(
     default_title="Rank documents",
-    description="Use AI to rank a list of text documents according to a specified criteria.",
+    description="Use AI to rank a list of text documents from best to worst according to a specified criteria.",
     namespace="ai",
     secrets=PYDANTIC_AI_REGISTRY_SECRETS,
 )
@@ -46,7 +46,9 @@ async def rank_documents(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc('Criteria to rank the items by e.g. "Rank by severity".'),
+        Doc(
+            'Criteria to rank the items by. For example, "from most to least important."'
+        ),
     ],
     model_name: Annotated[
         str,
@@ -81,7 +83,7 @@ async def rank_documents(
     3. Progressive refinement: recursively re-rank top candidates
     4. Parallel LLM calls for batch processing
 
-    Returns ranked items in order from best to worst according to criteria.
+    Returns ranked items in order from most to least relevant to the criteria.
     """
 
     if len(items) < 3:
@@ -142,7 +144,7 @@ async def select_field(
     criteria_prompt: Annotated[
         str,
         Doc(
-            'Criteria to determin which field to select e.g. "Select the name of the alert."'
+            'Criteria to determine which field to select. For example, "the name of the alert."'
         ),
     ],
     flatten: Annotated[
@@ -223,7 +225,9 @@ async def select_fields(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc('Criteria to rank the fields by e.g. "By importance."'),
+        Doc(
+            'Criteria to rank the fields by. For example, "from most to least important."'
+        ),
     ],
     num_fields: Annotated[
         int,

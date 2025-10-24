@@ -21,38 +21,39 @@ from tracecat.logger import logger
 MAX_ITEMS: int = 100
 
 
-RANKING_REQUIREMENTS = textwrap.dedent("""
-- Analyze each item against the criteria
-- Return ONLY a JSON array of the IDs in ranked order (best to worst)
-- The final output must be JSON deserializable
-- Do not include explanations, reasoning, or any additional text
-- Always respond with IDs, never with actual item values
+RANKING_SYSTEM_PROMPT = textwrap.dedent("""
+You are a ranking assistant. Your task is to rank items based on a given criteria.
 
-Examples of correct output formats:
+Criteria:
+{criteria_prompt}
+
+Requirements:
+- Rank each item against the criteria from most to least relevant
+- Return ONLY a JSON array of IDs in ranked order: ["id1", "id2", "id3"]
+- Include ALL item IDs exactly as provided - do not skip, modify, or add IDs
+- Do not include explanations, reasoning, markdown formatting, or other text
+- The response must be valid, parseable JSON
+
+Examples:
 - [1, 3, 2]
 - ["ID1", "ID3", "ID2"]
-- ["alert-critical", "alert-high", "alert-medium"]
+- ["critical", "high", "medium"]
 """).strip()
 
 
-RANKING_INSTRUCTIONS_TEMPLATE = textwrap.dedent("""
-    You must rank the items in the <Items> section based on the following criteria and requirements:
+RANKING_USER_PROMPT = textwrap.dedent("""
+Rank these items:
 
-    <Criteria>
-    {criteria_prompt}
-    </Criteria>
-
-    <Requirements>
-    {RANKING_REQUIREMENTS}
-    </Requirements>
+{items}
 """).strip()
 
 
-ITEMS_PROMPT_TEMPLATE = textwrap.dedent("""
-    <Items>
-    {items}
-    </Items>
-""").strip()
+# Retry prompts for conversational error correction
+INVALID_JSON_RETRY = 'The previous response was not valid JSON. Return a valid JSON array of IDs: ["id1", "id2", ...]'
+
+MISSING_IDS_RETRY = "The previous response was missing these IDs: {missing_ids}. Return a complete ranking with ALL IDs."
+
+EXTRA_IDS_RETRY = "The previous response included IDs that don't exist: {extra_ids}. Return only the IDs that were provided."
 
 
 class RankableItem(TypedDict):
@@ -72,11 +73,11 @@ async def _build_ranking_agent(
     retries: int = 3,
     base_url: str | None = None,
 ) -> Agent:
+    """Build an agent with ranking system instructions."""
     return await build_agent(
         AgentConfig(
-            instructions=RANKING_INSTRUCTIONS_TEMPLATE.format(
+            instructions=RANKING_SYSTEM_PROMPT.format(
                 criteria_prompt=criteria_prompt,
-                RANKING_REQUIREMENTS=RANKING_REQUIREMENTS,
             ),
             model_name=model_name,
             model_provider=model_provider,
@@ -92,11 +93,9 @@ async def _run_ranking_agent(
     items: list[RankableItem],
     max_requests: int,
 ) -> AgentOutput:
-    return await run_agent_sync(
-        agent,
-        ITEMS_PROMPT_TEMPLATE.format(items=format_items(items)),
-        max_requests=max_requests,
-    )
+    """Run the ranking agent with items to rank."""
+    user_prompt = RANKING_USER_PROMPT.format(items=format_items(items))
+    return await run_agent_sync(agent, user_prompt, max_requests=max_requests)
 
 
 async def rank_items(
@@ -122,7 +121,7 @@ async def rank_items(
         base_url: Optional base URL for custom providers.
 
     Returns:
-        List of item IDs in ranked order (best to worst according to criteria).
+        List of item IDs in ranked order (most to least relevant according to criteria).
 
     Raises:
         ValueError: If items are empty or too many items to rank.
@@ -197,12 +196,11 @@ async def _rank_batch(
         max_requests: Maximum number of LLM requests
 
     Returns:
-        List of item IDs in ranked order (best to worst)
+        List of item IDs in ranked order (most to least relevant)
 
     Raises:
         ValueError: If LLM response cannot be parsed or is invalid
     """
-
     result = await _run_ranking_agent(agent, batch, max_requests)
     return result.output
 
@@ -244,7 +242,7 @@ async def rank_items_pairwise(
         base_url: Optional base URL for custom providers
 
     Returns:
-        List of item IDs in ranked order (best to worst according to criteria)
+        List of item IDs in ranked order (most to least relevant according to criteria)
 
     Raises:
         ValueError: If items are empty, missing ID field, or invalid parameters
@@ -281,18 +279,13 @@ async def rank_items_pairwise(
         return [items[0][id_field]]
 
     # Build agent once for reuse
-    agent = await build_agent(
-        AgentConfig(
-            instructions=RANKING_INSTRUCTIONS_TEMPLATE.format(
-                criteria_prompt=criteria_prompt,
-                RANKING_REQUIREMENTS=RANKING_REQUIREMENTS,
-            ),
-            model_name=model_name,
-            model_provider=model_provider,
-            model_settings=model_settings,
-            retries=retries,
-            base_url=base_url,
-        )
+    agent = await _build_ranking_agent(
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        model_settings=model_settings,
+        retries=retries,
+        base_url=base_url,
     )
 
     # Perform multi-pass ranking with refinement
