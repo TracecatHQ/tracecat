@@ -32,6 +32,7 @@ from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
 from tracecat.tags.models import TagRead
+from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -420,19 +421,19 @@ async def search_cases(
         Doc("Filter by case severity."),
     ] = None,
     start_time: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases created after this time."),
     ] = None,
     end_time: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases created before this time."),
     ] = None,
     updated_before: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases updated before this time."),
     ] = None,
     updated_after: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases updated after this time."),
     ] = None,
     order_by: Annotated[
@@ -477,10 +478,10 @@ async def search_cases(
                 limit=limit,
                 order_by=order_by,
                 sort=sort,
-                start_time=start_time,
-                end_time=end_time,
-                updated_before=updated_before,
-                updated_after=updated_after,
+                start_time=coerce_optional_to_utc_datetime(start_time),
+                end_time=coerce_optional_to_utc_datetime(end_time),
+                updated_before=coerce_optional_to_utc_datetime(updated_before),
+                updated_after=coerce_optional_to_utc_datetime(updated_after),
             )
         except ProgrammingError as exc:
             raise ValueError(

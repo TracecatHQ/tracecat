@@ -7,6 +7,7 @@ from pydantic_core import to_jsonable_python
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -49,6 +50,34 @@ async def lookup(
         )
     # Since we set limit=1, we know there will be at most one row
     return rows[0] if rows else None
+
+
+@registry.register(
+    default_title="Is in table",
+    description="Check if a value exists in a table column.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def is_in(
+    table: Annotated[
+        str,
+        Doc("The table to check."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The column to check in."),
+    ],
+    value: Annotated[
+        Any,
+        Doc("The value to check for."),
+    ],
+) -> bool:
+    async with TablesService.with_session() as service:
+        return await service.exists_rows(
+            table_name=table,
+            columns=[column],
+            values=[value],
+        )
 
 
 @registry.register(
@@ -141,10 +170,10 @@ async def search_rows(
         rows = await service.search_rows(
             table=db_table,
             search_term=search_term,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+            start_time=coerce_optional_to_utc_datetime(start_time),
+            end_time=coerce_optional_to_utc_datetime(end_time),
+            updated_before=coerce_optional_to_utc_datetime(updated_before),
+            updated_after=coerce_optional_to_utc_datetime(updated_after),
             limit=limit,
             offset=offset,
         )

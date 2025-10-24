@@ -20,7 +20,7 @@ def is_valid_sql_type(type: str | SqlType) -> bool:
     return sql_type is not SqlType.TIMESTAMP
 
 
-def coerce_to_utc_datetime(value: Any) -> datetime:
+def coerce_to_utc_datetime(value: str | int | float | datetime | date) -> datetime:
     """Convert supported inputs into a timezone-aware UTC datetime."""
     if isinstance(value, datetime):
         dt = value
@@ -37,13 +37,20 @@ def coerce_to_utc_datetime(value: Any) -> datetime:
     elif isinstance(value, int | float):
         dt = datetime.fromtimestamp(value, tz=UTC)
     else:
-        raise TypeError(
-            f"Unsupported value for TIMESTAMP/TIMESTAMPTZ column: {type(value).__name__}"
-        )
+        raise TypeError(f"Unable to coerce {value!r} to UTC datetime")
 
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
+
+
+def coerce_optional_to_utc_datetime(
+    value: str | int | float | datetime | date | None,
+) -> datetime | None:
+    """Coerce a value to a timezone-aware UTC datetime."""
+    if value is None:
+        return None
+    return coerce_to_utc_datetime(value)
 
 
 def handle_default_value(type: SqlType, default: Any) -> str:
@@ -59,7 +66,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         A properly escaped and formatted SQL literal string
 
     Raises:
-        ValueError: If the SQL type is not supported
+        TypeError: If the SQL type is not supported
     """
     match type:
         case SqlType.JSONB:
@@ -82,7 +89,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
             # For UUID, ensure proper quoting
             default_value = f"'{default}'::uuid"
         case _:
-            raise ValueError(f"Unsupported SQL type for default value: {type}")
+            raise TypeError(f"Unsupported SQL type for default value: {type}")
     return default_value
 
 
@@ -97,7 +104,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         A SQL-compatible string representation of the value
 
     Raises:
-        ValueError: If the SQL type is not supported
+        TypeError: If the SQL type is not supported
     """
     match sql_type:
         case SqlType.JSONB:
@@ -105,7 +112,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
-            coerced = None if value is None else coerce_to_utc_datetime(value)
+            coerced = coerce_optional_to_utc_datetime(value)
             return sa.bindparam(
                 key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
             )
@@ -128,7 +135,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         case SqlType.UUID:
             return sa.bindparam(key=name, value=value, type_=sa.UUID)
         case _:
-            raise ValueError(f"Unsupported SQL type for value conversion: {type}")
+            raise TypeError(f"Unsupported SQL type for value conversion: {type}")
 
 
 def parse_postgres_default(default_value: str | None) -> str | None:
@@ -180,7 +187,7 @@ def convert_value(value: str | None, type: SqlType) -> Any:
                     case "false" | "0":
                         return False
                     case _:
-                        raise ValueError(f"Invalid boolean value: {value}")
+                        raise TypeError(f"Invalid boolean value: {value}")
             case SqlType.JSONB:
                 return orjson.loads(value)
             case SqlType.TEXT:
@@ -190,7 +197,7 @@ def convert_value(value: str | None, type: SqlType) -> Any:
             case SqlType.UUID:
                 return UUID(value)
             case _:
-                raise ValueError(f"Unsupported SQL type for value conversion: {type}")
+                raise TypeError(f"Unsupported SQL type for value conversion: {type}")
     except Exception as e:
         raise TypeError(
             f"Cannot convert value {value!r} to {type.__class__.__name__} {type.value}"

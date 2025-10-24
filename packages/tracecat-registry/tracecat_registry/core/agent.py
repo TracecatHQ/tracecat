@@ -1,7 +1,7 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
 from typing import Annotated, Any
-from tracecat_registry import registry, RegistrySecret
+from tracecat_registry import registry, RegistrySecret, RegistrySecretType
 from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
@@ -129,7 +129,7 @@ langfuse_secret = RegistrySecret(
     - `LANGFUSE_SECRET_KEY`: Optional Langfuse secret key.
 """
 
-PYDANTIC_AI_REGISTRY_SECRETS = [
+PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
     gemini_secret,

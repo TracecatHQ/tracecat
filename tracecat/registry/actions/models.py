@@ -129,18 +129,15 @@ class BoundRegistryAction(BaseModel):
         else:
             raise ValueError(f"Invalid registry action type: {self.type}")
 
-    def validate_args(self, *args, **kwargs) -> dict[str, Any]:
+    def validate_args(
+        self, args: Mapping[str, Any], *, mode: Literal["json", "python"] = "json"
+    ) -> dict[str, Any]:
         """Validate the input arguments for a Bound registry action.
 
         Checks:
         1. The Bound registry action must be called with keyword arguments only.
         2. The input arguments must be validated against the Bound registry action's model.
         """
-        if len(args) > 0:
-            raise RegistryValidationError(
-                "Bound registry action must be called with keyword arguments.",
-                key=self.action,
-            )
 
         # Validate the input arguments, fail early if the input is invalid
         # Note that we've added TemplateValidator to the list of validators
@@ -149,8 +146,8 @@ class BoundRegistryAction(BaseModel):
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
-            validated = self.args_cls.model_validate(kwargs)
-            validated_args = validated.model_dump(mode="json")
+            validated = self.args_cls.model_validate(args)
+            validated_args = validated.model_dump(mode=mode)
             return validated_args
         except ValidationError as e:
             msg = (

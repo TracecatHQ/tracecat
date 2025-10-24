@@ -13,6 +13,7 @@ from tracecat_registry.core.table import (
     download,
     insert_row,
     insert_rows,
+    is_in,
     list_tables,
     lookup,
     lookup_many,
@@ -109,6 +110,52 @@ class TestCoreLookup:
 
         # Verify the result is None
         assert result is None
+
+
+@pytest.mark.anyio
+class TestCoreIsInTable:
+    """Test cases for the is_in_table UDF."""
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_is_in_table_true(self, mock_with_session, mock_row):
+        """Returns True when at least one matching row exists."""
+        mock_service = AsyncMock()
+        mock_service.exists_rows.return_value = True
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await is_in(
+            table="test_table",
+            column="name",
+            value="John Doe",
+        )
+
+        mock_service.exists_rows.assert_called_once()
+        call_kwargs = mock_service.exists_rows.call_args[1]
+        assert call_kwargs["table_name"] == "test_table"
+        assert call_kwargs["columns"] == ["name"]
+        assert call_kwargs["values"] == ["John Doe"]
+        assert result is True
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_is_in_table_false(self, mock_with_session):
+        """Returns False when no matching row exists."""
+        mock_service = AsyncMock()
+        mock_service.exists_rows.return_value = False
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await is_in(
+            table="test_table",
+            column="name",
+            value="Nonexistent",
+        )
+
+        assert result is False
 
 
 @pytest.mark.anyio
