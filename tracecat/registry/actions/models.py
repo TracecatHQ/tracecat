@@ -147,9 +147,7 @@ class BoundRegistryAction(BaseModel):
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
             validated = self.args_cls.model_validate(args)
-            logger.warning("Validated arguments before", validated=validated)
             validated_args = validated.model_dump(mode=mode)
-            logger.warning("Validated arguments after", validated_args=validated_args)
             return validated_args
         except ValidationError as e:
             msg = (
