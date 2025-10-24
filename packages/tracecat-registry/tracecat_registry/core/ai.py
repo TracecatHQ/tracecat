@@ -1,22 +1,43 @@
 """AI utilities. Actions that use LLMs to perform specific predefined tasks."""
 
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, Literal
 
 from typing_extensions import Doc
 
-from tracecat.ai.ranker import RankableItem, rank_items_pairwise
+from tracecat.ai.ranker import RankableItem, rank_items_pairwise, rank_items
 from tracecat_registry.core.transform import flatten_dict
 from tracecat_registry import registry
+from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 
 
 MAX_KEYS: int = 100
 """Maximum number of keys rankable by the AI."""
 
 
+DEFAULT_RANKING_MODEL: str = "gpt-5-nano-2025-08-07"
+"""Default ranking model to use."""
+
+DEFAULT_RANKING_MODEL_PROVIDER: str = "openai"
+"""Default ranking model provider to use."""
+
+DEFAULT_RANKING_ALGORITHM: Literal["single-pass", "pairwise"] = "single-pass"
+"""Default ranking algorithm to use."""
+
+DEFAULT_RANKING_BATCH_SIZE: int = 10
+"""Default ranking batch size to use."""
+
+DEFAULT_RANKING_NUM_PASSES: int = 10
+"""Default ranking number of passes to use."""
+
+DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
+"""Default ranking refinement ratio to use."""
+
+
 @registry.register(
-    default_title="AI ranker",
-    description="Use AI to rank a list of text documents according to a specified criteria using the pairwise ranking prompting algorithm.",
+    default_title="Rank documents",
+    description="Use AI to rank a list of text documents according to a specified criteria.",
     namespace="ai",
+    secrets=PYDANTIC_AI_REGISTRY_SECRETS,
 )
 async def rank_documents(
     items: Annotated[
@@ -25,30 +46,32 @@ async def rank_documents(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc(
-            "Natural language criteria for ranking (e.g., 'by severity', 'most relevant to security')."
-        ),
+        Doc('Criteria to rank the items by e.g. "Rank by severity".'),
     ],
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
-    ] = "gpt-5-mini-2025-08-07",
+    ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,
         Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = "openai",
+    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+    algorithm: Annotated[
+        Literal["single-pass", "pairwise"],
+        Doc("Algorithm to use for ranking."),
+    ] = DEFAULT_RANKING_ALGORITHM,
     batch_size: Annotated[
         int,
         Doc("Number of items per batch for ranking."),
-    ] = 10,
+    ] = DEFAULT_RANKING_BATCH_SIZE,
     num_passes: Annotated[
         int,
         Doc("Number of shuffle-batch-rank iterations to reduce positional bias."),
-    ] = 10,
+    ] = DEFAULT_RANKING_NUM_PASSES,
     refinement_ratio: Annotated[
         float,
         Doc("Portion of top items to recursively refine (0-1, default 0.5)."),
-    ] = 0.5,
+    ] = DEFAULT_RANKING_REFINEMENT_RATIO,
 ) -> list[str]:
     """Rank items using multi-pass pairwise LLM ranking with progressive refinement.
 
@@ -67,17 +90,29 @@ async def rank_documents(
     dict_items: list[RankableItem] = [
         {"id": i, "text": item} for i, item in enumerate(items)
     ]
-    # Perform pairwise ranking
-    ranked_ids = await rank_items_pairwise(
-        items=dict_items,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        id_field="id",
-        batch_size=batch_size,
-        num_passes=num_passes,
-        refinement_ratio=refinement_ratio,
-    )
+
+    if algorithm == "pairwise":
+        ranked_ids = await rank_items_pairwise(
+            items=dict_items,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+            id_field="id",
+            batch_size=batch_size,
+            num_passes=num_passes,
+            refinement_ratio=refinement_ratio,
+        )
+    elif algorithm == "single-pass":
+        ranked_ids = await rank_items(
+            items=dict_items,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported algorithm: {algorithm}. Expected 'pairwise' or 'single-pass'."
+        )
 
     # Map back to original strings
     id_to_text: dict[int, str] = {i: text for i, text in enumerate(items)}
@@ -94,18 +129,21 @@ class ExtractFieldResult(TypedDict):
 
 
 @registry.register(
-    default_title="Extract field",
-    description="Use AI to extract a field from a JSON object. The field name and field value are returned as a dict with `key` and `value`.",
+    default_title="Select one field",
+    description="Use AI to select one field from a JSON object. The field name and field value are returned as a dict with `key` and `value`.",
     namespace="ai",
+    secrets=PYDANTIC_AI_REGISTRY_SECRETS,
 )
-async def extract_field(
+async def select_field(
     json: Annotated[
         dict[str, Any],
         Doc("JSON object to extract the field from."),
     ],
     criteria_prompt: Annotated[
         str,
-        Doc("Criteria to use for extracting the field."),
+        Doc(
+            'Criteria to determin which field to select e.g. "Select the name of the alert."'
+        ),
     ],
     flatten: Annotated[
         bool,
@@ -116,11 +154,15 @@ async def extract_field(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
-    ] = "gpt-5-mini-2025-08-07",
+    ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,
         Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = "openai",
+    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+    algorithm: Annotated[
+        Literal["single-pass", "pairwise"],
+        Doc("Algorithm to use for ranking."),
+    ] = DEFAULT_RANKING_ALGORITHM,
 ) -> ExtractFieldResult:
     if flatten:
         json = flatten_dict(json)
@@ -135,12 +177,21 @@ async def extract_field(
         raise ValueError(f"Expected at most {MAX_KEYS} keys, got {len(keys)} keys.")
 
     # Rank keys by criteria
-    ranked_ids = await rank_items_pairwise(
-        items=keys,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-    )
+    if algorithm == "pairwise":
+        ranked_ids = await rank_items_pairwise(
+            items=keys,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
+    elif algorithm == "single-pass":
+        ranked_ids = await rank_items(
+            items=keys,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
+
     if not ranked_ids:
         raise ValueError("Ranking did not return any keys to extract.")
 
@@ -160,9 +211,10 @@ async def extract_field(
 
 
 @registry.register(
-    default_title="Select fields",
-    description="Use AI to select fields from a JSON object. Returns the JSON object with only the selected fields.",
+    default_title="Select many fields",
+    description="Use AI to select and rank fields from a JSON object. Returns the JSON object with only the selected fields.",
     namespace="ai",
+    secrets=PYDANTIC_AI_REGISTRY_SECRETS,
 )
 async def select_fields(
     json: Annotated[
@@ -171,8 +223,12 @@ async def select_fields(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc("Criteria to use for selecting the fields."),
+        Doc('Criteria to rank the fields by e.g. "By importance."'),
     ],
+    num_fields: Annotated[
+        int,
+        Doc("Number of fields to select from."),
+    ] = 3,
     flatten: Annotated[
         bool,
         Doc(
@@ -182,15 +238,15 @@ async def select_fields(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
-    ] = "gpt-5-mini-2025-08-07",
+    ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,
         Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = "openai",
-    num_fields: Annotated[
-        int,
-        Doc("Number of fields to return from the ranked list."),
-    ] = 3,
+    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+    algorithm: Annotated[
+        Literal["single-pass", "pairwise"],
+        Doc("Algorithm to use for ranking."),
+    ] = DEFAULT_RANKING_ALGORITHM,
 ) -> dict[str, Any]:
     if flatten:
         json = flatten_dict(json)
@@ -203,24 +259,32 @@ async def select_fields(
             f"Expected at most {MAX_KEYS} keys, got {len(json.keys())} keys."
         )
 
-    if num_fields < 1:
-        raise ValueError("num_fields must be at least 1.")
+    if num_fields < 2:
+        raise ValueError("Number of fields to select must be at least 2.")
 
     # Get keys
     keys = _get_keys(json)
     # Rank keys by criteria
-    ranked_ids = await rank_items_pairwise(
-        items=keys,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-    )
+    if algorithm == "pairwise":
+        ranked_ids = await rank_items_pairwise(
+            items=keys,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
+    elif algorithm == "single-pass":
+        ranked_ids = await rank_items(
+            items=keys,
+            criteria_prompt=criteria_prompt,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
     if not ranked_ids:
         raise ValueError("Ranking did not return any keys to select.")
 
     # Get most relevant keys
     selected_fields: dict[str, Any] = {}
-    for ranked_id in ranked_ids:
+    for ranked_id in ranked_ids[:num_fields]:
         key_str = str(ranked_id)
         if key_str in json:
             selected_fields[key_str] = json[key_str]
