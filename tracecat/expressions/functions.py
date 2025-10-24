@@ -461,17 +461,6 @@ def is_json(x: str) -> bool:
         return False
 
 
-def index_by_key(
-    x: list[dict[str, Any]],
-    field_key: str,
-    value_key: str | None = None,
-) -> dict[str, Any]:
-    """Convert a list of objects into an object indexed by the specified key."""
-    if value_key:
-        return {item[field_key]: item[value_key] for item in x}
-    return {item[field_key]: item for item in x}
-
-
 def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
     """Merge list of objects. Similar to merge function in Terraform."""
     return {k: v for d in x for k, v in d.items()}
@@ -1049,7 +1038,6 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
-    "index_by_key": index_by_key,
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
