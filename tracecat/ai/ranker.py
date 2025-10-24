@@ -21,7 +21,7 @@ from tracecat.logger import logger
 MAX_ITEMS: int = 100
 
 
-RANKING_SYSTEM_PROMPT = textwrap.dedent("""
+RANKING_SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""
 You are a ranking assistant. Your task is to rank items based on the given criteria.
 
 Criteria:
@@ -29,20 +29,19 @@ Criteria:
 
 Requirements:
 - Rank each item against the criteria from most to least relevant
-- Return ONLY a JSON array of IDs in ranked order: ["id1", "id2", "id3"]
-- Include ALL item IDs exactly as provided - do not skip, modify, or add IDs
-- Each ID must appear exactly once; the array length must equal the number of input items
+{length_requirement}
+- Return ONLY a JSON array of IDs in ranked order: ["id1", "id2", ...]
 - Do not include explanations, reasoning, markdown formatting, or other text
-- The response must be valid, parseable JSON
+- The response must be valid deserializable JSON array (start and ends with square brackets)
 """).strip()
 
 
-RANKING_USER_PROMPT = textwrap.dedent("""
+RANKING_USER_PROMPT_TEMPLATE = textwrap.dedent("""
 Rank these items:
 
 {items}
 
-Return a JSON array of IDs only, nothing else.
+{output_instruction}
 """).strip()
 
 
@@ -63,6 +62,63 @@ def format_items(items: list[RankableItem]) -> str:
     return "\n\n".join([f"id: `{item['id']}`\ntext: {item['text']}" for item in items])
 
 
+def _build_length_requirement(
+    min_items: int | None,
+    max_items: int | None,
+    force_return_all: bool,
+) -> str:
+    """Create length-related instructions for the system prompt.
+
+    If ``force_return_all`` is True or no limits are provided, enforces returning all IDs.
+    Otherwise, constrains the output length to the provided bounds.
+    """
+    if force_return_all or (min_items is None and max_items is None):
+        return (
+            "- Include ALL item IDs exactly as provided - do not skip, modify, or add IDs\n"
+            "- Each ID must appear exactly once; the array length must equal the number of input items"
+        )
+
+    if min_items == 1 and max_items == 1:
+        return (
+            "- Return exactly 1 ID (the single best match)\n"
+            "- Use one of the provided IDs; do not invent or modify IDs\n"
+            "- Do not include duplicate IDs"
+        )
+
+    parts: list[str] = [
+        "- Use only the provided IDs; do not invent or modify IDs",
+        "- Do not include duplicate IDs",
+    ]
+    if min_items is not None and max_items is not None:
+        parts.insert(
+            0,
+            f"- Return only the top IDs, length between {min_items} and {max_items} inclusive",
+        )
+    elif max_items is not None:
+        parts.insert(0, f"- Return only the top IDs, length at most {max_items}")
+    elif min_items is not None:
+        parts.insert(0, f"- Return only the top IDs, length at least {min_items}")
+    return "\n".join(parts)
+
+
+def _build_output_instruction(
+    min_items: int | None,
+    max_items: int | None,
+    force_return_all: bool,
+) -> str:
+    """Create the user prompt instruction for output shape."""
+    if force_return_all or (min_items is None and max_items is None):
+        return "Return a JSON array of IDs only, containing ALL items in ranked order."
+    if min_items == 1 and max_items == 1:
+        return "Return a JSON array with exactly 1 ID (the single best match)."
+    if min_items is not None and max_items is not None:
+        return f"Return a JSON array of IDs only, length between {min_items} and {max_items} inclusive."
+    if max_items is not None:
+        return f"Return a JSON array of IDs only, with at most {max_items} IDs."
+    # min only
+    return f"Return a JSON array of IDs only, with at least {min_items} IDs."
+
+
 async def _build_ranking_agent(
     criteria_prompt: str,
     model_name: str,
@@ -70,13 +126,34 @@ async def _build_ranking_agent(
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
     base_url: str | None = None,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+    force_return_all: bool = False,
 ) -> Agent:
-    """Build an agent with ranking system instructions."""
+    """Build an agent with ranking system instructions.
+
+    Args:
+        criteria_prompt: Natural language criteria for ranking.
+        model_name: LLM model to use.
+        model_provider: LLM provider.
+        model_settings: Optional model settings.
+        retries: Number of retries on failure.
+        base_url: Optional base URL for custom providers.
+        min_items: Minimum number of items to return (optional).
+        max_items: Maximum number of items to return (optional).
+        force_return_all: If True, instructs the model to return all items regardless of min/max.
+    """
+    instructions = RANKING_SYSTEM_PROMPT_TEMPLATE.format(
+        criteria_prompt=criteria_prompt,
+        length_requirement=_build_length_requirement(
+            min_items, max_items, force_return_all
+        ),
+    )
+
     return await build_agent(
         AgentConfig(
-            instructions=RANKING_SYSTEM_PROMPT.format(
-                criteria_prompt=criteria_prompt,
-            ),
+            instructions=instructions,
             model_name=model_name,
             model_provider=model_provider,
             model_settings=model_settings,
@@ -90,9 +167,18 @@ async def _run_ranking_agent(
     agent: Agent[Any, Any],
     items: list[RankableItem],
     max_requests: int,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+    force_return_all: bool = False,
 ) -> AgentOutput:
     """Run the ranking agent with items to rank."""
-    user_prompt = RANKING_USER_PROMPT.format(items=format_items(items))
+    user_prompt = RANKING_USER_PROMPT_TEMPLATE.format(
+        items=format_items(items),
+        output_instruction=_build_output_instruction(
+            min_items, max_items, force_return_all
+        ),
+    )
     return await run_agent_sync(agent, user_prompt, max_requests=max_requests)
 
 
@@ -105,6 +191,9 @@ async def rank_items(
     max_requests: int = 5,
     retries: int = 3,
     base_url: str | None = None,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
 ) -> list[str | int]:
     """Rank items using an LLM based on natural language criteria.
 
@@ -138,9 +227,28 @@ async def rank_items(
         model_settings=model_settings,
         retries=retries,
         base_url=base_url,
+        min_items=min_items,
+        max_items=max_items,
+        force_return_all=False,
     )
-    result = await _run_ranking_agent(agent, items, max_requests)
-    return result.output
+    result = await _run_ranking_agent(
+        agent,
+        items,
+        max_requests,
+        min_items=min_items,
+        max_items=max_items,
+        force_return_all=False,
+    )
+
+    valid_ids: set[str | int] = {item["id"] for item in items}
+    output: list[str | int] = _sanitize_ids(result.output, valid_ids)
+
+    # If the model returned more than max, trim locally for compliance
+    if max_items is not None and len(output) > max_items:
+        output = output[:max_items]
+
+    # If the model returned fewer than min, do not attempt to pad; callers may handle
+    return output
 
 
 def _create_batches(
@@ -181,6 +289,45 @@ def _assign_worst_scores(
         scores[item_id].append(float(worst_position))
 
 
+def _sanitize_ids(
+    returned_ids: list[str | int],
+    valid_ids: set[str | int],
+) -> list[str | int]:
+    """Normalize model outputs to valid IDs.
+
+    - Strip wrapping backticks from string IDs (e.g., `id` -> id)
+    - Convert purely numeric strings to int when appropriate
+    - Keep only IDs that exist in the provided valid set and drop duplicates, preserving order
+    """
+
+    def normalize(value: str | int) -> str | int:
+        if isinstance(value, int):
+            return value
+        s = value.strip()
+        if len(s) >= 2 and s.startswith("`") and s.endswith("`"):
+            s = s[1:-1]
+        # Prefer exact string match
+        if s in valid_ids:
+            return s
+        # Try converting to int if possible and valid
+        try:
+            num = int(s)
+            if num in valid_ids:
+                return num
+        except Exception:
+            pass
+        return s
+
+    seen: set[str | int] = set()
+    filtered: list[str | int] = []
+    for raw in returned_ids:
+        norm = normalize(raw)
+        if norm in valid_ids and norm not in seen:
+            filtered.append(norm)
+            seen.add(norm)
+    return filtered
+
+
 async def _rank_batch(
     batch: list[RankableItem],
     agent: Any,
@@ -199,8 +346,18 @@ async def _rank_batch(
     Raises:
         ValueError: If LLM response cannot be parsed or is invalid
     """
-    result = await _run_ranking_agent(agent, batch, max_requests)
-    return result.output
+    # For batch ranking within pairwise, we must rank ALL items in the batch
+    result = await _run_ranking_agent(
+        agent,
+        batch,
+        max_requests,
+        min_items=None,
+        max_items=None,
+        force_return_all=True,
+    )
+    batch_ids: set[str | int] = {item["id"] for item in batch}
+    sanitized = _sanitize_ids(result.output, batch_ids)
+    return sanitized
 
 
 async def rank_items_pairwise(
@@ -216,6 +373,9 @@ async def rank_items_pairwise(
     max_requests: int = 5,
     retries: int = 3,
     base_url: str | None = None,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
 ) -> list[str | int]:
     """Rank items using multi-pass pairwise ranking with progressive refinement.
 
@@ -284,6 +444,7 @@ async def rank_items_pairwise(
         model_settings=model_settings,
         retries=retries,
         base_url=base_url,
+        force_return_all=True,
     )
 
     # Perform multi-pass ranking with refinement
@@ -299,7 +460,11 @@ async def rank_items_pairwise(
         depth=0,
     )
 
-    return ranked_ids
+    # Apply output limits if provided
+    if min_items is None and max_items is None:
+        return ranked_ids
+
+    return ranked_ids[:max_items]
 
 
 async def _multi_pass_rank(
