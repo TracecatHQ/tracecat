@@ -489,7 +489,7 @@ class CaseDurationService(BaseWorkspaceService):
         value = self._resolve_field(event, anchor.timestamp_path)
         try:
             return coerce_to_utc_datetime(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def _resolve_field(self, event: CaseEvent, path: str) -> Any:
