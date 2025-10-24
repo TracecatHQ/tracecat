@@ -917,13 +917,16 @@ class BaseTablesService(BaseService):
                 )
 
         # Add date filters
-        if start_time:
+        if start_time is not None:
             where_conditions.append(sa.column("created_at") >= start_time)
-        if end_time:
+
+        if end_time is not None:
             where_conditions.append(sa.column("created_at") <= end_time)
-        if updated_after:
+
+        if updated_after is not None:
             where_conditions.append(sa.column("updated_at") >= updated_after)
-        if updated_before:
+
+        if updated_before is not None:
             where_conditions.append(sa.column("updated_at") <= updated_before)
 
         # Apply WHERE conditions if any
@@ -1042,13 +1045,16 @@ class BaseTablesService(BaseService):
                 )
 
         # Add date filters
-        if start_time:
+        if start_time is not None:
             where_conditions.append(sa.column("created_at") >= start_time)
-        if end_time:
+
+        if end_time is not None:
             where_conditions.append(sa.column("created_at") <= end_time)
-        if updated_after:
+
+        if updated_after is not None:
             where_conditions.append(sa.column("updated_at") >= updated_after)
-        if updated_before:
+
+        if updated_before is not None:
             where_conditions.append(sa.column("updated_at") <= updated_before)
 
         # Apply WHERE conditions if any

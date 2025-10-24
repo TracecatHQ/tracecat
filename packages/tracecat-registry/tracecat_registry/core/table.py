@@ -7,6 +7,7 @@ from pydantic_core import to_jsonable_python
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -141,10 +142,10 @@ async def search_rows(
         rows = await service.search_rows(
             table=db_table,
             search_term=search_term,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+            start_time=coerce_optional_to_utc_datetime(start_time),
+            end_time=coerce_optional_to_utc_datetime(end_time),
+            updated_before=coerce_optional_to_utc_datetime(updated_before),
+            updated_after=coerce_optional_to_utc_datetime(updated_after),
             limit=limit,
             offset=offset,
         )
