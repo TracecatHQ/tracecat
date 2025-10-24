@@ -35,7 +35,7 @@ DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
 
 @registry.register(
     default_title="Rank documents",
-    description="Use AI to rank a list of text documents according to a specified criteria.",
+    description="Use AI to rank a list of text documents from best to worst according to a specified criteria.",
     namespace="ai",
     secrets=PYDANTIC_AI_REGISTRY_SECRETS,
 )
@@ -46,7 +46,9 @@ async def rank_documents(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc('Criteria to rank the items by e.g. "Rank by severity".'),
+        Doc(
+            'Criteria to rank the items by. For example, "from most to least important."'
+        ),
     ],
     model_name: Annotated[
         str,
@@ -81,7 +83,7 @@ async def rank_documents(
     3. Progressive refinement: recursively re-rank top candidates
     4. Parallel LLM calls for batch processing
 
-    Returns ranked items in order from best to worst according to criteria.
+    Returns ranked items in order from most to least relevant to the criteria.
     """
 
     if len(items) < 3:
@@ -101,6 +103,8 @@ async def rank_documents(
             batch_size=batch_size,
             num_passes=num_passes,
             refinement_ratio=refinement_ratio,
+            min_items=1,
+            max_items=1,
         )
     elif algorithm == "single-pass":
         ranked_ids = await rank_items(
@@ -108,6 +112,8 @@ async def rank_documents(
             criteria_prompt=criteria_prompt,
             model_name=model_name,
             model_provider=model_provider,
+            min_items=1,
+            max_items=1,
         )
     else:
         raise ValueError(
@@ -142,7 +148,7 @@ async def select_field(
     criteria_prompt: Annotated[
         str,
         Doc(
-            'Criteria to determin which field to select e.g. "Select the name of the alert."'
+            'Criteria to determine which field to select. For example, "the name of the alert."'
         ),
     ],
     flatten: Annotated[
@@ -183,6 +189,8 @@ async def select_field(
             criteria_prompt=criteria_prompt,
             model_name=model_name,
             model_provider=model_provider,
+            min_items=1,
+            max_items=1,
         )
     elif algorithm == "single-pass":
         ranked_ids = await rank_items(
@@ -190,6 +198,8 @@ async def select_field(
             criteria_prompt=criteria_prompt,
             model_name=model_name,
             model_provider=model_provider,
+            min_items=1,
+            max_items=1,
         )
 
     if not ranked_ids:
@@ -223,12 +233,18 @@ async def select_fields(
     ],
     criteria_prompt: Annotated[
         str,
-        Doc('Criteria to rank the fields by e.g. "By importance."'),
+        Doc(
+            'Criteria to rank the fields by. For example, "from most to least important."'
+        ),
     ],
-    num_fields: Annotated[
+    min_fields: Annotated[
         int,
-        Doc("Number of fields to select from."),
-    ] = 3,
+        Doc("Minimum number of fields to select."),
+    ] = 5,
+    max_fields: Annotated[
+        int,
+        Doc("Maximum number of fields to select."),
+    ] = 30,
     flatten: Annotated[
         bool,
         Doc(
@@ -259,7 +275,7 @@ async def select_fields(
             f"Expected at most {MAX_KEYS} keys, got {len(json.keys())} keys."
         )
 
-    if num_fields < 2:
+    if max_fields < 2:
         raise ValueError("Number of fields to select must be at least 2.")
 
     # Get keys
@@ -271,6 +287,8 @@ async def select_fields(
             criteria_prompt=criteria_prompt,
             model_name=model_name,
             model_provider=model_provider,
+            min_items=min_fields,
+            max_items=max_fields,
         )
     elif algorithm == "single-pass":
         ranked_ids = await rank_items(
@@ -278,13 +296,16 @@ async def select_fields(
             criteria_prompt=criteria_prompt,
             model_name=model_name,
             model_provider=model_provider,
+            min_items=min_fields,
+            max_items=max_fields,
         )
+
     if not ranked_ids:
         raise ValueError("Ranking did not return any keys to select.")
 
     # Get most relevant keys
     selected_fields: dict[str, Any] = {}
-    for ranked_id in ranked_ids[:num_fields]:
+    for ranked_id in ranked_ids:
         key_str = str(ranked_id)
         if key_str in json:
             selected_fields[key_str] = json[key_str]
@@ -293,7 +314,7 @@ async def select_fields(
         else:
             continue
 
-        if len(selected_fields) >= num_fields:
+        if len(selected_fields) >= max_fields:
             break
 
     if not selected_fields:
