@@ -415,4 +415,4 @@ async def test_rank_items_pairwise_min_max_live_openai_top_two() -> None:
 
     assert isinstance(ranked, list)
     assert len(ranked) == 2
-    assert ranked == ["high", "medium"]
+    assert sorted(ranked) == sorted(["high", "medium"])

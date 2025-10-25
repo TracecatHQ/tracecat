@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import ray
 import uvloop
+from pydantic_core import to_jsonable_python
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 from tracecat_registry import RegistrySecretType
@@ -131,7 +132,9 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
     async_engine = get_async_engine()
     try:
         coro = run_action_from_input(input=input, role=role)
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+        # Use serialize_unknown=True for additional safety
+        return to_jsonable_python(result, serialize_unknown=True)
     except Exception as e:
         # Raise the error proxy here
         logger.info(
