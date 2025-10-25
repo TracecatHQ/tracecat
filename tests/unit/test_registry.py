@@ -1,7 +1,13 @@
 """Tests for registry UDFs, template actions, and git repository sync."""
 
 import os
+import sys
+import tempfile
 import textwrap
+from datetime import datetime
+from importlib.machinery import ModuleSpec
+from types import ModuleType
+from uuid import UUID
 
 import pytest
 
@@ -130,10 +136,10 @@ def test_udf_validate_args(mock_package):
     assert udf.author == "Tracecat"
 
     # Test the UDF
-    udf.validate_args(num="${{ path.to.number }}")
-    udf.validate_args(num=1)
+    udf.validate_args(args={"num": "${{ path.to.number }}"})
+    udf.validate_args(args={"num": 1})
     with pytest.raises(RegistryValidationError):
-        udf.validate_args(num="not a number")
+        udf.validate_args(args={"num": "not a number"})
 
 
 def test_deprecated_function_can_be_registered(mock_package):
@@ -168,6 +174,106 @@ async def test_registry_async_function_can_be_called(mock_package):
     udf = repo.get("test.async_test_function")
     for i in range(10):
         assert await udf.fn(num=i) == i
+
+
+def test_validate_args_mode_parameter(tmp_path):
+    """Test that validate_args mode parameter works correctly with default and explicit values."""
+
+    # Create a new test module with datetime/UUID UDFs
+    test_module = ModuleType("test_mode_module")
+    module_spec = ModuleSpec("test_mode_module", None)
+    test_module.__spec__ = module_spec
+    test_module.__path__ = [str(tmp_path)]
+
+    try:
+        sys.modules["test_mode_module"] = test_module
+
+        # Create a file with UDF that accepts datetime
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", dir=tmp_path, delete=False
+        ) as f:
+            f.write(
+                textwrap.dedent(
+                    """
+                from datetime import datetime
+                from uuid import UUID
+                from tracecat_registry import registry
+
+                @registry.register(
+                    description="Test function with datetime",
+                    namespace="test",
+                    doc_url="https://example.com/docs",
+                    author="Tracecat",
+                )
+                def datetime_test(dt: datetime, uid: UUID) -> dict:
+                    return {"dt": dt, "uid": uid}
+            """
+                )
+            )
+
+        # Register the UDF
+        repo = Repository()
+        repo._register_udfs_from_package(test_module)
+        udf = repo.get("test.datetime_test")
+
+        # Test data
+        test_datetime = datetime(2024, 1, 15, 10, 30, 0)
+        test_uuid = UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+
+        # TEST 1: Default mode should be "json"
+        result_default = udf.validate_args(args={"dt": test_datetime, "uid": test_uuid})
+        assert isinstance(result_default["dt"], str), (
+            "Default mode should serialize datetime to string"
+        )
+        assert isinstance(result_default["uid"], str), (
+            "Default mode should serialize UUID to string"
+        )
+        assert result_default["dt"] == "2024-01-15T10:30:00"
+        assert result_default["uid"] == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+        # TEST 2: Explicit mode="json"
+        result_json = udf.validate_args(
+            args={"dt": test_datetime, "uid": test_uuid}, mode="json"
+        )
+        assert isinstance(result_json["dt"], str), (
+            "JSON mode should serialize datetime to string"
+        )
+        assert isinstance(result_json["uid"], str), (
+            "JSON mode should serialize UUID to string"
+        )
+        assert result_json["dt"] == "2024-01-15T10:30:00"
+        assert result_json["uid"] == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+        # TEST 3: Explicit mode="python"
+        result_python = udf.validate_args(
+            args={"dt": test_datetime, "uid": test_uuid}, mode="python"
+        )
+        assert isinstance(result_python["dt"], datetime), (
+            "Python mode should preserve datetime type"
+        )
+        assert isinstance(result_python["uid"], UUID), (
+            "Python mode should preserve UUID type"
+        )
+        assert result_python["dt"] == test_datetime
+        assert result_python["uid"] == test_uuid
+
+        # TEST 4: Template expressions work in both modes
+        # Should not raise RegistryValidationError
+        udf.validate_args(
+            args={"dt": "${{ INPUTS.timestamp }}", "uid": "${{ INPUTS.id }}"}
+        )
+        udf.validate_args(
+            args={"dt": "${{ INPUTS.timestamp }}", "uid": "${{ INPUTS.id }}"},
+            mode="json",
+        )
+        udf.validate_args(
+            args={"dt": "${{ INPUTS.timestamp }}", "uid": "${{ INPUTS.id }}"},
+            mode="python",
+        )
+
+    finally:
+        # Clean up
+        del sys.modules["test_mode_module"]
 
 
 @pytest.mark.parametrize(

@@ -155,7 +155,7 @@ async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any
         # This should not be reachable
         raise ValueError("Templates cannot be executed directly")
 
-    validated_args = action.validate_args(**args)
+    validated_args = action.validate_args(args=args, mode="python")
     try:
         if action.is_async:
             logger.trace("Running UDF async")
@@ -209,7 +209,7 @@ async def run_template_action(
         "Validating template action arguments", expects=defn.expects, args=args
     )
     if defn.expects:
-        validated_args = action.validate_args(**args)
+        validated_args = action.validate_args(args=args)
 
     secrets_context = {}
     if context is not None:

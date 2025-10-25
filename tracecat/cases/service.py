@@ -14,7 +14,6 @@ from tracecat.auth.models import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
-    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -92,15 +91,6 @@ def _normalize_filter_values(values: Any) -> list[Any]:
     return [values]
 
 
-def _normalize_datetime(dt: datetime | None) -> datetime | None:
-    """Ensure datetimes are timezone-aware and normalised to UTC."""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
-
-
 class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
@@ -113,7 +103,7 @@ class CasesService(BaseWorkspaceService):
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.durations = CaseDurationService(session=self.session, role=self.role)
 
-    async def _get_task_counts(
+    async def get_task_counts(
         self, case_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, dict[str, int]]:
         """Get task counts (completed/total) for cases."""
@@ -307,7 +297,7 @@ class CasesService(BaseWorkspaceService):
                 )
 
         # Fetch task counts for all cases in one query
-        task_counts = await self._get_task_counts([case.id for case in cases])
+        task_counts = await self.get_task_counts([case.id for case in cases])
 
         # Convert to CaseReadMinimal objects with tags
         case_items = []
@@ -431,21 +421,17 @@ class CasesService(BaseWorkspaceService):
                 )
 
         # Apply date filters
-        normalized_start = _normalize_datetime(start_time)
-        if normalized_start is not None:
-            statement = statement.where(Case.created_at >= normalized_start)
+        if start_time is not None:
+            statement = statement.where(Case.created_at >= start_time)
 
-        normalized_end = _normalize_datetime(end_time)
-        if normalized_end is not None:
-            statement = statement.where(Case.created_at <= normalized_end)
+        if end_time is not None:
+            statement = statement.where(Case.created_at <= end_time)
 
-        normalized_updated_after = _normalize_datetime(updated_after)
-        if normalized_updated_after is not None:
-            statement = statement.where(Case.updated_at >= normalized_updated_after)
+        if updated_after is not None:
+            statement = statement.where(Case.updated_at >= updated_after)
 
-        normalized_updated_before = _normalize_datetime(updated_before)
-        if normalized_updated_before is not None:
-            statement = statement.where(Case.updated_at <= normalized_updated_before)
+        if updated_before is not None:
+            statement = statement.where(Case.updated_at <= updated_before)
 
         # Apply limit
         if limit is not None:
@@ -955,44 +941,6 @@ class CaseEventsService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        self._enum_checked: bool = False
-
-    async def _ensure_event_enum_values(self) -> None:
-        """Verify that CaseEventType enum values exist in PostgreSQL enum.
-
-        Note: Enum values must be added via Alembic migrations. This method
-        only verifies they exist and logs warnings for missing values.
-        It does not commit the session, preserving transaction atomicity.
-        """
-        if self._enum_checked:
-            return
-
-        # Fetch existing enum labels for type 'caseeventtype'
-        result = await self.session.exec(
-            sa.text(
-                """
-                SELECT e.enumlabel
-                FROM pg_type t
-                JOIN pg_enum e ON t.oid = e.enumtypid
-                WHERE t.typname = 'caseeventtype'
-                """
-            )
-        )
-        existing = {row[0] for row in result.fetchall()}
-
-        # Compute desired labels from Python Enum values (Postgres stores uppercase names as labels)
-        desired = {member.value.upper() for member in CaseEventType}
-        missing = [label for label in desired if label not in existing]
-
-        if missing:
-            self.logger.warning(
-                "Missing enum values in caseeventtype",
-                missing=missing,
-                hint="Run database migrations to add these values",
-            )
-
-        # Mark as checked for this service instance
-        self._enum_checked = True
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
@@ -1011,8 +959,6 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
         """
-        # Ensure enum values exist before inserting
-        await self._ensure_event_enum_values()
 
         db_event = CaseEvent(
             owner_id=self.workspace_id,
@@ -1101,9 +1047,7 @@ class CaseTasksService(BaseWorkspaceService):
 
         # Convert workflow_id from AnyWorkflowID to UUID
         workflow_uuid = (
-            uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
-            if params.workflow_id
-            else None
+            WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
         )
 
         task = CaseTask(
@@ -1226,7 +1170,7 @@ class CaseTasksService(BaseWorkspaceService):
             new_wfid = None
             if params.workflow_id is not None:
                 # Convert workflow_id from AnyWorkflowID to UUID
-                new_wfid = uuid.UUID(str(WorkflowUUID.new(params.workflow_id)))
+                new_wfid = WorkflowUUID.new(params.workflow_id)
 
             if old_wfid != new_wfid:
                 task.workflow_id = new_wfid

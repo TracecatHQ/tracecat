@@ -71,7 +71,6 @@ export function CustomField({
         [customField.id]: data.value,
       },
     }
-    console.log("caseUpdate", caseUpdate)
     try {
       await updateCase(caseUpdate)
     } catch (error) {
@@ -79,7 +78,6 @@ export function CustomField({
     }
   }
   const onBlur = (id: string, value: unknown) => {
-    console.log("onblur", { id, value })
     onValueChange?.(id, value)
     form.setValue("value", value)
     form.handleSubmit(onSubmit)()

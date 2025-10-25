@@ -3527,22 +3527,19 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
         workspaceId,
         requestBody: params,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error creating task", error)
       toast({
         title: "Error creating task",
         description: `An error occurred while creating the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })
@@ -3577,22 +3574,19 @@ export function useUpdateCaseTask({
         taskId,
         requestBody: params,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error updating task", error)
       toast({
         title: "Error updating task",
         description: `An error occurred while updating the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })
@@ -3626,22 +3620,19 @@ export function useDeleteCaseTask({
         workspaceId,
         taskId,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.refetchQueries({
-          queryKey: ["case-tasks", caseId, workspaceId],
-        }),
-        queryClient.refetchQueries({
-          queryKey: ["case-events", caseId, workspaceId],
-        }),
-      ])
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Error deleting task", error)
       toast({
         title: "Error deleting task",
         description: `An error occurred while deleting the task: ${error.body.detail}`,
-        variant: "destructive",
       })
     },
   })

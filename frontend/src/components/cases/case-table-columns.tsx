@@ -342,7 +342,7 @@ export function createColumns(
     },
   ]
 
-  // Conditionally add tasks column if feature flag is enabled
+  // Conditionally add tasks column if enabled
   if (caseTasksEnabled) {
     // Find created_at column index and insert tasks before it
     const createdAtIndex = columns.findIndex(

@@ -50,6 +50,21 @@ OAuth integrations have three possible states:
   </Step>
 </Steps>
 
+## Using OAuth secrets in a workflow
+
+Unlike regular secrets, OAuth secrets are not stored in the secrets manager. Instead, they are stored in the OAuth provider's database.
+You can still access them using the `SECRETS` context, but you must use the following syntax:
+
+```php
+${{ SECRETS.<provider_id>_oauth.<prefix>_[SERVICE|USER]_TOKEN }}
+```
+
+For example, to access the GitHub user token, you would use the following expression:
+
+```php
+${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+```
+
 ## Using OAuth secrets in UDFs
 
 This is how you would retrieve an OAuth secret in an UDF:
