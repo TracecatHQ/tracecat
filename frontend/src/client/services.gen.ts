@@ -101,12 +101,16 @@ import type {
   CasesCreateCommentResponse,
   CasesCreateFieldData,
   CasesCreateFieldResponse,
+  CasesCreateTaskData,
+  CasesCreateTaskResponse,
   CasesDeleteCaseData,
   CasesDeleteCaseResponse,
   CasesDeleteCommentData,
   CasesDeleteCommentResponse,
   CasesDeleteFieldData,
   CasesDeleteFieldResponse,
+  CasesDeleteTaskData,
+  CasesDeleteTaskResponse,
   CasesGetCaseData,
   CasesGetCaseResponse,
   CasesListCasesData,
@@ -119,6 +123,8 @@ import type {
   CasesListFieldsResponse,
   CasesListTagsData,
   CasesListTagsResponse,
+  CasesListTasksData,
+  CasesListTasksResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
   CasesSearchCasesData,
@@ -129,6 +135,8 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  CasesUpdateTaskData,
+  CasesUpdateTaskResponse,
   CaseTagsCreateCaseTagData,
   CaseTagsCreateCaseTagResponse,
   CaseTagsDeleteCaseTagData,
@@ -4661,6 +4669,124 @@ export const casesListEventsWithUsers = (
     url: "/cases/{case_id}/events",
     path: {
       case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Tasks
+ * List all tasks for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseTaskRead Successful Response
+ * @throws ApiError
+ */
+export const casesListTasks = (
+  data: CasesListTasksData
+): CancelablePromise<CasesListTasksResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/tasks",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Task
+ * Create a new task for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTaskRead Successful Response
+ * @throws ApiError
+ */
+export const casesCreateTask = (
+  data: CasesCreateTaskData
+): CancelablePromise<CasesCreateTaskResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/tasks",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Task
+ * Update a task.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.taskId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTaskRead Successful Response
+ * @throws ApiError
+ */
+export const casesUpdateTask = (
+  data: CasesUpdateTaskData
+): CancelablePromise<CasesUpdateTaskResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/cases/{case_id}/tasks/{task_id}",
+    path: {
+      case_id: data.caseId,
+      task_id: data.taskId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Task
+ * Delete a task.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.taskId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesDeleteTask = (
+  data: CasesDeleteTaskData
+): CancelablePromise<CasesDeleteTaskResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/tasks/{task_id}",
+    path: {
+      case_id: data.caseId,
+      task_id: data.taskId,
     },
     query: {
       workspace_id: data.workspaceId,

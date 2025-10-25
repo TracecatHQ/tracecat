@@ -797,6 +797,12 @@ export type CaseEventRead =
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
   | PayloadChangedEventRead
+  | TaskCreatedEventRead
+  | TaskStatusChangedEventRead
+  | TaskPriorityChangedEventRead
+  | TaskWorkflowChangedEventRead
+  | TaskDeletedEventRead
+  | TaskAssigneeChangedEventRead
 
 /**
  * Case activity type values.
@@ -814,6 +820,12 @@ export type CaseEventType =
   | "attachment_created"
   | "attachment_deleted"
   | "payload_changed"
+  | "task_created"
+  | "task_deleted"
+  | "task_status_changed"
+  | "task_priority_changed"
+  | "task_workflow_changed"
+  | "task_assignee_changed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -928,6 +940,8 @@ export type CaseReadMinimal = {
   severity: CaseSeverity
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
+  num_tasks_completed?: number
+  num_tasks_total?: number
 }
 
 /**
@@ -1097,6 +1111,42 @@ export type CaseTagRead = {
   name: string
   ref: string
   color: string | null
+}
+
+export type CaseTaskCreate = {
+  title: string
+  description?: string | null
+  priority?: CasePriority
+  status?: CaseTaskStatus
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
+export type CaseTaskRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  case_id: string
+  title: string
+  description: string | null
+  priority: CasePriority
+  status: CaseTaskStatus
+  assignee?: UserRead | null
+  workflow_id: string | null
+}
+
+/**
+ * Case task status values.
+ */
+export type CaseTaskStatus = "todo" | "in_progress" | "completed" | "blocked"
+
+export type CaseTaskUpdate = {
+  title?: string | null
+  description?: string | null
+  priority?: CasePriority | null
+  status?: CaseTaskStatus | null
+  assignee_id?: string | null
+  workflow_id?: string | null
 }
 
 export type CaseUpdate = {
@@ -3786,6 +3836,140 @@ export type TagUpdate = {
   color?: string | null
 }
 
+/**
+ * Event for when a task assignee is changed.
+ */
+export type TaskAssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_assignee_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is created for a case.
+ */
+export type TaskCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_created"
+  task_id: string
+  title: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is deleted for a case.
+ */
+export type TaskDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_deleted"
+  task_id: string
+  title?: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task priority is changed.
+ */
+export type TaskPriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_priority_changed"
+  task_id: string
+  title: string
+  old: CasePriority
+  new: CasePriority
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task status is changed.
+ */
+export type TaskStatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_status_changed"
+  task_id: string
+  title: string
+  old: CaseTaskStatus
+  new: CaseTaskStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task workflow is changed.
+ */
+export type TaskWorkflowChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_workflow_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
 export type TemplateAction_Input = {
   type?: "action"
   definition: TemplateActionDefinition_Input
@@ -6136,6 +6320,38 @@ export type CasesListEventsWithUsersData = {
 }
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
+
+export type CasesListTasksData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListTasksResponse = Array<CaseTaskRead>
+
+export type CasesCreateTaskData = {
+  caseId: string
+  requestBody: CaseTaskCreate
+  workspaceId: string
+}
+
+export type CasesCreateTaskResponse = CaseTaskRead
+
+export type CasesUpdateTaskData = {
+  caseId: string
+  requestBody: CaseTaskUpdate
+  taskId: string
+  workspaceId: string
+}
+
+export type CasesUpdateTaskResponse = CaseTaskRead
+
+export type CasesDeleteTaskData = {
+  caseId: string
+  taskId: string
+  workspaceId: string
+}
+
+export type CasesDeleteTaskResponse = void
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -8963,6 +9179,62 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tasks": {
+    get: {
+      req: CasesListTasksData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTaskRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTaskRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tasks/{task_id}": {
+    patch: {
+      req: CasesUpdateTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTaskRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

@@ -9,8 +9,15 @@ from pydantic import BaseModel, Field, RootModel
 
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
-from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseTaskStatus,
+)
 from tracecat.cases.tags.models import CaseTagRead
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
@@ -27,6 +34,8 @@ class CaseReadMinimal(BaseModel):
     severity: CaseSeverity
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    num_tasks_completed: int = Field(default=0)
+    num_tasks_total: int = Field(default=0)
 
 
 class CaseRead(BaseModel):
@@ -148,6 +157,40 @@ class CaseCommentCreate(BaseModel):
 class CaseCommentUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=5_000)
     parent_id: uuid.UUID | None = Field(default=None)
+
+
+# Case Tasks
+
+
+class CaseTaskRead(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    case_id: uuid.UUID
+    title: str
+    description: str | None
+    priority: CasePriority
+    status: CaseTaskStatus
+    assignee: UserRead | None = None
+    workflow_id: WorkflowIDShort | None
+
+
+class CaseTaskCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    priority: CasePriority = Field(default=CasePriority.UNKNOWN)
+    status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
+    assignee_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
+
+
+class CaseTaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    priority: CasePriority | None = Field(default=None)
+    status: CaseTaskStatus | None = Field(default=None)
+    assignee_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
 
 
 # Case Events
@@ -297,6 +340,83 @@ class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
 
 
+# Task Events
+
+
+class TaskCreatedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_CREATED] = CaseEventType.TASK_CREATED
+    task_id: uuid.UUID
+    title: str
+
+
+class TaskDeletedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_DELETED] = CaseEventType.TASK_DELETED
+    task_id: uuid.UUID
+    title: str | None = None
+
+
+class TaskAssigneeChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_ASSIGNEE_CHANGED] = (
+        CaseEventType.TASK_ASSIGNEE_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: uuid.UUID | None
+    new: uuid.UUID | None
+
+
+class TaskStatusChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_STATUS_CHANGED] = CaseEventType.TASK_STATUS_CHANGED
+    task_id: uuid.UUID
+    title: str
+    old: CaseTaskStatus
+    new: CaseTaskStatus
+
+
+class TaskPriorityChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_PRIORITY_CHANGED] = (
+        CaseEventType.TASK_PRIORITY_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: CasePriority
+    new: CasePriority
+
+
+class TaskWorkflowChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TASK_WORKFLOW_CHANGED] = (
+        CaseEventType.TASK_WORKFLOW_CHANGED
+    )
+    task_id: uuid.UUID
+    title: str
+    old: AnyWorkflowID | None
+    new: AnyWorkflowID | None
+
+
+class TaskCreatedEventRead(CaseEventReadBase, TaskCreatedEvent):
+    """Event for when a task is created for a case."""
+
+
+class TaskDeletedEventRead(CaseEventReadBase, TaskDeletedEvent):
+    """Event for when a task is deleted for a case."""
+
+
+class TaskAssigneeChangedEventRead(CaseEventReadBase, TaskAssigneeChangedEvent):
+    """Event for when a task assignee is changed."""
+
+
+class TaskStatusChangedEventRead(CaseEventReadBase, TaskStatusChangedEvent):
+    """Event for when a task status is changed."""
+
+
+class TaskPriorityChangedEventRead(CaseEventReadBase, TaskPriorityChangedEvent):
+    """Event for when a task priority is changed."""
+
+
+class TaskWorkflowChangedEventRead(CaseEventReadBase, TaskWorkflowChangedEvent):
+    """Event for when a task workflow is changed."""
+
+
 # Type unions
 type CaseEventVariant = Annotated[
     CreatedEvent
@@ -310,7 +430,13 @@ type CaseEventVariant = Annotated[
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
     | AttachmentDeletedEvent
-    | PayloadChangedEvent,
+    | PayloadChangedEvent
+    | TaskCreatedEvent
+    | TaskStatusChangedEvent
+    | TaskDeletedEvent
+    | TaskAssigneeChangedEvent
+    | TaskPriorityChangedEvent
+    | TaskWorkflowChangedEvent,
     Field(discriminator="type"),
 ]
 
@@ -331,6 +457,12 @@ class CaseEventRead(RootModel):
         | AttachmentCreatedEventRead
         | AttachmentDeletedEventRead
         | PayloadChangedEventRead
+        | TaskCreatedEventRead
+        | TaskStatusChangedEventRead
+        | TaskPriorityChangedEventRead
+        | TaskWorkflowChangedEventRead
+        | TaskDeletedEventRead
+        | TaskAssigneeChangedEventRead
     ) = Field(discriminator="type")
 
 

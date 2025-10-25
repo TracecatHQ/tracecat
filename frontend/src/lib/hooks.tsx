@@ -45,11 +45,15 @@ import {
   type CasesListCasesData,
   type CasesListCommentsData,
   type CasesListTagsData,
+  type CasesListTasksData,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
   type CaseTagsDeleteCaseTagData,
   type CaseTagsUpdateCaseTagData,
+  type CaseTaskCreate,
+  type CaseTaskRead,
+  type CaseTaskUpdate,
   type CaseUpdate,
   caseRecordsCreateCaseRecord,
   caseRecordsDeleteCaseRecord,
@@ -59,17 +63,21 @@ import {
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
+  casesCreateTask,
   casesDeleteCase,
   casesDeleteComment,
+  casesDeleteTask,
   casesGetCase,
   casesListCases,
   casesListComments,
   casesListEventsWithUsers,
   casesListFields,
   casesListTags,
+  casesListTasks,
   casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
+  casesUpdateTask,
   caseTagsCreateCaseTag,
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
@@ -677,6 +685,7 @@ export function useWorkflowExecution(
   executionId: string,
   options?: {
     refetchInterval?: number
+    enabled?: boolean
   }
 ) {
   const workspaceId = useWorkspaceId()
@@ -692,7 +701,8 @@ export function useWorkflowExecution(
         executionId: executionId,
       }),
     retry: retryHandler,
-    ...options,
+    enabled: options?.enabled ?? !!executionId,
+    refetchInterval: options?.refetchInterval,
   })
   return {
     execution,
@@ -3481,6 +3491,156 @@ export function useDeleteCaseComment({
     deleteComment,
     deleteCommentIsPending,
     deleteCommentError,
+  }
+}
+
+export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+  const {
+    data: caseTasks,
+    isLoading: caseTasksIsLoading,
+    error: caseTasksError,
+    refetch: refetchCaseTasks,
+  } = useQuery<CaseTaskRead[], TracecatApiError>({
+    queryKey: ["case-tasks", caseId, workspaceId],
+    queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+  })
+
+  return {
+    caseTasks,
+    caseTasksIsLoading,
+    caseTasksError,
+    refetchCaseTasks,
+  }
+}
+
+export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: createTask,
+    isPending: createTaskIsPending,
+    error: createTaskError,
+  } = useMutation({
+    mutationFn: async (params: CaseTaskCreate) =>
+      await casesCreateTask({
+        caseId,
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error creating task", error)
+      toast({
+        title: "Error creating task",
+        description: `An error occurred while creating the task: ${error.body.detail}`,
+      })
+    },
+  })
+
+  return {
+    createTask,
+    createTaskIsPending,
+    createTaskError,
+  }
+}
+
+export function useUpdateCaseTask({
+  caseId,
+  workspaceId,
+  taskId,
+}: {
+  caseId: string
+  workspaceId: string
+  taskId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: updateTask,
+    isPending: updateTaskIsPending,
+    error: updateTaskError,
+  } = useMutation({
+    mutationFn: async (params: CaseTaskUpdate) =>
+      await casesUpdateTask({
+        caseId,
+        workspaceId,
+        taskId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error updating task", error)
+      toast({
+        title: "Error updating task",
+        description: `An error occurred while updating the task: ${error.body.detail}`,
+      })
+    },
+  })
+
+  return {
+    updateTask,
+    updateTaskIsPending,
+    updateTaskError,
+  }
+}
+
+export function useDeleteCaseTask({
+  caseId,
+  workspaceId,
+  taskId,
+}: {
+  caseId: string
+  workspaceId: string
+  taskId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: deleteTask,
+    isPending: deleteTaskIsPending,
+    error: deleteTaskError,
+  } = useMutation({
+    mutationFn: async () =>
+      await casesDeleteTask({
+        caseId,
+        workspaceId,
+        taskId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tasks", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error deleting task", error)
+      toast({
+        title: "Error deleting task",
+        description: `An error occurred while deleting the task: ${error.body.detail}`,
+      })
+    },
+  })
+
+  return {
+    deleteTask,
+    deleteTaskIsPending,
+    deleteTaskError,
   }
 }
 

@@ -17,6 +17,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseTaskStatus,
 )
 from tracecat.cases.models import (
     AssigneeChangedEvent,
@@ -27,6 +28,8 @@ from tracecat.cases.models import (
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseReadMinimal,
+    CaseTaskCreate,
+    CaseTaskUpdate,
     CaseUpdate,
     ClosedEvent,
     CreatedEvent,
@@ -37,6 +40,12 @@ from tracecat.cases.models import (
     ReopenedEvent,
     SeverityChangedEvent,
     StatusChangedEvent,
+    TaskAssigneeChangedEvent,
+    TaskCreatedEvent,
+    TaskDeletedEvent,
+    TaskPriorityChangedEvent,
+    TaskStatusChangedEvent,
+    TaskWorkflowChangedEvent,
     UpdatedEvent,
 )
 from tracecat.cases.tags.models import CaseTagRead
@@ -48,8 +57,10 @@ from tracecat.db.schemas import (
     CaseEvent,
     CaseFields,
     CaseTagLink,
+    CaseTask,
     User,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
@@ -91,6 +102,38 @@ class CasesService(BaseWorkspaceService):
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.durations = CaseDurationService(session=self.session, role=self.role)
+
+    async def get_task_counts(
+        self, case_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Get task counts (completed/total) for cases."""
+        if not case_ids:
+            return {}
+
+        stmt = (
+            select(
+                CaseTask.case_id,
+                func.count().label("total"),
+                func.sum(
+                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
+                ).label("completed"),
+            )
+            .where(CaseTask.case_id.in_(case_ids))
+            .group_by(CaseTask.case_id)
+        )
+
+        result = await self.session.exec(stmt)
+        rows = result.all()
+
+        # Build result dict with defaults for cases without tasks
+        counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
+        for row in rows:
+            counts[row.case_id] = {
+                "completed": int(row.completed or 0),
+                "total": int(row.total or 0),
+            }
+
+        return counts
 
     async def list_cases(
         self,
@@ -253,6 +296,9 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
+        # Fetch task counts for all cases in one query
+        task_counts = await self.get_task_counts([case.id for case in cases])
+
         # Convert to CaseReadMinimal objects with tags
         case_items = []
         for case in cases:
@@ -278,6 +324,8 @@ class CasesService(BaseWorkspaceService):
                     if case.assignee
                     else None,
                     tags=tag_reads,
+                    num_tasks_completed=task_counts[case.id]["completed"],
+                    num_tasks_total=task_counts[case.id]["total"],
                 )
             )
 
@@ -911,6 +959,7 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
         """
+
         db_event = CaseEvent(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -922,3 +971,269 @@ class CaseEventsService(BaseWorkspaceService):
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
         return db_event
+
+
+class CaseTasksService(BaseWorkspaceService):
+    """Service for managing case tasks."""
+
+    service_name = "case_tasks"
+
+    async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
+        """List all tasks for a case.
+
+        Args:
+            case_id: The ID of the case to get tasks for
+
+        Returns:
+            A sequence of tasks for the case, ordered by priority (highest first) then creation date
+        """
+        statement = (
+            select(CaseTask)
+            .where(
+                CaseTask.owner_id == self.workspace_id,
+                CaseTask.case_id == case_id,
+            )
+            .order_by(
+                col(CaseTask.priority).desc(),
+                cast(CaseTask.created_at, sa.DateTime),
+            )
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def get_task(self, task_id: uuid.UUID) -> CaseTask:
+        """Get a task by ID.
+
+        Args:
+            task_id: The ID of the task to get
+
+        Returns:
+            The task
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        statement = select(CaseTask).where(
+            CaseTask.owner_id == self.workspace_id,
+            CaseTask.id == task_id,
+        )
+        result = await self.session.exec(statement)
+        task = result.first()
+        if not task:
+            raise TracecatNotFoundError(f"Task {task_id} not found")
+        return task
+
+    async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
+        """Create a new task for a case.
+
+        Args:
+            case_id: The ID of the case to create a task for
+            params: The task parameters
+
+        Returns:
+            The created task
+
+        Raises:
+            TracecatNotFoundError: If the case is not found in the current workspace
+        """
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
+
+        # Convert workflow_id from AnyWorkflowID to UUID
+        workflow_uuid = (
+            WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
+        )
+
+        task = CaseTask(
+            owner_id=self.workspace_id,
+            case_id=case_id,
+            title=params.title,
+            description=params.description,
+            priority=params.priority,
+            status=params.status,
+            assignee_id=params.assignee_id,
+            workflow_id=workflow_uuid,
+        )
+        self.session.add(task)
+        # Flush to get task ID before emitting event
+        await self.session.flush()
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        # Emit task created event
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+        await events_svc.create_event(
+            case=case,
+            event=TaskCreatedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
+            ),
+        )
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
+        """Update a task.
+
+        Args:
+            task_id: The ID of the task to update
+            params: The task update parameters
+
+        Returns:
+            The updated task
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        task = await self.get_task(task_id)
+
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Update only provided fields and emit events
+        set_fields = params.model_dump(exclude_unset=True)
+
+        # Status change
+        if (new_status := set_fields.pop("status", None)) is not None:
+            old_status = task.status
+            if old_status != new_status:
+                task.status = new_status
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskStatusChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_status,
+                        new=new_status,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Assignee change
+        if (new_assignee := set_fields.pop("assignee_id", None)) is not None:
+            old_assignee = task.assignee_id
+            if old_assignee != new_assignee:
+                task.assignee_id = new_assignee
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskAssigneeChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_assignee,
+                        new=new_assignee,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Priority change
+        if (new_priority := set_fields.pop("priority", None)) is not None:
+            old_priority = task.priority
+            if old_priority != new_priority:
+                task.priority = new_priority
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskPriorityChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_priority,
+                        new=new_priority,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Workflow change - handle separately to allow clearing (setting to None)
+        # Check if the field was provided in the update payload using model_fields_set
+        if "workflow_id" in params.model_fields_set:
+            old_wfid = task.workflow_id
+            new_wfid = None
+            if params.workflow_id is not None:
+                # Convert workflow_id from AnyWorkflowID to UUID
+                new_wfid = WorkflowUUID.new(params.workflow_id)
+
+            if old_wfid != new_wfid:
+                task.workflow_id = new_wfid
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskWorkflowChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_wfid,
+                        new=new_wfid,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Title and description - update silently without events
+        if (new_title := set_fields.pop("title", None)) is not None:
+            task.title = new_title
+
+        if (new_desc := set_fields.pop("description", None)) is not None:
+            task.description = new_desc
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def delete_task(self, task_id: uuid.UUID) -> None:
+        """Delete a task.
+
+        Args:
+            task_id: The ID of the task to delete
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        task = await self.get_task(task_id)
+
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
+        )
+        result = await self.session.exec(statement)
+        case = result.first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Emit delete event before deleting to capture title
+        await events_svc.create_event(
+            case=case,
+            event=TaskDeletedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
+            ),
+        )
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
+        await self.session.delete(task)
+        await self.session.commit()
