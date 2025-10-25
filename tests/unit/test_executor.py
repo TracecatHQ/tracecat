@@ -389,7 +389,7 @@ def test_sync_executor_entrypoint(
             run_context=mock_run_context,
         )
         result = sync_executor_entrypoint(input, test_role)
-        assert result == input
+        assert result == input.model_dump(mode="json")
 
 
 async def mock_error(*args, **kwargs):
