@@ -18,8 +18,6 @@ from temporalio.exceptions import (
     FailureError,
 )
 
-from tracecat.variables.models import VariableKey, VariableName
-
 with workflow.unsafe.imports_passed_through():
     import dateparser  # noqa: F401
     import jsonpath_ng.ext.parser  # noqa: F401
@@ -91,6 +89,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.validation.models import DSLValidationResult
+    from tracecat.variables.models import VariableKey, VariableName
     from tracecat.variables.service import VariablesService
     from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
