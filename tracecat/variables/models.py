@@ -25,8 +25,8 @@ class VariableKeyValue(BaseModel):
 
 class VariableCreate(BaseModel):
     name: VariableName = Field(..., min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=255)
-    values: dict[VariableKey, Any] = Field(..., min_length=1)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
+    values: dict[VariableKey, Any] = Field(..., min_length=1, max_length=1000)
     tags: dict[str, str] | None = None
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
 
@@ -39,22 +39,22 @@ class VariableCreate(BaseModel):
 
 
 class VariableUpdate(BaseModel):
-    name: VariableName | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    name: VariableName | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
     values: dict[VariableKey, Any] | None = Field(default=None, min_length=1)
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class VariableSearch(BaseModel):
-    names: set[str] | None = None
+    names: set[VariableName] | None = None
     ids: set[VariableID] | None = None
     environment: str | None = None
 
 
 class VariableReadMinimal(BaseModel):
     id: VariableID
-    name: str
+    name: VariableName
     description: str | None
     values: dict[str, Any]
     environment: str
@@ -62,7 +62,7 @@ class VariableReadMinimal(BaseModel):
 
 class VariableRead(BaseModel):
     id: VariableID
-    name: str
+    name: VariableName
     description: str | None
     values: dict[str, Any]
     environment: str

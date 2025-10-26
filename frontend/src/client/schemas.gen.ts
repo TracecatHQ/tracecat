@@ -13171,6 +13171,7 @@ export const $VariableCreate = {
         {
           type: "string",
           maxLength: 255,
+          minLength: 0,
         },
         {
           type: "null",
@@ -13187,6 +13188,7 @@ export const $VariableCreate = {
         minLength: 1,
       },
       type: "object",
+      maxProperties: 1000,
       minProperties: 1,
       title: "Values",
     },
@@ -13224,6 +13226,7 @@ export const $VariableRead = {
     },
     name: {
       type: "string",
+      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -13300,6 +13303,7 @@ export const $VariableReadMinimal = {
     },
     name: {
       type: "string",
+      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -13334,7 +13338,7 @@ export const $VariableUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 100,
+          maxLength: 255,
           minLength: 1,
           pattern: "[a-z0-9_]+",
         },
@@ -13348,7 +13352,7 @@ export const $VariableUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
