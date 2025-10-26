@@ -4,6 +4,7 @@ import abc
 import re
 from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from lark import Token, Tree, Visitor
@@ -236,3 +237,39 @@ class SecretPathExtractor(ExprExtractor):
         jsonpath = token.lstrip(".")
         # Store the full path (e.g., "a.K1" not just "a")
         self._results[ExprContext.SECRETS].add(jsonpath)
+
+
+@dataclass(slots=True)
+class CollectedExprs:
+    secrets: set[str] = field(default_factory=set)
+    variables: set[str] = field(default_factory=set)
+
+
+@dataclass(slots=True)
+class ExprPathCollector(ExprExtractor):
+    """Collects secrets and variables from expressions."""
+
+    def __init__(self) -> None:
+        self._results = CollectedExprs()
+        self.logger = logger.bind(visitor="SecretPathExtractor")
+
+    def results(self) -> CollectedExprs:
+        return self._results
+
+    def secrets(self, node: Tree[Token]) -> None:
+        token = node.children[0]
+        self.logger.trace("Visit secret expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        # Get the full path after SECRETS.
+        jsonpath = token.lstrip(".")
+        # Store the full path (e.g., "a.K1" not just "a")
+        self._results.secrets.add(jsonpath)
+
+    def variables(self, node: Tree[Token]) -> None:
+        token = node.children[0]
+        self.logger.trace("Visit variable expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        jsonpath = token.lstrip(".")
+        self._results.variables.add(jsonpath)

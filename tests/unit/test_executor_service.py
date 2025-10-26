@@ -325,7 +325,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets({}, action_secrets)
+    secrets = await get_action_secrets(set(), action_secrets)
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -393,7 +393,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets({}, action_secrets)
+    secrets = await get_action_secrets(set(), action_secrets)
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -437,7 +437,7 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     )
 
     with pytest.raises(TracecatCredentialsError):
-        await get_action_secrets({}, action_secrets)
+        await get_action_secrets(set(), action_secrets)
 
 
 @pytest.mark.anyio

@@ -6,7 +6,9 @@ from typing import Any
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
 from tracecat.expressions.core import (
+    CollectedExprs,
     Expression,
+    ExprPathCollector,
     SecretPathExtractor,
     TemplateExpression,
 )
@@ -90,6 +92,14 @@ def extract_templated_secrets(templated_obj: Any) -> list[str]:
     results = extractor.results()
     secrets = set(results.get(ExprContext.SECRETS, []))
     return sorted(secrets)
+
+
+def collect_expressions(templated_obj: Any) -> CollectedExprs:
+    """Collect secrets and variables from expressions."""
+    visitor = ExprPathCollector()
+    for expr_str in traverse_expressions(templated_obj):
+        Expression(expr_str, visitor=visitor).visit()
+    return visitor.results()
 
 
 def extract_expressions(templated_obj: Any) -> list[Expression]:

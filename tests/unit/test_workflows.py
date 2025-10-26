@@ -70,6 +70,8 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role
+from tracecat.variables.models import VariableCreate
+from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import WorkflowEventType
 from tracecat.workflow.executions.models import (
     EventGroup,
@@ -1535,6 +1537,92 @@ async def test_single_child_workflow_get_correct_secret_environment(
             }
         },
         "TRIGGER": {},
+    }
+    assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_can_access_workspace_variables(
+    test_role, temporal_client, test_worker_factory
+):
+    """Test that workflows can access workspace variables via VARS context."""
+    test_name = f"{test_workflow_can_access_workspace_variables.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Create workspace variables
+
+    async with VariablesService.with_session(role=test_role) as service:
+        # Create a simple configuration variable
+        await service.create_variable(
+            VariableCreate(
+                name="test_config",
+                description="Test configuration for workflow",
+                values={
+                    "api_url": "https://api.example.com",
+                    "timeout": 30,
+                    "max_retries": 3,
+                },
+                environment="default",
+            )
+        )
+        # Create another variable with nested data
+        await service.create_variable(
+            VariableCreate(
+                name="test_settings",
+                description="Test settings",
+                values={
+                    "enabled": True,
+                    "threshold": 100,
+                },
+                environment="default",
+            )
+        )
+
+    # Create DSL that uses workspace variables
+    dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "use_vars"},
+            "actions": [
+                {
+                    "ref": "use_vars",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "api_url": "${{ VARS.test_config.api_url }}",
+                            "timeout": "${{ VARS.test_config.timeout }}",
+                            "max_retries": "${{ VARS.test_config.max_retries }}",
+                            "enabled": "${{ VARS.test_settings.enabled }}",
+                            "threshold": "${{ VARS.test_settings.threshold }}",
+                        }
+                    },
+                    "depends_on": [],
+                    "description": "Test accessing workspace variables",
+                }
+            ],
+            "description": "Test workflow with workspace variables",
+            "returns": "${{ ACTIONS.use_vars.result }}",
+            "tests": [],
+            "title": test_name,
+            "triggers": [],
+        }
+    )
+
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
+
+    # Verify the workflow can access all workspace variables
+    expected = {
+        "api_url": "https://api.example.com",
+        "timeout": 30,
+        "max_retries": 3,
+        "enabled": True,
+        "threshold": 100,
     }
     assert result == expected
 
