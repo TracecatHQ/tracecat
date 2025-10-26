@@ -85,7 +85,7 @@ def extract_templated_secrets(templated_obj: Any) -> list[str]:
     # Extract and parse all template expressions from all strings
     extractor = SecretPathExtractor()
     for expr_str in traverse_expressions(templated_obj):
-        Expression(expr_str, visitor=extractor)()
+        Expression(expr_str, visitor=extractor).visit()
     # Get the results and return only the secrets
     results = extractor.results()
     secrets = set(results.get(ExprContext.SECRETS, []))

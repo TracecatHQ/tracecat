@@ -40,6 +40,9 @@ class Expression:
         return f"Expression(expression={self._expr}, operand={self._operand})"
 
     def __call__(self) -> Any:
+        return self.visit()
+
+    def visit(self) -> Any:
         match self._visitor:
             case BaseExprValidator():
                 return self.result()
@@ -210,7 +213,7 @@ class RegistryActionExtractor(ExprExtractor):
 def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str]]:
     extractor = RegistryActionExtractor()
     for expr_str in traverse_expressions(args):
-        Expression(expr_str, visitor=extractor)()
+        Expression(expr_str, visitor=extractor).visit()
     return extractor.results()
 
 
