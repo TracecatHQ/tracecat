@@ -89,8 +89,6 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.validation.models import DSLValidationResult
-    from tracecat.variables.models import VariableKey, VariableName
-    from tracecat.variables.service import VariablesService
     from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
@@ -321,10 +319,6 @@ class DSLWorkflow:
 
         # Prepare user facing context
 
-        workspace_variables = await self._load_workspace_variables(
-            environment=self.runtime_config.environment
-        )
-
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.TRIGGER: trigger_inputs,
@@ -337,9 +331,8 @@ class DSLWorkflow:
                     "trigger_type": get_trigger_type(wf_info),
                 },
                 environment=self.runtime_config.environment,
-                variables=workspace_variables,
+                variables={},
             ),
-            ExprContext.VARS: workspace_variables,
         }
 
         # All the starting config has been consolidated, can safely set the run context
@@ -794,13 +787,6 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
-
-    async def _load_workspace_variables(
-        self, environment: str
-    ) -> dict[VariableName, dict[VariableKey, Any]]:
-        async with VariablesService.with_session(role=self.role) as service:
-            variables = await service.list_variables(environment=environment)
-        return {variable.name: variable.values for variable in variables}
 
     async def _validate_trigger_inputs(
         self, trigger_inputs: TriggerInputs

@@ -61,6 +61,7 @@ from tracecat.types.exceptions import (
     TracecatCredentialsError,
     TracecatException,
 )
+from tracecat.variables.service import VariablesService
 
 """All these methods are used in the registry executor, not on the worker"""
 
@@ -421,6 +422,9 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action = service.get_bound(reg_action, mode="execution")
 
     secrets = await get_action_secrets(args=task.args, action_secrets=action_secrets)
+    workspace_variables = await get_workspace_variables(
+        environment=input.run_context.environment, role=role
+    )
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -453,6 +457,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     context = input.exec_context.copy()
     context[ExprContext.SECRETS] = secrets
+    context[ExprContext.VARS] = workspace_variables
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -739,3 +744,11 @@ def flatten_wrapped_exc_error_group(
             )
         )
     return [eg]
+
+
+async def get_workspace_variables(
+    environment: str, role: Role
+) -> dict[str, dict[str, str]]:
+    async with VariablesService.with_session(role=role) as service:
+        variables = await service.list_variables(environment=environment)
+    return {variable.name: variable.values for variable in variables}
