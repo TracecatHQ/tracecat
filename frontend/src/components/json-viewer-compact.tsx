@@ -55,7 +55,7 @@ export function CompactJsonViewer({
       }
       // Add the highlighted key
       parts.push(
-        <span key={match.index} className="text-blue-500">
+        <span key={match.index} className="text-sky-300">
           {match[1]}
         </span>
       )
