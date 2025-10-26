@@ -126,7 +126,7 @@ export function WorkspaceVariablesTable() {
               cell: ({ row }) => {
                 const values =
                   row.getValue<VariableReadMinimal["values"]>("values")
-                return <CompactJsonViewer src={values} />
+                return <CompactJsonViewer maxLength={50} src={values} />
               },
               enableSorting: false,
               enableHiding: false,
