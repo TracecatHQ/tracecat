@@ -102,6 +102,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
+    from tracecat.variables.service import VariablesService
 
 
 @workflow.defn
@@ -319,6 +320,10 @@ class DSLWorkflow:
 
         # Prepare user facing context
 
+        workspace_variables = await self._load_workspace_variables(
+            environment=self.runtime_config.environment
+        )
+
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.TRIGGER: trigger_inputs,
@@ -331,8 +336,9 @@ class DSLWorkflow:
                     "trigger_type": get_trigger_type(wf_info),
                 },
                 environment=self.runtime_config.environment,
-                variables={},
+                variables=workspace_variables,
             ),
+            ExprContext.VARS: workspace_variables,
         }
 
         # All the starting config has been consolidated, can safely set the run context
@@ -787,6 +793,14 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
+
+    async def _load_workspace_variables(self, environment: str) -> dict[str, Any]:
+        async with VariablesService.with_session(role=self.role) as service:
+            variables = await service.list_variables(environment=environment)
+        return {
+            variable.name: dict(variable.values or {})
+            for variable in variables
+        }
 
     async def _validate_trigger_inputs(
         self, trigger_inputs: TriggerInputs

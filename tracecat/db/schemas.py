@@ -133,6 +133,10 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    variables: list["WorkspaceVariable"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
     workflow_tags: list["Tag"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
@@ -271,6 +275,31 @@ class Secret(BaseSecret, table=True):
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     owner: Workspace | None = Relationship(back_populates="secrets")
+
+
+class WorkspaceVariable(Resource, table=True):
+    __tablename__: str = "workspace_variable"
+    __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
+
+    id: str = Field(
+        default_factory=id_factory("var"), nullable=False, unique=True, index=True
+    )
+    name: str = Field(
+        ...,
+        max_length=255,
+        index=True,
+        nullable=False,
+        description="Variable names should be unique within a workspace scope.",
+    )
+    description: str | None = Field(default=None, max_length=255)
+    values: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    environment: str = Field(default=DEFAULT_SECRETS_ENVIRONMENT, nullable=False)
+    tags: dict[str, str] | None = Field(sa_type=JSONB, default=None)
+
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    owner: Workspace | None = Relationship(back_populates="variables")
 
 
 class WorkflowDefinition(Resource, table=True):

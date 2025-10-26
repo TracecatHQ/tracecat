@@ -118,6 +118,12 @@ class ExprEvaluator(Transformer):
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
+    def vars(self, path: str):
+        logger.trace("Visiting vars:", path=path)
+        expr = ExprContext.VARS + path
+        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
+
+    @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
         expr = ExprContext.ENV + jsonpath

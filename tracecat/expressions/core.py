@@ -197,6 +197,15 @@ class RegistryActionExtractor(ExprExtractor):
         secret, _ = jsonpath.split(".", 1)
         self._results[ExprContext.SECRETS].add(secret)
 
+    def vars(self, node: Tree[Token]) -> None:
+        token = node.children[0]
+        self.logger.trace("Visit vars expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        jsonpath = token.lstrip(".")
+        var_name = jsonpath.split(".", 1)[0]
+        self._results[ExprContext.VARS].add(var_name)
+
 
 def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str]]:
     extractor = RegistryActionExtractor()

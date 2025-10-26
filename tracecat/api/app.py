@@ -70,6 +70,7 @@ from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
@@ -189,6 +190,10 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "actions", "description": "Action management"},
             {"name": "triggers", "description": "Workflow triggers"},
             {"name": "secrets", "description": "Secret management"},
+            {
+                "name": "variables",
+                "description": "Workspace variable management",
+            },
         ],
         servers=[{"url": config.TRACECAT__API_ROOT_PATH}],
         generate_unique_id_function=custom_generate_unique_id,
@@ -208,6 +213,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_tags_router)
     app.include_router(workflow_store_router)
     app.include_router(secrets_router)
+    app.include_router(variables_router)
     app.include_router(schedules_router)
     app.include_router(entities_router)
     app.include_router(tags_router)

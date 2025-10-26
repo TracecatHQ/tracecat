@@ -518,6 +518,8 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("       ACTIONS.action_test.baz    ", 2),
         ("ACTIONS.action_test", {"bar": 1, "baz": 2}),
         ("   ACTIONS.action_test", {"bar": 1, "baz": 2}),
+        ("VARS.api_config.base_url", "https://example.com"),
+        ("VARS.api_config.timeout", 30),
         # Secret expressions
         ("SECRETS.secret_test.KEY", "SECRET"),
         ("   SECRETS.secret_test.KEY    ", "SECRET"),
@@ -723,6 +725,12 @@ def test_expression_parser(expr, expected):
             "secret_test": {
                 "KEY": "SECRET",
             },
+        },
+        ExprContext.VARS: {
+            "api_config": {
+                "base_url": "https://example.com",
+                "timeout": 30,
+            }
         },
         ExprContext.ENV: {
             "item": "ITEM",

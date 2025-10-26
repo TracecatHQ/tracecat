@@ -28,6 +28,9 @@ class ExprContext(TracecatEnum):
     SECRETS = "SECRETS"
     """Secrets context"""
 
+    VARS = "VARS"
+    """Workspace variables context"""
+
     FN = "FN"
     """Function context"""
 
@@ -62,12 +65,14 @@ class ExprType(TracecatEnum):
     TRIGGER = auto()
     TEMPLATE_ACTION_STEP = auto()
     TEMPLATE_ACTION_INPUT = auto()
+    VARIABLE = auto()
 
 
 VISITOR_NODE_TO_EXPR_TYPE = {
     "expression": ExprType.GENERIC,
     "actions": ExprType.ACTION,
     "secrets": ExprType.SECRET,
+    "vars": ExprType.VARIABLE,
     "function": ExprType.FUNCTION,
     "inputs": ExprType.INPUT,
     "env": ExprType.ENV,

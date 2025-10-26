@@ -17,6 +17,8 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
+from tracecat.variables.models import VariableSearch
+from tracecat.variables.service import VariablesService
 from tracecat.validation.models import (
     TemplateActionExprValidationResult,
     ValidationDetail,
@@ -104,6 +106,47 @@ class ExprValidator(BaseExprValidator):
                 loc=("expression", f"{ExprContext.SECRETS.value}.{name}.{key}"),
             )
         return None
+
+    async def _variable_validator(
+        self,
+        *,
+        name: str,
+        key_path: str | None,
+        loc: tuple[str | int, ...],
+        environment: str,
+    ) -> None:
+        async with VariablesService.with_session() as service:
+            defined_variables = await service.search_variables(
+                VariableSearch(names={name}, environment=environment)
+            )
+
+        if (n_found := len(defined_variables)) != 1:
+            self.add(
+                status="error",
+                msg=(
+                    f"Found {n_found} variables matching {name!r} in the {environment!r} environment."
+                ),
+                type=ExprType.VARIABLE,
+                loc=loc,
+            )
+            return
+
+        if key_path is None:
+            self.add(status="success", type=ExprType.VARIABLE)
+            return
+
+        key = key_path.split(".", 1)[0]
+        values = defined_variables[0].values or {}
+        if key not in values:
+            self.add(
+                status="error",
+                msg=f"Variable {name!r} is missing key: {key!r}",
+                type=ExprType.VARIABLE,
+                loc=loc,
+            )
+            return
+
+        self.add(status="success", type=ExprType.VARIABLE)
 
     async def _oauth_validator(
         self,
@@ -255,6 +298,24 @@ class ExprValidator(BaseExprValidator):
                 name=name, key=key, environment=self._environment, loc=self._loc
             )
             self._task_group.create_task(coro)
+
+    def vars(self, node: Tree[Token]):
+        name_key = super().vars(node)
+        self.logger.trace("Visit vars expression", name_key=name_key)
+        if name_key is None:
+            return
+        name, key_path = name_key
+        expr = ExprContext.VARS.value + "." + name
+        if key_path:
+            expr = f"{expr}.{key_path}"
+        self._task_group.create_task(
+            self._variable_validator(
+                name=name,
+                key_path=key_path,
+                loc=("expression", expr),
+                environment=self._environment,
+            )
+        )
 
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)

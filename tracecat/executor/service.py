@@ -215,15 +215,19 @@ async def run_template_action(
         validated_args = action.validate_args(args=args)
 
     secrets_context = {}
+    env_context = {}
+    vars_context = {}
     if context is not None:
         secrets_context = context.get(ExprContext.SECRETS, {})
         env_context = context.get(ExprContext.ENV, {})
-
+        vars_context = context.get(ExprContext.VARS, {})
+    
     template_context = cast(
         ExecutionContext,
         {
             ExprContext.SECRETS: secrets_context,
             ExprContext.ENV: env_context,
+            ExprContext.VARS: vars_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
