@@ -8,9 +8,9 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { CompactJsonViewer } from "@/components/json-viewer-compact"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -120,26 +120,13 @@ export function WorkspaceVariablesTable() {
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Variable keys"
+                  title="Values"
                 />
               ),
               cell: ({ row }) => {
                 const values =
                   row.getValue<VariableReadMinimal["values"]>("values")
-                const keys = Object.keys(values)
-                return (
-                  <div className="flex-auto space-x-4 text-xs">
-                    {keys.map((key, idx) => (
-                      <Badge
-                        variant="secondary"
-                        className="font-mono text-xs"
-                        key={idx}
-                      >
-                        {key}
-                      </Badge>
-                    ))}
-                  </div>
-                )
+                return <CompactJsonViewer src={values} />
               },
               enableSorting: false,
               enableHiding: false,

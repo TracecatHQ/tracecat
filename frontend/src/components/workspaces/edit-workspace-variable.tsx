@@ -80,9 +80,10 @@ export function EditVariableDialog({
         name: "",
         description: "",
         environment: "",
-        values: Object.entries(selectedVariable.values).map(([key]) => ({
+        values: Object.entries(selectedVariable.values).map(([key, value]) => ({
           key,
-          value: "",
+          value:
+            typeof value === "object" ? JSON.stringify(value) : String(value),
         })),
       })
     }
