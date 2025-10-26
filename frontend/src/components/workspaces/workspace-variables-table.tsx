@@ -1,0 +1,217 @@
+"use client"
+
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { useState } from "react"
+import type { VariableReadMinimal } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  DeleteVariableAlertDialog,
+  DeleteVariableAlertDialogTrigger,
+} from "@/components/workspaces/delete-workspace-variable"
+import {
+  EditVariableDialog,
+  EditVariableDialogTrigger,
+} from "@/components/workspaces/edit-workspace-variable"
+import { useWorkspaceVariables } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
+
+export function WorkspaceVariablesTable() {
+  const workspaceId = useWorkspaceId()
+  const { variables, variablesIsLoading, variablesError } =
+    useWorkspaceVariables(workspaceId)
+  const [selectedVariable, setSelectedVariable] =
+    useState<VariableReadMinimal | null>(null)
+  if (variablesIsLoading) {
+    return <CenteredSpinner />
+  }
+  if (variablesError || !variables) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading variables: ${variablesError?.message || "Variables undefined"}`}
+      />
+    )
+  }
+
+  return (
+    <DeleteVariableAlertDialog
+      selectedVariable={selectedVariable}
+      setSelectedVariable={setSelectedVariable}
+    >
+      <EditVariableDialog
+        selectedVariable={selectedVariable}
+        setSelectedVariable={setSelectedVariable}
+      >
+        <DataTable
+          data={variables}
+          columns={[
+            {
+              accessorKey: "name",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Variable Name"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="font-mono text-xs">
+                  {row.getValue<VariableReadMinimal["name"]>("name")}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "description",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Description"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {row.getValue<VariableReadMinimal["description"]>(
+                    "description"
+                  ) || "-"}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "environment",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Environment"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {row.getValue<VariableReadMinimal["environment"]>(
+                    "environment"
+                  ) || "-"}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "values",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Variable keys"
+                />
+              ),
+              cell: ({ row }) => {
+                const values =
+                  row.getValue<VariableReadMinimal["values"]>("values")
+                const keys = Object.keys(values)
+                return (
+                  <div className="flex-auto space-x-4 text-xs">
+                    {keys.map((key, idx) => (
+                      <Badge
+                        variant="secondary"
+                        className="font-mono text-xs"
+                        key={idx}
+                      >
+                        {key}
+                      </Badge>
+                    ))}
+                  </div>
+                )
+              },
+              enableSorting: false,
+              enableHiding: false,
+            },
+            {
+              id: "actions",
+              enableHiding: false,
+              cell: ({ row }) => {
+                return (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="size-8 p-0">
+                        <span className="sr-only">Open menu</span>
+                        <DotsHorizontalIcon className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          navigator.clipboard.writeText(row.original.id)
+                        }
+                      >
+                        Copy Variable ID
+                      </DropdownMenuItem>
+
+                      <EditVariableDialogTrigger asChild>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            if (!row.original) {
+                              console.error("No variable to edit")
+                              return
+                            }
+                            setSelectedVariable(row.original)
+                            console.debug(
+                              "Selected variable to edit",
+                              row.original
+                            )
+                          }}
+                        >
+                          Edit
+                        </DropdownMenuItem>
+                      </EditVariableDialogTrigger>
+
+                      <DeleteVariableAlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          onClick={() => {
+                            setSelectedVariable(row.original)
+                            console.debug(
+                              "Selected variable to delete",
+                              row.original
+                            )
+                          }}
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </DeleteVariableAlertDialogTrigger>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
+              },
+            },
+          ]}
+          toolbarProps={defaultToolbarProps}
+        />
+      </EditVariableDialog>
+    </DeleteVariableAlertDialog>
+  )
+}
+const defaultToolbarProps: DataTableToolbarProps<VariableReadMinimal> = {
+  filterProps: {
+    placeholder: "Filter variables by name...",
+    column: "name",
+  },
+}
