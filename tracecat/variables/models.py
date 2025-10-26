@@ -12,7 +12,9 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 VariableName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a variable name. e.g. 'api_config'"""
 
-VariableKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
+VariableKey = Annotated[
+    str, StringConstraints(pattern=r"[a-zA-Z0-9_]+", min_length=1, max_length=255)
+]
 """Validator for a variable key. e.g. 'base_url'"""
 
 
@@ -22,8 +24,8 @@ class VariableKeyValue(BaseModel):
 
 
 class VariableCreate(BaseModel):
-    name: VariableName
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    name: VariableName = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=255)
     values: dict[VariableKey, Any] = Field(..., min_length=1)
     tags: dict[str, str] | None = None
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
@@ -48,7 +50,6 @@ class VariableSearch(BaseModel):
     names: set[str] | None = None
     ids: set[VariableID] | None = None
     environment: str | None = None
-    owner_ids: set[OwnerID] | None = None
 
 
 class VariableReadMinimal(BaseModel):
@@ -73,7 +74,7 @@ class VariableRead(BaseModel):
     @staticmethod
     def from_database(obj: WorkspaceVariable) -> VariableRead:
         return VariableRead(
-            id=VariableID(obj.id),
+            id=obj.id,
             name=obj.name,
             description=obj.description,
             values=obj.values,

@@ -18,6 +18,8 @@ from temporalio.exceptions import (
     FailureError,
 )
 
+from tracecat.variables.models import VariableKey, VariableName
+
 with workflow.unsafe.imports_passed_through():
     import dateparser  # noqa: F401
     import jsonpath_ng.ext.parser  # noqa: F401
@@ -89,6 +91,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.validation.models import DSLValidationResult
+    from tracecat.variables.service import VariablesService
     from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
@@ -102,7 +105,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-    from tracecat.variables.service import VariablesService
 
 
 @workflow.defn
@@ -794,13 +796,12 @@ class DSLWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
-    async def _load_workspace_variables(self, environment: str) -> dict[str, Any]:
+    async def _load_workspace_variables(
+        self, environment: str
+    ) -> dict[VariableName, dict[VariableKey, Any]]:
         async with VariablesService.with_session(role=self.role) as service:
             variables = await service.list_variables(environment=environment)
-        return {
-            variable.name: dict(variable.values or {})
-            for variable in variables
-        }
+        return {variable.name: variable.values for variable in variables}
 
     async def _validate_trigger_inputs(
         self, trigger_inputs: TriggerInputs

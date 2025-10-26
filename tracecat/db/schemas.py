@@ -281,8 +281,8 @@ class WorkspaceVariable(Resource, table=True):
     __tablename__: str = "workspace_variable"
     __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
 
-    id: str = Field(
-        default_factory=id_factory("var"), nullable=False, unique=True, index=True
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
     )
     name: str = Field(
         ...,
@@ -297,9 +297,11 @@ class WorkspaceVariable(Resource, table=True):
     tags: dict[str, str] | None = Field(sa_type=JSONB, default=None)
 
     owner_id: OwnerID = Field(
-        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+        sa_column=Column(
+            UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+        )
     )
-    owner: Workspace | None = Relationship(back_populates="variables")
+    owner: Workspace = Relationship(back_populates="variables")
 
 
 class WorkflowDefinition(Resource, table=True):

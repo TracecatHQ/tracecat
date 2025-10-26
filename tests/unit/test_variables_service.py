@@ -46,7 +46,9 @@ class TestVariablesService:
         variable = await service.get_variable(created.id)
         updated = await service.update_variable(
             variable,
-            VariableUpdate(values={"base_url": "https://api.example.com", "timeout": 30}),
+            VariableUpdate(
+                values={"base_url": "https://api.example.com", "timeout": 30}
+            ),
         )
         assert updated.values == {
             "base_url": "https://api.example.com",

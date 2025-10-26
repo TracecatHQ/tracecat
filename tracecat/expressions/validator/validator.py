@@ -17,12 +17,12 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.variables.models import VariableSearch
-from tracecat.variables.service import VariablesService
 from tracecat.validation.models import (
     TemplateActionExprValidationResult,
     ValidationDetail,
 )
+from tracecat.variables.models import VariableSearch
+from tracecat.variables.service import VariablesService
 
 T = TypeVar("T")
 

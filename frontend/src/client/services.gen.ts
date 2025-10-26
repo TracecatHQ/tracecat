@@ -392,6 +392,18 @@ import type {
   UsersUsersPatchUserResponse,
   UsersUsersUserData,
   UsersUsersUserResponse,
+  VariablesCreateVariableData,
+  VariablesCreateVariableResponse,
+  VariablesDeleteVariableByIdData,
+  VariablesDeleteVariableByIdResponse,
+  VariablesGetVariableByNameData,
+  VariablesGetVariableByNameResponse,
+  VariablesListVariablesData,
+  VariablesListVariablesResponse,
+  VariablesSearchVariablesData,
+  VariablesSearchVariablesResponse,
+  VariablesUpdateVariableByIdData,
+  VariablesUpdateVariableByIdResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
   VcsGithubAppInstallCallbackData,
@@ -1986,6 +1998,166 @@ export const secretsDeleteSecretById = (
     url: "/secrets/{secret_id}",
     path: {
       secret_id: data.secretId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Variables
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.environment
+ * @param data.name Filter by variable name
+ * @param data.id Filter by variable ID
+ * @returns VariableRead Successful Response
+ * @throws ApiError
+ */
+export const variablesSearchVariables = (
+  data: VariablesSearchVariablesData
+): CancelablePromise<VariablesSearchVariablesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/variables/search",
+    query: {
+      environment: data.environment,
+      name: data.name,
+      id: data.id,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Variables
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.environment
+ * @returns VariableReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const variablesListVariables = (
+  data: VariablesListVariablesData
+): CancelablePromise<VariablesListVariablesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/variables",
+    query: {
+      environment: data.environment,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Variable
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns VariableRead Successful Response
+ * @throws ApiError
+ */
+export const variablesCreateVariable = (
+  data: VariablesCreateVariableData
+): CancelablePromise<VariablesCreateVariableResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/variables",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Variable By Name
+ * @param data The data for the request.
+ * @param data.variableName
+ * @param data.workspaceId
+ * @param data.environment
+ * @returns VariableRead Successful Response
+ * @throws ApiError
+ */
+export const variablesGetVariableByName = (
+  data: VariablesGetVariableByNameData
+): CancelablePromise<VariablesGetVariableByNameResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/variables/{variable_name}",
+    path: {
+      variable_name: data.variableName,
+    },
+    query: {
+      environment: data.environment,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Variable By Id
+ * @param data The data for the request.
+ * @param data.variableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns VariableRead Successful Response
+ * @throws ApiError
+ */
+export const variablesUpdateVariableById = (
+  data: VariablesUpdateVariableByIdData
+): CancelablePromise<VariablesUpdateVariableByIdResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/variables/{variable_id}",
+    path: {
+      variable_id: data.variableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Variable By Id
+ * @param data The data for the request.
+ * @param data.variableId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const variablesDeleteVariableById = (
+  data: VariablesDeleteVariableByIdData
+): CancelablePromise<VariablesDeleteVariableByIdResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/variables/{variable_id}",
+    path: {
+      variable_id: data.variableId,
     },
     query: {
       workspace_id: data.workspaceId,

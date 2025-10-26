@@ -5623,6 +5623,7 @@ export const $ExprContext = {
   enum: [
     "ACTIONS",
     "SECRETS",
+    "VARS",
     "FN",
     "ENV",
     "TRIGGER",
@@ -5651,6 +5652,7 @@ export const $ExprType = {
     "trigger",
     "template_action_step",
     "template_action_input",
+    "variable",
   ],
   title: "ExprType",
 } as const
@@ -13153,6 +13155,259 @@ export const $ValidationResult = {
       secret: "#/components/schemas/SecretValidationResult",
     },
   },
+} as const
+
+export const $VariableCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "[a-z0-9_]+",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      patternProperties: {
+        "[a-zA-Z0-9_]+": {},
+      },
+      propertyNames: {
+        maxLength: 255,
+        minLength: 1,
+      },
+      type: "object",
+      minProperties: 1,
+      title: "Values",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+      default: "default",
+    },
+  },
+  type: "object",
+  required: ["name", "values"],
+  title: "VariableCreate",
+} as const
+
+export const $VariableRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "description",
+    "values",
+    "environment",
+    "tags",
+    "owner_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "VariableRead",
+} as const
+
+export const $VariableReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description", "values", "environment"],
+  title: "VariableReadMinimal",
+} as const
+
+export const $VariableUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+          pattern: "[a-z0-9_]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      anyOf: [
+        {
+          patternProperties: {
+            "[a-zA-Z0-9_]+": {},
+          },
+          propertyNames: {
+            maxLength: 255,
+            minLength: 1,
+          },
+          type: "object",
+          minProperties: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Values",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+          maxProperties: 1000,
+          minProperties: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+  },
+  type: "object",
+  title: "VariableUpdate",
 } as const
 
 export const $VercelChatRequest = {

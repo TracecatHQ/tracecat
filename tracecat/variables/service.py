@@ -4,13 +4,10 @@ from collections.abc import Sequence
 
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import WorkspaceVariable
 from tracecat.identifiers import VariableID
-from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.variables.models import (
     VariableCreate,
@@ -23,12 +20,6 @@ class VariablesService(BaseWorkspaceService):
     """Workspace variables service."""
 
     service_name = "variables"
-
-    def __init__(
-        self, session: AsyncSession, role: Role | None = None
-    ):  # type: ignore[override]
-        super().__init__(session, role=role)
-        self.log = logger.bind(service=self.service_name)
 
     async def list_variables(
         self, *, environment: str | None = None
@@ -44,14 +35,14 @@ class VariablesService(BaseWorkspaceService):
     async def search_variables(
         self, params: VariableSearch
     ) -> Sequence[WorkspaceVariable]:
-        statement = select(WorkspaceVariable)
-        if params.owner_ids is not None:
-            statement = statement.where(col(WorkspaceVariable.owner_id).in_(params.owner_ids))
-        else:
-            statement = statement.where(WorkspaceVariable.owner_id == self.workspace_id)
+        statement = select(WorkspaceVariable).where(
+            WorkspaceVariable.owner_id == self.workspace_id
+        )
 
         if params.environment is not None:
-            statement = statement.where(WorkspaceVariable.environment == params.environment)
+            statement = statement.where(
+                WorkspaceVariable.environment == params.environment
+            )
         if params.names:
             statement = statement.where(col(WorkspaceVariable.name).in_(params.names))
         if params.ids:
@@ -69,15 +60,19 @@ class VariablesService(BaseWorkspaceService):
         try:
             return result.one()
         except MultipleResultsFound as exc:
-            self.log.error(
-                "Multiple variables found with ID", variable_id=variable_id, workspace=self.workspace_id
+            self.logger.error(
+                "Multiple variables found with ID",
+                variable_id=variable_id,
+                workspace=self.workspace_id,
             )
             raise TracecatNotFoundError(
                 "Multiple variables found when searching by ID"
             ) from exc
         except NoResultFound as exc:
-            self.log.warning(
-                "Variable not found", variable_id=variable_id, workspace=self.workspace_id
+            self.logger.warning(
+                "Variable not found",
+                variable_id=variable_id,
+                workspace=self.workspace_id,
             )
             raise TracecatNotFoundError(
                 "Variable not found when searching by ID. Please check that the ID was correctly input."
@@ -96,7 +91,7 @@ class VariablesService(BaseWorkspaceService):
         try:
             return result.one()
         except MultipleResultsFound as exc:
-            self.log.error(
+            self.logger.error(
                 "Multiple variables found with name",
                 variable_name=name,
                 workspace=self.workspace_id,
@@ -107,7 +102,7 @@ class VariablesService(BaseWorkspaceService):
                 f" Expected one variable {name!r} (env: {environment!r}) only."
             ) from exc
         except NoResultFound as exc:
-            self.log.warning(
+            self.logger.warning(
                 "Variable not found",
                 variable_name=name,
                 workspace=self.workspace_id,

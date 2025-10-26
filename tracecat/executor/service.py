@@ -221,7 +221,7 @@ async def run_template_action(
         secrets_context = context.get(ExprContext.SECRETS, {})
         env_context = context.get(ExprContext.ENV, {})
         vars_context = context.get(ExprContext.VARS, {})
-    
+
     template_context = cast(
         ExecutionContext,
         {

@@ -1864,6 +1864,7 @@ export type ExpectedField = {
 export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
+  | "VARS"
   | "FN"
   | "ENV"
   | "TRIGGER"
@@ -1886,6 +1887,7 @@ export type ExprType =
   | "trigger"
   | "template_action_step"
   | "template_action_input"
+  | "variable"
 
 /**
  * Result of visiting an expression node.
@@ -4422,6 +4424,56 @@ export type ValidationResult =
   | TemplateActionExprValidationResult
   | ActionValidationResult
 
+export type VariableCreate = {
+  name: string
+  description?: string | null
+  values: {
+    [key: string]: unknown
+  }
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string
+}
+
+export type VariableRead = {
+  id: string
+  name: string
+  description: string | null
+  values: {
+    [key: string]: unknown
+  }
+  environment: string
+  tags: {
+    [key: string]: string
+  } | null
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type VariableReadMinimal = {
+  id: string
+  name: string
+  description: string | null
+  values: {
+    [key: string]: unknown
+  }
+  environment: string
+}
+
+export type VariableUpdate = {
+  name?: string | null
+  description?: string | null
+  values?: {
+    [key: string]: unknown
+  } | null
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string | null
+}
+
 /**
  * Vercel AI SDK format request with structured UI messages.
  */
@@ -5502,6 +5554,58 @@ export type SecretsDeleteSecretByIdData = {
 }
 
 export type SecretsDeleteSecretByIdResponse = void
+
+export type VariablesSearchVariablesData = {
+  environment?: string | null
+  /**
+   * Filter by variable ID
+   */
+  id?: Array<string> | null
+  /**
+   * Filter by variable name
+   */
+  name?: Array<string> | null
+  workspaceId: string
+}
+
+export type VariablesSearchVariablesResponse = Array<VariableRead>
+
+export type VariablesListVariablesData = {
+  environment?: string | null
+  workspaceId: string
+}
+
+export type VariablesListVariablesResponse = Array<VariableReadMinimal>
+
+export type VariablesCreateVariableData = {
+  requestBody: VariableCreate
+  workspaceId: string
+}
+
+export type VariablesCreateVariableResponse = VariableRead
+
+export type VariablesGetVariableByNameData = {
+  environment?: string | null
+  variableName: string
+  workspaceId: string
+}
+
+export type VariablesGetVariableByNameResponse = VariableRead
+
+export type VariablesUpdateVariableByIdData = {
+  requestBody: VariableUpdate
+  variableId: string
+  workspaceId: string
+}
+
+export type VariablesUpdateVariableByIdResponse = VariableRead
+
+export type VariablesDeleteVariableByIdData = {
+  variableId: string
+  workspaceId: string
+}
+
+export type VariablesDeleteVariableByIdResponse = void
 
 export type SchedulesListSchedulesData = {
   workflowId?: string | null
@@ -7709,6 +7813,92 @@ export type $OpenApiTs = {
     }
     delete: {
       req: SecretsDeleteSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables/search": {
+    get: {
+      req: VariablesSearchVariablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<VariableRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables": {
+    get: {
+      req: VariablesListVariablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<VariableReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: VariablesCreateVariableData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables/{variable_name}": {
+    get: {
+      req: VariablesGetVariableByNameData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables/{variable_id}": {
+    post: {
+      req: VariablesUpdateVariableByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: VariablesDeleteVariableByIdData
       res: {
         /**
          * Successful Response

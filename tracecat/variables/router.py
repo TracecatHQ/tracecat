@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
@@ -100,7 +100,9 @@ async def get_variable_by_name(
 ) -> VariableRead:
     service = VariablesService(session, role=role)
     try:
-        variable = await service.get_variable_by_name(variable_name, environment=environment)
+        variable = await service.get_variable_by_name(
+            variable_name, environment=environment
+        )
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Variable not found"
