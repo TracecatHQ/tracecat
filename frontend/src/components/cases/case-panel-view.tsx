@@ -466,12 +466,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     workspaceId,
   })
   const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
-    useCaseDurations({ caseId, workspaceId })
+    useCaseDurations({
+      caseId,
+      workspaceId,
+      enabled: isFeatureEnabled("case-durations"),
+    })
   const {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
     caseDurationDefinitionsError,
-  } = useCaseDurationDefinitions(workspaceId)
+  } = useCaseDurationDefinitions(
+    workspaceId,
+    isFeatureEnabled("case-durations")
+  )
   const { updateCase } = useUpdateCase({
     workspaceId,
     caseId,
