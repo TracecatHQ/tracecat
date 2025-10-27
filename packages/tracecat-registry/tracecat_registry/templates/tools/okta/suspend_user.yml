@@ -14,14 +14,15 @@ definition:
       type: str
       description: ID of an existing user.
     base_url:
-      type: str
+      type: str | None
       description: Okta organization URL.
+      default: null
   steps:
     - ref: suspend_user
       action: core.http_request
       args:
         method: POST
-        url: ${{ inputs.base_url }}/api/v1/users/${{ FN.url_encode(inputs.user_id) }}/lifecycle/suspend
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users/${{ FN.url_encode(inputs.user_id) }}/lifecycle/suspend
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
   returns: ${{ steps.suspend_user.result.data }}
