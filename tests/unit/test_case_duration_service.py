@@ -49,6 +49,7 @@ async def test_compute_case_durations_from_events(
         )
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     value = values[0]
@@ -122,6 +123,7 @@ async def test_duration_filters_match_event_payload(
     # Transition to resolved (should not match the CLOSED filter)
     await cases_service.update_case(case, CaseUpdate(status=CaseStatus.RESOLVED))
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     value = values[0]
@@ -199,6 +201,7 @@ async def test_duration_anchor_selection_first_vs_last(
         CaseUpdate(status=CaseStatus.RESOLVED),
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 2
 
@@ -262,6 +265,7 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
         CaseUpdate(status=CaseStatus.IN_PROGRESS),
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     metric = values[0]
