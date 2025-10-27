@@ -115,11 +115,13 @@ class CasesService(BaseWorkspaceService):
                 CaseTask.case_id,
                 func.count().label("total"),
                 func.sum(
-                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
+                    sa.case(
+                        (col(CaseTask.status) == CaseTaskStatus.COMPLETED, 1), else_=0
+                    )
                 ).label("completed"),
             )
-            .where(CaseTask.case_id.in_(case_ids))
-            .group_by(CaseTask.case_id)
+            .where(col(CaseTask.case_id).in_(case_ids))
+            .group_by(col(CaseTask.case_id))
         )
 
         result = await self.session.exec(stmt)
@@ -127,10 +129,10 @@ class CasesService(BaseWorkspaceService):
 
         # Build result dict with defaults for cases without tasks
         counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
-        for row in rows:
-            counts[row.case_id] = {
-                "completed": int(row.completed or 0),
-                "total": int(row.total or 0),
+        for case_id, total, completed in rows:
+            counts[case_id] = {
+                "completed": int(completed or 0),
+                "total": int(total or 0),
             }
 
         return counts
@@ -1179,7 +1181,7 @@ class CaseTasksService(BaseWorkspaceService):
                     event=TaskWorkflowChangedEvent(
                         task_id=task.id,
                         title=task.title,
-                        old=old_wfid,
+                        old=WorkflowUUID.new(old_wfid) if old_wfid else None,
                         new=new_wfid,
                         wf_exec_id=wf_exec_id,
                     ),
