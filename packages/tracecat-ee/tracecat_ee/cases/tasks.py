@@ -1,15 +1,10 @@
-"""Enterprise Edition - Case Tasks CRUD Operations.
-
-This module provides User Defined Functions (UDFs) for managing case tasks.
-These functions are only available when the CASE_TASKS feature flag is enabled.
-"""
-
 from typing import Annotated, Any
 from uuid import UUID
 
 from tracecat_registry import registry
 from typing_extensions import Doc
 
+from tracecat.cases.enums import CasePriority, CaseTaskStatus
 from tracecat.cases.models import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
 from tracecat.cases.service import CaseTasksService
 
@@ -51,14 +46,19 @@ async def create_case_task(
     ] = None,
 ) -> dict[str, Any]:
     """Create a new task for a case."""
+    if priority:
+        priority_enum = CasePriority(priority)
+    if status:
+        status_enum = CaseTaskStatus(status)
+
     async with CaseTasksService.with_session() as service:
         task = await service.create_task(
             case_id=UUID(case_id),
             params=CaseTaskCreate(
                 title=title,
                 description=description,
-                priority=priority,
-                status=status,
+                priority=priority_enum,
+                status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
                 workflow_id=workflow_id,
             ),
@@ -155,9 +155,13 @@ async def update_case_task(
     if description is not None:
         params["description"] = description
     if priority is not None:
-        params["priority"] = priority
+        params["priority"] = (
+            priority if isinstance(priority, CasePriority) else CasePriority(priority)
+        )
     if status is not None:
-        params["status"] = status
+        params["status"] = (
+            status if isinstance(status, CaseTaskStatus) else CaseTaskStatus(status)
+        )
     if assignee_id is not None:
         params["assignee_id"] = UUID(assignee_id)
     if workflow_id is not None:
