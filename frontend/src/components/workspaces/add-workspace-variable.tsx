@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { DialogProps } from "@radix-ui/react-dialog"
-import { DatabaseIcon, PlusCircle, Trash2Icon } from "lucide-react"
+import { BracketsIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import React, { type PropsWithChildren } from "react"
 import {
   type ArrayPath,
@@ -255,8 +255,8 @@ export function NewVariableDialog({
               <DialogFooter>
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
-                    <DatabaseIcon className="mr-2 size-4" />
-                    Create Variable
+                    <BracketsIcon className="mr-2 size-4" />
+                    Create variable
                   </Button>
                 </DialogClose>
               </DialogFooter>

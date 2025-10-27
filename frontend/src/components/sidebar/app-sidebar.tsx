@@ -2,7 +2,7 @@
 
 import {
   BoxIcon,
-  DatabaseIcon,
+  BracketsIcon,
   KeyRoundIcon,
   type LucideIcon,
   ShapesIcon,
@@ -105,16 +105,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/entities`),
     },
     {
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: BracketsIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
+    },
+    {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
-    },
-    {
-      title: "Variables",
-      url: `${basePath}/variables`,
-      icon: DatabaseIcon,
-      isActive: pathname?.startsWith(`${basePath}/variables`),
     },
     {
       title: "Integrations",
