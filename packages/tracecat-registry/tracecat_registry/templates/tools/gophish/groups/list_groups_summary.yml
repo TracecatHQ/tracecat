@@ -11,8 +11,9 @@ definition:
       keys: ["GOPHISH_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: The base URL of the Gophish instance.
+      default: null
       required: true
     verify_ssl:
       type: bool
@@ -22,7 +23,7 @@ definition:
     - ref: list_groups_summary
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/groups/summary
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/groups/summary
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}

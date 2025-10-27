@@ -11,8 +11,9 @@ definition:
       keys: ["GOPHISH_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: The base URL of the Gophish instance.
+      default: null
       required: true
     template_id:
       type: int
@@ -26,7 +27,7 @@ definition:
     - ref: delete_template
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/templates/${{ inputs.template_id }}
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/templates/${{ inputs.template_id }}
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}

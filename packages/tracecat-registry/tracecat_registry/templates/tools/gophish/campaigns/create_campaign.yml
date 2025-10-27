@@ -11,8 +11,9 @@ definition:
       keys: ["GOPHISH_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: The base URL of the Gophish instance.
+      default: null
       required: true
     payload:
       type: dict[str, Any]
@@ -26,7 +27,7 @@ definition:
     - ref: create_campaign
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/campaigns/
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/campaigns/
         method: POST
         payload: ${{ inputs.payload }}
         headers:
