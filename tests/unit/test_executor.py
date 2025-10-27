@@ -360,6 +360,77 @@ async def test_executor_can_run_template_action_with_oauth(
     )
 
 
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_executor_can_run_udf_with_oauth(
+    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that the executor can run a UDF with OAuth secrets through Ray.
+
+    This test validates that:
+    1. OAuth integrations are properly loaded for UDFs
+    2. OAuth tokens are accessible via the SECRETS namespace in UDFs
+    3. UDFs can directly access OAuth tokens through the secrets manager
+    """
+
+    session, db_repo_id = db_session_with_repo
+
+    from tracecat import config
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    # Test OAuth token value
+    oauth_token_value = "__TEST_UDF_OAUTH_TOKEN_VALUE__"
+
+    # 1. Create OAuth integration
+    svc = IntegrationService(session, role=test_role)
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        ),
+        access_token=SecretStr(oauth_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+
+    # 2. Register UDFs including the OAuth one
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+
+    # Sanity check: Verify the OAuth UDF is registered
+    assert "testing.fetch_oauth_token" in repo
+
+    # 3. Create registry action for the OAuth UDF
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.fetch_oauth_token"), db_repo_id
+        )
+    )
+
+    # 4. Create and run the action
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.fetch_oauth_token",
+            run_if=None,
+            for_each=None,
+            args={},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    result = await run_action_from_input(input, test_role)
+
+    # Assert - the UDF returns the OAuth token value
+    assert result == oauth_token_value, (
+        f"OAuth token from UDF mismatch. Expected {oauth_token_value}, got {result}"
+    )
+
+
 async def mock_action(input: Any, **kwargs):
     """Mock action that simulates some async work"""
     await asyncio.sleep(0.1)
