@@ -70,6 +70,7 @@ if TYPE_CHECKING:
 
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
+AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
 
 # ==============================================================================
 # 1. Models for UI Parts with Fixed 'type' Literals
@@ -648,7 +649,7 @@ def format_sse(data: VercelSSEPayload) -> str:
 class _PartState:
     part_id: str
     part_type: Literal["text", "reasoning", "tool"]
-    tool_call: ToolCallPart | None = None
+    tool_call: AnyToolCallPart | None = None
     open: bool = True
 
 
@@ -674,7 +675,7 @@ class VercelStreamContext:
         self,
         index: int,
         part_type: Literal["text", "reasoning", "tool"],
-        tool_call: ToolCallPart | None = None,
+        tool_call: AnyToolCallPart | None = None,
     ) -> _PartState:
         """Register a fresh part and return its tracking record."""
         part_id = f"msg_{uuid.uuid4().hex}"
