@@ -47,6 +47,43 @@ description: A cheatsheet of core actions, integrations, and credentials support
 
 <Note>Integration namespaces are prefixed with `tools.`.</Note>
 
+### Workspace Variables for Base URLs
+
+Many integrations support workspace variables for base URLs, allowing you to configure them once at the workspace level instead of repeating them in every workflow action.
+
+**Supported integrations:**
+- Splunk: `VARS.splunk.base_url`
+- Elasticsearch: `VARS.elasticsearch.base_url`
+- Okta: `VARS.okta.base_url`
+- SentinelOne: `VARS.sentinel_one.base_url`
+- Jira: `VARS.jira.base_url`
+- Gophish: `VARS.gophish.base_url`
+- And many more (alertmedia, datadog, elastic_security, okta_oar, ollama, openai, sublime, wazuh)
+
+**How it works:**
+1. Create a workspace variable with the integration name (e.g., `splunk`) and key `base_url`
+2. Set the value to your instance URL (e.g., `https://splunk.example.com:8089`)
+3. In workflow actions, the `base_url` input is now optional and will use the workspace variable as a fallback
+4. You can still override the workspace variable by explicitly providing a `base_url` in specific actions
+
+**Example:**
+```yaml
+# Workspace variable: splunk.base_url = https://splunk.example.com:8089
+# Action will use the workspace variable
+- ref: search_splunk
+  action: tools.splunk.search_events
+  args:
+    query: "search index=main error"
+    # base_url not needed - uses VARS.splunk.base_url
+
+# Or override for specific actions
+- ref: search_different_instance
+  action: tools.splunk.search_events
+  args:
+    query: "search index=main error"
+    base_url: https://splunk-dev.example.com:8089  # Explicit override
+```
+
 | Namespace              | Function                                | Secrets                   |
 | ---------------------- | --------------------------------------- | ------------------------- |
 | tools.alertmedia       | create_trip                             | `alertmedia`, `ssl`       |
@@ -110,9 +147,6 @@ description: A cheatsheet of core actions, integrations, and credentials support
 | tools.hibp             | get_data_classes                        | `ssl`                     |
 | tools.hibp             | get_latest_breach                       | `ssl`                     |
 | tools.ipinfo           | lookup_ip_address                       | `ipinfo`, `ssl`           |
-| tools.jamf             | get_access_token                        | `jamf`                    |
-| tools.jamf             | list_computers                          | `jamf`, `ssl`             |
-| tools.jamf             | lock_device                             | `jamf`, `ssl`             |
 | tools.jira             | add_issue_comment                       | `jira`, `ssl`             |
 | tools.jira             | assign_issue                            | `jira`, `ssl`             |
 | tools.jira             | create_issue                            | `jira`, `ssl`             |
