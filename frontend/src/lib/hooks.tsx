@@ -3432,9 +3432,11 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
 export function useCaseDurations({
   caseId,
   workspaceId,
+  enabled = true,
 }: {
   caseId: string
   workspaceId: string
+  enabled: boolean
 }) {
   const {
     data: caseDurations,
@@ -3443,7 +3445,7 @@ export function useCaseDurations({
   } = useQuery<CaseDurationRead[], TracecatApiError>({
     queryKey: ["case-durations", caseId, workspaceId],
     queryFn: async () => await listCaseDurations(workspaceId, caseId),
-    enabled: Boolean(caseId && workspaceId),
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {

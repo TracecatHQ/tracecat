@@ -110,9 +110,9 @@ ansible-runner==2.4.0 \
     --hash=sha256:82d02b2548830f37a53517b65c823c4af371069406c7d213b5c9041d45e0c5b6 \
     --hash=sha256:a3f592ae4cdfa62a72ad15de60da9c8210f376d67f495c4a78d4cf1dc7ccdf89
     # via tracecat-registry
-anthropic==0.68.1 \
-    --hash=sha256:40fc545c4781ebc45d8e7849240c4001f40d61d18a17e5363c0acb10afefc33b \
-    --hash=sha256:5fc01019dfffbc39e87a24f4d7cfe34e83dda4fff7b5371f33639f982f0c8dba
+anthropic==0.71.0 \
+    --hash=sha256:85c5015fcdbdc728390f11b17642a65a4365d03b12b799b18b6cc57e71fdb327 \
+    --hash=sha256:eb8e6fa86d049061b3ef26eb4cbae0174ebbff21affa6de7b3098da857d8de6a
     # via pydantic-ai-slim
 anyio==4.11.0 \
     --hash=sha256:0287e96f4d26d4149305414d4e3bc32f0dcd0862365a4bddea19d7a1ec38c4fc \
@@ -648,9 +648,9 @@ frozenlist==1.7.0 \
     #   aiohttp
     #   aiosignal
     #   ray
-genai-prices==0.0.28 \
-    --hash=sha256:5b879bd02e901ffc6740d42eaffb9f5dfeb8c99f4a6b9e680b0046c84fb2de1b \
-    --hash=sha256:9928aa1c4f0535bec5b01ddfd3dc163888ee90cdc6153501de9f004f00193953
+genai-prices==0.0.35 \
+    --hash=sha256:4e53f19ffe4151074bf7e60f2dd1a0b65593b4c4a9134149bd940e3e77467db2 \
+    --hash=sha256:79b1cdfeef9a0ee7b2895781c3b2beafd22a0aec76a8864aab8aa6ff6013a9e3
     # via pydantic-ai-slim
 google-api-core==2.25.1 \
     --hash=sha256:8a2a56c1fef82987a524371f99f3bd0143702fecc670c72e600c1cda6bf8dbb7 \
@@ -663,9 +663,9 @@ google-auth==2.37.0 \
     #   google-api-core
     #   google-genai
     #   tracecat
-google-genai==1.39.1 \
-    --hash=sha256:4721704b43d170fc3f1b1cb5494bee1a7f7aae20de3a5383cdf6a129139df80b \
-    --hash=sha256:6ca36c7e40db6fcba7049dfdd102c86da326804f34403bd7d90fa613a45e5a78
+google-genai==1.46.0 \
+    --hash=sha256:6824c31149fe3b1c7285b25f79b924c5f89fd52466f62e30f76954f8104fe3a7 \
+    --hash=sha256:879c4a260d630db0dcedb5cc84a9d7b47acd29e43e9dc63541b511b757ea7296
     # via pydantic-ai-slim
 googleapis-common-protos==1.70.0 \
     --hash=sha256:0e1b44e0ea153e6594f9f394fef15193a68aaaea2d843f83e2742717ca753257 \
@@ -1607,9 +1607,9 @@ pydantic==2.11.9 \
     #   ray
     #   sqlmodel
     #   tracecat
-pydantic-ai-slim==1.0.8 \
-    --hash=sha256:a0b7fc5ec23972e36f49e02f1198f591c09391a035481fd123e1123f309cc14e \
-    --hash=sha256:d15fff2efbe940111503c16846bdd4ed5f5f519553c2e554599b3643925a86b4
+pydantic-ai-slim==1.6.0 \
+    --hash=sha256:66184ec9b233a0b2be3b57861cad1e01f368e2443541f257a2b05a82bfa7ef94 \
+    --hash=sha256:d6ee5fde9a31fb0ec7942b9735d7730b864b9dc9a3e3651e8933dac4f76ea621
     # via tracecat
 pydantic-core==2.33.2 \
     --hash=sha256:04a1a413977ab517154eebb2d326da71638271477d6ad87a769102f7c2488c56 \
@@ -1649,9 +1649,9 @@ pydantic-extra-types==2.10.5 \
     --hash=sha256:1dcfa2c0cf741a422f088e0dbb4690e7bfadaaf050da3d6f80d6c3cf58a2bad8 \
     --hash=sha256:b60c4e23d573a69a4f1a16dd92888ecc0ef34fb0e655b4f305530377fa70e7a8
     # via tracecat
-pydantic-graph==1.0.8 \
-    --hash=sha256:c3376c39e3d35f1bf23478db648303e089b73c6675703a4f987a04c81cfbf883 \
-    --hash=sha256:e053837c4b84cbcd45cb1d4115f930ec1d25d897843d81e2e93a9bdc7775dfe8
+pydantic-graph==1.6.0 \
+    --hash=sha256:66fc7fa54670af43b8559cc33aaee385cc131d621ff4eb0f4279549e96328b53 \
+    --hash=sha256:89765bc3ada736706602d60cbabc83841d8c6aaecdede3f1dc6ac719a2e28c00
     # via pydantic-ai-slim
 pydantic-settings==2.11.0 \
     --hash=sha256:d0e87a1c7d33593beb7194adb8470fc426e95ba02af83a0f23474a04c9a08180 \
