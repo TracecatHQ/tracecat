@@ -35,6 +35,29 @@ from tracecat.tags.models import TagRead
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
 
+# Must be imported directly to preserve the udf metadata
+from tracecat.config import TRACECAT__FEATURE_FLAGS
+from tracecat.logger import logger
+
+if "case-tasks" in TRACECAT__FEATURE_FLAGS:
+    logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
+    from tracecat_ee.cases.tasks import (
+        create_task,
+        get_task,
+        list_tasks,
+        update_task,
+        delete_task,
+    )
+else:
+    create_task = None
+    get_task = None
+    list_tasks = None
+    update_task = None
+    delete_task = None
+    logger.info(
+        "Case tasks feature flag is not enabled. Skipping case tasks integration."
+    )
+
 PriorityType = Literal[
     "unknown",
     "low",
