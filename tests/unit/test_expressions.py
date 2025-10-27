@@ -20,6 +20,7 @@ from tracecat.expressions.common import (
 )
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
+    collect_expressions,
     eval_templated_object,
     extract_expressions,
     extract_templated_secrets,
@@ -1845,3 +1846,77 @@ def test_mixed_nested_object():
     }
     got = sorted(extract_templated_secrets(mixed_args_obj))
     assert got == sorted(["alpha.KEY", "beta.SECRET", "gamma.TOKEN"])
+
+
+def test_collect_expressions_captures_vars_references():
+    """Test that collect_expressions correctly captures VARS expressions.
+
+    This verifies that the ExprPathCollector visitor method is named 'vars'
+    to match the grammar, not 'variables'. The grammar emits 'vars' nodes,
+    so the visitor method must be named accordingly.
+    """
+    # Test single VARS reference
+    obj = {"param": "${{ VARS.my_variable }}"}
+    result = collect_expressions(obj)
+    assert result.variables == {"my_variable"}
+
+    # Test multiple VARS references
+    obj = {
+        "api_url": "${{ VARS.api_config.base_url }}",
+        "timeout": "${{ VARS.api_config.timeout }}",
+        "retry_count": "${{ VARS.retry_settings.max_retries }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"api_config", "retry_settings"}
+
+    # Test VARS with SECRETS together
+    obj = {
+        "auth": "${{ SECRETS.my_secret.API_KEY }}",
+        "endpoint": "${{ VARS.endpoints.production }}",
+    }
+    result = collect_expressions(obj)
+    assert result.secrets == {"my_secret.API_KEY"}
+    assert result.variables == {"endpoints"}
+
+    # Test VARS in complex expressions
+    obj = {
+        "url": "${{ FN.concat(VARS.base_url, '/api/v1') }}",
+        "headers": {
+            "Authorization": "${{ SECRETS.auth.TOKEN }}",
+            "X-API-Version": "${{ VARS.api_version }}",
+        },
+    }
+    result = collect_expressions(obj)
+    assert result.secrets == {"auth.TOKEN"}
+    assert result.variables == {"base_url", "api_version"}
+
+    # Test multiple references to same variable (should dedupe)
+    obj = {
+        "url1": "${{ VARS.config }}",
+        "url2": "${{ VARS.config.nested }}",
+        "url3": "${{ FN.upper(VARS.config) }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"config"}
+
+    # Test nested VARS in lists
+    obj = {
+        "items": [
+            "${{ VARS.item1 }}",
+            {"nested": "${{ VARS.item2 }}"},
+            "${{ FN.format('{} - {}', VARS.item3, VARS.item1) }}",  # item1 duplicate
+        ],
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"item1", "item2", "item3"}
+
+    # Test that non-VARS expressions don't create false positives
+    obj = {
+        "action": "${{ ACTIONS.my_action.result }}",
+        "trigger": "${{ TRIGGER.data }}",
+        "env": "${{ ENV.some_var }}",
+        "local": "${{ var.x }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == set()  # No VARS expressions
+    assert result.secrets == set()  # No SECRETS expressions

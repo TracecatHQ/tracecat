@@ -266,10 +266,11 @@ class ExprPathCollector(ExprExtractor):
         # Store the full path (e.g., "a.K1" not just "a")
         self._results.secrets.add(jsonpath)
 
-    def variables(self, node: Tree[Token]) -> None:
+    def vars(self, node: Tree[Token]) -> None:
         token = node.children[0]
-        self.logger.trace("Visit variable expression", node=node, child=token)
+        self.logger.trace("Visit vars expression", node=node, child=token)
         if not isinstance(token, Token):
             raise ValueError("Expected a string token")
         jsonpath = token.lstrip(".")
-        self._results.variables.add(jsonpath)
+        var_name = jsonpath.split(".", 1)[0]
+        self._results.variables.add(var_name)
