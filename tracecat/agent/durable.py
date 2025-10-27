@@ -17,6 +17,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import AgentDepsT
 from pydantic_core import to_json
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 from tracecat.agent.activities import AgentActivities, RequestStreamArgs
 from tracecat.agent.context import AgentContext
@@ -142,19 +143,26 @@ class DurableModel(Model):
         serialized_run_context = self.run_context_type.serialize_run_context(
             run_context
         )
-        response = await workflow.execute_activity_method(
-            AgentActivities.request_stream,
-            args=[
-                RequestStreamArgs(
-                    role=self.role,
-                    messages=messages,
-                    model_settings=model_settings,
-                    model_request_parameters=model_request_parameters,
-                    serialized_run_context=serialized_run_context,
-                    model_info=self._info,
-                ),
-                run_context.deps,
-            ],
-            **self.activity_config,
-        )
+        try:
+            response = await workflow.execute_activity_method(
+                AgentActivities.request_stream,
+                args=[
+                    RequestStreamArgs(
+                        role=self.role,
+                        messages=messages,
+                        model_settings=model_settings,
+                        model_request_parameters=model_request_parameters,
+                        serialized_run_context=serialized_run_context,
+                        model_info=self._info,
+                    ),
+                    run_context.deps,
+                ],
+                **self.activity_config,
+            )
+        except ActivityError as e:
+            # Reraise the root cause and let DSLWorkflow surface the error to the user
+            while cause := e.__cause__:
+                e = cause
+            logger.warning("Error requesting stream", error=e)
+            raise e
         yield TemporalStreamedResponse(model_request_parameters, response)
