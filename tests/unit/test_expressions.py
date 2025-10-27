@@ -41,6 +41,8 @@ from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.common import get_validators
 from tracecat.validation.models import ExprValidationResult, ValidationDetail
+from tracecat.variables.models import VariableCreate
+from tracecat.variables.service import VariablesService
 
 
 @pytest.mark.parametrize(
@@ -1147,6 +1149,52 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
 
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_detail(actual, **ex)
+
+
+@pytest.mark.anyio
+async def test_expr_validator_vars_key_depth_limit(test_role, env_sandbox):
+    async with VariablesService.with_session(role=test_role) as service:
+        await service.create_variable(
+            VariableCreate(
+                name="config",
+                values={
+                    "base_url": "https://example.com",
+                    "api": {
+                        "base_url": "https://example.com/api",
+                    },
+                },
+            )
+        )
+
+    validation_context = ExprValidationContext(action_refs=set())
+
+    async with ExprValidator(
+        validation_context=validation_context
+    ) as success_validator:
+        for template in extract_expressions("${{ VARS.config.base_url }}"):
+            template.validate(success_validator)
+    assert success_validator.errors() == []
+
+    async with ExprValidator(validation_context=validation_context) as depth_validator:
+        for template in extract_expressions("${{ VARS.config.api.base_url }}"):
+            template.validate(depth_validator)
+    depth_errors = depth_validator.errors()
+    assert len(depth_errors) == 1
+    depth_error = depth_errors[0]
+    assert depth_error.type == ExprType.VARIABLE
+    assert "support at most one key segment" in depth_error.msg
+
+    parser = ExprParser()
+    evaluator = ExprEvaluator(
+        operand={ExprContext.VARS: {"config": {"api": {"base_url": "value"}}}},
+        strict=True,
+    )
+    parse_tree = parser.parse("VARS.config.api.base_url")
+    assert parse_tree is not None
+    with pytest.raises(
+        TracecatExpressionError, match="support at most one key segment"
+    ):
+        evaluator.evaluate(parse_tree)
 
 
 @pytest.mark.parametrize(

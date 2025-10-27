@@ -6,6 +6,7 @@ from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
 from tracecat.expressions.common import (
+    MAX_VARS_PATH_DEPTH,
     ExprContext,
     ExprOperand,
     IterableExpr,
@@ -120,6 +121,16 @@ class ExprEvaluator(Transformer):
     @v_args(inline=True)
     def vars(self, path: str):
         logger.trace("Visiting vars:", path=path)
+        trimmed = path.lstrip(".")
+        parts = trimmed.split(".") if trimmed else []
+        key_segments = parts[1:] if len(parts) > 1 else []
+        if len(key_segments) > MAX_VARS_PATH_DEPTH:
+            formatted = ".".join(parts)
+            raise TracecatExpressionError(
+                "VARS expressions currently support at most one key segment "
+                "(`VARS.<name>.<key>`). "
+                f"Got VARS.{formatted!s} with {len(key_segments)} key segments after the variable name."
+            )
         expr = ExprContext.VARS + path
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 

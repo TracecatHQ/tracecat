@@ -12,6 +12,11 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
+# Maximum number of key segments allowed after the variable name in VARS expressions.
+# This is currently limited to support `VARS.<name>.<key>` paths, and can be increased
+# when deeper variable nesting is officially supported.
+MAX_VARS_PATH_DEPTH = 1
+
 
 class TracecatEnum(StrEnum):
     def __repr__(self) -> str:
