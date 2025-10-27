@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import contextlib
 from builtins import set as Set  # Avoid clashing with set() function
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any, overload
 
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_env, ctx_run, get_env
-from tracecat.expressions.eval import extract_templated_secrets
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -247,7 +246,9 @@ async def load_secrets(action_type: str) -> AsyncIterator[dict[str, Any]]:
         reg_action = await svc.get_action(action_type)
         action_secrets = await svc.fetch_all_action_secrets(reg_action)
 
-    secrets = await get_action_secrets(secret_exprs=Set(), action_secrets=action_secrets)
+    secrets = await get_action_secrets(
+        secret_exprs=Set(), action_secrets=action_secrets
+    )
     flat_secrets = flatten_secrets(secrets)
     with env_sandbox(flat_secrets):
         yield secrets
