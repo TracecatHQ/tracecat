@@ -1002,23 +1002,3 @@ async def get_attachment_download_url(
             expiry=expiry,
         )
     return download_url
-
-
-@registry.register(
-    default_title="List case fields",
-    display_group="Cases",
-    description="List all available case fields and their definitions.",
-    namespace="core.cases",
-)
-async def list_case_fields() -> list[dict[str, Any]]:
-    """List all case field definitions.
-
-    Returns field metadata including name, type, description, and whether it's a reserved field.
-    """
-    async with CasesService.with_session() as service:
-        field_definitions = await service.fields.list_fields()
-
-    return [
-        CaseFieldRead.from_sa(field_def).model_dump(mode="json")
-        for field_def in field_definitions
-    ]
