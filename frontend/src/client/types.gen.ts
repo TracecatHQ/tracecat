@@ -353,12 +353,25 @@ export type AudioUrl = {
   vendor_metadata?: {
     [key: string]: unknown
   } | null
-  identifier?: string | null
   kind?: "audio-url"
   /**
    * Return the media type of the file, based on the URL or the provided `media_type`.
    */
   readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type AuthSettingsRead = {
@@ -450,11 +463,24 @@ export type BinaryContent = {
     | "text/markdown"
     | "application/vnd.ms-excel"
     | string
-  identifier: string
   vendor_metadata?: {
     [key: string]: unknown
   } | null
   kind?: "binary"
+  /**
+   * Identifier for the binary content, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `BinaryContent`.
+   *
+   * This identifier is only automatically passed to the model when the `BinaryContent` is returned by a tool.
+   * If you're passing the `BinaryContent` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `BinaryContent`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -500,6 +526,7 @@ export type Body_workflows_create_workflow = {
 
 /**
  * An event indicating the start to a call to a built-in tool.
+ * @deprecated
  */
 export type BuiltinToolCallEvent = {
   part: BuiltinToolCallPart
@@ -518,12 +545,14 @@ export type BuiltinToolCallPart = {
       }
     | null
   tool_call_id?: string
+  id?: string | null
   provider_name?: string | null
   part_kind?: "builtin-tool-call"
 }
 
 /**
  * An event indicating the result of a built-in tool call.
+ * @deprecated
  */
 export type BuiltinToolResultEvent = {
   result: BuiltinToolReturnPart
@@ -536,7 +565,7 @@ export type BuiltinToolResultEvent = {
 export type BuiltinToolReturnPart = {
   tool_name: string
   content: unknown
-  tool_call_id: string
+  tool_call_id?: string
   metadata?: unknown
   timestamp?: string
   provider_name?: string | null
@@ -1626,12 +1655,25 @@ export type DocumentUrl = {
   vendor_metadata?: {
     [key: string]: unknown
   } | null
-  identifier?: string | null
   kind?: "document-url"
   /**
    * Return the media type of the file, based on the URL or the provided `media_type`.
    */
   readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type DynamicToolUIPartInputAvailable = {
@@ -1967,6 +2009,16 @@ export type FieldType =
   | "MULTI_SELECT"
 
 /**
+ * A file response from a model.
+ */
+export type FilePart = {
+  content: BinaryContent
+  id?: string | null
+  provider_name?: string | null
+  part_kind?: "file"
+}
+
+/**
  * A file part of a message.
  */
 export type FileUIPart = {
@@ -2018,6 +2070,12 @@ export type FunctionToolCallEvent = {
  */
 export type FunctionToolResultEvent = {
   result: ToolReturnPart | RetryPromptPart
+  content?:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+    | null
   event_kind?: "function_tool_result"
 }
 
@@ -2160,12 +2218,25 @@ export type ImageUrl = {
   vendor_metadata?: {
     [key: string]: unknown
   } | null
-  identifier?: string | null
   kind?: "image-url"
   /**
    * Return the media type of the file, based on the URL or the provided `media_type`.
    */
   readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type Integer = {
@@ -2431,6 +2502,7 @@ export type ModelResponse = {
     | BuiltinToolCallPart
     | BuiltinToolReturnPart
     | ThinkingPart
+    | FilePart
   >
   usage?: RequestUsage
   model_name?: string | null
@@ -2507,6 +2579,7 @@ export type PartStartEvent = {
     | BuiltinToolCallPart
     | BuiltinToolReturnPart
     | ThinkingPart
+    | FilePart
   event_kind?: "part_start"
 }
 
@@ -4197,6 +4270,7 @@ export type ToolCallPart = {
       }
     | null
   tool_call_id?: string
+  id?: string | null
   part_kind?: "tool-call"
 }
 
@@ -4218,7 +4292,7 @@ export type ToolCallPartDelta = {
 export type ToolReturnPart = {
   tool_name: string
   content: unknown
-  tool_call_id: string
+  tool_call_id?: string
   metadata?: unknown
   timestamp?: string
   part_kind?: "tool-return"
@@ -4454,12 +4528,25 @@ export type VideoUrl = {
   vendor_metadata?: {
     [key: string]: unknown
   } | null
-  identifier?: string | null
   kind?: "video-url"
   /**
    * Return the media type of the file, based on the URL or the provided `media_type`.
    */
   readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type WaitStrategy = "wait" | "detach"

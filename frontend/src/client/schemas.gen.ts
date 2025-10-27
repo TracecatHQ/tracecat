@@ -1200,17 +1200,6 @@ export const $AudioUrl = {
       ],
       title: "Vendor Metadata",
     },
-    identifier: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Identifier",
-    },
     kind: {
       type: "string",
       const: "audio-url",
@@ -1224,9 +1213,25 @@ export const $AudioUrl = {
         "Return the media type of the file, based on the URL or the provided `media_type`.",
       readOnly: true,
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url", "media_type"],
+  required: ["url", "media_type", "identifier"],
   title: "AudioUrl",
   description: "A URL to an audio file.",
 } as const
@@ -1428,10 +1433,6 @@ export const $BinaryContent = {
       ],
       title: "Media Type",
     },
-    identifier: {
-      type: "string",
-      title: "Identifier",
-    },
     vendor_metadata: {
       anyOf: [
         {
@@ -1449,6 +1450,22 @@ export const $BinaryContent = {
       const: "binary",
       title: "Kind",
       default: "binary",
+    },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `Identifier for the binary content, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`BinaryContent\`.
+
+This identifier is only automatically passed to the model when the \`BinaryContent\` is returned by a tool.
+If you're passing the \`BinaryContent\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`BinaryContent\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
     },
   },
   type: "object",
@@ -1623,6 +1640,7 @@ export const $BuiltinToolCallEvent = {
   required: ["part"],
   title: "BuiltinToolCallEvent",
   description: "An event indicating the start to a call to a built-in tool.",
+  deprecated: true,
 } as const
 
 export const $BuiltinToolCallPart = {
@@ -1649,6 +1667,17 @@ export const $BuiltinToolCallPart = {
     tool_call_id: {
       type: "string",
       title: "Tool Call Id",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
     },
     provider_name: {
       anyOf: [
@@ -1690,6 +1719,7 @@ export const $BuiltinToolResultEvent = {
   required: ["result"],
   title: "BuiltinToolResultEvent",
   description: "An event indicating the result of a built-in tool call.",
+  deprecated: true,
 } as const
 
 export const $BuiltinToolReturnPart = {
@@ -1732,7 +1762,7 @@ export const $BuiltinToolReturnPart = {
     },
   },
   type: "object",
-  required: ["tool_name", "content", "tool_call_id"],
+  required: ["tool_name", "content"],
   title: "BuiltinToolReturnPart",
   description: "A tool return message from a built-in tool.",
 } as const
@@ -4612,17 +4642,6 @@ export const $DocumentUrl = {
       ],
       title: "Vendor Metadata",
     },
-    identifier: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Identifier",
-    },
     kind: {
       type: "string",
       const: "document-url",
@@ -4636,9 +4655,25 @@ export const $DocumentUrl = {
         "Return the media type of the file, based on the URL or the provided `media_type`.",
       readOnly: true,
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url", "media_type"],
+  required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
   description: "The URL of the document.",
 } as const
@@ -5870,6 +5905,46 @@ export const $FieldType = {
   description: "Supported field types for entities.",
 } as const
 
+export const $FilePart = {
+  properties: {
+    content: {
+      $ref: "#/components/schemas/BinaryContent",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "file",
+      title: "Part Kind",
+      default: "file",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "FilePart",
+  description: "A file response from a model.",
+} as const
+
 export const $FileUIPart = {
   properties: {
     type: {
@@ -6064,6 +6139,42 @@ export const $FunctionToolResultEvent = {
         },
       ],
       title: "Result",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
     },
     event_kind: {
       type: "string",
@@ -6486,17 +6597,6 @@ export const $ImageUrl = {
       ],
       title: "Vendor Metadata",
     },
-    identifier: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Identifier",
-    },
     kind: {
       type: "string",
       const: "image-url",
@@ -6510,9 +6610,25 @@ export const $ImageUrl = {
         "Return the media type of the file, based on the URL or the provided `media_type`.",
       readOnly: true,
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url", "media_type"],
+  required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
   description: "A URL to an image.",
 } as const
@@ -7215,12 +7331,16 @@ export const $ModelResponse = {
           {
             $ref: "#/components/schemas/ThinkingPart",
           },
+          {
+            $ref: "#/components/schemas/FilePart",
+          },
         ],
         discriminator: {
           propertyName: "part_kind",
           mapping: {
             "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
             "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+            file: "#/components/schemas/FilePart",
             text: "#/components/schemas/TextPart",
             thinking: "#/components/schemas/ThinkingPart",
             "tool-call": "#/components/schemas/ToolCallPart",
@@ -7516,6 +7636,9 @@ export const $PartStartEvent = {
         {
           $ref: "#/components/schemas/ThinkingPart",
         },
+        {
+          $ref: "#/components/schemas/FilePart",
+        },
       ],
       title: "Part",
       discriminator: {
@@ -7523,6 +7646,7 @@ export const $PartStartEvent = {
         mapping: {
           "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
           "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+          file: "#/components/schemas/FilePart",
           text: "#/components/schemas/TextPart",
           thinking: "#/components/schemas/ThinkingPart",
           "tool-call": "#/components/schemas/ToolCallPart",
@@ -12292,6 +12416,17 @@ export const $ToolCallPart = {
       type: "string",
       title: "Tool Call Id",
     },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
     part_kind: {
       type: "string",
       const: "tool-call",
@@ -12384,7 +12519,7 @@ export const $ToolReturnPart = {
     },
   },
   type: "object",
-  required: ["tool_name", "content", "tool_call_id"],
+  required: ["tool_name", "content"],
   title: "ToolReturnPart",
   description:
     "A tool return message, this encodes the result of running a tool.",
@@ -13224,17 +13359,6 @@ export const $VideoUrl = {
       ],
       title: "Vendor Metadata",
     },
-    identifier: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Identifier",
-    },
     kind: {
       type: "string",
       const: "video-url",
@@ -13248,9 +13372,25 @@ export const $VideoUrl = {
         "Return the media type of the file, based on the URL or the provided `media_type`.",
       readOnly: true,
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url", "media_type"],
+  required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
   description: "A URL to a video.",
 } as const
