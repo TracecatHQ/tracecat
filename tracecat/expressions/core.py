@@ -245,7 +245,6 @@ class CollectedExprs:
     variables: set[str] = field(default_factory=set)
 
 
-@dataclass(slots=True)
 class ExprPathCollector(ExprExtractor):
     """Collects secrets and variables from expressions."""
 
