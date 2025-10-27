@@ -19,6 +19,7 @@ from tracecat.executor.service import (
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import CollectedExprs
 from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
@@ -224,10 +225,14 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
         ),
     )
 
-    # Mock extract_templated_secrets to return some args secrets
+    # Mock collect_expressions to return args secrets
+    mock_collected = CollectedExprs(
+        secrets={"args_secret1", "args_secret2"},
+        variables=set(),
+    )
     mocker.patch(
-        "tracecat.expressions.eval.extract_templated_secrets",
-        return_value=["args_secret1", "args_secret2"],
+        "tracecat.executor.service.collect_expressions",
+        return_value=mock_collected,
     )
 
     # Mock get_runtime_env
