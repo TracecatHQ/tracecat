@@ -22,8 +22,9 @@ definition:
         Supported types: array, number, bool, string, cidr, time
         Example: [{"name": "username", "type": "string"}, {"name": "age", "type": "number"}]
     base_url:
-      type: str
+      type: str | None
       description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+      default: null
     owner:
       type: str
       description: Splunk namespace owner for access control (use "nobody" for shared access).
@@ -51,7 +52,7 @@ definition:
     - ref: add_fields
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config/${{ inputs.collection }}
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config/${{ inputs.collection }}
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
