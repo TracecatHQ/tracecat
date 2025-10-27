@@ -19,6 +19,7 @@ from tracecat.executor.service import (
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import CollectedExprs
 from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
@@ -224,10 +225,14 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
         ),
     )
 
-    # Mock extract_templated_secrets to return some args secrets
+    # Mock collect_expressions to return args secrets
+    mock_collected = CollectedExprs(
+        secrets={"args_secret1", "args_secret2"},
+        variables=set(),
+    )
     mocker.patch(
-        "tracecat.executor.service.extract_templated_secrets",
-        return_value=["args_secret1", "args_secret2"],
+        "tracecat.executor.service.collect_expressions",
+        return_value=mock_collected,
     )
 
     # Mock get_runtime_env
@@ -298,7 +303,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         ),
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -325,7 +330,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets({}, action_secrets)
+    secrets = await get_action_secrets(set(), action_secrets)
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -351,7 +356,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         ),
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -393,7 +398,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets({}, action_secrets)
+    secrets = await get_action_secrets(set(), action_secrets)
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -415,7 +420,7 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
         )
     }
 
-    mocker.patch("tracecat.executor.service.extract_templated_secrets", return_value=[])
+    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
 
     sandbox = mocker.AsyncMock()
@@ -437,7 +442,7 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     )
 
     with pytest.raises(TracecatCredentialsError):
-        await get_action_secrets({}, action_secrets)
+        await get_action_secrets(set(), action_secrets)
 
 
 @pytest.mark.anyio

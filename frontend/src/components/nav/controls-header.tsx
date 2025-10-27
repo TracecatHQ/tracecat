@@ -88,6 +88,10 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
+import {
+  NewVariableDialog,
+  NewVariableDialogTrigger,
+} from "@/components/workspaces/add-workspace-variable"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -573,6 +577,19 @@ function CredentialsActions() {
   )
 }
 
+function VariablesActions() {
+  return (
+    <NewVariableDialog>
+      <NewVariableDialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 bg-white">
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Add variable
+        </Button>
+      </NewVariableDialogTrigger>
+    </NewVariableDialog>
+  )
+}
+
 function EntitiesActions() {
   const [createEntityDialogOpen, setCreateEntityDialogOpen] = useState(false)
   const workspaceId = useWorkspaceId()
@@ -978,6 +995,13 @@ function getPageConfig(
     return {
       title: "Credentials",
       actions: <CredentialsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/variables")) {
+    return {
+      title: "Variables",
+      actions: <VariablesActions />,
     }
   }
 

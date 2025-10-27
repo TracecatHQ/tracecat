@@ -25,8 +25,11 @@ from tracecat.executor.service import (
     _run_action_direct,
     flatten_secrets,
     get_action_secrets,
+    get_workspace_variables,
     run_template_action,
 )
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.eval import collect_expressions
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.models import BoundRegistryAction
@@ -97,11 +100,16 @@ async def call_tracecat_action(
     action_secrets = await service.fetch_all_action_secrets(reg_action)
     bound_action = service.get_bound(reg_action, mode="execution")
 
-    secrets = await get_action_secrets(args=args, action_secrets=action_secrets)
+    collected = collect_expressions(args)
+    secrets = await get_action_secrets(
+        secret_exprs=collected.secrets, action_secrets=action_secrets
+    )
+    ws_vars = await get_workspace_variables(variable_exprs=collected.variables)
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context.update(SECRETS=secrets)  # type: ignore
+    context[ExprContext.SECRETS] = secrets
+    context[ExprContext.VARS] = ws_vars
 
     flattened_secrets = flatten_secrets(secrets)
     try:

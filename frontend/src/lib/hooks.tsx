@@ -215,10 +215,17 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VariableCreate,
+  type VariableReadMinimal,
+  type VariableUpdate,
   type VcsGetGithubAppCredentialsStatusResponse,
   type VcsGetGithubAppManifestResponse,
   type VcsSaveGithubAppCredentialsData,
   type VcsSaveGithubAppCredentialsResponse,
+  variablesCreateVariable,
+  variablesDeleteVariableById,
+  variablesListVariables,
+  variablesUpdateVariableById,
   vcsGetGithubAppCredentialsStatus,
   vcsGetGithubAppManifest,
   vcsSaveGithubAppCredentials,
@@ -1075,6 +1082,143 @@ export function useWorkspaceSecrets(workspaceId: string) {
     createSecret,
     updateSecretById,
     deleteSecretById,
+  }
+}
+
+export function useWorkspaceVariables(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const {
+    data: variables,
+    isLoading: variablesIsLoading,
+    error: variablesError,
+  } = useQuery<VariableReadMinimal[], ApiError>({
+    queryKey: ["workspace-variables", workspaceId],
+    queryFn: async () =>
+      await variablesListVariables({
+        workspaceId,
+      }),
+    enabled: !!workspaceId,
+  })
+
+  // Create variable
+  const { mutateAsync: createVariable } = useMutation({
+    mutationFn: async (variable: VariableCreate) =>
+      await variablesCreateVariable({
+        workspaceId,
+        requestBody: variable,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Added new variable",
+        description: "New variable added successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-variables", workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot create variables in this workspace.",
+          })
+        case 409:
+          return toast({
+            title: "Variable already exists",
+            description:
+              "Variables with the same name and environment are not supported.",
+          })
+        default:
+          console.error("Failed to create variable", error)
+          return toast({
+            title: "Failed to add new variable",
+            description: "Please contact support for help.",
+          })
+      }
+    },
+  })
+
+  // Update variable
+  const { mutateAsync: updateVariableById } = useMutation({
+    mutationFn: async ({
+      variableId,
+      params,
+    }: {
+      variableId: string
+      params: VariableUpdate
+    }) =>
+      await variablesUpdateVariableById({
+        workspaceId,
+        variableId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Updated variable",
+        description: "Variable updated successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-variables", workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot update variables in this workspace.",
+          })
+        default:
+          console.error("Failed to update variable", error)
+          return toast({
+            title: "Failed to update variable",
+            description: "An error occurred while updating the variable.",
+          })
+      }
+    },
+  })
+
+  // Delete variable
+  const { mutateAsync: deleteVariableById } = useMutation({
+    mutationFn: async (variable: VariableReadMinimal) =>
+      await variablesDeleteVariableById({
+        workspaceId,
+        variableId: variable.id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-variables", workspaceId],
+      })
+      toast({
+        title: "Deleted variable",
+        description: "Variable deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot delete variables in this workspace.",
+          })
+        default:
+          console.error("Failed to delete variable", error)
+          return toast({
+            title: "Failed to delete variable",
+            description: "An error occurred while deleting the variable.",
+          })
+      }
+    },
+  })
+
+  return {
+    variables,
+    variablesIsLoading,
+    variablesError,
+    createVariable,
+    updateVariableById,
+    deleteVariableById,
   }
 }
 

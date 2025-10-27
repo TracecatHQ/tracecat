@@ -38,8 +38,8 @@ from tracecat.dsl.models import (
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
+    collect_expressions,
     eval_templated_object,
-    extract_templated_secrets,
     get_iterables_from_expression,
 )
 from tracecat.git.utils import safe_prepare_git_url
@@ -58,9 +58,12 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    TracecatAuthorizationError,
     TracecatCredentialsError,
     TracecatException,
 )
+from tracecat.variables.models import VariableSearch
+from tracecat.variables.service import VariablesService
 
 """All these methods are used in the registry executor, not on the worker"""
 
@@ -215,15 +218,19 @@ async def run_template_action(
         validated_args = action.validate_args(args=args)
 
     secrets_context = {}
+    env_context = {}
+    vars_context = {}
     if context is not None:
         secrets_context = context.get(ExprContext.SECRETS, {})
         env_context = context.get(ExprContext.ENV, {})
+        vars_context = context.get(ExprContext.VARS, {})
 
     template_context = cast(
         ExecutionContext,
         {
             ExprContext.SECRETS: secrets_context,
             ExprContext.ENV: env_context,
+            ExprContext.VARS: vars_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
@@ -261,11 +268,11 @@ async def run_template_action(
 
 
 async def get_action_secrets(
-    args: ArgsT,
+    secret_exprs: set[str],
     action_secrets: set[RegistrySecretType],
 ) -> dict[str, Any]:
     # Handle secrets from the task args
-    args_secrets = extract_templated_secrets(args)
+    args_secrets = secret_exprs
     # Get oauth integrations from the action secrets
     args_oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     args_basic_secrets: set[str] = set()
@@ -416,7 +423,15 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets = await service.fetch_all_action_secrets(reg_action)
         action = service.get_bound(reg_action, mode="execution")
 
-    secrets = await get_action_secrets(args=task.args, action_secrets=action_secrets)
+    collected = collect_expressions(task.args)
+    secrets = await get_action_secrets(
+        secret_exprs=collected.secrets, action_secrets=action_secrets
+    )
+    workspace_variables = await get_workspace_variables(
+        variable_exprs=collected.variables,
+        environment=input.run_context.environment,
+        role=role,
+    )
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -449,6 +464,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     context = input.exec_context.copy()
     context[ExprContext.SECRETS] = secrets
+    context[ExprContext.VARS] = workspace_variables
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -735,3 +751,20 @@ def flatten_wrapped_exc_error_group(
             )
         )
     return [eg]
+
+
+async def get_workspace_variables(
+    variable_exprs: set[str],
+    *,
+    environment: str | None = None,
+    role: Role | None = None,
+) -> dict[str, dict[str, str]]:
+    try:
+        async with VariablesService.with_session(role=role) as service:
+            variables = await service.search_variables(
+                VariableSearch(names=variable_exprs, environment=environment)
+            )
+    except TracecatAuthorizationError as e:
+        logger.warning("No access to workspace variables", error=e)
+        return {}
+    return {variable.name: variable.values for variable in variables}

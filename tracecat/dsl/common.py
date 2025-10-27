@@ -610,11 +610,13 @@ def create_default_execution_context(
     ACTIONS: dict[str, Any] | None = None,
     TRIGGER: dict[str, Any] | None = None,
     ENV: DSLEnvironment | None = None,
+    VARS: dict[str, Any] | None = None,
 ) -> ExecutionContext:
     return {
         ExprContext.ACTIONS: ACTIONS or {},
         ExprContext.TRIGGER: TRIGGER or {},
         ExprContext.ENV: cast(DSLEnvironment, ENV or {}),
+        ExprContext.VARS: VARS or {},
     }
 
 
