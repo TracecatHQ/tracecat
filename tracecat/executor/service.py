@@ -467,32 +467,25 @@ def get_runtime_env() -> str:
     return getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
 
 
-def flatten_secrets(secrets: dict[str, Any]):
+def flatten_secrets(secrets: dict[str, dict[str, str]]) -> dict[str, str]:
     """Given secrets in the format of {name: {key: value}}, we need to flatten
     it to a dict[str, str] to set in the environment context.
 
     For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
     as `KEY`. This means you cannot have a clashing key in different secrets.
-
-    OAuth secrets are handled differently - they're stored as direct string values
-    and are accessible as environment variables using their provider_id.
     """
     flattened_secrets: dict[str, str] = {}
     for name, keyvalues in secrets.items():
-        if name.endswith("_oauth"):
-            # OAuth secrets are stored as direct string values
-            flattened_secrets[name] = str(keyvalues)
-        else:
-            # Regular secrets are stored as key-value dictionaries
-            for key, value in keyvalues.items():
-                if key in flattened_secrets:
-                    raise ValueError(
-                        f"Key {key!r} is duplicated in {name!r}! "
-                        "Please ensure only one secret with a given name is set. "
-                        "e.g. If you have `first_secret.KEY` set, then you cannot "
-                        "also set `second_secret.KEY` as `KEY` is duplicated."
-                    )
-                flattened_secrets[key] = value
+        # Regular secrets are stored as key-value dictionaries
+        for key, value in keyvalues.items():
+            if key in flattened_secrets:
+                raise ValueError(
+                    f"Key {key!r} is duplicated in {name!r}! "
+                    "Please ensure only one secret with a given name is set. "
+                    "e.g. If you have `first_secret.KEY` set, then you cannot "
+                    "also set `second_secret.KEY` as `KEY` is duplicated."
+                )
+            flattened_secrets[key] = value
     return flattened_secrets
 
 
