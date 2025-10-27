@@ -111,7 +111,6 @@ export function EditVariableDialog({
         environment: formValues.environment || undefined,
         values: valuesDict,
       }
-      console.log("Submitting edit variable", params)
       try {
         await updateVariableById({
           variableId: selectedVariable.id,
