@@ -41,7 +41,9 @@ class VariableCreate(BaseModel):
 class VariableUpdate(BaseModel):
     name: VariableName | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, min_length=0, max_length=255)
-    values: dict[VariableKey, Any] | None = Field(default=None, min_length=1)
+    values: dict[VariableKey, Any] | None = Field(
+        default=None, min_length=1, max_length=1000
+    )
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
 

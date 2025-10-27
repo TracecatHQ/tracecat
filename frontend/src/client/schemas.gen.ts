@@ -13372,6 +13372,7 @@ export const $VariableUpdate = {
             minLength: 1,
           },
           type: "object",
+          maxProperties: 1000,
           minProperties: 1,
         },
         {
