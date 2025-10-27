@@ -28,8 +28,9 @@ definition:
       description: Model-specific settings.
       default: null
     base_url:
-      type: str
+      type: str | None
       description: Base URL for Ollama Chat API
+      default: null
       default: http://localhost:11434/v1
   steps:
     - ref: call_ollama
@@ -41,5 +42,5 @@ definition:
         instructions: ${{ inputs.instructions }}
         output_type: ${{ inputs.output_type }}
         model_settings: ${{ inputs.model_settings }}
-        base_url: ${{ inputs.base_url }}
+        base_url: ${{ inputs.base_url || VARS.ollama.base_url }}
   returns: ${{ steps.call_ollama.result }}

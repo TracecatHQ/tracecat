@@ -45,5 +45,5 @@ definition:
         instructions: ${{ inputs.instructions }}
         output_type: ${{ inputs.text_format }}
         model_settings: ${{ inputs.model_settings }}
-        base_url: ${{ inputs.base_url }}
+        base_url: ${{ inputs.base_url || VARS.openai.base_url }}
   returns: ${{ steps.call_openai_responses.result }}

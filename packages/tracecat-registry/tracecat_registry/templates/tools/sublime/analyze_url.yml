@@ -15,15 +15,16 @@ definition:
       type: str
       description: URL to analyze.
     base_url:
-      type: str
+      type: str | None
       description: Base URL of the Sublime API.
+      default: null
       default: https://platform.sublime.security
   steps:
     # https://docs.sublime.security/reference/linkanalysisevaluate-1
     - ref: analyze_url
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/v0/enrichment/link_analysis/evaluate
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/enrichment/link_analysis/evaluate
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}

@@ -11,8 +11,9 @@ definition:
       keys: ["ALERTMEDIA_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+      default: null
     email:
       type: str
       description: Email of the user to search for.
@@ -49,7 +50,7 @@ definition:
     - ref: search_users
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/users
+        url: ${{ inputs.base_url || VARS.alertmedia.base_url }}/api/users
         method: GET
         params:
           email: ${{ inputs.email }}

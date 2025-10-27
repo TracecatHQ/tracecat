@@ -25,14 +25,15 @@ definition:
       description: Maximum number of alerts to return.
       default: 100
     base_url:
-      type: str
+      type: str | None
       description: Datadog site API URL.
+      default: null
       default: https://api.datadoghq.com/
   steps:
     - ref: query_security_signals
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v2/security_monitoring/signals/search
+        url: ${{ inputs.base_url || VARS.datadog.base_url }}/api/v2/security_monitoring/signals/search
         method: POST
         headers:
           DD-API-KEY: ${{ SECRETS.datadog.DATADOG_API_KEY }}

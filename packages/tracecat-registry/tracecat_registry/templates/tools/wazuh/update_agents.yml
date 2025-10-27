@@ -17,19 +17,20 @@ definition:
       description: Change the token base duration
       default: 900
     base_url:
-      type: str
+      type: str | None
       description: URL for the Wazuh WUI API.
+      default: null
   steps:
     - ref: get_access_token
       action: tools.wazuh.get_access_token
       args:
-        url: ${{ inputs.base_url }}
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}
         verify_ssl: ${{ inputs.verify_ssl  }}
         auth_token_exp_timeout: 900
     - ref: get_outdated_agents
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/agents/outdated
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/agents/outdated
         method: GET
         headers:
           Authorization: Bearer ${{ steps.get_access_token.result }}
@@ -37,7 +38,7 @@ definition:
     - ref: upgrade_agents
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/agents/upgrade
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/agents/upgrade
         method: PUT
         params:
           agents_list: ${{ FN.join(steps.get_outdated_agents.result.data.data.affected_items[*].id, ",") }}
@@ -47,7 +48,7 @@ definition:
     - ref: upgrade_result
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/agents/upgrade_result
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/agents/upgrade_result
         method: GET
         params:
           agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].agent, ",") }}
