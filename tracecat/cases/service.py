@@ -60,7 +60,7 @@ from tracecat.db.schemas import (
     CaseTask,
     User,
 )
-from tracecat.identifiers.workflow import WorkspaceUUID,WorkflowUUID
+from tracecat.identifiers.workflow import WorkflowUUID, WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import (
     TableEditorService,
