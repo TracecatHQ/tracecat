@@ -18,7 +18,6 @@ definition:
       type: str | None
       description: Base URL of the Sublime API.
       default: null
-      default: https://platform.sublime.security
   steps:
     - ref: analyze_eml
       action: core.http_request

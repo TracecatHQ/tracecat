@@ -21,7 +21,6 @@ definition:
       type: str | None
       description: Base URL of the Sublime API.
       default: null
-      default: https://platform.sublime.security
   steps:
     - ref: binexplode_scan
       action: core.http_request

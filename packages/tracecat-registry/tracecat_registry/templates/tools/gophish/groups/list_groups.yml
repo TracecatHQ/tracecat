@@ -14,7 +14,6 @@ definition:
       type: str | None
       description: The base URL of the Gophish instance.
       default: null
-      required: true
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.

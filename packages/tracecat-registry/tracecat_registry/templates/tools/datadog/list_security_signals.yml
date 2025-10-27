@@ -28,7 +28,6 @@ definition:
       type: str | None
       description: Datadog site API URL.
       default: null
-      default: https://api.datadoghq.com/
   steps:
     - ref: query_security_signals
       action: core.http_request

@@ -14,11 +14,9 @@ definition:
       type: str | None
       description: The base URL of the Gophish instance.
       default: null
-      required: true
     payload:
       type: dict[str, Any]
       description: The body of the landing page to create. Look at the Gophish API documentation for the expected body.
-      required: true
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.

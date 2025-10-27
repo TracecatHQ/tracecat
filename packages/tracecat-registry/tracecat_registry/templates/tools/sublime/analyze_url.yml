@@ -18,7 +18,6 @@ definition:
       type: str | None
       description: Base URL of the Sublime API.
       default: null
-      default: https://platform.sublime.security
   steps:
     # https://docs.sublime.security/reference/linkanalysisevaluate-1
     - ref: analyze_url
