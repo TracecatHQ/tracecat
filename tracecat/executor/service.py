@@ -58,6 +58,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    TracecatAuthorizationError,
     TracecatCredentialsError,
     TracecatException,
 )
@@ -758,8 +759,12 @@ async def get_workspace_variables(
     environment: str | None = None,
     role: Role | None = None,
 ) -> dict[str, dict[str, str]]:
-    async with VariablesService.with_session(role=role) as service:
-        variables = await service.search_variables(
-            VariableSearch(names=variable_exprs, environment=environment)
-        )
+    try:
+        async with VariablesService.with_session(role=role) as service:
+            variables = await service.search_variables(
+                VariableSearch(names=variable_exprs, environment=environment)
+            )
+    except TracecatAuthorizationError as e:
+        logger.warning("No access to workspace variables", error=e)
+        return {}
     return {variable.name: variable.values for variable in variables}
