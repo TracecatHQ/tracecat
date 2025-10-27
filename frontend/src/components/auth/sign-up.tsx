@@ -113,7 +113,6 @@ export function BasicRegistrationForm() {
   })
 
   const onSubmit = async (values: BasicLoginForm) => {
-    console.log(values)
     try {
       setIsLoading(true)
       /**
