@@ -46,8 +46,9 @@ definition:
       type: str
       description: Jira issue type ID.
     base_url:
-      type: str
+      type: str | None
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+      default: null
   steps:
     # Format the required fields
     - ref: required_fields
@@ -80,7 +81,7 @@ definition:
     - ref: create_issue
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/issue
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue
         method: POST
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
