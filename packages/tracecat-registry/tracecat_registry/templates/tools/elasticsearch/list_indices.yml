@@ -10,13 +10,14 @@ definition:
       keys:
         - ELASTICSEARCH_API_KEY
   expects:
-    base_url:
-      type: str
-      description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
     verbose:
       type: bool
       description: Whether to include column headers in the response.
       default: true
+    base_url:
+      type: str | None
+      description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
+      default: null
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.
@@ -25,7 +26,7 @@ definition:
     - ref: list_indices_request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/_cat/indices
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/_cat/indices
         method: GET
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

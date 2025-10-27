@@ -19,8 +19,9 @@ definition:
         The _key value of the entry to retrieve from the collection.
         Example: "5f3a1b2c3d4e5f6a7b8c9d0e"
     base_url:
-      type: str
+      type: str | None
       description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+      default: null
     owner:
       type: str
       description: Splunk namespace owner for access control (use "nobody" for shared access).
@@ -37,7 +38,7 @@ definition:
     - ref: get_entry
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}/${{ inputs.entry_key }}
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}/${{ inputs.entry_key }}
         method: GET
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

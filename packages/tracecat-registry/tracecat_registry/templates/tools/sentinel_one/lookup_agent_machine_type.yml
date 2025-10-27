@@ -11,8 +11,9 @@ definition:
       keys: ["SENTINEL_ONE_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
+      default: null
     machine_types:
       type: list[str]
       description: Machine types to include (e.g., laptop, desktop, server)
@@ -28,7 +29,7 @@ definition:
     - ref: lookup_agents
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/agents
         method: GET
         timeout: 60
         headers:

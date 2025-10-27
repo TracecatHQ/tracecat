@@ -11,13 +11,12 @@ definition:
       keys: ["GOPHISH_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: The base URL of the Gophish instance.
-      required: true
+      default: null
     campaign_id:
       type: int
       description: The ID of the campaign to get.
-      required: true
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.
@@ -26,7 +25,7 @@ definition:
     - ref: get_campaign
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/campaigns/${{ inputs.campaign_id }}
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/campaigns/${{ inputs.campaign_id }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}

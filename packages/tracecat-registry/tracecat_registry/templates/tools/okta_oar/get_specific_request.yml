@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     request_id:
       type: str
       description: ID of the access request to retrieve
@@ -20,7 +21,7 @@ definition:
     - ref: call_api
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/governance/api/v1/requests/${{ inputs.request_id }}
+        url: ${{ inputs.base_url || VARS.okta_oar.base_url }}/governance/api/v1/requests/${{ inputs.request_id }}
         method: GET
         headers:
           Authorization: ${{ FN.concat("SSWS ", SECRETS.okta.OKTA_API_TOKEN) }}

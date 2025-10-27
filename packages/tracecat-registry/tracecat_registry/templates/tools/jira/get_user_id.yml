@@ -11,8 +11,9 @@ definition:
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+      default: null
     username:
       type: str
       description: Jira username (e.g. john.doe@example.com)
@@ -20,7 +21,7 @@ definition:
     - ref: get_user_id
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/user/search
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/user/search
         method: GET
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}

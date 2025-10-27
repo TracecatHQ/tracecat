@@ -11,8 +11,9 @@ definition:
         - ELASTICSEARCH_API_KEY
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
+      default: null
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.
@@ -21,7 +22,7 @@ definition:
     - ref: list_aliases_request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/_alias
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/_alias
         method: GET
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
