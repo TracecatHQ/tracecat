@@ -166,6 +166,25 @@ def test_dynamic_model_with_invalid_data():
         )
 
 
+def test_dynamic_model_with_bare_dict_type():
+    schema = {
+        "payload": {
+            "type": "dict | None",
+            "description": "Optional untyped dictionary payload.",
+        },
+    }
+
+    DynamicModel = create_expectation_model(schema)
+
+    inst_ok: Any = DynamicModel(payload={"foo": "bar"})
+    assert inst_ok.payload == {"foo": "bar"}
+    inst_none: Any = DynamicModel(payload=None)
+    assert inst_none.payload is None
+
+    with pytest.raises(ValidationError):
+        DynamicModel(payload="not-a-dict")
+
+
 def test_validate_schema_success():
     schema = {
         "start_time": {
