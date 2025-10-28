@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Get group
+  description: Retrieve details for a Microsoft Entra ID group.
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: get_group
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    group_id:
+      type: str
+      description: The unique identifier of the group to retrieve.
+    select:
+      type: list[str]
+      description: Optional set of group properties to return.
+      default: null
+    expand:
+      type: list[str]
+      description: Optional related entities to expand in the response.
+      default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          select: ${{ inputs.select }}
+          expand: ${{ inputs.expand }}
+        script: |
+          def main(select, expand):
+              params = {}
+              if select:
+                  params["$select"] = ",".join(select)
+              if expand:
+                  params["$expand"] = ",".join(expand)
+              return params
+    - ref: get_group
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/groups/${{ FN.url_encode(inputs.group_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_group.result.data }}

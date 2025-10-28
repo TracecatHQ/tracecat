@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Remove user from group
+  description: Remove a Microsoft Entra ID user from a group.
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/group-delete-members?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: remove_user_from_group
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    group_id:
+      type: str
+      description: The unique identifier of the group.
+    user_id:
+      type: str
+      description: The unique identifier of the user (directory object) to remove.
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
+  steps:
+    - ref: remove_user
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/groups/${{ FN.url_encode(inputs.group_id) }}/members/${{ FN.url_encode(inputs.user_id) }}/$ref
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+  returns: ${{ steps.remove_user.result.data }}
