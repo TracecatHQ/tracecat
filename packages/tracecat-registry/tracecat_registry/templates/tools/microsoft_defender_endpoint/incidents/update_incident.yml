@@ -69,7 +69,7 @@ definition:
                   payload["status"] = status
               if assigned_to:
                   payload["assignedTo"] = assigned_to
-              if tags:
+              if tags is not None:
                   payload["tags"] = tags
               if comment:
                   payload["comment"] = comment

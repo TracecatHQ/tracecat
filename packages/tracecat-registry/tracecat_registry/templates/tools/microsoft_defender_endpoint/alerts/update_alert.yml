@@ -32,7 +32,7 @@ definition:
       description: User principal name (UPN) or email address to assign the alert to.
       default: null
     classification:
-      type: enum["TruePositive", "FalsePositive", "InformationalExpectedActivity"] | None
+      type: enum["Unknown", "TruePositive", "FalsePositive", "InformationalExpectedActivity"] | None
       description: Updated alert classification.
       default: null
     determination:
