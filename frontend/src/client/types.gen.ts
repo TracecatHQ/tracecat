@@ -174,36 +174,6 @@ export type AgentApprovalSubmission = {
   approvals: ApprovalMap
 }
 
-/**
- * Configuration for an agent.
- */
-export type AgentConfig = {
-  model_name: string
-  model_provider: string
-  base_url?: string | null
-  instructions?: string | null
-  output_type?: OutputType | null
-  actions?: Array<string> | null
-  namespaces?: Array<string> | null
-  fixed_arguments?: {
-    [key: string]: {
-      [key: string]: unknown
-    }
-  } | null
-  tool_approvals?: {
-    [key: string]: boolean
-  } | null
-  mcp_server_url?: string | null
-  mcp_server_headers?: {
-    [key: string]: string
-  } | null
-  model_settings?: {
-    [key: string]: unknown
-  } | null
-  retries?: number
-  deps_type?: unknown | null
-}
-
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ModelRequest | ModelResponse> | null
@@ -252,11 +222,6 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
-}
-
-export type AgentWorkflowArgs = {
-  role: Role
-  agent_args: RunAgentArgs
 }
 
 /**
@@ -1974,7 +1939,6 @@ export type EventGroup_TypeVar_ = {
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
-    | AgentWorkflowArgs
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -3466,14 +3430,6 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
-}
-
-export type RunAgentArgs = {
-  user_prompt: string
-  session_id: string
-  config: AgentConfig
-  max_requests?: number | null
-  max_tool_calls?: number | null
 }
 
 /**

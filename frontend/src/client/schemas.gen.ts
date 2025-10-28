@@ -690,163 +690,6 @@ export const $AgentApprovalSubmission = {
   title: "AgentApprovalSubmission",
 } as const
 
-export const $AgentConfig = {
-  properties: {
-    model_name: {
-      type: "string",
-      title: "Model Name",
-    },
-    model_provider: {
-      type: "string",
-      title: "Model Provider",
-    },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-    },
-    instructions: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Instructions",
-    },
-    output_type: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/OutputType",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    actions: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Actions",
-    },
-    namespaces: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Namespaces",
-    },
-    fixed_arguments: {
-      anyOf: [
-        {
-          additionalProperties: {
-            additionalProperties: true,
-            type: "object",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fixed Arguments",
-    },
-    tool_approvals: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "boolean",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Approvals",
-    },
-    mcp_server_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Server Url",
-    },
-    mcp_server_headers: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Server Headers",
-    },
-    model_settings: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Settings",
-    },
-    retries: {
-      type: "integer",
-      title: "Retries",
-      default: 3,
-    },
-    deps_type: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Deps Type",
-    },
-  },
-  type: "object",
-  required: ["model_name", "model_provider"],
-  title: "AgentConfig",
-  description: "Configuration for an agent.",
-} as const
-
 export const $AgentOutput = {
   properties: {
     output: {
@@ -1119,20 +962,6 @@ export const $AgentSettingsUpdate = {
   },
   type: "object",
   title: "AgentSettingsUpdate",
-} as const
-
-export const $AgentWorkflowArgs = {
-  properties: {
-    role: {
-      $ref: "#/components/schemas/Role",
-    },
-    agent_args: {
-      $ref: "#/components/schemas/RunAgentArgs",
-    },
-  },
-  type: "object",
-  required: ["role", "agent_args"],
-  title: "AgentWorkflowArgs",
 } as const
 
 export const $AppSettingsRead = {
@@ -6018,9 +5847,6 @@ export const $EventGroup_TypeVar_ = {
         {
           $ref: "#/components/schemas/InteractionInput",
         },
-        {
-          $ref: "#/components/schemas/AgentWorkflowArgs",
-        },
       ],
       title: "Action Input",
     },
@@ -10156,48 +9982,6 @@ export const $RunActionInput = {
   title: "RunActionInput",
   description:
     "This object contains all the information needed to execute an action.",
-} as const
-
-export const $RunAgentArgs = {
-  properties: {
-    user_prompt: {
-      type: "string",
-      title: "User Prompt",
-    },
-    session_id: {
-      type: "string",
-      format: "uuid",
-      title: "Session Id",
-    },
-    config: {
-      $ref: "#/components/schemas/AgentConfig",
-    },
-    max_requests: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Requests",
-    },
-    max_tool_calls: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Tool Calls",
-    },
-  },
-  type: "object",
-  required: ["user_prompt", "session_id", "config"],
-  title: "RunAgentArgs",
 } as const
 
 export const $RunContext = {

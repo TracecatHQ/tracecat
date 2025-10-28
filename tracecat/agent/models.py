@@ -3,7 +3,15 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -27,6 +35,7 @@ class ModelInfo(BaseModel):
     base_url: str | None
 
 
+@runtime_checkable
 class MessageStore(Protocol):
     async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
     async def store(
@@ -34,6 +43,7 @@ class MessageStore(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
     message_store: MessageStore | None = None
@@ -60,7 +70,7 @@ class AgentConfig:
     mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
     retries: int = 3
-    deps_type: type[StreamingAgentDeps] | type[None] | None = None
+    deps_type: type[Any] | None = None
 
 
 class RunAgentArgs(BaseModel):
