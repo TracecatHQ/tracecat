@@ -5,7 +5,7 @@ import {
   BoxIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
-  Sparkles,
+  Leaf,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -131,7 +131,7 @@ export function AgentsBoard({
   if (groupedSessions.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
-        <Sparkles className="size-5 text-muted-foreground/60" />
+        <Leaf className="size-5 text-muted-foreground/60" />
         <p>No agent activity yet.</p>
         <p className="text-xs text-muted-foreground/70">
           When agents run, they will appear here grouped by their latest status.
