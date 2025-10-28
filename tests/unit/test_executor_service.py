@@ -246,7 +246,7 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     mock_sandbox.__aenter__.return_value = mock_sandbox
     mock_sandbox.__aexit__.return_value = None
 
-    auth_sandbox_mock = mocker.patch("tracecat.executor.service.AuthSandbox")
+    auth_sandbox_mock = mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox")
     auth_sandbox_mock.return_value = mock_sandbox
 
     # Mock run_single_action to avoid actually running the action
@@ -256,10 +256,10 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     mocker.patch("tracecat.executor.service.evaluate_templated_args", return_value={})
 
     # Mock env_sandbox
-    mocker.patch("tracecat.executor.service.env_sandbox")
+    mocker.patch("tracecat.secrets.secrets_manager.env_sandbox")
 
     # Mock flatten_secrets
-    mocker.patch("tracecat.executor.service.flatten_secrets", return_value={})
+    mocker.patch("tracecat.secrets.secrets_manager.flatten_secrets", return_value={})
 
     # Run the function
     await run_action_from_input(input, test_role)
@@ -314,7 +314,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
@@ -330,7 +330,7 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 
@@ -371,7 +371,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
@@ -402,7 +402,7 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 
@@ -439,7 +439,7 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     service = mocker.AsyncMock()
     service.list_integrations.return_value = []
@@ -449,7 +449,7 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 

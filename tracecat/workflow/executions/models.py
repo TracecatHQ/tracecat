@@ -234,7 +234,7 @@ class EventGroup[T: EventInput](BaseModel):
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         logger.warning("Child workflow initiated event", attrs=attrs.workflow_type)
         match attrs.workflow_type.name:
-            case "DSLWorkfklow":
+            case "DSLWorkflow":
                 wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
                 input = await extract_first(attrs.input)
                 dsl_run_args = DSLRunArgs(**input)
@@ -463,7 +463,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
         match attrs.workflow_type.name:
-            case "DSLWorkfklow":
+            case "DSLWorkflow":
                 try:
                     memo = ChildWorkflowMemo.from_temporal(attrs.memo)
                 except Exception as e:
