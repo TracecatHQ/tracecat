@@ -10,14 +10,14 @@ from tracecat.registry.fields import ActionType, TextArea, Yaml
 
 
 @registry.register(
-    default_title="Approval AI agent",
-    description="AI agent with tool calling capabilities and approval support. Returns the output and full message history.",
+    default_title="Approvals AI agent",
+    description="AI agent with tool calling capabilities and human-in-the-loop approval support. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
     secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
     namespace="ai",
 )
-async def approval_agent(
+async def approvals_agent(
     user_prompt: Annotated[
         str,
         Doc("User prompt to the agent."),
