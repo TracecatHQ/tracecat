@@ -645,8 +645,7 @@ async def test_worker_factory(
     ) -> Worker:
         """Create a worker with the same configuration as production."""
 
-        loop = asyncio.get_event_loop()
-        activities = activities or loop.run_until_complete(get_activities())
+        activities = activities or get_activities()
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],

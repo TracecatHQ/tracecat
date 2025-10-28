@@ -62,7 +62,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-async def get_activities() -> list[Callable]:
+def get_activities() -> list[Callable]:
     tool_executor = SimpleToolExecutor()
     agent_activities = AgentActivities(tool_executor=tool_executor)
     return [
@@ -100,7 +100,7 @@ async def main() -> None:
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow
-    activities = await get_activities()
+    activities = get_activities()
     logger.debug(
         "Activities loaded",
         activities=[
