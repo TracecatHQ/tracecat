@@ -18,11 +18,11 @@ __all__ = [
     "CaseDurationCreate",
     "CaseDurationDefinitionCreate",
     "CaseDurationDefinitionRead",
-    "CaseDurationDefinitionService",
+    "CaseDurationDefinitionService",  # pyright: ignore[reportUnsupportedDunderAll]
     "CaseDurationDefinitionUpdate",
     "CaseDurationEventAnchor",
     "CaseDurationRead",
-    "CaseDurationService",
+    "CaseDurationService",  # pyright: ignore[reportUnsupportedDunderAll]
     "CaseDurationUpdate",
 ]
 
