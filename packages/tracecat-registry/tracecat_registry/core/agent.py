@@ -242,7 +242,7 @@ async def action(
     return result.model_dump()
 
 
-class HitlAgentActionArgs(BaseModel):
+class ApprovalsAgentActionArgs(BaseModel):
     user_prompt: str
     model_name: str
     model_provider: str

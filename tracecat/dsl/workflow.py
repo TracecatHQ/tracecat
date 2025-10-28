@@ -30,7 +30,7 @@ with workflow.unsafe.imports_passed_through():
         AgentWorkflowArgs,
         DurableAgentWorkflow,
     )
-    from tracecat_registry.core.agent import HitlAgentActionArgs
+    from tracecat_registry.core.agent import ApprovalsAgentActionArgs
 
     from tracecat import config, identifiers
     from tracecat.agent.models import AgentConfig, RunAgentArgs
@@ -531,15 +531,15 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
-                case PlatformAction.AI_HITL_AGENT:
-                    logger.warning("Executing AI agent", task=task)
+                case PlatformAction.AI_APPROVALS_AGENT:
+                    logger.info("Executing approvals agent", task=task)
                     if not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
                         raise ApplicationError(
-                            "Human-in-the-loop agent feature is not enabled.",
+                            "Approvals AI agent feature is not enabled.",
                             non_retryable=True,
                             type="FeatureDisabledError",
                         )
-                    action_args = HitlAgentActionArgs(**task.args)
+                    action_args = ApprovalsAgentActionArgs(**task.args)
                     wf_info = workflow.info()
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
