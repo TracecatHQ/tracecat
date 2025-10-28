@@ -9,6 +9,10 @@ from tracecat.integrations.providers.microsoft.azure import (
     AzureManagementACProvider,
     AzureManagementCCProvider,
 )
+from tracecat.integrations.providers.microsoft.defender_endpoint import (
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+)
 from tracecat.integrations.providers.microsoft.entra import (
     MicrosoftEntraACProvider,
     MicrosoftEntraCCProvider,
@@ -38,6 +42,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
     AzureManagementCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
     MicrosoftEntraACProvider,
     MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,

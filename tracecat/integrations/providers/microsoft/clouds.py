@@ -21,6 +21,7 @@ class AzureCloudConfig:
     management_resource: str
     log_analytics_resource: str
     graph_resource: str
+    defender_resource: str
 
 
 AZURE_CLOUD_CONFIG: dict[AzureCloud, AzureCloudConfig] = {
@@ -29,12 +30,14 @@ AZURE_CLOUD_CONFIG: dict[AzureCloud, AzureCloudConfig] = {
         management_resource="https://management.azure.com",
         log_analytics_resource="https://api.loganalytics.io",
         graph_resource="https://graph.microsoft.com",
+        defender_resource="https://api.securitycenter.microsoft.com",
     ),
     AzureCloud.US_GOV: AzureCloudConfig(
         authority_host="https://login.microsoftonline.us",
         management_resource="https://management.usgovcloudapi.net",
         log_analytics_resource="https://api.loganalytics.us",
         graph_resource="https://graph.microsoft.us",
+        defender_resource="https://api-gov.securitycenter.microsoft.us",
     ),
 }
 
@@ -89,6 +92,46 @@ def map_log_analytics_scopes(scopes: list[str], cloud: AzureCloud) -> list[str]:
 def map_graph_scopes(scopes: list[str], cloud: AzureCloud) -> list[str]:
     """Map Microsoft Graph scopes to the target cloud."""
     return _remap_scopes_for_cloud(scopes, cloud, resource_attr="graph_resource")
+
+
+def _remap_defender_scopes(scopes: list[str], *, target_resource: str) -> list[str]:
+    """Remap Defender for Endpoint scopes to the target resource."""
+    origin_resource = AZURE_CLOUD_CONFIG[AzureCloud.PUBLIC].defender_resource.rstrip(
+        "/"
+    )
+    target = target_resource.rstrip("/")
+
+    remapped: list[str] = []
+    for scope in scopes:
+        if scope.startswith(origin_resource):
+            remapped.append(f"{target}{scope[len(origin_resource) :]}")
+        else:
+            remapped.append(scope)
+    return remapped
+
+
+def map_defender_scopes(
+    scopes: list[str], cloud: AzureCloud, *, resource_override: str | None = None
+) -> list[str]:
+    """Map Microsoft Defender for Endpoint scopes to the target cloud or override."""
+    if resource_override:
+        return _remap_defender_scopes(scopes, target_resource=resource_override)
+    return _remap_scopes_for_cloud(scopes, cloud, resource_attr="defender_resource")
+
+
+def get_defender_scopes(
+    cloud: AzureCloud, *, delegated: bool, resource_override: str | None = None
+) -> list[str]:
+    """Return default Microsoft Defender for Endpoint scopes for the cloud."""
+    public_resource = AZURE_CLOUD_CONFIG[AzureCloud.PUBLIC].defender_resource.rstrip(
+        "/"
+    )
+    base_scopes = (
+        ["offline_access", f"{public_resource}/.default"]
+        if delegated
+        else [f"{public_resource}/.default"]
+    )
+    return map_defender_scopes(base_scopes, cloud, resource_override=resource_override)
 
 
 def get_management_scopes(cloud: AzureCloud, *, delegated: bool) -> list[str]:
