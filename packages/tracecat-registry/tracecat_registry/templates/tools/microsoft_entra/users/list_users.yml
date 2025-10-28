@@ -112,7 +112,7 @@ definition:
               if count:
                   params["$count"] = "true"
               headers = {"Authorization": f"Bearer {token}"}
-              if search or consistency_level_eventual:
+              if search or count or consistency_level_eventual:
                   headers["ConsistencyLevel"] = "eventual"
               if max_page_size is not None:
                   headers["Prefer"] = f"odata.maxpagesize={max_page_size}"
