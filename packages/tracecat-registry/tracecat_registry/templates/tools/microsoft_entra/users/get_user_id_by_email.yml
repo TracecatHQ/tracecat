@@ -10,6 +10,11 @@ definition:
     - type: oauth
       provider_id: microsoft_entra
       grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
   expects:
     email:
       type: str
@@ -29,7 +34,7 @@ definition:
         url: ${{ inputs.base_url }}/${{ inputs.api_version }}/users
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
         params:
           $filter: mail eq '${{ inputs.email }}' or userPrincipalName eq '${{ inputs.email }}'
           $select: id
