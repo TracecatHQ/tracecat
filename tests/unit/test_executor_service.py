@@ -236,7 +236,9 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     )
 
     # Mock get_runtime_env
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     # Mock the AuthSandbox
     mock_sandbox = mocker.MagicMock()
@@ -304,7 +306,9 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
@@ -359,7 +363,9 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
@@ -425,7 +431,9 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
