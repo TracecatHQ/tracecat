@@ -53,16 +53,39 @@ class CaseTagsService(BaseWorkspaceService):
         return result.one()
 
     async def get_tag_by_ref_or_id(self, tag_identifier: str) -> CaseTag:
-        """Get a case tag by either UUID or slug."""
+        """Get a case tag by either UUID or slug; gracefully handle free-form names."""
         try:
             tag_uuid = uuid.UUID(tag_identifier)
         except ValueError:
-            return await self.get_tag_by_ref(tag_identifier)
+            candidates: list[str] = []
+            if tag_identifier:
+                candidates.append(tag_identifier)
+                slug = slugify(tag_identifier)
+                if slug and slug not in candidates:
+                    candidates.append(slug)
+            else:
+                candidates.append(tag_identifier)
+
+            last_error: NoResultFound | None = None
+            for candidate in candidates:
+                try:
+                    return await self.get_tag_by_ref(candidate)
+                except NoResultFound as exc:
+                    last_error = exc
+                    continue
+
+            checked = ", ".join([repr(candidate) for candidate in candidates])
+            raise NoResultFound(
+                f"Case tag '{tag_identifier}' not found. Checked refs: {checked}. "
+                "Ensure the tag exists or provide its UUID."
+            ) from last_error
 
         try:
             return await self.get_tag(tag_uuid)
-        except NoResultFound:
-            return await self.get_tag_by_ref(tag_identifier)
+        except NoResultFound as exc:
+            raise NoResultFound(
+                f"Case tag ID '{tag_identifier}' not found in this workspace."
+            ) from exc
 
     async def create_tag(self, params: TagCreate) -> CaseTag:
         """Create a new case tag in the current workspace."""
