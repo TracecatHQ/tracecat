@@ -5,11 +5,12 @@ import {
   BoxIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
+  Sparkles,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import type { UserReadMinimal } from "@/client"
+import type { ApprovalRead, UserReadMinimal } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { getIcon } from "@/components/icons"
@@ -130,7 +131,7 @@ export function AgentsBoard({
   if (groupedSessions.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
-        <AlertTriangleIcon className="size-5 text-muted-foreground/60" />
+        <Sparkles className="size-5 text-muted-foreground/60" />
         <p>No agent activity yet.</p>
         <p className="text-xs text-muted-foreground/70">
           When agents run, they will appear here grouped by their latest status.
@@ -628,7 +629,7 @@ function AgentSessionCard({
         {pendingApprovals.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-700">
             <div className="flex flex-wrap gap-2">
-              {pendingApprovals.map((approval) => {
+              {pendingApprovals.map((approval: ApprovalRead) => {
                 const actionTypeKey = approval.tool_name
                   ? reconstructActionType(approval.tool_name)
                   : "unknown"
