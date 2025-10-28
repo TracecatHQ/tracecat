@@ -23,6 +23,13 @@ ENV TMP="/tmp"
 # Set the working directory inside the container
 WORKDIR /app
 
+# Prime uv's dependency cache using the lockfile before copying the working tree.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=packages,target=packages \
+    uv sync --locked --no-install-project --no-dev --no-editable
+
 # Copy the application files into the container
 COPY ./tracecat /app/tracecat
 COPY ./packages/tracecat-registry /app/packages/tracecat-registry
@@ -39,8 +46,8 @@ COPY scripts/entrypoint.sh /app/entrypoint.sh
 COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
 RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
 
-# Install packages from lock file with dev dependencies and EE features for hot reloading
-RUN uv sync --frozen --no-dev
+# Materialize the venv while reusing the warmed cache for faster dev rebuilds.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
