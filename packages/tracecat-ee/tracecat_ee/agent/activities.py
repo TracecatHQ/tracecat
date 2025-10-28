@@ -156,8 +156,7 @@ class AgentActivities:
 
         try:
             # Use the tool executor to run the tool
-            # result = await self.executor.run(tool_name, args.tool_args)
-            result = f"<executed tool {tool_name}:{args.tool_args}>"
+            result = await self.tool_executor.run(tool_name, args.tool_args)
 
             return InvokeToolResult(type="result", result=result)
         except ModelRetry as e:
