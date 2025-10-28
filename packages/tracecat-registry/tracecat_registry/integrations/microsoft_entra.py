@@ -14,15 +14,15 @@ microsoft_entra_oauth_secret = RegistryOAuthSecret(
 
 - name: `microsoft_entra`
 - provider_id: `microsoft_entra`
-- token_name: `MICROSOFT_ENTRA_AC_TOKEN`
+- token_name: `MICROSOFT_ENTRA_USER_TOKEN`
 """
 
 
 @registry.register(
     default_title="Get user ID by email",
-    description="Get a user's ID by searching for their email address in mail or userPrincipalName Docs.",
+    description="Get a user's ID by searching for their email address in mail or userPrincipalName.",
     display_group="Microsoft Entra ID",
-    doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0",
     namespace="tools.microsoft_entra",
     secrets=[microsoft_entra_oauth_secret],
 )
@@ -37,9 +37,9 @@ async def get_user_id_by_email(
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    url = "https://graph.microsoft.com/beta/users"
+    url = "https://graph.microsoft.com/v1.0/users"
 
-    filter_query = f"mail eq '{email}'"
+    filter_query = f"mail eq '{email}' or userPrincipalName eq '{email}'"
 
     params = {"$filter": filter_query, "$select": "id", "$top": "1"}
 
