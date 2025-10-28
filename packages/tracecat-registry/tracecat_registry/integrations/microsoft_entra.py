@@ -39,7 +39,7 @@ async def get_user_id_by_email(
 
     url = "https://graph.microsoft.com/v1.0/users"
 
-    filter_query = f"mail eq '{email}' or userPrincipalName eq '{email}'"
+    filter_query = f"mail eq '{email.replace("'", "''")}' or userPrincipalName eq '{email.replace("'", "''")}'"
 
     params = {"$filter": filter_query, "$select": "id", "$top": "1"}
 
