@@ -16,12 +16,12 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
+    from tracecat_ee.agent.activities import AgentActivities
+    from tracecat_ee.agent.approvals.service import ApprovalManager
+    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
-    from tracecat.agent.activities import AgentActivities
-    from tracecat.agent.approvals.service import ApprovalManager
     from tracecat.agent.tools import SimpleToolExecutor
-    from tracecat.agent.workflows.durable import DurableAgentWorkflow
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor

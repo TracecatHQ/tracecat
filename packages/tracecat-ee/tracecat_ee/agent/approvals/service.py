@@ -20,23 +20,23 @@ from pydantic_ai.tools import (
 from sqlmodel import col, select
 from temporalio import activity, workflow
 
-from tracecat.agent.activities import (
-    ApplyApprovalResultsActivityInputs,
-    ApprovalDecisionPayload,
-    PersistApprovalsActivityInputs,
-    ToolApprovalPayload,
-)
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.approvals.models import (
-    ApprovalCreate,
-    ApprovalUpdate,
-)
-from tracecat.agent.context import AgentContext
 from tracecat.common import all_activities
 from tracecat.db.schemas import Approval, User, Workflow
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
+from tracecat_ee.agent.activities import (
+    ApplyApprovalResultsActivityInputs,
+    ApprovalDecisionPayload,
+    PersistApprovalsActivityInputs,
+    ToolApprovalPayload,
+)
+from tracecat_ee.agent.approvals.models import (
+    ApprovalCreate,
+    ApprovalUpdate,
+)
+from tracecat_ee.agent.context import AgentContext
 
 
 @dataclass(slots=True)

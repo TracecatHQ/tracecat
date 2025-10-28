@@ -19,8 +19,6 @@ from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
-from tracecat.agent.activities import AgentActivities, RequestStreamArgs
-from tracecat.agent.context import AgentContext
 from tracecat.agent.models import (
     ModelInfo,
     ModelRequestArgs,
@@ -28,6 +26,11 @@ from tracecat.agent.models import (
 )
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat_ee.agent.activities import (
+    AgentActivities,
+    RequestStreamArgs,
+)
+from tracecat_ee.agent.context import AgentContext
 
 
 class TemporalStreamedResponse(StreamedResponse):

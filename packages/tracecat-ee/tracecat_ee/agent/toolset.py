@@ -7,10 +7,10 @@ from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 from pydantic_ai.toolsets.external import TOOL_SCHEMA_VALIDATOR
 from temporalio import workflow
 
-from tracecat.agent.activities import AgentActivities, InvokeToolArgs
-from tracecat.agent.context import AgentContext
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat_ee.agent.activities import AgentActivities, InvokeToolArgs
+from tracecat_ee.agent.context import AgentContext
 
 
 class RemoteToolset(AbstractToolset[AgentDepsT]):

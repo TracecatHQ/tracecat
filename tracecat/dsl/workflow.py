@@ -25,12 +25,15 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from tracecat_ee.agent.types import AgentWorkflowID
+    from tracecat_ee.agent.workflows.durable import (
+        AgentWorkflowArgs,
+        DurableAgentWorkflow,
+    )
     from tracecat_registry.core.agent import HitlAgentActionArgs
 
     from tracecat import config, identifiers
     from tracecat.agent.models import AgentConfig, RunAgentArgs
-    from tracecat.agent.types import AgentWorkflowID
-    from tracecat.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
         ctx_interaction,

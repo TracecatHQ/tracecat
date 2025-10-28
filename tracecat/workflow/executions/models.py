@@ -17,9 +17,9 @@ import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
+from tracecat_ee.agent.types import AgentWorkflowID
+from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
-from tracecat.agent.types import AgentWorkflowID
-from tracecat.agent.workflows.durable import AgentWorkflowArgs
 from tracecat.dsl.common import (
     AgentActionMemo,
     ChildWorkflowMemo,

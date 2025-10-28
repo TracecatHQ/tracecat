@@ -1,17 +1,10 @@
-"""Agent approvals module for human-in-the-loop workflows."""
+"""Agent approval system - core enums only.
+
+Models and service have been moved to Enterprise Edition (tracecat_ee).
+"""
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.approvals.models import (
-    ApprovalCreate,
-    ApprovalRead,
-    ApprovalUpdate,
-)
 
 __all__ = [
-    # Enums
     "ApprovalStatus",
-    # Models
-    "ApprovalCreate",
-    "ApprovalRead",
-    "ApprovalUpdate",
 ]

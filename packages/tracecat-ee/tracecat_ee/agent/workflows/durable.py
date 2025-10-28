@@ -21,22 +21,22 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat.agent.activities import (
-        AgentActivities,
-        BuildToolDefsArgs,
-        EventStreamHandlerArgs,
-    )
-    from tracecat.agent.approvals.service import ApprovalManager, ApprovalMap
-    from tracecat.agent.context import AgentContext
-    from tracecat.agent.durable import DurableModel
     from tracecat.agent.models import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
-    from tracecat.agent.toolset import RemoteToolset
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
     from tracecat.types.auth import Role
+    from tracecat_ee.agent.activities import (
+        AgentActivities,
+        BuildToolDefsArgs,
+        EventStreamHandlerArgs,
+    )
+    from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
+    from tracecat_ee.agent.context import AgentContext
+    from tracecat_ee.agent.durable import DurableModel
+    from tracecat_ee.agent.toolset import RemoteToolset
 
 
 class AgentWorkflowArgs(BaseModel):
