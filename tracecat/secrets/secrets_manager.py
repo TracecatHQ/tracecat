@@ -159,11 +159,11 @@ async def get_action_secrets(
                     try:
                         if access_token := await service.get_access_token(integration):
                             secret = oauth_secrets[provider_key]
-                            # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
+                            # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]
                             # NOTE: We are overriding the provider_id key here assuming its unique
                             # <prefix> is the provider_id in uppercase.
                             provider_secrets = secrets.setdefault(
-                                integration.provider_id, {}
+                                f"{integration.provider_id}_oauth", {}
                             )
                             provider_secrets[secret.token_name] = (
                                 access_token.get_secret_value()
