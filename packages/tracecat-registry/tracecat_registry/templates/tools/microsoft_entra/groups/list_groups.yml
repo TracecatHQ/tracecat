@@ -62,9 +62,9 @@ definition:
       default: "v1.0"
   steps:
     - ref: build_request
-      action: core.python
+      action: core.script.run_python
       args:
-        args:
+        inputs:
           filter: ${{ inputs.filter }}
           search: ${{ inputs.search }}
           orderby: ${{ inputs.orderby }}
