@@ -152,7 +152,7 @@ class AgentActivities:
         ctx_role.set(role)
         AgentContext.set_from(ctx)
         tool_name = denormalize_tool_name(args.tool_name)
-        logger.info("Executing tool call", args=args)
+        logger.debug("Invoke tool activity", args=args, role=role)
 
         try:
             # Use the tool executor to run the tool
@@ -173,7 +173,7 @@ class AgentActivities:
         self, args: ModelRequestArgs, ctx: AgentContext
     ) -> ModelRequestResult:
         """Execute a durable model request with optional Redis streaming."""
-        logger.info("Model request", args=args, ctx=ctx, role=args.role)
+        logger.debug("Model request activity", args=args, ctx=ctx, role=args.role)
         ctx_role.set(args.role)
         AgentContext.set_from(ctx)
 
@@ -185,7 +185,7 @@ class AgentActivities:
             args.model_request_parameters
         )
 
-        logger.info(
+        logger.debug(
             "Request params, model, settings, filters prepared",
             request_params=request_params,
         )
@@ -201,9 +201,7 @@ class AgentActivities:
         args: RequestStreamArgs,
         deps: PersistableStreamingAgentDepsSpec,
     ) -> ModelResponse:
-        logger.warning(
-            "REQUEST STREAM ACTIVITY", params=args, deps=deps, role=args.role
-        )
+        logger.debug("Request stream activity", args=args, deps=deps, role=args.role)
         ctx_role.set(args.role)
         run_context = await self._reconstruct_run_context(
             args.serialized_run_context, spec=deps
@@ -235,9 +233,9 @@ class AgentActivities:
         run_context = await self._reconstruct_run_context(
             args.serialized_run_context, spec=deps
         )
-        logger.warning(
-            "ACTIVITY: EVENT STREAM HANDLER",
-            ctx=run_context,
+        logger.debug(
+            "Event stream handler activity",
+            run_context=run_context,
             event=args.event,
         )
 
