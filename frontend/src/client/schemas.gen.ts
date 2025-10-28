@@ -6088,7 +6088,13 @@ export const $ExpressionValidationResponse = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["git-sync", "agent-sandbox", "case-durations", "case-tasks"],
+  enum: [
+    "git-sync",
+    "agent-sandbox",
+    "agent-approvals",
+    "case-durations",
+    "case-tasks",
+  ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
 } as const

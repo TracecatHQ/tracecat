@@ -33,6 +33,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -44,6 +45,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const workspaceId = useWorkspaceId()
   const params = useParams<{ caseId?: string }>()
   const { setOpen: setSidebarOpen } = useSidebar()
+  const { isFeatureEnabled } = useFeatureFlag()
   const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
   const caseId = params?.caseId
@@ -79,16 +81,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
     {
-      title: "Agents",
-      url: `${basePath}/agents`,
-      icon: BotIcon,
-      isActive: pathname?.startsWith(`${basePath}/agents`),
-    },
-    {
       title: "Cases",
       url: `${basePath}/cases`,
       icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
+    },
+    {
+      title: "Agents",
+      url: `${basePath}/agents`,
+      icon: BotIcon,
+      isActive: pathname?.startsWith(`${basePath}/agents`),
+      visible: isFeatureEnabled("agent-approvals"),
     },
   ]
 

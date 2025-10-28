@@ -88,6 +88,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
     from tracecat.types.exceptions import (
@@ -532,6 +533,12 @@ class DSLWorkflow:
                     )
                 case PlatformAction.AI_HITL_AGENT:
                     logger.warning("Executing AI agent", task=task)
+                    if not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+                        raise ApplicationError(
+                            "Human-in-the-loop agent feature is not enabled.",
+                            non_retryable=True,
+                            type="FeatureDisabledError",
+                        )
                     action_args = HitlAgentActionArgs(**task.args)
                     wf_info = workflow.info()
                     session_id = workflow.uuid4()

@@ -48,7 +48,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.entities.router import router as entities_router
-from tracecat.feature_flags import feature_flag_dep
+from tracecat.feature_flags import FeatureFlag, feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
@@ -222,7 +222,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(agent_router)
-    app.include_router(ee_agent_router)
+    app.include_router(
+        ee_agent_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_APPROVALS))],
+    )
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
@@ -236,7 +239,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_attachments_router)
     app.include_router(
         case_durations_router,
-        dependencies=[Depends(feature_flag_dep("case-durations"))],
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
     )
     app.include_router(case_records_router)
     app.include_router(chat_router)
@@ -246,7 +249,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(feature_flags_router)
     app.include_router(
         vcs_router,
-        dependencies=[Depends(feature_flag_dep("git-sync"))],
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
     )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),

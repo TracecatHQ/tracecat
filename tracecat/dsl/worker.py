@@ -28,6 +28,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.logger import logger
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -63,18 +64,20 @@ interrupt_event = asyncio.Event()
 
 
 def get_activities() -> list[Callable]:
-    tool_executor = SimpleToolExecutor()
-    agent_activities = AgentActivities(tool_executor=tool_executor)
-    return [
+    activities: list[Callable] = [
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
-        *agent_activities.get_activities(),
-        *ApprovalManager.get_activities(),
     ]
+    if is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+        tool_executor = SimpleToolExecutor()
+        agent_activities = AgentActivities(tool_executor=tool_executor)
+        activities.extend(agent_activities.get_activities())
+        activities.extend(ApprovalManager.get_activities())
+    return activities
 
 
 async def main() -> None:
@@ -112,11 +115,15 @@ async def main() -> None:
     )
 
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+        workflows: list[type] = [DSLWorkflow]
+        if is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+            workflows.append(DurableAgentWorkflow)
+
         async with Worker(
             client,
             task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
             activities=activities,
-            workflows=[DSLWorkflow, DurableAgentWorkflow],
+            workflows=workflows,
             workflow_runner=new_sandbox_runner(),
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
