@@ -28,6 +28,8 @@ class GitHubMCPProvider(MCPAuthProvider):
     _fallback_token_endpoint: ClassVar[str] = (
         "https://github.com/login/oauth/access_token"
     )
+    default_authorization_endpoint: ClassVar[str] = _fallback_auth_endpoint
+    default_token_endpoint: ClassVar[str] = _fallback_token_endpoint
 
     # No default scopes - authorization server determines based on user permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])

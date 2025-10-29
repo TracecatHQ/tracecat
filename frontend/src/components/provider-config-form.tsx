@@ -1,9 +1,8 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import type { JSONSchema7 } from "json-schema"
 import { Info, Save } from "lucide-react"
-import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
@@ -24,62 +23,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
-import { jsonSchemaToZod } from "@/lib/jsonschema"
-import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
-  switch (schemaProperty.type) {
-    case "string":
-      if (schemaProperty.format === "email") return "email"
-      if (schemaProperty.format === "uri") return "url"
-      if (schemaProperty.format === "password") return "password"
-      return "text"
-    case "number":
-    case "integer":
-      return "number"
-    default:
-      return "text"
-  }
-}
-
-function getDefaultValue(schemaProperty: JSONSchema7): unknown {
-  if (schemaProperty.default !== undefined) {
-    return schemaProperty.default
-  }
-  switch (schemaProperty.type) {
-    case "string":
-      return ""
-    case "number":
-    case "integer":
-      return 0
-    case "boolean":
-      return false
-    case "array":
-      return []
-    case "object":
-      return {}
-    default:
-      return ""
-  }
-}
-
-const TEXT_AREA_THRESHOLD = 512
 
 interface ProviderConfigFormProps {
   provider: ProviderRead
@@ -87,19 +37,26 @@ interface ProviderConfigFormProps {
   additionalButtons?: React.ReactNode
 }
 
+type IntegrationUpdatePayload = IntegrationUpdate & {
+  authorization_endpoint?: string
+  token_endpoint?: string
+}
+
 export function ProviderConfigForm({
   provider,
   onSuccess,
   additionalButtons,
 }: ProviderConfigFormProps) {
-  const schema = provider.config_schema?.json_schema || {}
   const {
     metadata: { id },
     scopes: { default: defaultScopes },
     grant_type: grantType,
+    default_authorization_endpoint: providerDefaultAuth,
+    default_token_endpoint: providerDefaultToken,
+    authorization_endpoint_help: providerAuthHelp,
+    token_endpoint_help: providerTokenHelp,
   } = provider
   const workspaceId = useWorkspaceId()
-  const _isMCP = isMCPProvider(provider)
   const {
     integration,
     integrationIsLoading,
@@ -110,37 +67,46 @@ export function ProviderConfigForm({
     workspaceId,
     grantType,
   })
-  const properties = Object.entries(schema.properties || {})
-  const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
+  const integrationAuthEndpoint = (
+    integration as unknown as { authorization_endpoint?: string } | null
+  )?.authorization_endpoint
+  const integrationTokenEndpoint = (
+    integration as unknown as { token_endpoint?: string } | null
+  )?.token_endpoint
 
   const oauthSchema = z.object({
-    client_id: z.string().min(1).max(512).nullish(),
+    authorization_endpoint: z
+      .string()
+      .min(1, { message: "Authorization endpoint is required" })
+      .url({ message: "Enter a valid HTTPS URL" }),
+    token_endpoint: z
+      .string()
+      .min(1, { message: "Token endpoint is required" })
+      .url({ message: "Enter a valid HTTPS URL" }),
+    client_id: z.string().max(512).nullish(),
     client_secret: z.string().max(512).optional(),
-    scopes: z
-      .array(z.string().min(1))
-      .min(1, { message: "At least one scope is required" }),
-    config: zodSchema,
+    scopes: z.array(z.string().min(1)).optional(),
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
 
-  const defaultValues = useMemo<OAuthSchema>(() => {
-    const configDefaults = Object.fromEntries(
-      properties.map(([key, property]) => [
-        key,
-        getDefaultValue(property as JSONSchema7),
-      ])
-    )
-
-    return {
-      client_id: integration?.client_id ?? "",
+  const defaultValues = useMemo<OAuthSchema>(
+    () => ({
+      authorization_endpoint:
+        integrationAuthEndpoint ?? providerDefaultAuth ?? "",
+      token_endpoint: integrationTokenEndpoint ?? providerDefaultToken ?? "",
+      client_id: integration?.client_id ?? undefined,
       client_secret: "", // Never pre-fill secrets
       scopes: integration?.requested_scopes ?? defaultScopes ?? [],
-      config: {
-        ...configDefaults,
-        ...(integration?.provider_config ?? {}),
-      },
-    }
-  }, [integration, properties, defaultScopes])
+    }),
+    [
+      integration,
+      integrationAuthEndpoint,
+      integrationTokenEndpoint,
+      defaultScopes,
+      providerDefaultAuth,
+      providerDefaultToken,
+    ]
+  )
 
   const form = useForm<OAuthSchema>({
     resolver: zodResolver(oauthSchema),
@@ -149,17 +115,26 @@ export function ProviderConfigForm({
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
-      const { client_id, client_secret, scopes, config } = data
+      const {
+        authorization_endpoint,
+        token_endpoint,
+        client_id,
+        client_secret,
+        scopes,
+      } = data
 
       try {
-        const params: IntegrationUpdate = {
-          client_id: client_id ? String(client_id) : undefined,
-          client_secret:
-            client_secret && client_secret.trim()
-              ? String(client_secret)
-              : undefined,
-          provider_config: config || undefined,
-          scopes: scopes || undefined,
+        const trimmedClientId = client_id?.toString().trim()
+        const trimmedClientSecret = client_secret?.toString().trim()
+        const trimmedAuthEndpoint = authorization_endpoint.trim()
+        const trimmedTokenEndpoint = token_endpoint.trim()
+
+        const params: IntegrationUpdatePayload = {
+          authorization_endpoint: trimmedAuthEndpoint,
+          token_endpoint: trimmedTokenEndpoint,
+          client_id: trimmedClientId ? trimmedClientId : undefined,
+          client_secret: trimmedClientSecret ? trimmedClientSecret : undefined,
+          scopes: scopes && scopes.length > 0 ? scopes : undefined,
           grant_type: grantType,
         }
         await updateIntegration(params)
@@ -203,6 +178,26 @@ export function ProviderConfigForm({
                 )}
               </div>
             </div>
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-muted-foreground">
+                Authorization endpoint
+              </span>
+              <div className="text-xs font-mono break-all">
+                {integrationAuthEndpoint ??
+                  providerDefaultAuth ??
+                  "Using provider default"}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-muted-foreground">
+                Token endpoint
+              </span>
+              <div className="text-xs font-mono break-all">
+                {integrationTokenEndpoint ??
+                  providerDefaultToken ??
+                  "Using provider default"}
+              </div>
+            </div>
 
             <div className="flex flex-col gap-2">
               <span className="font-medium text-muted-foreground">
@@ -214,37 +209,6 @@ export function ProviderConfigForm({
                   : "Not configured"}
               </div>
             </div>
-
-            {integration.provider_config &&
-              Object.keys(integration.provider_config).length > 0 && (
-                <div className="flex flex-col gap-2 md:col-span-2">
-                  <span className="font-medium text-muted-foreground">
-                    Provider configuration
-                  </span>
-                  <div className="flex flex-col gap-2">
-                    {Object.entries(integration.provider_config).map(
-                      ([key, value]) => (
-                        <div
-                          key={key}
-                          className="flex items-start gap-3 text-xs"
-                        >
-                          <span className="font-medium text-foreground min-w-0 flex-shrink-0">
-                            {key
-                              .replace(/_/g, " ")
-                              .replace(/\b\w/g, (l) => l.toUpperCase())}
-                          </span>
-                          <span className="font-mono text-muted-foreground min-w-0 flex-1 truncate">
-                            {typeof value === "string" && value.length > 32
-                              ? `${value.slice(0, 24)}...`
-                              : String(value)}
-                          </span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
-
             <div className="flex flex-col gap-2 md:col-span-2">
               <span className="font-medium text-muted-foreground">
                 OAuth scopes
@@ -278,6 +242,50 @@ export function ProviderConfigForm({
               <CardTitle>Client credentials</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <FormField
+                control={form.control}
+                name="authorization_endpoint"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Authorization endpoint</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="url"
+                        value={field.value ?? ""}
+                        placeholder="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      {providerAuthHelp ||
+                        "Update if you use a custom domain or sovereign cloud."}
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="token_endpoint"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Token endpoint</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="url"
+                        value={field.value ?? ""}
+                        placeholder="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      {providerTokenHelp ||
+                        "Update if you use a custom domain or sovereign cloud."}
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="client_id"
@@ -320,182 +328,6 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
-
-              {/* Provider-Specific Configuration within the same card */}
-              {properties.length > 0 && (
-                <div className="flex flex-col gap-4">
-                  {properties.map(([key, property]) => {
-                    if (typeof property === "boolean") {
-                      return null
-                    }
-                    const keyName = `config.${key}` as const
-                    const enumOptions = property.enum
-                    if (enumOptions) {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {property.title ||
-                                  key
-                                    .replace(/_/g, " ")
-                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                {property.required && (
-                                  <span className="ml-1 text-red-500">*</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={
-                                    field.value ? String(field.value) : ""
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {enumOptions.map((option: unknown) => (
-                                      <SelectItem
-                                        key={String(option)}
-                                        value={String(option)}
-                                      >
-                                        {String(option)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </FormControl>
-                              {property.description && (
-                                <FormDescription className="text-xs">
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )
-                    }
-
-                    if (property.type === "boolean") {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <div className="flex items-center space-x-2">
-                                <FormControl>
-                                  <Switch
-                                    id={key}
-                                    checked={Boolean(field.value)}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <FormLabel htmlFor={key}>
-                                  {property.title ||
-                                    key
-                                      .replace(/_/g, " ")
-                                      .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                  {property.required && (
-                                    <span className="ml-1 text-red-500">*</span>
-                                  )}
-                                </FormLabel>
-                              </div>
-                              {property.description && (
-                                <FormDescription className="text-xs">
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )
-                    }
-
-                    if (
-                      property.type === "string" &&
-                      (property.maxLength === undefined ||
-                        property.maxLength > TEXT_AREA_THRESHOLD)
-                    ) {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {property.title ||
-                                  key
-                                    .replace(/_/g, " ")
-                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                {property.required && (
-                                  <span className="ml-1 text-red-500">*</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  {...field}
-                                  value={field.value ? String(field.value) : ""}
-                                  placeholder={`Enter ${property.title || key.replace(/_/g, " ").toLowerCase()}...`}
-                                />
-                              </FormControl>
-                              {property.description && (
-                                <FormDescription className="text-xs">
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )
-                    }
-
-                    return (
-                      <FormField
-                        key={key}
-                        control={form.control}
-                        name={keyName}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              {property.title ||
-                                key
-                                  .replace(/_/g, " ")
-                                  .replace(/\b\w/g, (l) => l.toUpperCase())}
-                              {property.required && (
-                                <span className="ml-1 text-red-500">*</span>
-                              )}
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value ? String(field.value) : ""}
-                                type={getInputType(property)}
-                                placeholder={`Enter ${property.title || key.replace(/_/g, " ").toLowerCase()}...`}
-                              />
-                            </FormControl>
-                            {property.description && (
-                              <FormDescription className="text-xs">
-                                {property.description}
-                              </FormDescription>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )
-                  })}
-                </div>
-              )}
             </CardContent>
           </Card>
 

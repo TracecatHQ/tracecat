@@ -89,9 +89,11 @@ class BaseOAuthProvider(ABC):
 
     id: ClassVar[str]
     _include_in_registry: ClassVar[bool] = True
-    # OAuth2 endpoints
-    _authorization_endpoint: ClassVar[str]
-    _token_endpoint: ClassVar[str]
+    # OAuth2 endpoint defaults
+    default_authorization_endpoint: ClassVar[str | None] = None
+    default_token_endpoint: ClassVar[str | None] = None
+    authorization_endpoint_help: ClassVar[str | None] = None
+    token_endpoint_help: ClassVar[str | None] = None
     scopes: ClassVar[ProviderScopes]
     grant_type: ClassVar[OAuthGrantType]
     # Provider specific configs
@@ -104,6 +106,8 @@ class BaseOAuthProvider(ABC):
         client_id: str | None = None,
         client_secret: str | None = None,
         scopes: list[str] | None = None,
+        authorization_endpoint: str | None = None,
+        token_endpoint: str | None = None,
         **kwargs,  # Allow subclasses to pass additional parameters
     ):
         """Initialize the OAuth provider.
@@ -112,6 +116,8 @@ class BaseOAuthProvider(ABC):
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
             scopes: Optional scopes to use (overrides defaults if provided)
+            authorization_endpoint: Optional authorization endpoint override
+            token_endpoint: Optional token endpoint override
             **kwargs: Additional keyword arguments (consumed by subclasses)
         """
         # kwargs allows subclasses to pass provider-specific params through from_config
@@ -129,11 +135,26 @@ class BaseOAuthProvider(ABC):
         # Use provided scopes or fall back to defaults
         self.requested_scopes = self.scopes.default if scopes is None else scopes
 
-        # Validate required endpoints
-        if not self.authorization_endpoint or not self.token_endpoint:
+        # Resolve endpoints from overrides or defaults
+        resolved_authorization_endpoint = authorization_endpoint or getattr(
+            self, "default_authorization_endpoint", None
+        )
+        resolved_token_endpoint = token_endpoint or getattr(
+            self, "default_token_endpoint", None
+        )
+
+        if not resolved_authorization_endpoint or not resolved_token_endpoint:
             raise ValueError(
-                f"{self.__class__.__name__} must define authorization_endpoint and token_endpoint"
+                f"{self.__class__.__name__} requires both authorization and token endpoints"
             )
+
+        validate_oauth_endpoint(resolved_authorization_endpoint)
+        validate_oauth_endpoint(resolved_token_endpoint)
+
+        self._authorization_endpoint = resolved_authorization_endpoint
+        self._token_endpoint = resolved_token_endpoint
+
+        # Validate required endpoints
         if not self.id == self.metadata.id:
             raise ValueError(f"{self.__class__.__name__} id must match metadata.id")
 
@@ -197,18 +218,14 @@ class BaseOAuthProvider(ABC):
     @classmethod
     def from_config(cls, config: ProviderConfig) -> Self:
         """Create an OAuth provider from a configuration."""
-        if cls.config_model:
-            model = cls.config_model.model_validate(config.provider_config)
-            validated_config = model.model_dump(exclude_unset=True)
-        else:
-            validated_config = {}
         return cls(
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value()
             if config.client_secret
             else None,
             scopes=config.scopes,
-            **validated_config,
+            authorization_endpoint=config.authorization_endpoint,
+            token_endpoint=config.token_endpoint,
         )
 
     @classmethod
@@ -516,25 +533,25 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         # Discover OAuth endpoints before parent initialization
         if discovered_auth_endpoint and discovered_token_endpoint:
-            self._discovered_auth_endpoint = discovered_auth_endpoint
-            self._discovered_token_endpoint = discovered_token_endpoint
-            self._registration_endpoint = registration_endpoint
-            self._token_endpoint_auth_methods_supported = (
-                token_endpoint_auth_methods_supported or []
+            discovery_result = OAuthDiscoveryResult(
+                authorization_endpoint=discovered_auth_endpoint,
+                token_endpoint=discovered_token_endpoint,
+                token_methods=token_endpoint_auth_methods_supported or [],
+                registration_endpoint=registration_endpoint,
             )
         else:
-            self._discover_oauth_endpoints()
-        super().__init__(**kwargs)
+            discovery_result = self._discover_oauth_endpoints()
 
-    @property
-    def authorization_endpoint(self) -> str:
-        """Return the discovered authorization endpoint."""
-        return self._discovered_auth_endpoint
+        self._registration_endpoint = (
+            registration_endpoint or discovery_result.registration_endpoint
+        )
+        self._token_endpoint_auth_methods_supported = discovery_result.token_methods
 
-    @property
-    def token_endpoint(self) -> str:
-        """Return the discovered token endpoint."""
-        return self._discovered_token_endpoint
+        super().__init__(
+            authorization_endpoint=discovery_result.authorization_endpoint,
+            token_endpoint=discovery_result.token_endpoint,
+            **kwargs,
+        )
 
     @classmethod
     def _get_base_url(cls) -> str:
@@ -551,10 +568,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         return f"https://{parsed.netloc}"
 
-    def _discover_oauth_endpoints(self) -> None:
+    def _discover_oauth_endpoints(self) -> OAuthDiscoveryResult:
         """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
-        self._registration_endpoint = None
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
 
         try:
@@ -564,46 +580,50 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 response.raise_for_status()
                 discovery_doc = response.json()
 
-                # Store discovered endpoints as instance variables
                 auth_endpoint = discovery_doc["authorization_endpoint"]
                 token_endpoint = discovery_doc["token_endpoint"]
+                token_methods = discovery_doc.get(
+                    "token_endpoint_auth_methods_supported", []
+                )
 
                 # Validate discovered endpoints for security
                 base_domain = urlparse(base_url).hostname
                 validate_oauth_endpoint(auth_endpoint, base_domain)
                 validate_oauth_endpoint(token_endpoint, base_domain)
 
-                self._discovered_auth_endpoint = auth_endpoint
-                self._discovered_token_endpoint = token_endpoint
-                self._token_endpoint_auth_methods_supported = discovery_doc.get(
-                    "token_endpoint_auth_methods_supported", []
-                )
-
                 # Store and validate registration endpoint if available
                 registration_endpoint = discovery_doc.get("registration_endpoint")
                 if registration_endpoint:
                     validate_oauth_endpoint(registration_endpoint, base_domain)
-                self._registration_endpoint = registration_endpoint
 
                 self.logger.info(
                     "Discovered OAuth endpoints",
                     provider=self.id,
-                    authorization=self._discovered_auth_endpoint,
-                    token=self._discovered_token_endpoint,
+                    authorization=auth_endpoint,
+                    token=token_endpoint,
+                )
+                return OAuthDiscoveryResult(
+                    authorization_endpoint=auth_endpoint,
+                    token_endpoint=token_endpoint,
+                    token_methods=token_methods,
+                    registration_endpoint=registration_endpoint,
                 )
         except Exception as e:
             # Check if subclass provides fallback endpoints
             if self._fallback_auth_endpoint and self._fallback_token_endpoint:
-                self._discovered_auth_endpoint = self._fallback_auth_endpoint
-                self._discovered_token_endpoint = self._fallback_token_endpoint
-                self._token_endpoint_auth_methods_supported = (
-                    self.token_endpoint_auth_methods_supported
-                )
+                validate_oauth_endpoint(self._fallback_auth_endpoint)
+                validate_oauth_endpoint(self._fallback_token_endpoint)
                 self.logger.info(
                     "Using fallback OAuth endpoints",
                     provider=self.id,
-                    authorization=self._discovered_auth_endpoint,
-                    token=self._discovered_token_endpoint,
+                    authorization=self._fallback_auth_endpoint,
+                    token=self._fallback_token_endpoint,
+                )
+                return OAuthDiscoveryResult(
+                    authorization_endpoint=self._fallback_auth_endpoint,
+                    token_endpoint=self._fallback_token_endpoint,
+                    token_methods=self.token_endpoint_auth_methods_supported,
+                    registration_endpoint=None,
                 )
             else:
                 self.logger.error(
@@ -811,14 +831,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         discovery_result = await cls._discover_oauth_endpoints_async(logger_instance)
 
-        validated_config: dict[str, Any] = {}
-        if config and cls.config_model:
-            model = cls.config_model.model_validate(config.provider_config)
-            validated_config = model.model_dump(exclude_unset=True)
-        elif not config and cls.config_model and "provider_config" in kwargs:
-            model = cls.config_model.model_validate(kwargs["provider_config"])
-            validated_config = model.model_dump(exclude_unset=True)
-
         scopes = (
             config.scopes
             if config and config.scopes is not None
@@ -870,20 +882,25 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         extra_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in {"client_id", "client_secret", "scopes", "provider_config"}
+            if k
+            not in {
+                "client_id",
+                "client_secret",
+                "scopes",
+                "authorization_endpoint",
+                "token_endpoint",
+            }
         }
-
-        init_kwargs = {**validated_config, **extra_kwargs}
 
         provider = cls(
             client_id=client_id,
             client_secret=client_secret,
             scopes=scopes,
-            discovered_auth_endpoint=discovery_result.authorization_endpoint,
-            discovered_token_endpoint=discovery_result.token_endpoint,
+            authorization_endpoint=discovery_result.authorization_endpoint,
+            token_endpoint=discovery_result.token_endpoint,
             registration_endpoint=discovery_result.registration_endpoint,
             token_endpoint_auth_methods_supported=discovery_result.token_methods,
-            **init_kwargs,
+            **extra_kwargs,
         )
 
         if registration_auth_method:

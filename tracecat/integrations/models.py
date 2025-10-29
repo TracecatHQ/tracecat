@@ -8,7 +8,7 @@ Terminology:
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, NotRequired, Required, Self, TypedDict
+from typing import Any, Self, TypedDict
 
 from pydantic import UUID4, BaseModel, SecretStr
 from sqlmodel import Field
@@ -38,7 +38,14 @@ class IntegrationRead(BaseModel):
 
     # Provider information
     provider_id: str
-    provider_config: dict[str, Any]
+    authorization_endpoint: str | None = Field(
+        default=None,
+        description="OAuth authorization endpoint configured for this integration.",
+    )
+    token_endpoint: str | None = Field(
+        default=None,
+        description="OAuth token endpoint configured for this integration.",
+    )
 
     # OAuth token details
     token_type: str
@@ -85,9 +92,15 @@ class IntegrationUpdate(BaseModel):
         description="OAuth client secret for the provider",
         min_length=1,
     )
-    provider_config: dict[str, Any] | None = Field(
+    authorization_endpoint: str | None = Field(
         default=None,
-        description="Provider-specific configuration",
+        description="OAuth authorization endpoint URL. Overrides provider defaults when set.",
+        min_length=8,
+    )
+    token_endpoint: str | None = Field(
+        default=None,
+        description="OAuth token endpoint URL. Overrides provider defaults when set.",
+        min_length=8,
     )
     scopes: list[str] | None = Field(
         default=None,
@@ -203,12 +216,14 @@ class OAuthState(BaseModel):
         )
 
 
-class OAuthProviderKwargs(TypedDict):
+class OAuthProviderKwargs(TypedDict, total=False):
     """Kwargs for OAuth providers."""
 
-    client_id: Required[str]
-    client_secret: Required[str]
-    scopes: NotRequired[list[str] | None]
+    client_id: str
+    client_secret: str
+    scopes: list[str] | None
+    authorization_endpoint: str
+    token_endpoint: str
 
 
 class ProviderKey(BaseModel):
@@ -242,11 +257,12 @@ class TokenResponse:
 
 
 class ProviderConfig(BaseModel):
-    """Data class for integration client credentials."""
+    """Data class for integration client credentials and endpoints."""
 
-    client_id: str
+    client_id: str | None = None
     client_secret: SecretStr | None = None
-    provider_config: dict[str, Any]
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
     scopes: list[str] | None = None
 
 
@@ -266,5 +282,9 @@ class ProviderRead(BaseModel):
     scopes: ProviderScopes
     config_schema: ProviderSchema
     integration_status: IntegrationStatus
+    default_authorization_endpoint: str | None = None
+    default_token_endpoint: str | None = None
+    authorization_endpoint_help: str | None = None
+    token_endpoint_help: str | None = None
     # Only applicable to AuthorizationCodeOAuthProvider
     redirect_uri: str | None = None

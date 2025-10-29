@@ -34,6 +34,7 @@ AC_METADATA = ProviderMetadata(
     name="Microsoft Entra ID (Delegated)",
     description="Microsoft Entra ID delegated access using Microsoft Graph scopes.",
     setup_steps=get_ac_setup_steps("Microsoft Entra ID"),
+    requires_config=True,
     enabled=True,
     api_docs_url=ENTRA_API_DOC_URL,
     setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app",
@@ -51,9 +52,10 @@ class MicrosoftEntraACProvider(MicrosoftGraphACProvider):
 
 CC_METADATA = ProviderMetadata(
     id="microsoft_entra",
-    name="Microsoft Entra ID (Service account)",
-    description="Microsoft Entra ID service principal access using Microsoft Graph.",
+    name="Microsoft Entra ID (Service Principal)",
+    description="Microsoft Entra ID service principal authentication for Microsoft Graph APIs.",
     setup_steps=get_cc_setup_steps("Microsoft Entra ID"),
+    requires_config=True,
     enabled=True,
     api_docs_url=ENTRA_API_DOC_URL,
     setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow",
@@ -62,7 +64,7 @@ CC_METADATA = ProviderMetadata(
 
 
 class MicrosoftEntraCCProvider(MicrosoftGraphCCProvider):
-    """Microsoft Entra ID OAuth provider for application permissions."""
+    """Microsoft Entra ID OAuth provider for application permissions (service principal)."""
 
     id: ClassVar[str] = "microsoft_entra"
     scopes: ClassVar[ProviderScopes] = ENTRA_CC_SCOPES

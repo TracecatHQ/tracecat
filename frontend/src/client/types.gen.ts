@@ -2289,9 +2289,14 @@ export type IntegrationRead = {
   updated_at: string
   user_id?: string | null
   provider_id: string
-  provider_config: {
-    [key: string]: unknown
-  }
+  /**
+   * OAuth authorization endpoint configured for this integration.
+   */
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint configured for this integration.
+   */
+  token_endpoint?: string | null
   token_type: string
   expires_at: string | null
   /**
@@ -2364,11 +2369,13 @@ export type IntegrationUpdate = {
    */
   client_secret?: string | null
   /**
-   * Provider-specific configuration
+   * OAuth authorization endpoint URL. Overrides provider defaults when set.
    */
-  provider_config?: {
-    [key: string]: unknown
-  } | null
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint URL. Overrides provider defaults when set.
+   */
+  token_endpoint?: string | null
   /**
    * OAuth scopes to request for this integration
    */
@@ -2730,6 +2737,10 @@ export type ProviderRead = {
   scopes: ProviderScopes
   config_schema: ProviderSchema
   integration_status: IntegrationStatus
+  default_authorization_endpoint?: string | null
+  default_token_endpoint?: string | null
+  authorization_endpoint_help?: string | null
+  token_endpoint_help?: string | null
   redirect_uri?: string | null
 }
 

@@ -22,6 +22,7 @@ AC_METADATA = ProviderMetadata(
     name="Microsoft Sentinel (Delegated)",
     description="Microsoft Sentinel (Delegated)",
     setup_steps=get_sentinel_setup_steps(),
+    requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/rest/api/securityinsights/",
     setup_guide_url="https://learn.microsoft.com/en-us/azure/sentinel/",
@@ -42,6 +43,7 @@ CC_METADATA = ProviderMetadata(
     name="Microsoft Sentinel (Service Principal)",
     description="Microsoft Sentinel (Service Principal)",
     setup_steps=get_sentinel_setup_steps(),
+    requires_config=True,
     enabled=True,
 )
 

@@ -1,24 +1,28 @@
 """Azure Management OAuth integration for Azure Resource Manager APIs."""
 
-from typing import Any, ClassVar, Unpack
+from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field
-
-from tracecat.integrations.models import (
-    OAuthProviderKwargs,
-    ProviderMetadata,
-    ProviderScopes,
-)
+from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.providers.microsoft.clouds import (
-    AzureCloud,
-    get_authorization_endpoint,
-    get_management_scopes,
-    get_token_endpoint,
-    map_management_scopes,
+
+DEFAULT_COMMERCIAL_AUTH_ENDPOINT = (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+)
+DEFAULT_COMMERCIAL_TOKEN_ENDPOINT = (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+)
+AZURE_AUTH_ENDPOINT_HELP = (
+    "Most tenants use the commercial cloud. Sovereign options:"
+    "\n- Commercial: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+    "\n- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize"
+)
+AZURE_TOKEN_ENDPOINT_HELP = (
+    "Most tenants use the commercial cloud. Sovereign options:"
+    "\n- Commercial: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    "\n- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token"
 )
 
 
@@ -28,31 +32,18 @@ def get_azure_setup_steps(service: str = "Azure Management") -> list[str]:
         "Register your application in Azure Portal",
         "Add the redirect URI shown above to 'Redirect URIs'",
         f"Configure required API permissions for {service}",
-        "Configure Azure Resource Manager delegated permissions",
         "Copy Client ID and Client Secret",
-        "Configure credentials in Tracecat with your tenant ID and cloud selection",
+        "Configure the authorization and token endpoints for your tenant (defaults use the commercial cloud with 'common')",
     ]
 
 
 AC_DESCRIPTION = "OAuth provider for Azure Resource Manager delegated permissions"
-AC_DEFAULT_SCOPES = get_management_scopes(AzureCloud.PUBLIC, delegated=True)
+AC_DEFAULT_SCOPES = [
+    "offline_access",
+    "https://management.azure.com/user_impersonation",
+]
 CC_DESCRIPTION = "OAuth provider for Azure Resource Manager application permissions"
-CC_DEFAULT_SCOPES = get_management_scopes(AzureCloud.PUBLIC, delegated=False)
-
-
-class AzureManagementOAuthConfig(BaseModel):
-    """Configuration model for Azure Management OAuth provider."""
-
-    tenant_id: str = Field(
-        ...,
-        description="Azure AD tenant ID. 'common' for multi-tenant apps, 'organizations' for work/school accounts, 'consumers' for personal accounts, or a specific tenant GUID.",
-        min_length=1,
-        max_length=100,
-    )
-    cloud: AzureCloud = Field(
-        default=AzureCloud.PUBLIC,
-        description="Azure cloud environment. Use 'public' or 'us_gov'.",
-    )
+CC_DEFAULT_SCOPES = ["https://management.azure.com/.default"]
 
 
 # Shared Azure Management scopes for authorization code flow
@@ -67,6 +58,7 @@ AC_METADATA = ProviderMetadata(
     name="Azure Management (Delegated)",
     description=f"Azure Management {AC_DESCRIPTION}",
     setup_steps=get_azure_setup_steps(),
+    requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/rest/api/azure/",
     setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app",
@@ -79,29 +71,11 @@ class AzureManagementACProvider(AuthorizationCodeOAuthProvider):
 
     id: ClassVar[str] = "azure_management"
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
-    config_model: ClassVar[type[BaseModel]] = AzureManagementOAuthConfig
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
-
-    def __init__(
-        self,
-        tenant_id: str,
-        cloud: AzureCloud = AzureCloud.PUBLIC,
-        **kwargs: Unpack[OAuthProviderKwargs],
-    ):
-        """Initialize the Azure Management OAuth provider."""
-        self.tenant_id = tenant_id
-        self.cloud = AzureCloud(cloud)
-        if kwargs.get("scopes") is None:
-            kwargs["scopes"] = map_management_scopes(self.scopes.default, self.cloud)
-        super().__init__(**kwargs)
-
-    @property
-    def authorization_endpoint(self) -> str:
-        return get_authorization_endpoint(self.cloud, self.tenant_id)
-
-    @property
-    def token_endpoint(self) -> str:
-        return get_token_endpoint(self.cloud, self.tenant_id)
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_AUTH_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_TOKEN_ENDPOINT
+    authorization_endpoint_help: ClassVar[str | None] = AZURE_AUTH_ENDPOINT_HELP
+    token_endpoint_help: ClassVar[str | None] = AZURE_TOKEN_ENDPOINT_HELP
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Add Azure-specific authorization parameters."""
@@ -121,6 +95,7 @@ CC_METADATA = ProviderMetadata(
     name="Azure Management (Service Principal)",
     description=f"Azure Management {CC_DESCRIPTION}",
     setup_steps=get_azure_setup_steps(),
+    requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/rest/api/azure/",
     setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow",
@@ -133,26 +108,8 @@ class AzureManagementCCProvider(ClientCredentialsOAuthProvider):
 
     id: ClassVar[str] = "azure_management"
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
-    config_model: ClassVar[type[BaseModel]] = AzureManagementOAuthConfig
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
-
-    def __init__(
-        self,
-        tenant_id: str,
-        cloud: AzureCloud = AzureCloud.PUBLIC,
-        **kwargs: Unpack[OAuthProviderKwargs],
-    ):
-        """Initialize the Azure Management client credentials provider."""
-        self.tenant_id = tenant_id
-        self.cloud = AzureCloud(cloud)
-        if kwargs.get("scopes") is None:
-            kwargs["scopes"] = map_management_scopes(self.scopes.default, self.cloud)
-        super().__init__(**kwargs)
-
-    @property
-    def authorization_endpoint(self) -> str:
-        return get_authorization_endpoint(self.cloud, self.tenant_id)
-
-    @property
-    def token_endpoint(self) -> str:
-        return get_token_endpoint(self.cloud, self.tenant_id)
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_AUTH_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_TOKEN_ENDPOINT
+    authorization_endpoint_help: ClassVar[str | None] = AZURE_AUTH_ENDPOINT_HELP
+    token_endpoint_help: ClassVar[str | None] = AZURE_TOKEN_ENDPOINT_HELP

@@ -6752,10 +6752,30 @@ export const $IntegrationRead = {
       type: "string",
       title: "Provider Id",
     },
-    provider_config: {
-      additionalProperties: true,
-      type: "object",
-      title: "Provider Config",
+    authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Endpoint",
+      description:
+        "OAuth authorization endpoint configured for this integration.",
+    },
+    token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint",
+      description: "OAuth token endpoint configured for this integration.",
     },
     token_type: {
       type: "string",
@@ -6829,7 +6849,6 @@ export const $IntegrationRead = {
     "created_at",
     "updated_at",
     "provider_id",
-    "provider_config",
     "token_type",
     "expires_at",
     "status",
@@ -6941,18 +6960,33 @@ export const $IntegrationUpdate = {
       title: "Client Secret",
       description: "OAuth client secret for the provider",
     },
-    provider_config: {
+    authorization_endpoint: {
       anyOf: [
         {
-          additionalProperties: true,
-          type: "object",
+          type: "string",
+          minLength: 8,
         },
         {
           type: "null",
         },
       ],
-      title: "Provider Config",
-      description: "Provider-specific configuration",
+      title: "Authorization Endpoint",
+      description:
+        "OAuth authorization endpoint URL. Overrides provider defaults when set.",
+    },
+    token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 8,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint",
+      description:
+        "OAuth token endpoint URL. Overrides provider defaults when set.",
     },
     scopes: {
       anyOf: [
@@ -7958,6 +7992,50 @@ export const $ProviderRead = {
     },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
+    },
+    default_authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Authorization Endpoint",
+    },
+    default_token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Token Endpoint",
+    },
+    authorization_endpoint_help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Endpoint Help",
+    },
+    token_endpoint_help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint Help",
     },
     redirect_uri: {
       anyOf: [

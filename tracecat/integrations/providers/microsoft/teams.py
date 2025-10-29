@@ -38,6 +38,7 @@ AC_METADATA = ProviderMetadata(
     name="Microsoft Teams (Delegated)",
     description=f"Microsoft Teams {AC_DESCRIPTION}",
     setup_steps=get_teams_ac_setup_steps(),
+    requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0",
     setup_guide_url="https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/rsc/resource-specific-consent",
@@ -60,9 +61,10 @@ CC_SCOPES = ProviderScopes(
 )
 CC_METADATA = ProviderMetadata(
     id="microsoft_teams",
-    name="Microsoft Teams (Service account)",
+    name="Microsoft Teams (Service Principal)",
     description=f"Microsoft Teams {CC_DESCRIPTION}",
     setup_steps=get_teams_cc_setup_steps(),
+    requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0",
     setup_guide_url="https://learn.microsoft.com/en-us/graph/auth-v2-service",
@@ -71,7 +73,7 @@ CC_METADATA = ProviderMetadata(
 
 
 class MicrosoftTeamsCCProvider(MicrosoftGraphCCProvider):
-    """Microsoft Teams OAuth provider using client credentials flow for application permissions (service account)."""
+    """Microsoft Teams OAuth provider using client credentials flow for application permissions (service principal)."""
 
     id: ClassVar[str] = "microsoft_teams"
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
