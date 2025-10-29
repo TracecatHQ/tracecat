@@ -30,5 +30,5 @@ definition:
         url: ${{ inputs.base_url }}/api/alerts/${{ FN.url_encode(inputs.alert_id) }}
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
   returns: ${{ steps.get_alert.result.data }}
