@@ -58,11 +58,11 @@ class RemoteToolset(AbstractToolset[AgentDepsT]):
         approval_required = bool(
             (meta := tool.tool_def.metadata) and meta.get("approval_required")
         )
-        logger.info(
+        logger.debug(
             "Calling remote tool",
             name=name,
             tool_args=tool_args,
-            tool_call_id=tool.tool_def.name,
+            tool_name=tool.tool_def.name,
             approval_required=approval_required,
         )
         if approval_required and not ctx.tool_call_approved:
