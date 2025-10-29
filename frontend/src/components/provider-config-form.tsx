@@ -9,8 +9,13 @@ import type { IntegrationUpdate, ProviderRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CollapsibleCard } from "@/components/ui/collapsible-card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   Form,
   FormControl,
@@ -40,6 +45,104 @@ interface ProviderConfigFormProps {
 type IntegrationUpdatePayload = IntegrationUpdate & {
   authorization_endpoint?: string
   token_endpoint?: string
+}
+
+type HelpSegment =
+  | { type: "paragraph"; content: string }
+  | { type: "list"; items: string[] }
+
+const parseHelpText = (text: string): HelpSegment[] => {
+  const segments: HelpSegment[] = []
+  const lines = text.split(/\r?\n/)
+  let currentParagraph: string[] = []
+  let currentList: string[] = []
+
+  const flushParagraph = () => {
+    if (currentParagraph.length === 0) {
+      return
+    }
+    segments.push({
+      type: "paragraph",
+      content: currentParagraph.join(" "),
+    })
+    currentParagraph = []
+  }
+
+  const flushList = () => {
+    if (currentList.length === 0) {
+      return
+    }
+    segments.push({
+      type: "list",
+      items: currentList,
+    })
+    currentList = []
+  }
+
+  for (const rawLine of lines) {
+    const trimmedLine = rawLine.trim()
+
+    if (!trimmedLine) {
+      flushParagraph()
+      flushList()
+      continue
+    }
+
+    const listMatch = trimmedLine.match(/^[-*]\s+(.*)$/)
+    if (listMatch) {
+      flushParagraph()
+      currentList.push(listMatch[1].trim())
+      continue
+    }
+
+    flushList()
+    currentParagraph.push(trimmedLine)
+  }
+
+  flushParagraph()
+  flushList()
+
+  return segments
+}
+
+function ProviderHelpDescription({
+  text,
+}: {
+  text?: string | null
+}): JSX.Element | null {
+  if (!text) {
+    return null
+  }
+
+  const segments = parseHelpText(text)
+
+  if (segments.length === 0) {
+    return <>{text}</>
+  }
+
+  return (
+    <div className="space-y-2">
+      {segments.map((segment, index) => {
+        if (segment.type === "list") {
+          return (
+            <ul key={`help-list-${index}`} className="list-disc pl-5 space-y-1">
+              {segment.items.map((item, itemIndex) => (
+                <li key={`help-list-${index}-${itemIndex}`} className="leading-snug">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          )
+        }
+
+        return (
+          <p key={`help-paragraph-${index}`} className="leading-snug">
+            {segment.content}
+          </p>
+        )
+      })}
+    </div>
+  )
 }
 
 export function ProviderConfigForm({
@@ -154,81 +257,93 @@ export function ProviderConfigForm({
     <div className="flex flex-col gap-6">
       {/* Current Configuration Summary */}
       {integration && (
-        <CollapsibleCard
-          title="Current configuration"
-          description="View your existing integration settings."
-          defaultOpen={false}
-          className="bg-muted/50"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-muted-foreground">
-                Client ID
-              </span>
-              <div className="text-xs font-mono">
-                {integration.client_id ? (
-                  <span>
-                    {integration.client_id.slice(0, 8)}****
-                    {integration.client_id.length > 12
-                      ? "****" + integration.client_id.slice(-4)
-                      : ""}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">Not configured</span>
-                )}
+        <Card className="bg-muted/50">
+          <CardHeader>
+            <div className="flex flex-col gap-1">
+              <CardTitle>Current configuration</CardTitle>
+              <CardDescription>
+                View your existing integration settings.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+              <div className="flex flex-col gap-2">
+                <span className="font-medium text-muted-foreground">
+                  Authorization endpoint
+                </span>
+                <div className="text-xs font-mono break-all">
+                  {integrationAuthEndpoint ??
+                    providerDefaultAuth ??
+                    "Using provider default"}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-medium text-muted-foreground">
+                  Token endpoint
+                </span>
+                <div className="text-xs font-mono break-all">
+                  {integrationTokenEndpoint ??
+                    providerDefaultToken ??
+                    "Using provider default"}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-medium text-muted-foreground">
+                  Client ID
+                </span>
+                <div className="text-xs font-mono">
+                  {integration.client_id ? (
+                    <span>
+                      {integration.client_id.slice(0, 8)}****
+                      {integration.client_id.length > 12
+                        ? "****" + integration.client_id.slice(-4)
+                        : ""}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Not configured
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-medium text-muted-foreground">
+                  Client secret
+                </span>
+                <div className="text-xs font-mono">
+                  {integration.status !== "not_configured" ? (
+                    <span>******</span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Not configured
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <span className="font-medium text-muted-foreground">
+                  OAuth scopes
+                </span>
+                <div className="text-xs">
+                  {(integration.requested_scopes ?? []).length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {integration.requested_scopes?.map((scope) => (
+                        <Badge key={scope} variant="outline" className="text-xs">
+                          {scope}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      None configured
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-muted-foreground">
-                Authorization endpoint
-              </span>
-              <div className="text-xs font-mono break-all">
-                {integrationAuthEndpoint ??
-                  providerDefaultAuth ??
-                  "Using provider default"}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-muted-foreground">
-                Token endpoint
-              </span>
-              <div className="text-xs font-mono break-all">
-                {integrationTokenEndpoint ??
-                  providerDefaultToken ??
-                  "Using provider default"}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-muted-foreground">
-                Client secret
-              </span>
-              <div className="text-xs">
-                {integration.status !== "not_configured"
-                  ? "Configured"
-                  : "Not configured"}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 md:col-span-2">
-              <span className="font-medium text-muted-foreground">
-                OAuth scopes
-              </span>
-              <div className="text-xs">
-                {(integration.requested_scopes ?? []).length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {integration.requested_scopes?.map((scope) => (
-                      <Badge key={scope} variant="outline" className="text-xs">
-                        {scope}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground">None configured</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </CollapsibleCard>
+          </CardContent>
+        </Card>
       )}
 
       <Form {...form}>
@@ -258,8 +373,12 @@ export function ProviderConfigForm({
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      {providerAuthHelp ||
-                        "Update if you use a custom domain or sovereign cloud."}
+                      <ProviderHelpDescription
+                        text={
+                          providerAuthHelp ||
+                          "Update if you use a custom domain or sovereign cloud."
+                        }
+                      />
                     </FormDescription>
                   </FormItem>
                 )}
@@ -280,8 +399,12 @@ export function ProviderConfigForm({
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      {providerTokenHelp ||
-                        "Update if you use a custom domain or sovereign cloud."}
+                      <ProviderHelpDescription
+                        text={
+                          providerTokenHelp ||
+                          "Update if you use a custom domain or sovereign cloud."
+                        }
+                      />
                     </FormDescription>
                   </FormItem>
                 )}
