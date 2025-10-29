@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Any, Literal
@@ -90,7 +91,11 @@ async def _authenticate_service(
         msg = f"x-tracecat-role-service-id {service_role_id!r} invalid or not allowed"
         logger.error(msg)
         raise HTTP_EXC(msg)
-    if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
+    try:
+        expected_key = os.environ["TRACECAT__SERVICE_KEY"]
+    except KeyError as e:
+        raise KeyError("TRACECAT__SERVICE_KEY is not set") from e
+    if not secrets.compare_digest(api_key, expected_key):
         logger.error("Could not validate service key")
         raise CREDENTIALS_EXCEPTION
     role_params = {
