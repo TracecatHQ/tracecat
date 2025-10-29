@@ -99,14 +99,6 @@ async def validate_incoming_webhook(
                 detail="Request method not allowed",
             ) from None
 
-        ctx_role.set(
-            Role(
-                type="service",
-                workspace_id=webhook.owner_id,
-                service_id="tracecat-runner",
-            )
-        )
-
         updated = False
 
         client_ip = _extract_client_ip(request)
@@ -164,6 +156,14 @@ async def validate_incoming_webhook(
         if updated:
             session.add(webhook.api_key)
             await session.commit()
+
+        ctx_role.set(
+            Role(
+                type="service",
+                workspace_id=webhook.owner_id,
+                service_id="tracecat-runner",
+            )
+        )
 
 
 async def validate_workflow_definition(
