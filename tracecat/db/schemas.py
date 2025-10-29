@@ -17,6 +17,7 @@ from sqlalchemy import (
     Interval,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -497,6 +498,34 @@ class Workflow(Resource, table=True):
     )
 
 
+class WebhookApiKey(Resource, table=True):
+    __tablename__: str = "webhook_api_key"
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    webhook_id: str = Field(
+        sa_column=Column(
+            String, ForeignKey("webhook.id", ondelete="CASCADE"), unique=True
+        )
+    )
+    webhook: "Webhook" = Relationship(back_populates="api_key")
+    hashed: str = Field(sa_column=Column(String(128), nullable=False))
+    salt: str = Field(sa_column=Column(String(64), nullable=False))
+    suffix: str = Field(sa_column=Column(String(16), nullable=False))
+    last_used_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+    )
+    revoked_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
+    )
+    revoked_by: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, nullable=True),
+    )
+
+
 class Webhook(Resource, table=True):
     id: str = Field(
         default_factory=id_factory("wh"), nullable=False, unique=True, index=True
@@ -512,6 +541,18 @@ class Webhook(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
     workflow: Workflow | None = Relationship(back_populates="webhook")
+    allowlisted_cidrs: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    )
+    api_key: WebhookApiKey | None = Relationship(
+        back_populates="webhook",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "uselist": False,
+            "lazy": "selectin",
+        },
+    )
 
     @computed_field
     @property
@@ -531,6 +572,31 @@ class Webhook(Resource, table=True):
     @property
     def normalized_methods(self) -> tuple[str, ...]:
         return tuple(m.lower() for m in self.methods)
+
+    @computed_field
+    @property
+    def has_active_api_key(self) -> bool:
+        return self.api_key is not None and self.api_key.revoked_at is None
+
+    @computed_field
+    @property
+    def api_key_suffix(self) -> str | None:
+        return self.api_key.suffix if self.api_key else None
+
+    @computed_field
+    @property
+    def api_key_created_at(self) -> datetime | None:
+        return self.api_key.created_at if self.api_key else None
+
+    @computed_field
+    @property
+    def api_key_last_used_at(self) -> datetime | None:
+        return self.api_key.last_used_at if self.api_key else None
+
+    @computed_field
+    @property
+    def api_key_revoked_at(self) -> datetime | None:
+        return self.api_key.revoked_at if self.api_key else None
 
 
 class Schedule(Resource, table=True):

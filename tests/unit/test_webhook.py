@@ -5,7 +5,8 @@ import pytest
 from fastapi import Request
 from fastapi.datastructures import FormData
 
-from tracecat.webhooks.dependencies import parse_webhook_payload
+from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
+from tracecat.webhooks.models import _normalize_cidrs
 
 
 class TestParseWebhookPayload:
@@ -159,3 +160,16 @@ class TestParseWebhookPayload:
 
         result = await parse_webhook_payload(request, "text/plain")
         assert result == test_data
+
+
+class TestWebhookNetworkHelpers:
+    def test_normalize_cidrs(self):
+        cidrs = ["192.168.1.0/24", "192.168.1.0/24", "10.0.0.1", "10.0.0.1/32"]
+        normalized = _normalize_cidrs(cidrs)
+        assert normalized == ["192.168.1.0/24", "10.0.0.1/32"]
+
+    def test_ip_allowed_positive(self):
+        assert _ip_allowed("192.168.1.5", ["192.168.1.0/24"]) is True
+
+    def test_ip_allowed_negative(self):
+        assert _ip_allowed("203.0.113.10", ["192.168.1.0/24"]) is False

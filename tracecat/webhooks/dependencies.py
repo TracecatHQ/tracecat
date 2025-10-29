@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from ipaddress import ip_address, ip_network
 from typing import Annotated, Any, cast
 
 import orjson
@@ -8,6 +11,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 
+from tracecat.auth.api_keys import verify_api_key
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
@@ -19,6 +23,37 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.webhooks.models import NDJSON_CONTENT_TYPES
+
+API_KEY_HEADER = "x-tracecat-api-key"
+
+
+def _extract_client_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _ip_allowed(client_ip: str, cidr_list: Sequence[str]) -> bool:
+    try:
+        ip_obj = ip_address(client_ip)
+    except ValueError:
+        return False
+
+    for cidr in cidr_list:
+        try:
+            network = ip_network(cidr, strict=False)
+        except ValueError:
+            logger.warning(
+                "Invalid CIDR in webhook allowlist",
+                cidr=cidr,
+            )
+            continue
+        if ip_obj in network:
+            return True
+    return False
 
 
 async def validate_incoming_webhook(
@@ -71,6 +106,64 @@ async def validate_incoming_webhook(
                 service_id="tracecat-runner",
             )
         )
+
+        updated = False
+
+        client_ip = _extract_client_ip(request)
+        if webhook.allowlisted_cidrs:
+            if client_ip is None:
+                logger.warning(
+                    "Request missing client IP while CIDR allowlist configured",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Unauthorized webhook request",
+                )
+            if not _ip_allowed(client_ip, webhook.allowlisted_cidrs):
+                logger.warning(
+                    "Request IP not in allowlist",
+                    webhook_id=webhook.id,
+                    client_ip=client_ip,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Unauthorized webhook request",
+                )
+
+        api_key = request.headers.get(API_KEY_HEADER)
+        if webhook.api_key and webhook.api_key.revoked_at is None:
+            if not api_key:
+                logger.warning(
+                    "Missing API key for webhook with active key",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            if not verify_api_key(
+                api_key, webhook.api_key.salt, webhook.api_key.hashed
+            ):
+                logger.warning(
+                    "Invalid API key presented",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            webhook.api_key.last_used_at = datetime.now(UTC)
+            updated = True
+        elif api_key:
+            logger.info(
+                "API key provided for webhook without active key configuration",
+                webhook_id=webhook.id,
+            )
+
+        if updated:
+            session.add(webhook.api_key)
+            await session.commit()
 
 
 async def validate_workflow_definition(

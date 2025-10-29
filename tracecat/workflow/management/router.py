@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Literal, cast
 
 import orjson
@@ -19,10 +20,11 @@ from slugify import slugify
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 
+from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
+from tracecat.db.schemas import Webhook, WebhookApiKey, Workflow, WorkflowDefinition
 from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
@@ -36,7 +38,12 @@ from tracecat.validation.models import (
     ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
-from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
+from tracecat.webhooks.models import (
+    WebhookApiKeyResponse,
+    WebhookCreate,
+    WebhookRead,
+    WebhookUpdate,
+)
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
@@ -57,6 +64,24 @@ from tracecat.workflow.management.models import (
 from tracecat.workflow.management.schemas import build_trigger_inputs_schema
 
 router = APIRouter(prefix="/workflows")
+
+
+async def _fetch_webhook(
+    session: AsyncDBSession,
+    workspace_id,
+    workflow_id: AnyWorkflowIDPath,
+) -> Webhook:
+    statement = select(Webhook).where(
+        Webhook.owner_id == workspace_id,
+        Webhook.workflow_id == workflow_id,
+    )
+    result = await session.exec(statement)
+    try:
+        return result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
 
 @router.get("", tags=["workflows"])
@@ -577,7 +602,8 @@ async def create_webhook(
         methods=cast(list[str], params.methods),
         workflow_id=workflow_id,
         status=params.status,
-    )  # type: ignore
+        allowlisted_cidrs=params.allowlisted_cidrs,
+    )
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)
@@ -593,18 +619,14 @@ async def get_webhook(
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookRead:
     """Get the webhook from a workflow."""
-    statement = select(Webhook).where(
-        Webhook.owner_id == role.workspace_id,
-        Webhook.workflow_id == workflow_id,
-    )
-    result = await session.exec(statement)
-    try:
-        webhook = result.one()
-        return WebhookRead.model_validate(webhook, from_attributes=True)
-    except NoResultFound as e:
+    if role.workspace_id is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await _fetch_webhook(
+        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+    )
+    return WebhookRead.model_validate(webhook, from_attributes=True)
 
 
 @router.patch(
@@ -641,6 +663,85 @@ async def update_webhook(
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)
+
+
+@router.post(
+    "/{workflow_id}/webhook/api-key",
+    tags=["triggers"],
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_webhook_api_key(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> WebhookApiKeyResponse:
+    """Create or rotate the API key for a webhook."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await _fetch_webhook(
+        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+    )
+    now = datetime.now(UTC)
+    generated = generate_api_key()
+    api_key = webhook.api_key
+    if api_key is None:
+        api_key = WebhookApiKey(
+            owner_id=role.workspace_id,
+            webhook_id=webhook.id,
+            hashed=generated.hashed,
+            salt=generated.salt_b64,
+            suffix=generated.suffix,
+        )
+    else:
+        api_key.owner_id = role.workspace_id
+        api_key.hashed = generated.hashed
+        api_key.salt = generated.salt_b64
+        api_key.suffix = generated.suffix
+        api_key.last_used_at = None
+        api_key.revoked_at = None
+        api_key.revoked_by = None
+    api_key.created_at = now
+    api_key.updated_at = now
+    session.add(api_key)
+    await session.commit()
+    return WebhookApiKeyResponse(
+        api_key=generated.raw,
+        suffix=generated.suffix,
+        created_at=now,
+    )
+
+
+@router.delete(
+    "/{workflow_id}/webhook/api-key",
+    tags=["triggers"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_webhook_api_key(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> None:
+    """Revoke the current API key for a webhook."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await _fetch_webhook(
+        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+    )
+    now = datetime.now(UTC)
+    api_key = webhook.api_key
+    if api_key is None:
+        return
+    if api_key.revoked_at is not None:
+        return
+    api_key.revoked_at = now
+    api_key.revoked_by = role.user_id
+    api_key.updated_at = now
+    session.add(api_key)
+    await session.commit()
 
 
 @router.post(

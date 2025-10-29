@@ -13661,6 +13661,27 @@ export const $WaitStrategy = {
   title: "WaitStrategy",
 } as const
 
+export const $WebhookApiKeyResponse = {
+  properties: {
+    api_key: {
+      type: "string",
+      title: "Api Key",
+    },
+    suffix: {
+      type: "string",
+      title: "Suffix",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["api_key", "suffix", "created_at"],
+  title: "WebhookApiKeyResponse",
+} as const
+
 export const $WebhookCreate = {
   properties: {
     status: {
@@ -13685,6 +13706,13 @@ export const $WebhookCreate = {
         },
       ],
       title: "Entrypoint Ref",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
     },
   },
   type: "object",
@@ -13735,6 +13763,13 @@ export const $WebhookRead = {
       ],
       title: "Entrypoint Ref",
     },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+    },
     filters: {
       additionalProperties: true,
       type: "object",
@@ -13755,6 +13790,58 @@ export const $WebhookRead = {
     url: {
       type: "string",
       title: "Url",
+    },
+    api_key_suffix: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Suffix",
+    },
+    api_key_created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Created At",
+    },
+    api_key_last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Last Used At",
+    },
+    api_key_revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Revoked At",
+    },
+    has_active_api_key: {
+      type: "boolean",
+      title: "Has Active Api Key",
+      default: false,
     },
   },
   type: "object",
@@ -13811,6 +13898,20 @@ export const $WebhookUpdate = {
         },
       ],
       title: "Entrypoint Ref",
+    },
+    allowlisted_cidrs: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowlisted Cidrs",
     },
   },
   type: "object",
