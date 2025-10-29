@@ -5,7 +5,7 @@ import "react18-json-view/src/style.css"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
@@ -92,7 +92,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
+import {
+  useGenerateWebhookApiKey,
+  useSchedules,
+  useUpdateWebhook,
+} from "@/lib/hooks"
 import {
   durationSchema,
   durationToHumanReadable,
@@ -177,14 +181,34 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
 }
 
 export function WebhookControls({
-  webhook: { url, status, methods = ["POST"] },
+  webhook,
   workflowId,
 }: {
   webhook: WebhookRead
   workflowId: string
 }) {
+  const { url, status } = webhook
+  const methods = webhook.methods ?? ["POST"]
+  const allowlistedCidrs = webhook.allowlisted_cidrs ?? []
+  const hasActiveApiKey = webhook.api_key?.is_active ?? false
+  const apiKeySuffix = webhook.api_key?.suffix ?? null
+  const apiKeyCreatedAt = webhook.api_key?.created_at ?? null
+  const apiKeyLastUsedAt = webhook.api_key?.last_used_at ?? null
+
   const workspaceId = useWorkspaceId()
-  const { mutateAsync } = useUpdateWebhook(workspaceId, workflowId)
+  const { mutateAsync, isPending: isUpdatingWebhook } = useUpdateWebhook(
+    workspaceId,
+    workflowId
+  )
+  const { mutateAsync: generateWebhookApiKey, isPending: isGeneratingApiKey } =
+    useGenerateWebhookApiKey(workspaceId, workflowId)
+  const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null)
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false)
+  const [newAllowlistEntry, setNewAllowlistEntry] = useState("")
+
+  const formatTimestamp = (value: string | null) =>
+    value ? new Date(value).toLocaleString() : "—"
 
   const onCheckedChange = async (checked: boolean) => {
     await mutateAsync({
@@ -211,6 +235,96 @@ export function WebhookControls({
     }
   }
 
+  const handleGenerateApiKey = async () => {
+    try {
+      const response = await generateWebhookApiKey()
+      setGeneratedApiKey(response.api_key)
+      setGeneratedAt(response.created_at ?? null)
+      setApiKeyDialogOpen(true)
+      toast({
+        title: "API key generated",
+        description: "Copy the API key now. It will not be shown again.",
+      })
+    } catch (error) {
+      console.error("Failed to generate webhook API key", error)
+      const message =
+        error instanceof ApiError && error.body
+          ? ((error.body as { detail?: string })?.detail ??
+            "An error occurred while generating the key.")
+          : "An error occurred while generating the key."
+      toast({
+        title: "Failed to generate API key",
+        description: message,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDialogChange = (open: boolean) => {
+    setApiKeyDialogOpen(open)
+    if (!open) {
+      setGeneratedApiKey(null)
+      setGeneratedAt(null)
+    }
+  }
+
+  const handleAddAllowlistEntry = async () => {
+    const trimmed = newAllowlistEntry.trim()
+    if (!trimmed) {
+      return
+    }
+
+    if (allowlistedCidrs.includes(trimmed)) {
+      toast({
+        title: "CIDR already allowlisted",
+        description: `${trimmed} is already present.`,
+      })
+      setNewAllowlistEntry("")
+      return
+    }
+
+    const nextAllowlist = Array.from(new Set([...allowlistedCidrs, trimmed]))
+
+    try {
+      await mutateAsync({
+        allowlisted_cidrs: nextAllowlist,
+      })
+      setNewAllowlistEntry("")
+      toast({
+        title: "Allowlist updated",
+        description: `Added ${trimmed} to the webhook allowlist.`,
+      })
+    } catch (error) {
+      console.error("Failed to update allowlist", error)
+      toast({
+        title: "Error updating allowlist",
+        description: "Could not update allowlist. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleRemoveAllowlistEntry = async (cidr: string) => {
+    const nextAllowlist = allowlistedCidrs.filter((entry) => entry !== cidr)
+
+    try {
+      await mutateAsync({
+        allowlisted_cidrs: nextAllowlist,
+      })
+      toast({
+        title: "Allowlist updated",
+        description: `Removed ${cidr} from the webhook allowlist.`,
+      })
+    } catch (error) {
+      console.error("Failed to remove allowlist entry", error)
+      toast({
+        title: "Error updating allowlist",
+        description: "Could not update allowlist. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -226,6 +340,7 @@ export function WebhookControls({
             checked={status === "online"}
             onCheckedChange={onCheckedChange}
             className="data-[state=checked]:bg-emerald-500"
+            disabled={isUpdatingWebhook}
           />
         </div>
         <div className="text-xs text-muted-foreground">
@@ -246,6 +361,7 @@ export function WebhookControls({
                 variant="outline"
                 role="combobox"
                 className="justify-between w-full text-xs"
+                disabled={isUpdatingWebhook}
               >
                 {methods.length > 0
                   ? methods.sort().join(", ")
@@ -282,6 +398,142 @@ export function WebhookControls({
           </DropdownMenu>
         </div>
       </div>
+
+      <div className="space-y-2">
+        <Label className="flex gap-2 items-center text-xs font-medium">
+          <span>CIDR Allowlist</span>
+        </Label>
+        {allowlistedCidrs.length > 0 ? (
+          <div className="space-y-2">
+            {allowlistedCidrs.map((cidr) => (
+              <div
+                key={cidr}
+                className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+              >
+                <span className="font-mono">{cidr}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleRemoveAllowlistEntry(cidr)}
+                  disabled={isUpdatingWebhook}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No CIDRs are configured. All source IPs are allowed.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Input
+            value={newAllowlistEntry}
+            onChange={(event) => setNewAllowlistEntry(event.target.value)}
+            placeholder="e.g., 203.0.113.0/24"
+            className="text-xs"
+            disabled={isUpdatingWebhook}
+          />
+          <Button
+            size="sm"
+            onClick={handleAddAllowlistEntry}
+            disabled={
+              isUpdatingWebhook || newAllowlistEntry.trim().length === 0
+            }
+          >
+            Add CIDR
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Provide IPv4 or IPv6 CIDR blocks to restrict inbound requests.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="flex gap-2 items-center text-xs font-medium">
+          <span>API Key</span>
+        </Label>
+        {hasActiveApiKey ? (
+          <div className="rounded-md border px-3 py-3 space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Key suffix</span>
+              <span className="font-mono">
+                {apiKeySuffix ? `...${apiKeySuffix}` : "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Created</span>
+              <span>{formatTimestamp(apiKeyCreatedAt)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Last used</span>
+              <span>{formatTimestamp(apiKeyLastUsedAt)}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={handleGenerateApiKey}
+              disabled={isGeneratingApiKey}
+            >
+              {isGeneratingApiKey ? "Generating..." : "Regenerate API key"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2 text-xs">
+            <p className="text-muted-foreground">
+              Generate an API key to require clients to authenticate webhook
+              requests.
+            </p>
+            <Button
+              size="sm"
+              onClick={handleGenerateApiKey}
+              disabled={isGeneratingApiKey}
+            >
+              {isGeneratingApiKey ? "Generating..." : "Generate API key"}
+            </Button>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          API keys are shown only once after creation. Store them securely.
+        </p>
+      </div>
+
+      <Dialog open={apiKeyDialogOpen} onOpenChange={handleDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Webhook API key generated</DialogTitle>
+            <DialogDescription>
+              Copy the key now. You will not be able to view it again once this
+              dialog is closed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Generated</span>
+              <span>{formatTimestamp(generatedAt)}</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
+              <code className="max-w-[75%] break-all text-xs">
+                {generatedApiKey ?? "—"}
+              </code>
+              {generatedApiKey ? (
+                <CopyButton
+                  value={generatedApiKey}
+                  toastMessage="Copied API key to clipboard"
+                />
+              ) : null}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Rotate the API key if it is ever exposed.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => handleDialogChange(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="space-y-2">
         <Label className="flex gap-2 items-center text-xs font-medium">

@@ -39,7 +39,7 @@ from tracecat.validation.models import (
 )
 from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
 from tracecat.webhooks.models import (
-    WebhookApiKeyResponse,
+    WebhookApiKeyGenerateResponse,
     WebhookCreate,
     WebhookRead,
     WebhookUpdate,
@@ -674,7 +674,7 @@ async def generate_webhook_api_key(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-) -> WebhookApiKeyResponse:
+) -> WebhookApiKeyGenerateResponse:
     """Create or rotate the API key for a webhook."""
     if role.workspace_id is None:
         raise HTTPException(
@@ -706,7 +706,7 @@ async def generate_webhook_api_key(
     api_key.updated_at = now
     session.add(api_key)
     await session.commit()
-    return WebhookApiKeyResponse(
+    return WebhookApiKeyGenerateResponse(
         api_key=generated.raw,
         suffix=generated.suffix,
         created_at=now,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from ipaddress import ip_network
 from typing import Any, Literal
@@ -30,11 +32,7 @@ class WebhookRead(Resource):
     )
     workflow_id: WorkflowID
     url: str
-    api_key_suffix: str | None = None
-    api_key_created_at: datetime | None = None
-    api_key_last_used_at: datetime | None = None
-    api_key_revoked_at: datetime | None = None
-    has_active_api_key: bool = False
+    api_key: WebhookApiKeyRead | None = None
 
 
 class WebhookCreate(BaseModel):
@@ -65,7 +63,15 @@ class WebhookUpdate(BaseModel):
         return _normalize_cidrs(value)
 
 
-class WebhookApiKeyResponse(BaseModel):
+class WebhookApiKeyRead(BaseModel):
+    suffix: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    is_active: bool = False
+
+
+class WebhookApiKeyGenerateResponse(BaseModel):
     api_key: str
     suffix: str
     created_at: datetime

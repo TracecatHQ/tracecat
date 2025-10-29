@@ -4603,10 +4603,18 @@ export type VideoUrl = {
 
 export type WaitStrategy = "wait" | "detach"
 
-export type WebhookApiKeyResponse = {
+export type WebhookApiKeyGenerateResponse = {
   api_key: string
   suffix: string
   created_at: string
+}
+
+export type WebhookApiKeyRead = {
+  suffix: string
+  created_at: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  is_active?: boolean
 }
 
 export type WebhookCreate = {
@@ -4639,11 +4647,7 @@ export type WebhookRead = {
   methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
-  api_key_suffix?: string | null
-  api_key_created_at?: string | null
-  api_key_last_used_at?: string | null
-  api_key_revoked_at?: string | null
-  has_active_api_key?: boolean
+  api_key?: WebhookApiKeyRead | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -5456,7 +5460,8 @@ export type TriggersGenerateWebhookApiKeyData = {
   workspaceId: string
 }
 
-export type TriggersGenerateWebhookApiKeyResponse = WebhookApiKeyResponse
+export type TriggersGenerateWebhookApiKeyResponse =
+  WebhookApiKeyGenerateResponse
 
 export type TriggersRevokeWebhookApiKeyData = {
   workflowId: string
@@ -7601,7 +7606,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: WebhookApiKeyResponse
+        201: WebhookApiKeyGenerateResponse
         /**
          * Validation Error
          */

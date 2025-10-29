@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from tracecat.auth.crypto import generate_token
 
-DEFAULT_API_KEY_PREFIX = "sk_"
+DEFAULT_API_KEY_PREFIX = "tc_sk_"
 DEFAULT_SUFFIX_LENGTH = 6
 SALT_BYTES = 16
 DIGEST_SIZE = 32

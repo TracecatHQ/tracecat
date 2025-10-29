@@ -13661,7 +13661,7 @@ export const $WaitStrategy = {
   title: "WaitStrategy",
 } as const
 
-export const $WebhookApiKeyResponse = {
+export const $WebhookApiKeyGenerateResponse = {
   properties: {
     api_key: {
       type: "string",
@@ -13679,7 +13679,53 @@ export const $WebhookApiKeyResponse = {
   },
   type: "object",
   required: ["api_key", "suffix", "created_at"],
-  title: "WebhookApiKeyResponse",
+  title: "WebhookApiKeyGenerateResponse",
+} as const
+
+export const $WebhookApiKeyRead = {
+  properties: {
+    suffix: {
+      type: "string",
+      title: "Suffix",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["suffix", "created_at"],
+  title: "WebhookApiKeyRead",
 } as const
 
 export const $WebhookCreate = {
@@ -13791,57 +13837,15 @@ export const $WebhookRead = {
       type: "string",
       title: "Url",
     },
-    api_key_suffix: {
+    api_key: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/WebhookApiKeyRead",
         },
         {
           type: "null",
         },
       ],
-      title: "Api Key Suffix",
-    },
-    api_key_created_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Key Created At",
-    },
-    api_key_last_used_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Key Last Used At",
-    },
-    api_key_revoked_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Key Revoked At",
-    },
-    has_active_api_key: {
-      type: "boolean",
-      title: "Has Active Api Key",
-      default: false,
     },
   },
   type: "object",

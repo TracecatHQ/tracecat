@@ -212,6 +212,7 @@ import {
   tagsDeleteTag,
   tagsListTags,
   tagsUpdateTag,
+  triggersGenerateWebhookApiKey,
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
@@ -394,6 +395,31 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   })
 
   return mutation
+}
+
+export function useGenerateWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersGenerateWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    },
+    onError: (error) => {
+      console.error("Failed to generate webhook API key:", error)
+      toast({
+        title: "Error generating API key",
+        description: "Could not generate API key. Please try again.",
+      })
+    },
+  })
 }
 
 interface WorkflowFilter {
