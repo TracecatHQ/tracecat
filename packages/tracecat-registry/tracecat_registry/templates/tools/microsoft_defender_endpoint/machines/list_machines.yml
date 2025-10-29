@@ -63,6 +63,6 @@ definition:
         url: ${{ inputs.base_url }}/api/machines
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_machines.result.data }}

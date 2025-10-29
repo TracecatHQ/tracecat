@@ -55,7 +55,7 @@ definition:
         url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.get_file.result.data }}
