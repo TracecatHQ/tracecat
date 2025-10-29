@@ -49,7 +49,7 @@ definition:
         url: ${{ inputs.base_url }}/v1/workspaces/${{ FN.url_encode(inputs.workspace_id) }}/query
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.azure_log_analytics.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.execute_query.result.data }}
