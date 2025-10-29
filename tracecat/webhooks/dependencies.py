@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import Annotated, Any, cast
 
 import orjson
@@ -41,7 +42,7 @@ async def validate_incoming_webhook(
                 detail="Unauthorized webhook request",
             ) from e
 
-        if secret != webhook.secret:
+        if not secrets.compare_digest(secret, webhook.secret):
             logger.warning("Secret does not match")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
