@@ -127,7 +127,10 @@ function ProviderHelpDescription({
           return (
             <ul key={`help-list-${index}`} className="list-disc pl-5 space-y-1">
               {segment.items.map((item, itemIndex) => (
-                <li key={`help-list-${index}-${itemIndex}`} className="leading-snug">
+                <li
+                  key={`help-list-${index}-${itemIndex}`}
+                  className="leading-snug"
+                >
                   {item}
                 </li>
               ))}
@@ -329,7 +332,11 @@ export function ProviderConfigForm({
                   {(integration.requested_scopes ?? []).length > 0 ? (
                     <div className="flex flex-wrap gap-1">
                       {integration.requested_scopes?.map((scope) => (
-                        <Badge key={scope} variant="outline" className="text-xs">
+                        <Badge
+                          key={scope}
+                          variant="outline"
+                          className="text-xs"
+                        >
                           {scope}
                         </Badge>
                       ))}

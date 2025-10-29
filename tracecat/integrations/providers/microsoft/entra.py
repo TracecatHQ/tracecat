@@ -26,7 +26,7 @@ ENTRA_CC_SCOPES = ProviderScopes(
     ]
 )
 
-ENTRA_API_DOC_URL = "https://learn.microsoft.com/en-us/graph/api/resources/identity-network-access-overview?view=graph-rest-1.0"
+ENTRA_API_DOC_URL = "https://learn.microsoft.com/en-us/graph/overview"
 
 
 AC_METADATA = ProviderMetadata(

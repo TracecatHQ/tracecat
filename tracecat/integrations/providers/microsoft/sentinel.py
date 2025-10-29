@@ -45,6 +45,9 @@ CC_METADATA = ProviderMetadata(
     setup_steps=get_sentinel_setup_steps(),
     requires_config=True,
     enabled=True,
+    api_docs_url="https://learn.microsoft.com/en-us/rest/api/securityinsights/",
+    setup_guide_url="https://learn.microsoft.com/en-us/azure/sentinel/",
+    troubleshooting_url="https://learn.microsoft.com/en-us/azure/sentinel/troubleshooting",
 )
 
 

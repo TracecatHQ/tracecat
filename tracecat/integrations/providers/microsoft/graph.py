@@ -1,57 +1,43 @@
 """Microsoft Graph OAuth integration using standardized endpoint configuration."""
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
+from tracecat.integrations.providers.microsoft._common import (
+    DEFAULT_COMMERCIAL_AUTHORIZATION_ENDPOINT as MS_DEFAULT_AUTH_ENDPOINT,
+)
+from tracecat.integrations.providers.microsoft._common import (
+    DEFAULT_COMMERCIAL_TOKEN_ENDPOINT as MS_DEFAULT_TOKEN_ENDPOINT,
+)
+from tracecat.integrations.providers.microsoft._common import (
+    MICROSOFT_AUTH_ENDPOINT_HELP,
+    MICROSOFT_TOKEN_ENDPOINT_HELP,
+)
+from tracecat.integrations.providers.microsoft._common import (
+    get_ac_setup_steps as _common_get_ac_setup_steps,
+)
+from tracecat.integrations.providers.microsoft._common import (
+    get_cc_setup_steps as _common_get_cc_setup_steps,
+)
 
-DEFAULT_COMMERCIAL_AUTH_ENDPOINT = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-)
-DEFAULT_COMMERCIAL_TOKEN_ENDPOINT = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-)
-GRAPH_AUTH_ENDPOINT_HELP = (
-    "Most tenants use the commercial cloud. Sovereign options:"
-    "\n- Commercial: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
-    "\n- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize"
-)
-GRAPH_TOKEN_ENDPOINT_HELP = (
-    "Most tenants use the commercial cloud. Sovereign options:"
-    "\n- Commercial: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-    "\n- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token"
-)
+DEFAULT_COMMERCIAL_AUTH_ENDPOINT = MS_DEFAULT_AUTH_ENDPOINT
+DEFAULT_COMMERCIAL_TOKEN_ENDPOINT = MS_DEFAULT_TOKEN_ENDPOINT
+GRAPH_AUTH_ENDPOINT_HELP = MICROSOFT_AUTH_ENDPOINT_HELP
+GRAPH_TOKEN_ENDPOINT_HELP = MICROSOFT_TOKEN_ENDPOINT_HELP
 
 
 def get_ac_setup_steps(service: str = "Microsoft Graph") -> list[str]:
     """Get setup steps for authorization code flow for a Microsoft service."""
-    return [
-        "Register your application in Azure Portal",
-        "Add the redirect URI shown above to 'Redirect URIs'",
-        f"Configure required API permissions for {service}",
-        "Copy Client ID and Client Secret",
-        (
-            "Configure the authorization and token endpoints for your tenant "
-            "(defaults use the commercial cloud with 'common')"
-        ),
-    ]
+    return _common_get_ac_setup_steps(service)
 
 
 def get_cc_setup_steps(service: str = "Microsoft Graph") -> list[str]:
     """Get setup steps for client credentials flow for a Microsoft service."""
-    return [
-        "Register your application in Azure Portal",
-        f"Configure API permissions for {service} with Application permissions (not Delegated)",
-        "Grant admin consent for the application permissions",
-        "Copy Client ID and Client Secret",
-        (
-            "Configure the authorization and token endpoints for your tenant "
-            "(defaults use the commercial cloud with 'common')"
-        ),
-    ]
+    return _common_get_cc_setup_steps(service)
 
 
 AC_DESCRIPTION = "OAuth provider for delegated user permissions"
@@ -88,13 +74,6 @@ class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
     default_token_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_TOKEN_ENDPOINT
     authorization_endpoint_help: ClassVar[str | None] = GRAPH_AUTH_ENDPOINT_HELP
     token_endpoint_help: ClassVar[str | None] = GRAPH_TOKEN_ENDPOINT_HELP
-
-    def _get_additional_authorize_params(self) -> dict[str, Any]:
-        """Add Microsoft Graph-specific authorization parameters."""
-        return {
-            "response_mode": "query",
-            "prompt": "select_account",
-        }
 
 
 # Shared Microsoft Graph scopes for client credentials flow

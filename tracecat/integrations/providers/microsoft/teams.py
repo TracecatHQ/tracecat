@@ -29,8 +29,9 @@ AC_SCOPES = ProviderScopes(
     default=[
         "offline_access",
         "https://graph.microsoft.com/User.Read",
-        "https://graph.microsoft.com/ChatMessage.Read",
-        "https://graph.microsoft.com/ChatMessage.Send",
+        "https://graph.microsoft.com/Chat.Read",
+        "https://graph.microsoft.com/Chat.ReadWrite",
+        "https://graph.microsoft.com/ChannelMessage.Send",
     ],
 )
 AC_METADATA = ProviderMetadata(
@@ -41,7 +42,7 @@ AC_METADATA = ProviderMetadata(
     requires_config=True,
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0",
-    setup_guide_url="https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/rsc/resource-specific-consent",
+    setup_guide_url="https://learn.microsoft.com/en-us/graph/auth-v2-user",
     troubleshooting_url="https://learn.microsoft.com/en-us/microsoftteams/platform/troubleshoot/troubleshooting",
 )
 
