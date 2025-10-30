@@ -5,7 +5,12 @@ import "react18-json-view/src/style.css"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
-import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
+import {
+  CalendarClockIcon,
+  PlusCircleIcon,
+  SaveIcon,
+  WebhookIcon,
+} from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -320,8 +325,14 @@ export function WebhookControls({
     },
   })
 
+  const allowlistFieldState = form.getFieldState(
+    "allowlisted_cidrs",
+    form.formState
+  )
+  const allowlistDirty = allowlistFieldState.isDirty
+
   const handleAllowlistedCidrsChange = useCallback(
-    (newTags: Tag[]) => {
+    (newTags: Tag[] | undefined) => {
       if (!Array.isArray(newTags)) {
         form.setValue("allowlisted_cidrs", [], {
           shouldDirty: true,
@@ -373,6 +384,42 @@ export function WebhookControls({
     },
     [form]
   )
+
+  const handleSaveAllowlistedCidrs = useCallback(async () => {
+    const isValid = await form.trigger("allowlisted_cidrs")
+    if (!isValid) {
+      toast({
+        title: "Cannot save allowlist",
+        description: "Please fix the highlighted errors before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const tags = form.getValues("allowlisted_cidrs")
+    const payload = tags.map((tag) => tag.text)
+
+    try {
+      await mutateAsync({ allowlisted_cidrs: payload })
+      const currentValues = form.getValues()
+      form.reset(currentValues)
+      form.clearErrors("allowlisted_cidrs")
+      toast({
+        title: "Allowlist updated",
+        description: "Webhook allowlist saved successfully.",
+      })
+    } catch (error) {
+      const description = extractApiErrorMessage(
+        error,
+        "Failed to update the IP allowlist."
+      )
+      toast({
+        title: "Failed to save allowlist",
+        description,
+        variant: "destructive",
+      })
+    }
+  }, [form, mutateAsync])
 
   const formatTimestamp = (value: string | null) =>
     value ? new Date(value).toLocaleString() : "—"
@@ -554,9 +601,32 @@ export function WebhookControls({
           name="allowlisted_cidrs"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                <span>IP Allowlist</span>
-              </FormLabel>
+              <div className="flex items-end justify-between gap-2 min-h-[20px]">
+                <FormLabel className="text-xs font-medium">
+                  <span>IP Allowlist</span>
+                </FormLabel>
+                {allowlistDirty && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-auto px-2 text-[11px] py-0 flex items-center gap-1"
+                    onClick={handleSaveAllowlistedCidrs}
+                    disabled={isUpdatingWebhook}
+                  >
+                    {isUpdatingWebhook ? (
+                      <>
+                        <SaveIcon className="size-3 animate-pulse" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <SaveIcon className="size-3" />
+                        <span>Save</span>
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
               <FormControl>
                 <CustomTagInput
                   {...field}
