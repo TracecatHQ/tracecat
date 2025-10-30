@@ -367,10 +367,7 @@ function WorkflowManualTrigger({
                     className="group mt-2 flex h-7 items-center px-3 py-0 text-xs"
                   >
                     {executionPending ? (
-                      <Spinner
-                        className="mr-2 size-3"
-                        segmentColor="currentColor"
-                      />
+                      <Spinner className="mr-2 size-3" segmentColor="currentColor" />
                     ) : (
                       <PlayIcon className="mr-2 size-3" />
                     )}
