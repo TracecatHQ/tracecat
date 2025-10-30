@@ -47,8 +47,8 @@ def _ip_allowed(client_ip: str, cidr_list: Sequence[str]) -> bool:
             network = ip_network(cidr, strict=False)
         except ValueError:
             logger.warning(
-                "Invalid CIDR in webhook allowlist",
-                cidr=cidr,
+                "Invalid IP allowlist entry",
+                entry=cidr,
             )
             continue
         if ip_obj in network:
@@ -105,7 +105,7 @@ async def validate_incoming_webhook(
         if webhook.allowlisted_cidrs:
             if client_ip is None:
                 logger.warning(
-                    "Request missing client IP while CIDR allowlist configured",
+                    "Request missing client IP while allowlist configured",
                     webhook_id=webhook.id,
                 )
                 raise HTTPException(

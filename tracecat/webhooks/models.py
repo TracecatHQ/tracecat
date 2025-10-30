@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -81,7 +81,16 @@ def _normalize_cidrs(cidrs: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for cidr in cidrs:
-        network = ip_network(cidr, strict=False)
+        try:
+            network = ip_network(cidr, strict=False)
+        except ValueError:
+            try:
+                address = ip_address(cidr)
+            except ValueError as second_error:
+                raise ValueError(
+                    f"Invalid IP allowlist entry: {cidr}"
+                ) from second_error
+            network = ip_network(f"{address}/{address.max_prefixlen}", strict=False)
         stringified = str(network)
         if stringified not in seen:
             seen.add(stringified)

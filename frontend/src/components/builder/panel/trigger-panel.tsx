@@ -4,6 +4,7 @@ import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
+import * as ipaddr from "ipaddr.js"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -107,6 +108,64 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
+const CIDR_HELP_TEXT =
+  "Enter a valid IPv4 or IPv6 address or CIDR (e.g., 203.0.113.7, 203.0.113.0/24, or 2001:db8::/32)."
+
+const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
+  const maybeNormalized =
+    (address as ipaddr.IPv6).toNormalizedString?.() ?? address.toString()
+  return maybeNormalized
+}
+
+const validateCidr = (
+  value: string
+):
+  | { success: true; normalized: string }
+  | { success: false; error: string } => {
+  try {
+    const [address, prefixLength] = ipaddr.parseCIDR(value)
+    const normalized = `${toCanonicalString(address)}/${prefixLength}`
+    return { success: true, normalized }
+  } catch {
+    try {
+      const address = ipaddr.parse(value)
+      const prefixLength = address.kind() === "ipv4" ? 32 : 128
+      const normalized = `${toCanonicalString(address)}/${prefixLength}`
+      return { success: true, normalized }
+    } catch {
+      return { success: false, error: CIDR_HELP_TEXT }
+    }
+  }
+}
+
+const extractApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof ApiError) {
+    const body = error.body as Record<string, unknown> | undefined
+    if (body) {
+      const detail = body.detail
+      if (typeof detail === "string") {
+        return detail
+      }
+      const message = body.message
+      if (typeof message === "string") {
+        return message
+      }
+      const title = body.title
+      if (typeof title === "string") {
+        return title
+      }
+      const errors = body.errors
+      if (Array.isArray(errors) && errors.length > 0) {
+        const first = errors[0] as Record<string, unknown>
+        const msg = first?.msg ?? first?.message ?? first?.detail
+        if (typeof msg === "string") {
+          return msg
+        }
+      }
+    }
+  }
+  return fallback
+}
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
@@ -206,6 +265,7 @@ export function WebhookControls({
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false)
   const [newAllowlistEntry, setNewAllowlistEntry] = useState("")
+  const [allowlistError, setAllowlistError] = useState<string | null>(null)
 
   const formatTimestamp = (value: string | null) =>
     value ? new Date(value).toLocaleString() : "—"
@@ -247,14 +307,12 @@ export function WebhookControls({
       })
     } catch (error) {
       console.error("Failed to generate webhook API key", error)
-      const message =
-        error instanceof ApiError && error.body
-          ? ((error.body as { detail?: string })?.detail ??
-            "An error occurred while generating the key.")
-          : "An error occurred while generating the key."
       toast({
         title: "Failed to generate API key",
-        description: message,
+        description: extractApiErrorMessage(
+          error,
+          "An error occurred while generating the key."
+        ),
         variant: "destructive",
       })
     }
@@ -271,34 +329,50 @@ export function WebhookControls({
   const handleAddAllowlistEntry = async () => {
     const trimmed = newAllowlistEntry.trim()
     if (!trimmed) {
+      setAllowlistError("Enter an IP address or CIDR to add.")
       return
     }
 
-    if (allowlistedCidrs.includes(trimmed)) {
+    const cidrValidation = validateCidr(trimmed)
+    if (!cidrValidation.success) {
+      setAllowlistError(cidrValidation.error)
+      return
+    }
+
+    const normalizedValue = cidrValidation.normalized
+
+    if (allowlistedCidrs.includes(normalizedValue)) {
       toast({
-        title: "CIDR already allowlisted",
-        description: `${trimmed} is already present.`,
+        title: "Allowlist entry exists",
+        description: `${normalizedValue} is already present.`,
       })
       setNewAllowlistEntry("")
+      setAllowlistError(null)
       return
     }
 
-    const nextAllowlist = Array.from(new Set([...allowlistedCidrs, trimmed]))
+    const nextAllowlist = Array.from(
+      new Set([...allowlistedCidrs, normalizedValue])
+    )
 
     try {
       await mutateAsync({
         allowlisted_cidrs: nextAllowlist,
       })
       setNewAllowlistEntry("")
+      setAllowlistError(null)
       toast({
         title: "Allowlist updated",
-        description: `Added ${trimmed} to the webhook allowlist.`,
+        description: `Added ${normalizedValue} to the webhook allowlist.`,
       })
     } catch (error) {
       console.error("Failed to update allowlist", error)
       toast({
         title: "Error updating allowlist",
-        description: "Could not update allowlist. Please try again.",
+        description: extractApiErrorMessage(
+          error,
+          "Could not update allowlist."
+        ),
         variant: "destructive",
       })
     }
@@ -311,6 +385,7 @@ export function WebhookControls({
       await mutateAsync({
         allowlisted_cidrs: nextAllowlist,
       })
+      setAllowlistError(null)
       toast({
         title: "Allowlist updated",
         description: `Removed ${cidr} from the webhook allowlist.`,
@@ -319,7 +394,10 @@ export function WebhookControls({
       console.error("Failed to remove allowlist entry", error)
       toast({
         title: "Error updating allowlist",
-        description: "Could not update allowlist. Please try again.",
+        description: extractApiErrorMessage(
+          error,
+          "Could not update allowlist."
+        ),
         variant: "destructive",
       })
     }
@@ -401,7 +479,7 @@ export function WebhookControls({
 
       <div className="space-y-2">
         <Label className="flex gap-2 items-center text-xs font-medium">
-          <span>CIDR Allowlist</span>
+          <span>IP Allowlist</span>
         </Label>
         {allowlistedCidrs.length > 0 ? (
           <div className="space-y-2">
@@ -424,16 +502,22 @@ export function WebhookControls({
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            No CIDRs are configured. All source IPs are allowed.
+            No allowlist entries are configured. All source IPs are allowed.
           </p>
         )}
         <div className="flex gap-2">
           <Input
             value={newAllowlistEntry}
-            onChange={(event) => setNewAllowlistEntry(event.target.value)}
-            placeholder="e.g., 203.0.113.0/24"
+            onChange={(event) => {
+              setNewAllowlistEntry(event.target.value)
+              if (allowlistError) {
+                setAllowlistError(null)
+              }
+            }}
+            placeholder="e.g., 203.0.113.7 or 203.0.113.0/24"
             className="text-xs"
             disabled={isUpdatingWebhook}
+            aria-invalid={allowlistError ? "true" : "false"}
           />
           <Button
             size="sm"
@@ -442,12 +526,13 @@ export function WebhookControls({
               isUpdatingWebhook || newAllowlistEntry.trim().length === 0
             }
           >
-            Add CIDR
+            Add Entry
           </Button>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Provide IPv4 or IPv6 CIDR blocks to restrict inbound requests.
-        </p>
+        {allowlistError ? (
+          <p className="text-[11px] text-destructive">{allowlistError}</p>
+        ) : null}
+        <p className="text-[11px] text-muted-foreground">{CIDR_HELP_TEXT}</p>
       </div>
 
       <div className="space-y-2">
