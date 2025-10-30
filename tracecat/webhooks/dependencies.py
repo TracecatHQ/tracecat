@@ -28,9 +28,8 @@ API_KEY_HEADER = "x-tracecat-api-key"
 
 
 def _extract_client_ip(request: Request) -> str | None:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    # Assume proxy middleware already validated/sanitized headers; treat
+    # X-Forwarded-For as untrusted and rely on the resolved client host.
     if request.client:
         return request.client.host
     return None
