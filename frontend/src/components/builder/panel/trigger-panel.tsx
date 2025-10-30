@@ -625,7 +625,7 @@ export function WebhookControls({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </FormControl>
-              <FormMessage className="text-[11px]" />
+              <FormMessage className="text-xs" />
             </FormItem>
           )}
         />
@@ -643,7 +643,7 @@ export function WebhookControls({
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-auto px-2 text-[11px] py-0 flex items-center gap-1"
+                    className="h-auto px-2 text-xs py-0 flex items-center gap-1"
                     onClick={handleSaveAllowlistedCidrs}
                     disabled={isUpdatingWebhook}
                   >
@@ -679,8 +679,8 @@ export function WebhookControls({
                   allowed.
                 </FormDescription>
               )}
-              <FormMessage className="text-[11px]" />
-              <FormDescription className="text-[11px]">
+              <FormMessage className="text-xs" />
+              <FormDescription className="text-xs">
                 Enter a valid IPv4 address or CIDR (e.g., 203.0.113.7 or
                 203.0.113.0/24).
               </FormDescription>
@@ -697,10 +697,10 @@ export function WebhookControls({
           <div className="rounded-lg border bg-muted/40 p-4 text-xs shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-3">
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">
                   Active key
                 </span>
-                <span className="font-mono text-[11px] tracking-wide">
+                <span className="font-mono text-xs tracking-wide">
                   {apiKeyPreview ?? "—"}
                 </span>
               </div>
@@ -754,7 +754,7 @@ export function WebhookControls({
             <Separator className="my-3" />
             <dl className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Created
                 </dt>
                 <dd className="font-medium text-accent-foreground">
@@ -762,7 +762,7 @@ export function WebhookControls({
                 </dd>
               </div>
               <div className="space-y-1">
-                <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Last used
                 </dt>
                 <dd className="font-medium text-accent-foreground">
@@ -833,7 +833,7 @@ export function WebhookControls({
               <p className="text-xs font-medium text-muted-foreground">
                 No API key configured
               </p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Generate an API key to require clients to authenticate webhook
                 requests.
               </p>
@@ -859,8 +859,13 @@ export function WebhookControls({
             </Button>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           API keys are shown only once after creation. Store them securely.
+          Webhook senders must pass the key in the{" "}
+          <code className="text-xs bg-muted px-1 py-0.5 rounded">
+            x-tracecat-api-key
+          </code>{" "}
+          header.
         </p>
       </div>
 
@@ -889,7 +894,7 @@ export function WebhookControls({
                 />
               ) : null}
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Rotate the API key if it is ever exposed.
             </p>
           </div>
@@ -991,7 +996,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                   </TableCell>
                   <TableCell className="items-center text-xs">
                     {isCron ? (
-                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                      <code className="rounded bg-muted px-1 py-0.5 text-xs">
                         {scheduleLabel}
                       </code>
                     ) : (
