@@ -387,19 +387,37 @@ export function MessagePart({
 
   if (isToolUIPart(part)) {
     const toolName = getToolName(part).replaceAll("__", ".")
+    // Derive an error state for streaming when servers send
+    // a tool output that encodes validation feedback in `output`
+    // rather than `errorText`.
+    const outputAsAny = part.output as unknown
+    const partErrorText =
+      typeof part === "object" && part !== null && "errorText" in part
+        ? (part as { errorText?: string }).errorText
+        : undefined
+    const outputErrorText =
+      outputAsAny &&
+      typeof outputAsAny === "object" &&
+      "errorText" in outputAsAny
+        ? (outputAsAny as { errorText?: string }).errorText
+        : undefined
+    const derivedErrorText = partErrorText ?? outputErrorText
+    const derivedState = derivedErrorText
+      ? ("output-error" as const)
+      : part.state
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
           title={toolName}
           type={part.type}
-          state={part.state}
+          state={derivedState}
           icon={getIcon(toolName, {
             className: "size-4 p-[3px]",
           })}
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          <ToolOutput output={part.output} errorText={part.errorText} />
+          <ToolOutput output={part.output} errorText={derivedErrorText} />
         </ToolContent>
       </Tool>
     )
