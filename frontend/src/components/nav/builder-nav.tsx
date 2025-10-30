@@ -482,57 +482,50 @@ function WorkflowSaveActions({
               <ChevronDownIcon className="size-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <div className="p-3">
-              <Form {...publishForm}>
-                <form onSubmit={publishForm.handleSubmit(handlePublish)}>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <GitBranchIcon className="size-4" />
-                      <span className="text-sm font-medium">
-                        Publish Workflow
-                      </span>
-                    </div>
-                    <FormField
-                      control={publishForm.control}
-                      name="message"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs">
-                            Commit Message (Optional)
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder="Enter a commit message..."
-                              className="h-8 text-xs"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isPublishing}
-                      className="w-full h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
-                    >
-                      {isPublishing ? (
-                        <>
-                          <Spinner className="mr-2 size-3" />
-                          Publishing...
-                        </>
-                      ) : (
-                        <>
-                          <GitBranchIcon className="mr-2 size-4" />
-                          Publish
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </div>
+          <DropdownMenuContent align="end" className="w-96 p-3">
+            <Form {...publishForm}>
+              <form
+                onSubmit={publishForm.handleSubmit(handlePublish)}
+                className="flex flex-col"
+              >
+                <span className="mb-2 text-xs text-muted-foreground">
+                  Commit workflow
+                </span>
+                <FormField
+                  control={publishForm.control}
+                  name="message"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Add a short description of your changes (optional)"
+                          className="h-7 px-3 text-xs"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="submit"
+                  disabled={isPublishing}
+                  className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80"
+                >
+                  {isPublishing ? (
+                    <>
+                      <Spinner className="size-3" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <GitBranchIcon className="size-3" />
+                      Publish
+                    </>
+                  )}
+                </Button>
+              </form>
+            </Form>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
