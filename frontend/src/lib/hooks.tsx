@@ -212,6 +212,7 @@ import {
   tagsDeleteTag,
   tagsListTags,
   tagsUpdateTag,
+  triggersDeleteWebhookApiKey,
   triggersGenerateWebhookApiKey,
   triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
@@ -447,6 +448,36 @@ export function useRevokeWebhookApiKey(
       toast({
         title: "Error revoking API key",
         description: "Could not revoke API key. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+}
+
+export function useDeleteWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersDeleteWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      toast({
+        title: "API key deleted",
+        description: "Webhook API key removed successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete webhook API key:", error)
+      toast({
+        title: "Error deleting API key",
+        description: "Could not delete API key. Please try again.",
         variant: "destructive",
       })
     },

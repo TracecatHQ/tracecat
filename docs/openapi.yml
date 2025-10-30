@@ -119,8 +119,45 @@ paths:
     delete:
       tags:
       - triggers
+      summary: Delete Webhook Api Key
+      description: Permanently delete the current API key for a webhook.
+      operationId: triggers-delete_webhook_api_key
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf_[0-9a-zA-Z]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/webhook/api-key/revoke:
+    post:
+      tags:
+      - triggers
       summary: Revoke Webhook Api Key
-      description: Revoke the current API key for a webhook.
+      description: Revoke the current API key for a webhook without deleting it.
       operationId: triggers-revoke_webhook_api_key
       security:
       - APIKeyCookie: []

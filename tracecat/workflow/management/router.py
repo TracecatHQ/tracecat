@@ -38,6 +38,7 @@ from tracecat.validation.models import (
     ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
+from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.models import (
     WebhookApiKeyGenerateResponse,
     WebhookCreate,
@@ -64,24 +65,6 @@ from tracecat.workflow.management.models import (
 from tracecat.workflow.management.schemas import build_trigger_inputs_schema
 
 router = APIRouter(prefix="/workflows")
-
-
-async def _fetch_webhook(
-    session: AsyncDBSession,
-    workspace_id,
-    workflow_id: AnyWorkflowIDPath,
-) -> Webhook:
-    statement = select(Webhook).where(
-        Webhook.owner_id == workspace_id,
-        Webhook.workflow_id == workflow_id,
-    )
-    result = await session.exec(statement)
-    try:
-        return result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
 
 
 @router.get("", tags=["workflows"])
@@ -623,8 +606,10 @@ async def get_webhook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    webhook = await _fetch_webhook(
-        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+    webhook = await webhook_service.get_webhook(
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
     )
     return WebhookRead.model_validate(webhook, from_attributes=True)
 
@@ -680,9 +665,13 @@ async def generate_webhook_api_key(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    webhook = await _fetch_webhook(
+    webhook = await webhook_service.get_webhook(
         session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
     )
+    if webhook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
+        )
     now = datetime.now(UTC)
     generated = generate_api_key()
     preview = generated.preview()
@@ -714,8 +703,8 @@ async def generate_webhook_api_key(
     )
 
 
-@router.delete(
-    "/{workflow_id}/webhook/api-key",
+@router.post(
+    "/{workflow_id}/webhook/api-key/revoke",
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
@@ -729,9 +718,13 @@ async def revoke_webhook_api_key(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    webhook = await _fetch_webhook(
+    webhook = await webhook_service.get_webhook(
         session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
     )
+    if webhook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
+        )
     now = datetime.now(UTC)
     api_key = webhook.api_key
     if api_key is None:
@@ -742,6 +735,36 @@ async def revoke_webhook_api_key(
     api_key.revoked_by = role.user_id
     api_key.updated_at = now
     session.add(api_key)
+    await session.commit()
+
+
+@router.delete(
+    "/{workflow_id}/webhook/api-key",
+    tags=["triggers"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_webhook_api_key(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> None:
+    """Delete the current API key for a webhook."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await webhook_service.get_webhook(
+        session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
+    )
+    if webhook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
+        )
+    api_key = webhook.api_key
+    if api_key is None:
+        return
+    await session.delete(api_key)
+    webhook.api_key = None
     await session.commit()
 
 

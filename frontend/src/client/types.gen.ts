@@ -5463,6 +5463,13 @@ export type TriggersGenerateWebhookApiKeyData = {
 export type TriggersGenerateWebhookApiKeyResponse =
   WebhookApiKeyGenerateResponse
 
+export type TriggersDeleteWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteWebhookApiKeyResponse = void
+
 export type TriggersRevokeWebhookApiKeyData = {
   workflowId: string
   workspaceId: string
@@ -7614,6 +7621,21 @@ export type $OpenApiTs = {
       }
     }
     delete: {
+      req: TriggersDeleteWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+    post: {
       req: TriggersRevokeWebhookApiKeyData
       res: {
         /**

@@ -123,9 +123,18 @@ async def validate_incoming_webhook(
                     detail="Unauthorized webhook request",
                 )
 
-        api_key = request.headers.get(API_KEY_HEADER)
-        if webhook.api_key and webhook.api_key.revoked_at is None:
-            if not api_key:
+        api_key_header = request.headers.get(API_KEY_HEADER)
+        if api_key_record := webhook.api_key:
+            if api_key_record.revoked_at is not None:
+                logger.warning(
+                    "Rejected request using revoked webhook API key",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            if not api_key_header:
                 logger.warning(
                     "Missing API key for webhook with active key",
                     webhook_id=webhook.id,
@@ -135,7 +144,7 @@ async def validate_incoming_webhook(
                     detail="Unauthorized webhook request",
                 )
             if not verify_api_key(
-                api_key, webhook.api_key.salt, webhook.api_key.hashed
+                api_key_header, api_key_record.salt, api_key_record.hashed
             ):
                 logger.warning(
                     "Invalid API key presented",
@@ -145,9 +154,9 @@ async def validate_incoming_webhook(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Unauthorized webhook request",
                 )
-            webhook.api_key.last_used_at = datetime.now(UTC)
+            api_key_record.last_used_at = datetime.now(UTC)
             updated = True
-        elif api_key:
+        elif api_key_header:
             logger.info(
                 "API key provided for webhook without active key configuration",
                 webhook_id=webhook.id,
