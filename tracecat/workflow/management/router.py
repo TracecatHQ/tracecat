@@ -611,6 +611,10 @@ async def get_webhook(
         workspace_id=role.workspace_id,
         workflow_id=workflow_id,
     )
+    if webhook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
+        )
     return WebhookRead.model_validate(webhook, from_attributes=True)
 
 
