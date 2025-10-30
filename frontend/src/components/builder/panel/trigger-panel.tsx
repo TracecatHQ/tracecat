@@ -7,9 +7,11 @@ import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
   CalendarClockIcon,
-  KeyIcon,
+  MoreHorizontalIcon,
   PlusCircleIcon,
+  RotateCcwIcon,
   SaveIcon,
+  Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
@@ -47,6 +49,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -75,7 +78,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -104,6 +106,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import {
   useGenerateWebhookApiKey,
+  useRevokeWebhookApiKey,
   useSchedules,
   useUpdateWebhook,
 } from "@/lib/hooks"
@@ -308,9 +311,14 @@ export function WebhookControls({
   )
   const { mutateAsync: generateWebhookApiKey, isPending: isGeneratingApiKey } =
     useGenerateWebhookApiKey(workspaceId, workflowId)
+  const { mutateAsync: revokeWebhookApiKey, isPending: isRevokingApiKey } =
+    useRevokeWebhookApiKey(workspaceId, workflowId)
   const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null)
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false)
+  const [confirmRegenerateDialogOpen, setConfirmRegenerateDialogOpen] =
+    useState(false)
+  const [confirmRevokeDialogOpen, setConfirmRevokeDialogOpen] = useState(false)
 
   const form = useForm<WebhookForm>({
     resolver: zodResolver(webhookFormSchema),
@@ -477,7 +485,7 @@ export function WebhookControls({
     }
   }
 
-  const handleGenerateApiKey = async () => {
+  const handleGenerateApiKey = async (): Promise<boolean> => {
     try {
       const response = await generateWebhookApiKey()
       setGeneratedApiKey(response.api_key)
@@ -487,6 +495,7 @@ export function WebhookControls({
         title: "API key generated",
         description: "Copy the API key now. It will not be shown again.",
       })
+      return true
     } catch (error) {
       console.error("Failed to generate webhook API key", error)
       toast({
@@ -497,6 +506,7 @@ export function WebhookControls({
         ),
         variant: "destructive",
       })
+      return false
     }
   }
 
@@ -505,6 +515,22 @@ export function WebhookControls({
     if (!open) {
       setGeneratedApiKey(null)
       setGeneratedAt(null)
+    }
+  }
+
+  const handleConfirmRegenerate = async () => {
+    const didGenerate = await handleGenerateApiKey()
+    if (didGenerate) {
+      setConfirmRegenerateDialogOpen(false)
+    }
+  }
+
+  const handleConfirmRevoke = async () => {
+    try {
+      await revokeWebhookApiKey()
+      setConfirmRevokeDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to revoke webhook API key", error)
     }
   }
 
@@ -659,21 +685,68 @@ export function WebhookControls({
 
       <div className="space-y-3">
         <Label className="flex items-center gap-2 text-xs font-medium">
-          <KeyIcon className="size-4 text-muted-foreground" />
           <span>API Key</span>
         </Label>
         {hasActiveApiKey ? (
           <div className="rounded-lg border bg-muted/40 p-4 text-xs shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                Active key
-              </span>
-              <Badge
-                variant="outline"
-                className="font-mono text-[11px] uppercase tracking-widest"
-              >
-                {apiKeySuffix ? `•••${apiKeySuffix}` : "—"}
-              </Badge>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Active key
+                </span>
+                <Badge
+                  variant="outline"
+                  className="font-mono text-[11px] uppercase tracking-widest"
+                >
+                  {apiKeySuffix ? `•••${apiKeySuffix}` : "—"}
+                </Badge>
+              </div>
+              <TooltipProvider>
+                <Tooltip>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-full text-muted-foreground hover:text-foreground"
+                          disabled={isGeneratingApiKey || isRevokingApiKey}
+                        >
+                          <MoreHorizontalIcon className="size-4" />
+                          <span className="sr-only">Manage API key</span>
+                        </Button>
+                      </TooltipTrigger>
+                    </DropdownMenuTrigger>
+                    <TooltipContent side="bottom" sideOffset={4}>
+                      Manage API key
+                    </TooltipContent>
+                    <DropdownMenuContent align="end" sideOffset={4}>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          setConfirmRegenerateDialogOpen(true)
+                        }}
+                        disabled={isGeneratingApiKey || isRevokingApiKey}
+                        className="flex items-center gap-2"
+                      >
+                        <RotateCcwIcon className="size-4" />
+                        <span>Regenerate</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          setConfirmRevokeDialogOpen(true)
+                        }}
+                        disabled={isGeneratingApiKey || isRevokingApiKey}
+                        className="flex items-center gap-2 text-destructive focus:text-destructive"
+                      >
+                        <Trash2Icon className="size-4" />
+                        <span>Delete</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </Tooltip>
+              </TooltipProvider>
             </div>
             <Separator className="my-3" />
             <dl className="grid gap-3 sm:grid-cols-2">
@@ -694,15 +767,62 @@ export function WebhookControls({
                 </dd>
               </div>
             </dl>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-4 w-full justify-center"
-              onClick={handleGenerateApiKey}
-              disabled={isGeneratingApiKey}
+            <AlertDialog
+              open={confirmRegenerateDialogOpen}
+              onOpenChange={setConfirmRegenerateDialogOpen}
             >
-              {isGeneratingApiKey ? "Generating..." : "Regenerate API key"}
-            </Button>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Regenerate API key?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Rotating the API key immediately revokes the existing key.
+                    Clients must be updated to use the new key.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    disabled={isGeneratingApiKey || isRevokingApiKey}
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleConfirmRegenerate}
+                    disabled={isGeneratingApiKey || isRevokingApiKey}
+                  >
+                    {isGeneratingApiKey ? "Generating..." : "Regenerate"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <AlertDialog
+              open={confirmRevokeDialogOpen}
+              onOpenChange={setConfirmRevokeDialogOpen}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete API key?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will immediately revoke the existing key. Clients that
+                    rely on this key will no longer be able to access the
+                    webhook until a new key is generated.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    disabled={isGeneratingApiKey || isRevokingApiKey}
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleConfirmRevoke}
+                    disabled={isGeneratingApiKey || isRevokingApiKey}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {isRevokingApiKey ? "Deleting..." : "Delete key"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         ) : (
           <div className="rounded-lg border border-dashed bg-muted/30 p-4 text-xs shadow-sm">

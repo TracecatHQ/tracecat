@@ -213,6 +213,7 @@ import {
   tagsListTags,
   tagsUpdateTag,
   triggersGenerateWebhookApiKey,
+  triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
@@ -417,6 +418,36 @@ export function useGenerateWebhookApiKey(
       toast({
         title: "Error generating API key",
         description: "Could not generate API key. Please try again.",
+      })
+    },
+  })
+}
+
+export function useRevokeWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersRevokeWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      toast({
+        title: "API key revoked",
+        description: "Webhook API key revoked successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to revoke webhook API key:", error)
+      toast({
+        title: "Error revoking API key",
+        description: "Could not revoke API key. Please try again.",
+        variant: "destructive",
       })
     },
   })
