@@ -13667,9 +13667,9 @@ export const $WebhookApiKeyGenerateResponse = {
       type: "string",
       title: "Api Key",
     },
-    suffix: {
+    preview: {
       type: "string",
-      title: "Suffix",
+      title: "Preview",
     },
     created_at: {
       type: "string",
@@ -13678,15 +13678,15 @@ export const $WebhookApiKeyGenerateResponse = {
     },
   },
   type: "object",
-  required: ["api_key", "suffix", "created_at"],
+  required: ["api_key", "preview", "created_at"],
   title: "WebhookApiKeyGenerateResponse",
 } as const
 
 export const $WebhookApiKeyRead = {
   properties: {
-    suffix: {
+    preview: {
       type: "string",
-      title: "Suffix",
+      title: "Preview",
     },
     created_at: {
       type: "string",
@@ -13724,7 +13724,7 @@ export const $WebhookApiKeyRead = {
     },
   },
   type: "object",
-  required: ["suffix", "created_at"],
+  required: ["preview", "created_at"],
   title: "WebhookApiKeyRead",
 } as const
 

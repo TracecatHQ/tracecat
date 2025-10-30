@@ -306,7 +306,7 @@ export function WebhookControls({
   workflowId: string
 }) {
   const hasActiveApiKey = webhook.api_key?.is_active ?? false
-  const apiKeySuffix = webhook.api_key?.suffix ?? null
+  const apiKeyPreview = webhook.api_key?.preview ?? null
   const apiKeyCreatedAt = webhook.api_key?.created_at ?? null
   const apiKeyLastUsedAt = webhook.api_key?.last_used_at ?? null
 
@@ -702,9 +702,9 @@ export function WebhookControls({
                 </span>
                 <Badge
                   variant="outline"
-                  className="font-mono text-[11px] uppercase tracking-widest"
+                  className="font-mono text-[11px] tracking-wide"
                 >
-                  {apiKeySuffix ? `•••${apiKeySuffix}` : "—"}
+                  {apiKeyPreview ?? "—"}
                 </Badge>
               </div>
               <TooltipProvider>
@@ -869,7 +869,7 @@ export function WebhookControls({
               <span>{formatTimestamp(generatedAt)}</span>
             </div>
             <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
-              <code className="max-w-[75%] break-all text-xs">
+              <code className="break-all text-xs">
                 {generatedApiKey ?? "—"}
               </code>
               {generatedApiKey ? (

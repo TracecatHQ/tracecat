@@ -4605,12 +4605,12 @@ export type WaitStrategy = "wait" | "detach"
 
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
-  suffix: string
+  preview: string
   created_at: string
 }
 
 export type WebhookApiKeyRead = {
-  suffix: string
+  preview: string
   created_at: string
   last_used_at?: string | null
   revoked_at?: string | null

@@ -183,10 +183,14 @@ class TestWebhookNetworkHelpers:
 class TestWebhookApiKeyRead:
     def test_is_active_true_when_not_revoked(self):
         now = datetime.now(UTC)
-        api_key = WebhookApiKeyRead(suffix="abcd", created_at=now, revoked_at=None)
+        api_key = WebhookApiKeyRead(
+            preview="tc_sk_abcd", created_at=now, revoked_at=None
+        )
         assert api_key.is_active is True
 
     def test_is_active_false_when_revoked(self):
         now = datetime.now(UTC)
-        api_key = WebhookApiKeyRead(suffix="abcd", created_at=now, revoked_at=now)
+        api_key = WebhookApiKeyRead(
+            preview="tc_sk_abcd", created_at=now, revoked_at=now
+        )
         assert api_key.is_active is False

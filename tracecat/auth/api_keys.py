@@ -9,6 +9,7 @@ from tracecat.auth.crypto import generate_token
 
 DEFAULT_API_KEY_PREFIX = "tc_sk_"
 DEFAULT_SUFFIX_LENGTH = 6
+API_KEY_PREVIEW_LENGTH = 4
 SALT_BYTES = 16
 DIGEST_SIZE = 32
 
@@ -21,6 +22,30 @@ class GeneratedApiKey:
     hashed: str
     salt_b64: str
     suffix: str
+
+    def preview(self) -> str:
+        return make_api_key_preview(self.raw)
+
+
+def make_api_key_preview(
+    raw: str,
+    *,
+    prefix: str = DEFAULT_API_KEY_PREFIX,
+    preview_length: int = API_KEY_PREVIEW_LENGTH,
+) -> str:
+    """
+    Build a short preview identifier for an API key.
+
+    The preview combines the standardized prefix with the trailing characters of
+    the random secret portion. This gives operators a stable identifier without
+    leaking the full secret.
+    """
+    if not raw.startswith(prefix):
+        raise ValueError("API key must start with the expected prefix")
+    if len(raw) < len(prefix) + preview_length:
+        raise ValueError("API key is shorter than the requested preview length")
+    secret_tail = raw[-preview_length:]
+    return f"{prefix}...{secret_tail}"
 
 
 def _hash_api_key(value: str, salt: bytes) -> str:

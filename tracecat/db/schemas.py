@@ -511,7 +511,7 @@ class WebhookApiKey(Resource, table=True):
     webhook: "Webhook" = Relationship(back_populates="api_key")
     hashed: str = Field(sa_column=Column(String(128), nullable=False))
     salt: str = Field(sa_column=Column(String(64), nullable=False))
-    suffix: str = Field(sa_column=Column(String(16), nullable=False))
+    preview: str = Field(sa_column=Column(String(16), nullable=False))
     last_used_at: datetime | None = Field(
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True), nullable=True),
@@ -580,8 +580,8 @@ class Webhook(Resource, table=True):
 
     @computed_field
     @property
-    def api_key_suffix(self) -> str | None:
-        return self.api_key.suffix if self.api_key else None
+    def api_key_preview(self) -> str | None:
+        return self.api_key.preview if self.api_key else None
 
     @computed_field
     @property

@@ -7,6 +7,7 @@ import pytest
 from tracecat.auth.api_keys import (
     DEFAULT_API_KEY_PREFIX,
     generate_api_key,
+    make_api_key_preview,
     verify_api_key,
 )
 
@@ -25,6 +26,14 @@ def test_generate_api_key_shapes() -> None:
 def test_verify_api_key_round_trip() -> None:
     generated = generate_api_key()
     assert verify_api_key(generated.raw, generated.salt_b64, generated.hashed)
+
+
+def test_make_api_key_preview_uses_prefix_and_tail() -> None:
+    generated = generate_api_key()
+    preview = make_api_key_preview(generated.raw)
+    assert preview.startswith(DEFAULT_API_KEY_PREFIX)
+    expected_tail = generated.raw[-4:]
+    assert preview == f"{DEFAULT_API_KEY_PREFIX}...{expected_tail}"
 
 
 @pytest.mark.parametrize("candidate", ["sk_wrong", "", None])

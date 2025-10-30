@@ -685,6 +685,7 @@ async def generate_webhook_api_key(
     )
     now = datetime.now(UTC)
     generated = generate_api_key()
+    preview = generated.preview()
     api_key = webhook.api_key
     if api_key is None:
         api_key = WebhookApiKey(
@@ -692,13 +693,13 @@ async def generate_webhook_api_key(
             webhook_id=webhook.id,
             hashed=generated.hashed,
             salt=generated.salt_b64,
-            suffix=generated.suffix,
+            preview=preview,
         )
     else:
         api_key.owner_id = role.workspace_id
         api_key.hashed = generated.hashed
         api_key.salt = generated.salt_b64
-        api_key.suffix = generated.suffix
+        api_key.preview = preview
         api_key.last_used_at = None
         api_key.revoked_at = None
         api_key.revoked_by = None
@@ -708,7 +709,7 @@ async def generate_webhook_api_key(
     await session.commit()
     return WebhookApiKeyGenerateResponse(
         api_key=generated.raw,
-        suffix=generated.suffix,
+        preview=preview,
         created_at=now,
     )
 

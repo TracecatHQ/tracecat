@@ -8561,11 +8561,11 @@ components:
         url:
           type: string
           title: Url
-        api_key_suffix:
+        api_key_preview:
           anyOf:
           - type: string
           - type: 'null'
-          title: Api Key Suffix
+          title: Api Key Preview
         api_key_created_at:
           anyOf:
           - type: string
@@ -8637,9 +8637,9 @@ components:
         api_key:
           type: string
           title: Api Key
-        suffix:
+        preview:
           type: string
-          title: Suffix
+          title: Preview
         created_at:
           type: string
           format: date-time
@@ -8647,7 +8647,7 @@ components:
       type: object
       required:
       - api_key
-      - suffix
+      - preview
       - created_at
       title: WebhookApiKeyResponse
     WorkflowCommitResponse:

@@ -64,7 +64,7 @@ class WebhookUpdate(BaseModel):
 
 
 class WebhookApiKeyRead(BaseModel):
-    suffix: str
+    preview: str
     created_at: datetime
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -78,7 +78,7 @@ class WebhookApiKeyRead(BaseModel):
 
 class WebhookApiKeyGenerateResponse(BaseModel):
     api_key: str
-    suffix: str
+    preview: str
     created_at: datetime
 
 

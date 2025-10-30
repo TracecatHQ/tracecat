@@ -1,8 +1,8 @@
 """Add webhook api key
 
-Revision ID: 46c124b45791
+Revision ID: 62bd5a3dccde
 Revises: 2d6eadcf4976
-Create Date: 2025-10-29 17:08:05.457937
+Create Date: 2025-10-29 23:39:52.008342
 
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "46c124b45791"
+revision: str = "62bd5a3dccde"
 down_revision: str | None = "2d6eadcf4976"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -43,7 +43,7 @@ def upgrade() -> None:
         sa.Column("webhook_id", sa.String(), nullable=True),
         sa.Column("hashed", sa.String(length=128), nullable=False),
         sa.Column("salt", sa.String(length=64), nullable=False),
-        sa.Column("suffix", sa.String(length=16), nullable=False),
+        sa.Column("preview", sa.String(length=16), nullable=False),
         sa.Column("last_used_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("revoked_by", sa.UUID(), nullable=True),
