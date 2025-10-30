@@ -20,9 +20,10 @@ class GeneratedApiKey:
     raw: str
     hashed: str
     salt_b64: str
+    prefix: str
 
     def preview(self) -> str:
-        return make_api_key_preview(self.raw)
+        return make_api_key_preview(self.raw, prefix=self.prefix)
 
 
 def make_api_key_preview(
@@ -82,6 +83,7 @@ def generate_api_key(
         raw=raw,
         hashed=hashed,
         salt_b64=base64.b64encode(salt).decode("ascii"),
+        prefix=prefix,
     )
 
 
