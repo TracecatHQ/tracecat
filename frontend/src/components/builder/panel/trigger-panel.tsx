@@ -858,11 +858,11 @@ export function WebhookControls({
           <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-xs shadow-sm">
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">
-                No API key configured
+                Webhook is not protected
               </p>
               <p className="text-xs text-muted-foreground">
-                Generate an API key to require clients to authenticate webhook
-                requests.
+                No API key is configured. Generate an API key to require
+                clients to authenticate webhook requests.
               </p>
             </div>
             <Button
