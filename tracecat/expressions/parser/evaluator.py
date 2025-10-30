@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar, cast
 
 from lark import Token, Transformer, Tree, v_args
@@ -63,6 +63,28 @@ class ExprEvaluator(Transformer):
     def context(self, value: Any):
         logger.trace("Visiting context:", args=value)
         return value
+
+    @v_args(inline=True)
+    def base_expr(self, value: Any):
+        logger.trace("Visiting base_expr:", value=value)
+        return value
+
+    @v_args(inline=True)
+    def indexer(self, index: Any):
+        logger.trace("Visiting indexer:", index=index)
+        return index
+
+    @v_args(inline=True)
+    def primary_expr(self, base: Any, *indexers: Any):
+        logger.trace(
+            "Visiting primary_expr:",
+            base=base,
+            indexers=indexers,
+        )
+        result = base
+        for index in indexers:
+            result = self._apply_index(result, index)
+        return result
 
     @v_args(inline=True)
     def iterator(self, iter_var_expr: str, collection: Any):
@@ -370,3 +392,34 @@ class ExprEvaluator(Transformer):
     def BRACKET_ACCESS(self, token: Token):
         logger.trace("Visiting BRACKET_ACCESS:", value=token.value)
         return token.value
+
+    def _apply_index(self, value: Any, index: Any) -> Any:
+        self.logger.trace("Applying index", value=value, index=index)
+        if isinstance(value, Mapping):
+            try:
+                return value[index]
+            except KeyError as exc:
+                raise TracecatExpressionError(
+                    f"Key {index!r} not found for mapping access"
+                ) from exc
+            except TypeError as exc:
+                raise TracecatExpressionError(
+                    f"Invalid key type {type(index).__name__!r} for mapping access"
+                ) from exc
+
+        if isinstance(value, Sequence):
+            if not isinstance(index, int):
+                raise TracecatExpressionError(
+                    "Sequence indices must be integers, got"
+                    f" {type(index).__name__!r}"
+                )
+            try:
+                return value[index]
+            except IndexError as exc:
+                raise TracecatExpressionError(
+                    f"Sequence index {index} out of range"
+                ) from exc
+
+        raise TracecatExpressionError(
+            f"Object of type {type(value).__name__!r} is not indexable"
+        )
