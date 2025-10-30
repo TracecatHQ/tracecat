@@ -3210,7 +3210,7 @@ export const $CaseTagCreate = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "string",
@@ -3231,7 +3231,7 @@ export const $CaseTagRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -6740,7 +6740,7 @@ export const $IntegrationRead = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -7502,7 +7502,7 @@ export const $OrgMemberRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -9560,7 +9560,7 @@ export const $Role = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -10981,7 +10981,7 @@ export const $TableColumnRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11114,7 +11114,7 @@ export const $TableRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11139,7 +11139,7 @@ export const $TableReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11211,7 +11211,7 @@ export const $TableRowRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     created_at: {
@@ -11298,7 +11298,7 @@ export const $TagRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -13356,7 +13356,7 @@ export const $VariableRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -13433,7 +13433,7 @@ export const $VariableReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -15257,7 +15257,7 @@ export const $WorkflowTagCreate = {
   properties: {
     tag_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Tag Id",
     },
   },
@@ -15446,7 +15446,7 @@ export const $WorkspaceMember = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -15499,7 +15499,7 @@ export const $WorkspaceMembershipCreate = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     role: {
@@ -15516,7 +15516,7 @@ export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     workspace_id: {
