@@ -288,25 +288,49 @@ function ActionPanelContent({
     [action?.inputs]
   )
 
-  const methods = useForm<ActionFormSchema>({
-    resolver: zodResolver(actionFormSchema),
-    values: {
+  const formValues = useMemo((): ActionFormSchema => {
+    const retryPolicy = actionControlFlow?.retry_policy ?? {}
+    return {
       title: action?.title,
       description: action?.description,
       inputs: actionInputsObj,
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
-      max_attempts: actionControlFlow?.retry_policy?.max_attempts,
-      timeout: actionControlFlow?.retry_policy?.timeout,
-      retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
+      max_attempts: retryPolicy.max_attempts,
+      timeout: retryPolicy.timeout,
+      retry_until: retryPolicy.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
-    },
+    }
+  }, [
+    action?.title,
+    action?.description,
+    actionInputsObj,
+    actionControlFlow?.for_each,
+    actionControlFlow?.run_if,
+    actionControlFlow?.retry_policy?.max_attempts,
+    actionControlFlow?.retry_policy?.timeout,
+    actionControlFlow?.retry_policy?.retry_until,
+    actionControlFlow?.start_delay,
+    actionControlFlow?.join_strategy,
+    actionControlFlow?.wait_until,
+    actionControlFlow?.environment,
+    action?.is_interactive,
+    action?.interaction,
+  ])
+
+  const methods = useForm<ActionFormSchema>({
+    resolver: zodResolver(actionFormSchema),
+    defaultValues: formValues,
   })
+
+  useEffect(() => {
+    methods.reset(formValues)
+  }, [methods, formValues])
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
