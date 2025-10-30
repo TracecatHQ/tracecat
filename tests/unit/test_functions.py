@@ -11,6 +11,7 @@ from tracecat.expressions.functions import (
     add_prefix,
     add_suffix,
     and_,
+    at,
     b64_to_str,
     b64url_to_str,
     capitalize,
@@ -51,7 +52,6 @@ from tracecat.expressions.functions import (
     hash_sha256,
     hash_sha512,
     hours_between,
-    index,
     intersection,
     ipv4_in_subnet,
     ipv4_is_public,
@@ -508,9 +508,9 @@ def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
         ([{"a": 1}, {"b": 2}], -1, {"b": 2}),
     ],
 )
-def test_index(sequence: Any, idx: int, expected: Any) -> None:
-    """Test index function with various sequence types and indices."""
-    assert index(sequence, idx) == expected
+def test_at(sequence: Any, idx: int, expected: Any) -> None:
+    """Test at function with various sequence types and indices."""
+    assert at(sequence, idx) == expected
 
 
 @pytest.mark.parametrize(
@@ -524,10 +524,10 @@ def test_index(sequence: Any, idx: int, expected: Any) -> None:
         ((), 0),  # Empty tuple
     ],
 )
-def test_index_out_of_range(sequence: Any, idx: int) -> None:
-    """Test that index raises IndexError for out-of-range indices."""
+def test_at_out_of_range(sequence: Any, idx: int) -> None:
+    """Test that at raises IndexError for out-of-range indices."""
     with pytest.raises(IndexError):
-        index(sequence, idx)
+        at(sequence, idx)
 
 
 @pytest.mark.parametrize(
