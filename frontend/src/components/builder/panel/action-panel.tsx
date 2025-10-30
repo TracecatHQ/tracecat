@@ -1764,7 +1764,7 @@ function RegistryActionSecrets({
                   <TableCell className="flex items-center gap-1">
                     <span>{secret.provider_id}</span>
                     <Link
-                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=configuration`}
+                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=overview&grant_type=${secret.grant_type}`}
                       target="_blank"
                     >
                       <ExternalLinkIcon className="size-3" strokeWidth={2.5} />
