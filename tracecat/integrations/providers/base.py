@@ -527,6 +527,16 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     _fallback_auth_endpoint: ClassVar[str | None] = None
     _fallback_token_endpoint: ClassVar[str | None] = None
 
+    @staticmethod
+    def _clean_credential(value: Any) -> str | None:
+        """Normalize credential inputs to trimmed strings or None."""
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return None
+
     def __init__(
         self,
         *,
@@ -540,29 +550,49 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         # Initialize logger early for discovery
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
 
-        # Initialize instance attributes
-        self._token_endpoint_auth_methods_supported: list[str] = []
-
-        # Discover OAuth endpoints before parent initialization
-        if discovered_auth_endpoint and discovered_token_endpoint:
-            discovery_result = OAuthDiscoveryResult(
-                authorization_endpoint=discovered_auth_endpoint,
-                token_endpoint=discovered_token_endpoint,
-                token_methods=token_endpoint_auth_methods_supported or [],
-                registration_endpoint=registration_endpoint,
-            )
-        else:
-            discovery_result = self._discover_oauth_endpoints()
-
-        self._registration_endpoint = (
-            registration_endpoint or discovery_result.registration_endpoint
+        discovery_result = self._resolve_discovery_result(
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+            registration_endpoint=registration_endpoint,
+            token_methods_override=token_endpoint_auth_methods_supported,
         )
-        self._token_endpoint_auth_methods_supported = discovery_result.token_methods
+
+        self._registration_endpoint = discovery_result.registration_endpoint
+        self._token_endpoint_auth_methods_supported = (
+            discovery_result.token_methods or []
+        )
 
         super().__init__(
             authorization_endpoint=discovery_result.authorization_endpoint,
             token_endpoint=discovery_result.token_endpoint,
             **kwargs,
+        )
+
+    def _resolve_discovery_result(
+        self,
+        *,
+        discovered_auth_endpoint: str | None,
+        discovered_token_endpoint: str | None,
+        registration_endpoint: str | None,
+        token_methods_override: list[str] | None,
+    ) -> OAuthDiscoveryResult:
+        """Return discovery result for initialization, performing lookup when needed."""
+        if discovered_auth_endpoint and discovered_token_endpoint:
+            return OAuthDiscoveryResult(
+                authorization_endpoint=discovered_auth_endpoint,
+                token_endpoint=discovered_token_endpoint,
+                token_methods=token_methods_override or [],
+                registration_endpoint=registration_endpoint,
+            )
+
+        discovered = self._discover_oauth_endpoints()
+
+        return OAuthDiscoveryResult(
+            authorization_endpoint=discovered.authorization_endpoint,
+            token_endpoint=discovered.token_endpoint,
+            token_methods=token_methods_override or discovered.token_methods,
+            registration_endpoint=registration_endpoint
+            or discovered.registration_endpoint,
         )
 
     @classmethod
@@ -724,18 +754,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _resolve_client_credentials(
         self, client_id: str | None, client_secret: str | None
     ) -> ClientCredentials:
-        resolved_client_id = client_id if client_id and client_id.strip() else None
-        resolved_client_secret = (
-            client_secret if client_secret and client_secret.strip() else None
-        )
+        resolved_client_id = self._clean_credential(client_id)
+        resolved_client_secret = self._clean_credential(client_secret)
 
-        # Attempt dynamic client registration when no credentials are provided.
-        if resolved_client_id is None and self._registration_endpoint:
+        if not resolved_client_id and self._registration_endpoint:
             registration_result = self._perform_dynamic_registration()
             resolved_client_id = registration_result.client_id
             resolved_client_secret = registration_result.client_secret
 
-        if resolved_client_id is None:
+        if not resolved_client_id:
             raise ValueError("Missing hosted client credential: client_id")
 
         # Secrets are optional for public clients (token endpoint auth method "none").
@@ -811,17 +838,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         )
 
     def _get_token_endpoint_auth_method(self) -> str | None:
-        if self._client_registration_auth_method is not None:
+        if self._client_registration_auth_method:
             return self._client_registration_auth_method
-        methods = self._token_endpoint_auth_methods_supported
+        methods = self._token_endpoint_auth_methods_supported or []
         if self.client_secret:
-            if "client_secret_post" in methods:
-                return "client_secret_post"
-            if "client_secret_basic" in methods:
-                return "client_secret_basic"
-        else:
-            if "none" in methods:
-                return "none"
+            for candidate in ("client_secret_post", "client_secret_basic"):
+                if candidate in methods:
+                    return candidate
+        elif "none" in methods:
+            return "none"
         return super()._get_token_endpoint_auth_method()
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
@@ -849,31 +874,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             else kwargs.get("scopes")
         )
 
-        client_id: str | None
-        client_secret: str | None
-
         if config:
-            if isinstance(config.client_id, str):
-                client_id = config.client_id.strip()
-            if isinstance(config.client_secret, SecretStr):
-                client_secret = config.client_secret.get_secret_value().strip()
+            client_id = cls._clean_credential(config.client_id)
+            client_secret = cls._clean_credential(config.client_secret)
         else:
-            client_id_value = kwargs.get("client_id")
-            if isinstance(client_id_value, str):
-                client_id = client_id_value.strip()
-            else:
-                client_id = client_id_value
-
-            client_secret_value = kwargs.get("client_secret")
-            if isinstance(client_secret_value, str):
-                client_secret = client_secret_value.strip() or None
-            else:
-                client_secret = client_secret_value
+            client_id = cls._clean_credential(kwargs.get("client_id"))
+            client_secret = cls._clean_credential(kwargs.get("client_secret"))
 
         registration_auth_method = None
-        if (
-            client_id is None or (isinstance(client_id, str) and not client_id.strip())
-        ) and discovery_result.registration_endpoint:
+        if not client_id and discovery_result.registration_endpoint:
             registration_auth_method = cls._select_dynamic_registration_auth_method(
                 discovery_result.token_methods
             )
@@ -886,23 +895,11 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             client_secret = registration_result.client_secret
             registration_auth_method = registration_result.auth_method
 
-        if client_id is None or (isinstance(client_id, str) and not client_id.strip()):
+        if not client_id:
             raise ValueError("Missing hosted client credential: client_id")
 
-        extra_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            not in {
-                "client_id",
-                "client_secret",
-                "scopes",
-                "authorization_endpoint",
-                "token_endpoint",
-            }
-        }
-
-        provider = cls(
+        init_kwargs = dict(kwargs)
+        init_kwargs.update(
             client_id=client_id,
             client_secret=client_secret,
             scopes=scopes,
@@ -910,8 +907,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             token_endpoint=discovery_result.token_endpoint,
             registration_endpoint=discovery_result.registration_endpoint,
             token_endpoint_auth_methods_supported=discovery_result.token_methods,
-            **extra_kwargs,
         )
+
+        provider = cls(**init_kwargs)
 
         if registration_auth_method:
             provider._client_registration_auth_method = registration_auth_method
