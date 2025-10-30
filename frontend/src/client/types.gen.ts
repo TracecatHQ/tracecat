@@ -4603,6 +4603,20 @@ export type VideoUrl = {
 
 export type WaitStrategy = "wait" | "detach"
 
+export type WebhookApiKeyGenerateResponse = {
+  api_key: string
+  preview: string
+  created_at: string
+}
+
+export type WebhookApiKeyRead = {
+  preview: string
+  created_at: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  is_active?: boolean
+}
+
 export type WebhookCreate = {
   status?: WebhookStatus
   /**
@@ -4610,6 +4624,7 @@ export type WebhookCreate = {
    */
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
 }
 
 export type WebhookMethod = "GET" | "POST"
@@ -4622,6 +4637,7 @@ export type WebhookRead = {
   secret: string
   status: WebhookStatus
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
   filters: {
     [key: string]: unknown
   }
@@ -4631,6 +4647,7 @@ export type WebhookRead = {
   methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
+  api_key?: WebhookApiKeyRead | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -4639,6 +4656,7 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string> | null
 }
 
 export type WorkflowAlias = {
@@ -5436,6 +5454,28 @@ export type TriggersUpdateWebhookData = {
 }
 
 export type TriggersUpdateWebhookResponse = void
+
+export type TriggersGenerateWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersGenerateWebhookApiKeyResponse =
+  WebhookApiKeyGenerateResponse
+
+export type TriggersDeleteWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteWebhookApiKeyResponse = void
+
+export type TriggersRevokeWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersRevokeWebhookApiKeyResponse = void
 
 export type WorkflowsMoveWorkflowToFolderData = {
   requestBody: WorkflowMoveToFolder
@@ -7554,6 +7594,49 @@ export type $OpenApiTs = {
     }
     patch: {
       req: TriggersUpdateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key": {
+    post: {
+      req: TriggersGenerateWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebhookApiKeyGenerateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+    post: {
+      req: TriggersRevokeWebhookApiKeyData
       res: {
         /**
          * Successful Response

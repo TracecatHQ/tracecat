@@ -212,6 +212,9 @@ import {
   tagsDeleteTag,
   tagsListTags,
   tagsUpdateTag,
+  triggersDeleteWebhookApiKey,
+  triggersGenerateWebhookApiKey,
+  triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
@@ -394,6 +397,91 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   })
 
   return mutation
+}
+
+export function useGenerateWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersGenerateWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    },
+    onError: (error) => {
+      console.error("Failed to generate webhook API key:", error)
+      toast({
+        title: "Error generating API key",
+        description: "Could not generate API key. Please try again.",
+      })
+    },
+  })
+}
+
+export function useRevokeWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersRevokeWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      toast({
+        title: "API key revoked",
+        description: "Webhook API key revoked successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to revoke webhook API key:", error)
+      toast({
+        title: "Error revoking API key",
+        description: "Could not revoke API key. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+}
+
+export function useDeleteWebhookApiKey(
+  workspaceId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      await triggersDeleteWebhookApiKey({
+        workspaceId,
+        workflowId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      toast({
+        title: "API key deleted",
+        description: "Webhook API key removed successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete webhook API key:", error)
+      toast({
+        title: "Error deleting API key",
+        description: "Could not delete API key. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
 }
 
 interface WorkflowFilter {

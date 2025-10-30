@@ -99,6 +99,7 @@
     "next": "15.5.2",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
+    "ipaddr.js": "^2.1.0",
     "papaparse": "^5.5.3",
     "posthog-js": "^1.268.8",
     "react": "^18.3.1",
