@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
 import { workflowsGetWorkflow } from "@/client"
+import { CASE_WORKFLOW_TRIGGER_EVENT } from "@/components/cases/case-panel-common"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { SystemInfoAlert } from "@/components/system"
 import {
@@ -61,7 +62,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { CASE_WORKFLOW_TRIGGER_EVENT } from "@/components/cases/case-panel-common"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import {
   useCreateManualWorkflowExecution,
