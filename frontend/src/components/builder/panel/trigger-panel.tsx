@@ -601,7 +601,6 @@ export function WebhookControls({
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="outline"
-                      role="combobox"
                       className="justify-between w-full text-xs"
                       disabled={isUpdatingWebhook}
                     >
@@ -1167,7 +1166,9 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                               Actions
                             </DropdownMenuLabel>
                             <DropdownMenuItem
-                              onClick={() => navigator.clipboard.writeText(id!)}
+                              onClick={() =>
+                                id && navigator.clipboard.writeText(id)
+                              }
                               className="text-xs"
                             >
                               Copy ID
@@ -1175,10 +1176,11 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className={cn("text-xs", status === "online")}
-                              onClick={async () =>
+                              onClick={async () => {
+                                if (!id) return
                                 await updateSchedule({
                                   workspaceId,
-                                  scheduleId: id!,
+                                  scheduleId: id,
                                   requestBody: {
                                     status:
                                       status === "online"
@@ -1186,7 +1188,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                                         : "online",
                                   },
                                 })
-                              }
+                              }}
                             >
                               {status === "online" ? "Pause" : "Unpause"}
                             </DropdownMenuItem>
@@ -1209,12 +1211,13 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
                               variant="destructive"
-                              onClick={async () =>
+                              onClick={async () => {
+                                if (!id) return
                                 await deleteSchedule({
                                   workspaceId,
-                                  scheduleId: id!,
+                                  scheduleId: id,
                                 })
-                              }
+                              }}
                             >
                               Confirm
                             </AlertDialogAction>
@@ -1420,7 +1423,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       <TooltipProvider>
         <Tooltip open={!hasVersion ? undefined : false}>
           <TooltipTrigger asChild>
-            <span tabIndex={0}>
+            <span>
               <DialogTrigger asChild>
                 <Button
                   type="button"
