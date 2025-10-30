@@ -41,6 +41,36 @@ Webhook URLs are formatted as:
 WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
 ```
 
+#### Authenticate webhook requests with API keys
+
+You can lock down a webhook by requiring callers to present an API key.
+
+1. Open the `Trigger` action panel and locate the **API Key** section.
+2. Click **Generate API key**. Copy the value when prompted&mdash;it is only
+   displayed once.
+3. Add the following header to every webhook request:
+
+   ```http
+   x-tracecat-api-key: <your-api-key>
+   ```
+
+If a request omits the header or uses a revoked key, Tracecat rejects it with an
+HTTP `401 Unauthorized` response. You can rotate the key at any time, or revoke
+it to temporarily block requests without deleting the configuration.
+
+#### Restrict webhook sources with IP allowlists
+
+Use IP allowlists to accept requests only from trusted networks.
+
+1. In the `Trigger` panel, add one or more IPv4 addresses or CIDR ranges (e.g.
+   `203.0.113.7` or `203.0.113.0/24`) to the **IP Allowlist** field.
+2. Click **Save** to apply the changes.
+
+Tracecat compares the requester's IP address against the allowlist. Requests
+without a client IP or originating from outside the configured ranges are
+rejected with an HTTP `403 Forbidden` response. Leave the list empty to allow
+traffic from any source.
+
 ### Schedules
 
 Schedules are disabled by default. To activate a workflow's schedule, click on the `Trigger` action, then toggle the schedule on.
