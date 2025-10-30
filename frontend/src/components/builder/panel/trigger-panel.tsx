@@ -817,20 +817,26 @@ export function WebhookControls({
             </dl>
           </div>
         ) : hasRevokedApiKey ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 text-xs shadow-sm">
+          <div className="rounded-lg border border-amber-300 bg-amber-50/70 p-4 text-xs shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="space-y-1">
-                <span className="text-xs uppercase tracking-wide text-amber-700">
-                  API key revoked
-                </span>
-                <span className="font-mono text-xs tracking-wide text-amber-900">
-                  {apiKeyPreview ?? "—"}
-                </span>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">
+                    API key revoked
+                  </span>
+                  <span className="font-mono text-xs tracking-wide text-amber-900">
+                    {apiKeyPreview ?? "—"}
+                  </span>
+                </div>
                 <p className="text-[11px] text-muted-foreground">
                   Revoked {formatTimestamp(apiKeyRevokedAt)}
                 </p>
+                <p className="text-[11px] text-amber-800">
+                  Webhook requests are blocked until a new API key is generated.
+                  Regenerate to restore access or delete to remove protection.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant="secondary"
@@ -861,8 +867,8 @@ export function WebhookControls({
                 Webhook is not protected
               </p>
               <p className="text-xs text-muted-foreground">
-                No API key is configured. Generate an API key to require
-                clients to authenticate webhook requests.
+                No API key is configured. Generate an API key to require clients
+                to authenticate webhook requests.
               </p>
             </div>
             <Button
