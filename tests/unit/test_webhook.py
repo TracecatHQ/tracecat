@@ -175,6 +175,10 @@ class TestWebhookNetworkHelpers:
     def test_ip_allowed_negative(self):
         assert _ip_allowed("203.0.113.10", ["192.168.1.0/24"]) is False
 
+    def test_normalize_cidrs_rejects_ipv6(self):
+        with pytest.raises(ValueError, match="Only IPv4"):
+            _normalize_cidrs(["2001:db8::/32"])
+
 
 class TestWebhookApiKeyRead:
     def test_is_active_true_when_not_revoked(self):

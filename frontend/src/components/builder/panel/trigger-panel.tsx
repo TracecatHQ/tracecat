@@ -132,17 +132,23 @@ const validateAndNormalizeCidr = (
 ): { normalized: string } | { error: string } => {
   try {
     const [address, prefixLength] = ipaddr.parseCIDR(value)
+    if (address.kind() !== "ipv4") {
+      throw new Error("Only IPv4 CIDR ranges are supported")
+    }
     const normalized = `${toCanonicalString(address)}/${prefixLength}`
     return { normalized }
   } catch {
     try {
       const address = ipaddr.parse(value)
-      const prefixLength = address.kind() === "ipv4" ? 32 : 128
+      if (address.kind() !== "ipv4") {
+        throw new Error("Only IPv4 addresses are supported")
+      }
+      const prefixLength = 32
       const normalized = `${toCanonicalString(address)}/${prefixLength}`
       return { normalized }
     } catch {
       return {
-        error: `Invalid IP address or CIDR: "${value}"`,
+        error: `Invalid IPv4 address or CIDR: "${value}"`,
       }
     }
   }
@@ -675,8 +681,8 @@ export function WebhookControls({
               )}
               <FormMessage className="text-[11px]" />
               <FormDescription className="text-[11px]">
-                Enter a valid IPv4 or IPv6 address or CIDR (e.g., 203.0.113.7,
-                203.0.113.0/24, or 2001:db8::/32).
+                Enter a valid IPv4 address or CIDR (e.g., 203.0.113.7 or
+                203.0.113.0/24).
               </FormDescription>
             </FormItem>
           )}

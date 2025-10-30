@@ -86,16 +86,21 @@ def _normalize_cidrs(cidrs: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for cidr in cidrs:
+        network = None
         try:
             network = ip_network(cidr, strict=False)
         except ValueError:
             try:
                 address = ip_address(cidr)
+                if address.version != 4:
+                    raise ValueError(f"Only IPv4 addresses are supported: {cidr}")
             except ValueError as second_error:
                 raise ValueError(
                     f"Invalid IP allowlist entry: {cidr}"
                 ) from second_error
             network = ip_network(f"{address}/{address.max_prefixlen}", strict=False)
+        if network.version != 4:
+            raise ValueError(f"Only IPv4 CIDR ranges are supported: {cidr}")
         stringified = str(network)
         if stringified not in seen:
             seen.add(stringified)
