@@ -285,43 +285,48 @@ function ActionPanelContent({
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
-    [action?.inputs]
+    // Include actionId so switching to a different action with identical
+    // inputs still recalculates and triggers downstream resets.
+    [action?.inputs, actionId]
   )
-
-  const formValues = useMemo((): ActionFormSchema => {
-    const retryPolicy = actionControlFlow?.retry_policy ?? {}
-    return {
+  // Compute initial form values. Include actionId in deps so switching between
+  // two different actions with identical field values still produces a new
+  // object reference and triggers a reset.
+  const formValues = useMemo<ActionFormSchema>(
+    () => ({
       title: action?.title,
       description: action?.description,
       inputs: actionInputsObj,
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
-      max_attempts: retryPolicy.max_attempts,
-      timeout: retryPolicy.timeout,
-      retry_until: retryPolicy.retry_until || undefined,
+      max_attempts: actionControlFlow?.retry_policy?.max_attempts,
+      timeout: actionControlFlow?.retry_policy?.timeout,
+      retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
-    }
-  }, [
-    action?.title,
-    action?.description,
-    actionInputsObj,
-    actionControlFlow?.for_each,
-    actionControlFlow?.run_if,
-    actionControlFlow?.retry_policy?.max_attempts,
-    actionControlFlow?.retry_policy?.timeout,
-    actionControlFlow?.retry_policy?.retry_until,
-    actionControlFlow?.start_delay,
-    actionControlFlow?.join_strategy,
-    actionControlFlow?.wait_until,
-    actionControlFlow?.environment,
-    action?.is_interactive,
-    action?.interaction,
-  ])
+    }),
+    [
+      actionId,
+      action?.title,
+      action?.description,
+      action?.is_interactive,
+      action?.interaction,
+      actionInputsObj,
+      actionControlFlow?.for_each,
+      actionControlFlow?.run_if,
+      actionControlFlow?.retry_policy?.max_attempts,
+      actionControlFlow?.retry_policy?.timeout,
+      actionControlFlow?.retry_policy?.retry_until,
+      actionControlFlow?.start_delay,
+      actionControlFlow?.join_strategy,
+      actionControlFlow?.wait_until,
+      actionControlFlow?.environment,
+    ]
+  )
 
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
@@ -425,6 +430,13 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
+
+  // Force-reset the form whenever the action identity changes, even if the
+  // field values are identical. This prevents stale edits from the previous
+  // action from appearing on the newly selected action with identical data.
+  useEffect(() => {
+    methods.reset(formValues)
+  }, [actionId])
 
   useEffect(() => {
     // Reset input mode based on organization setting
