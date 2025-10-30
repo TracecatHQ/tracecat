@@ -59,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
@@ -417,6 +418,7 @@ function WorkflowSaveActions({
   onSave: () => Promise<void>
   onPublish: (params: { message?: string }) => Promise<void>
 }) {
+  const { isFeatureEnabled } = useFeatureFlag()
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
 
@@ -438,6 +440,8 @@ function WorkflowSaveActions({
     }
   }
 
+  const isGitSyncEnabled = isFeatureEnabled("git-sync")
+
   return (
     <div className="flex items-center space-x-2">
       <div className="flex h-7 gap-px rounded-lg border border-input">
@@ -455,7 +459,8 @@ function WorkflowSaveActions({
             variant="outline"
             onClick={onSave}
             className={cn(
-              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground",
+              "h-full border-none px-3 py-0 text-xs text-muted-foreground",
+              isGitSyncEnabled ? "rounded-r-none" : "rounded-lg",
               validationErrors &&
                 "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
             )}
@@ -469,62 +474,64 @@ function WorkflowSaveActions({
           </Button>
         </ValidationErrorView>
 
-        {/* Dropdown Button */}
-        <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground"
-            >
-              <ChevronDownIcon className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-96 p-3">
-            <Form {...publishForm}>
-              <form
-                onSubmit={publishForm.handleSubmit(handlePublish)}
-                className="flex flex-col"
+        {/* Dropdown Button - Only show if git-sync is enabled */}
+        {isGitSyncEnabled && (
+          <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground"
               >
-                <span className="mb-2 text-xs text-muted-foreground">
-                  Commit workflow
-                </span>
-                <FormField
-                  control={publishForm.control}
-                  name="message"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Add a short description of your changes (optional)"
-                          className="h-7 px-3 text-xs"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  disabled={isPublishing}
-                  className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-96 p-3">
+              <Form {...publishForm}>
+                <form
+                  onSubmit={publishForm.handleSubmit(handlePublish)}
+                  className="flex flex-col"
                 >
-                  {isPublishing ? (
-                    <>
-                      <Spinner className="size-3" />
-                      Publishing changes...
-                    </>
-                  ) : (
-                    <>
-                      <GitBranchIcon className="size-3" />
-                      Publish changes
-                    </>
-                  )}
-                </Button>
-              </form>
-            </Form>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  <span className="mb-2 text-xs text-muted-foreground">
+                    Commit workflow
+                  </span>
+                  <FormField
+                    control={publishForm.control}
+                    name="message"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Add a short description of your changes (optional)"
+                            className="h-7 px-3 text-xs"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    disabled={isPublishing}
+                    className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
+                  >
+                    {isPublishing ? (
+                      <>
+                        <Spinner className="size-3" />
+                        Publishing changes...
+                      </>
+                    ) : (
+                      <>
+                        <GitBranchIcon className="size-3" />
+                        Publish changes
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </Form>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <Badge
