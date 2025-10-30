@@ -9,10 +9,10 @@ https://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28#download-a-
 """
 
 # Must be imported directly to preserve the udf metadata
-from tracecat.config import TRACECAT__FEATURE_FLAGS
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 
-if "agent-sandbox" in TRACECAT__FEATURE_FLAGS:
+if is_feature_enabled(FeatureFlag.AGENT_SANDBOX):
     logger.info(
         "Agent sandbox feature flag is enabled. Enabling OpenAI Codex integration."
     )
