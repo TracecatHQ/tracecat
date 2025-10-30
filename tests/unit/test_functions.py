@@ -51,6 +51,7 @@ from tracecat.expressions.functions import (
     hash_sha256,
     hash_sha512,
     hours_between,
+    index,
     intersection,
     ipv4_in_subnet,
     ipv4_is_public,
@@ -471,6 +472,62 @@ def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
     # Compare as multisets (order-independent, preserves multiplicity)
     # Ref: https://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets
     assert Counter(result) == Counter(expected)
+
+
+@pytest.mark.parametrize(
+    "sequence,idx,expected",
+    [
+        # List indexing
+        ([1, 2, 3, 4, 5], 0, 1),
+        ([1, 2, 3, 4, 5], 2, 3),
+        ([1, 2, 3, 4, 5], 4, 5),
+        ([1, 2, 3, 4, 5], -1, 5),
+        ([1, 2, 3, 4, 5], -2, 4),
+        (["a", "b", "c"], 0, "a"),
+        (["a", "b", "c"], 1, "b"),
+        (["a", "b", "c"], -1, "c"),
+        # String indexing
+        ("hello", 0, "h"),
+        ("hello", 1, "e"),
+        ("hello", 4, "o"),
+        ("hello", -1, "o"),
+        ("hello", -5, "h"),
+        # Tuple indexing
+        ((10, 20, 30), 0, 10),
+        ((10, 20, 30), 1, 20),
+        ((10, 20, 30), -1, 30),
+        # Mixed types in list
+        ([1, "two", 3.0, None], 0, 1),
+        ([1, "two", 3.0, None], 1, "two"),
+        ([1, "two", 3.0, None], 2, 3.0),
+        ([1, "two", 3.0, None], 3, None),
+        # Nested structures
+        ([[1, 2], [3, 4]], 0, [1, 2]),
+        ([[1, 2], [3, 4]], 1, [3, 4]),
+        ([{"a": 1}, {"b": 2}], 0, {"a": 1}),
+        ([{"a": 1}, {"b": 2}], -1, {"b": 2}),
+    ],
+)
+def test_index(sequence: Any, idx: int, expected: Any) -> None:
+    """Test index function with various sequence types and indices."""
+    assert index(sequence, idx) == expected
+
+
+@pytest.mark.parametrize(
+    "sequence,idx",
+    [
+        ([1, 2, 3], 5),  # Index too large
+        ([1, 2, 3], -10),  # Negative index too large
+        ("hello", 10),  # String index out of range
+        ([], 0),  # Empty list
+        ("", 0),  # Empty string
+        ((), 0),  # Empty tuple
+    ],
+)
+def test_index_out_of_range(sequence: Any, idx: int) -> None:
+    """Test that index raises IndexError for out-of-range indices."""
+    with pytest.raises(IndexError):
+        index(sequence, idx)
 
 
 @pytest.mark.parametrize(
