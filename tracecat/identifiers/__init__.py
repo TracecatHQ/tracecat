@@ -56,7 +56,7 @@ from tracecat.identifiers.workflow import (
 )
 
 UserID = UUID4
-WorkspaceID = UUID4
+WorkspaceID = uuid.UUID
 OwnerID = uuid.UUID
 """Owner identifier type. This is UUID because we use UUID(0) for the organization.
 
