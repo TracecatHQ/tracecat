@@ -7,6 +7,7 @@ import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
   CalendarClockIcon,
+  KeyRoundIcon,
   MoreHorizontalIcon,
   PlusCircleIcon,
   RotateCcwIcon,
@@ -49,7 +50,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -700,12 +700,9 @@ export function WebhookControls({
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Active key
                 </span>
-                <Badge
-                  variant="outline"
-                  className="font-mono text-[11px] tracking-wide"
-                >
+                <span className="font-mono text-[11px] tracking-wide">
                   {apiKeyPreview ?? "—"}
-                </Badge>
+                </span>
               </div>
               <TooltipProvider>
                 <Tooltip>
@@ -760,7 +757,7 @@ export function WebhookControls({
                 <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Created
                 </dt>
-                <dd className="font-medium text-foreground">
+                <dd className="font-medium text-accent-foreground">
                   {formatTimestamp(apiKeyCreatedAt)}
                 </dd>
               </div>
@@ -768,7 +765,7 @@ export function WebhookControls({
                 <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Last used
                 </dt>
-                <dd className="font-medium text-foreground">
+                <dd className="font-medium text-accent-foreground">
                   {formatTimestamp(apiKeyLastUsedAt)}
                 </dd>
               </div>
@@ -831,9 +828,11 @@ export function WebhookControls({
             </AlertDialog>
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed bg-muted/30 p-4 text-xs shadow-sm">
-            <div className="space-y-2 text-foreground">
-              <p className="text-sm font-medium">No API key configured</p>
+          <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-xs shadow-sm">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                No API key configured
+              </p>
               <p className="text-[11px] text-muted-foreground">
                 Generate an API key to require clients to authenticate webhook
                 requests.
@@ -841,11 +840,22 @@ export function WebhookControls({
             </div>
             <Button
               size="sm"
-              className="mt-4 w-full justify-center"
+              variant="secondary"
+              className="mt-3 w-full justify-center"
               onClick={handleGenerateApiKey}
               disabled={isGeneratingApiKey}
             >
-              {isGeneratingApiKey ? "Generating..." : "Generate API key"}
+              <>
+                <KeyRoundIcon
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    isGeneratingApiKey
+                      ? "animate-spin text-muted-foreground"
+                      : ""
+                  )}
+                />
+                {isGeneratingApiKey ? "Generating..." : "Generate API key"}
+              </>
             </Button>
           </div>
         )}
