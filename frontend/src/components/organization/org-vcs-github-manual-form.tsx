@@ -1,20 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon, ShieldCheckIcon } from "lucide-react"
+import { KeyIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import {
   Form,
   FormControl,
@@ -112,161 +105,128 @@ export function GitHubAppManualForm({
     }
   }
 
+  const buttonLabel = existingAppId ? "Save changes" : "Save credentials"
+
+  const containerClass = className
+    ? `space-y-4 ${className}`
+    : "space-y-4"
+
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <KeyIcon className="size-5" />
-          {existingAppId ? "Update GitHub App" : "Register Existing GitHub App"}
-        </CardTitle>
-        <CardDescription>
-          {existingAppId
-            ? "Update the credentials for your existing GitHub App."
-            : "Enter the credentials for a GitHub App you've already created in GitHub's settings."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {!existingAppId && (
-          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
-            <div className="flex">
-              <ShieldCheckIcon className="size-5 text-blue-400" />
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                  Before you start
-                </h3>
-                <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
-                  <p>Make sure you have:</p>
-                  <ul className="mt-1 list-inside list-disc space-y-1">
-                    <li>
-                      Created a GitHub App in your organization's settings
-                    </li>
-                    <li>Downloaded the private key (.pem file)</li>
-                    <li>Noted the App ID from the app settings</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+    <div className={containerClass}>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col">
+          <div className="space-y-8">
+            <div className="space-y-2">
+              <FormField
+                control={form.control}
+                name="app_id"
+                render={({ field }) => (
+                  <FormItem className="space-y-2">
+                    <FormLabel>GitHub App ID *</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="123456"
+                        className="max-w-md"
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Find this in GitHub → Settings → GitHub Apps
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="app_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>App ID *</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="123456"
-                      className="max-w-md"
-                    />
-                  </FormControl>
-                  <p className="text-sm text-muted-foreground">
-                    Found in: GitHub → Settings → GitHub Apps → Your App
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="private_key"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Private Key *</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      placeholder="-----BEGIN RSA PRIVATE KEY-----
+              <FormField
+                control={form.control}
+                name="private_key"
+                render={({ field }) => (
+                  <FormItem className="space-y-2">
+                    <FormLabel>Private Key *</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----"
-                      className="h-32 font-mono text-xs"
-                    />
-                  </FormControl>
-                  <p className="text-sm text-muted-foreground">
-                    Paste the entire contents of the .pem file you downloaded
-                    from GitHub
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                        className="h-32 font-mono text-xs"
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Paste the full contents of the PEM file you downloaded from
+                      GitHub
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="webhook_secret"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Webhook Secret (optional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      placeholder="Enter webhook secret"
-                      className="max-w-md"
-                    />
-                  </FormControl>
-                  <p className="text-sm text-muted-foreground">
-                    Only needed if you configured a webhook secret in your
-                    GitHub App
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="webhook_secret"
+                render={({ field }) => (
+                  <FormItem className="space-y-2">
+                    <FormLabel>Webhook Secret (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="password"
+                        placeholder="Enter webhook secret"
+                        className="max-w-md"
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Needed only if you configured a webhook secret in GitHub
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="client_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Client ID (optional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Iv1.abc123def456"
-                      className="max-w-md"
-                    />
-                  </FormControl>
-                  <p className="text-sm text-muted-foreground">
-                    Found in the same location as App ID
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                type="submit"
-                disabled={isSubmitting || saveCredentials.isPending}
-                className="min-w-32"
-              >
-                {isSubmitting || saveCredentials.isPending
-                  ? "Saving..."
-                  : existingAppId
-                    ? "Update App"
-                    : "Register App"}
-              </Button>
+              <FormField
+                control={form.control}
+                name="client_id"
+                render={({ field }) => (
+                  <FormItem className="space-y-2">
+                    <FormLabel>Client ID (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="Iv1.abc123def456"
+                        className="max-w-md"
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Found alongside the App ID in GitHub
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
-          </form>
-        </Form>
 
-        {saveCredentials.isError && (
-          <AlertNotification
-            level="error"
-            message={
-              saveCredentials.error instanceof Error
-                ? saveCredentials.error.message
-                : "Failed to save GitHub App credentials"
-            }
-          />
-        )}
-      </CardContent>
-    </Card>
+            <Button
+              type="submit"
+              disabled={isSubmitting || saveCredentials.isPending}
+              className="min-w-32"
+            >
+              {isSubmitting || saveCredentials.isPending ? "Saving..." : buttonLabel}
+            </Button>
+          </div>
+        </form>
+      </Form>
+
+      {saveCredentials.isError && (
+        <AlertNotification
+          level="error"
+          message={
+            saveCredentials.error instanceof Error
+              ? saveCredentials.error.message
+              : "Failed to save GitHub App credentials"
+          }
+        />
+      )}
+    </div>
   )
 }

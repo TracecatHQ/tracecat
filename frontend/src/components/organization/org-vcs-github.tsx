@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   CheckCircleIcon,
-  CopyIcon,
   ExternalLinkIcon,
   GitBranchIcon,
 } from "lucide-react"
@@ -114,16 +113,6 @@ export function GitHubAppSetup() {
     }
   }, [credentialsStatus?.exists, activeTab])
 
-  const copyManifest = () => {
-    if (manifest?.manifest) {
-      navigator.clipboard.writeText(JSON.stringify(manifest.manifest, null, 2))
-      toast({
-        title: "Copied to clipboard",
-        description: "GitHub App manifest JSON copied to clipboard",
-      })
-    }
-  }
-
   const onSubmit = async (data: GitHubAppFormData) => {
     if (!manifest?.manifest) {
       toast({
@@ -198,6 +187,9 @@ export function GitHubAppSetup() {
     })
   }
 
+  const normalizeInstruction = (instruction: string) =>
+    instruction.replace(/^\d+[\).\s-]+/, "").trim()
+
   if (manifestIsLoading || credentialsStatusIsLoading) {
     return <CenteredSpinner />
   }
@@ -223,7 +215,7 @@ export function GitHubAppSetup() {
           repositories
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
         {showSuccessMessage && (
           <div className="rounded-md border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950/50">
             <div className="flex">
@@ -264,7 +256,7 @@ export function GitHubAppSetup() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="manifest" disableUnderline>
               Create new GitHub App
@@ -273,34 +265,17 @@ export function GitHubAppSetup() {
               Use existing GitHub App
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="manifest" className="space-y-6">
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/50">
-              <div className="flex">
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                    Create a new GitHub App
-                  </h3>
-                  <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-                    <p>
-                      This option will create a new GitHub App with the correct
-                      permissions for Tracecat workflow synchronization.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
+          <TabsContent value="manifest" className="space-y-4">
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-4"
+                className="space-y-2"
               >
                 <FormField
                   control={form.control}
                   name="organizationName"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="space-y-2">
                       <FormLabel>Organization name</FormLabel>
                       <FormControl>
                         <Input
@@ -309,7 +284,7 @@ export function GitHubAppSetup() {
                           className="max-w-md"
                         />
                       </FormControl>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         This will be included in the GitHub App name
                       </p>
                       <FormMessage />
@@ -321,7 +296,7 @@ export function GitHubAppSetup() {
                   control={form.control}
                   name="githubHost"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="space-y-2">
                       <FormLabel>GitHub Host URL</FormLabel>
                       <FormControl>
                         <Input
@@ -330,7 +305,7 @@ export function GitHubAppSetup() {
                           className="max-w-md"
                         />
                       </FormControl>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Use this for GitHub Enterprise or custom GitHub
                         instances
                       </p>
@@ -343,84 +318,47 @@ export function GitHubAppSetup() {
 
             {manifest && (
               <>
-                <div>
+                <div className="space-y-2">
                   <label className="text-sm font-medium">Instructions</label>
-                  <div className="mt-2 space-y-2">
+                  <ul className="space-y-2">
                     {manifest.instructions.map((instruction, index) => (
-                      <div key={index} className="flex items-start gap-2">
+                      <li key={index} className="flex items-start gap-2">
                         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
                           {index + 1}
                         </span>
                         <p className="text-sm text-muted-foreground">
-                          {instruction}
+                          {normalizeInstruction(instruction)}
                         </p>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium">
-                    Generated manifest
-                  </label>
-                  <div className="mt-2 space-y-2">
+                <div className="space-y-8">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Generated manifest
+                    </label>
                     <Textarea
                       value={JSON.stringify(manifest.manifest, null, 2)}
                       readOnly
                       className="h-64 font-mono text-xs"
                     />
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={copyManifest}
-                        className="gap-2"
-                      >
-                        <CopyIcon className="size-4" />
-                        Copy manifest
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={form.handleSubmit(onSubmit)}
-                        className="gap-2"
-                      >
-                        <ExternalLinkIcon className="size-4" />
-                        Create GitHub App
-                      </Button>
-                    </div>
                   </div>
-                </div>
-
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/50">
-                  <div className="flex">
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                        Next steps
-                      </h3>
-                      <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-                        <p>
-                          After clicking "Create GitHub App", you'll be taken to
-                          GitHub where you can:
-                        </p>
-                        <ul className="mt-2 list-disc space-y-1 pl-5">
-                          <li>Review and confirm the app permissions</li>
-                          <li>
-                            Create the app (GitHub will redirect back
-                            automatically)
-                          </li>
-                          <li>Install the app on your repositories</li>
-                          <li>Return here to see the configuration status</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
+                  <Button
+                    type="button"
+                    onClick={form.handleSubmit(onSubmit)}
+                    className="gap-2 self-start"
+                  >
+                    <ExternalLinkIcon className="size-4" />
+                    Create GitHub App
+                  </Button>
                 </div>
               </>
             )}
           </TabsContent>
 
-          <TabsContent value="manual" className="space-y-6">
+          <TabsContent value="manual" className="space-y-4">
             <GitHubAppManualForm
               onSuccess={handleManualFormSuccess}
               existingAppId={
