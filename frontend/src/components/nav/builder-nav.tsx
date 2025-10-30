@@ -295,26 +295,28 @@ function WorkflowManualTrigger({
   const executionPending = createExecutionIsPending || isTriggering
   return (
     <Form {...form}>
-      <div className="flex h-7 gap-px rounded-lg border border-input bg-emerald-400">
+      <div
+        className={cn(
+          "flex h-7 divide-x rounded-lg border border-input overflow-hidden",
+          manualTriggerErrors
+            ? "divide-white/30 dark:divide-black/30"
+            : "divide-white/20 dark:divide-black/40"
+        )}
+      >
         {/* Main Button */}
         <Button
           type="button"
-          variant="outline"
-          className={cn(
-            "h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs font-bold",
-            manualTriggerErrors
-              ? "text-rose-400 hover:text-rose-500"
-              : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
-          )}
+          variant={manualTriggerErrors ? "destructive" : "default"}
+          className="h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs"
           disabled={disabled || executionPending}
           onClick={() => runWorkflow({ payload: undefined })}
         >
           {executionPending ? (
-            <Spinner className="size-3" segmentColor="#fff" />
+            <Spinner className="size-3" segmentColor="currentColor" />
           ) : manualTriggerErrors ? (
-            <AlertTriangleIcon className="size-3 fill-red-500 stroke-white" />
+            <AlertTriangleIcon className="size-3" />
           ) : (
-            <PlayIcon className="size-3 fill-white stroke-white" />
+            <PlayIcon className="size-3" />
           )}
           <span>Run</span>
         </Button>
@@ -328,13 +330,8 @@ function WorkflowManualTrigger({
               <PopoverTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
-                  className={cn(
-                    "h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold",
-                    manualTriggerErrors
-                      ? "text-rose-400 hover:text-rose-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
-                  )}
+                  variant={manualTriggerErrors ? "destructive" : "default"}
+                  className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold"
                   disabled={disabled || executionPending}
                 >
                   <ChevronDownIcon className="size-3" />
@@ -367,12 +364,12 @@ function WorkflowManualTrigger({
                     type="submit"
                     variant="default"
                     disabled={executionPending}
-                    className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                    className="group mt-2 flex h-7 items-center px-3 py-0 text-xs"
                   >
                     {executionPending ? (
-                      <Spinner className="mr-2 size-3" />
+                      <Spinner className="mr-2 size-3" segmentColor="currentColor" />
                     ) : (
-                      <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                      <PlayIcon className="mr-2 size-3" />
                     )}
                     <span>{executionPending ? "Starting..." : "Run"}</span>
                   </Button>
@@ -458,7 +455,7 @@ function WorkflowSaveActions({
             variant="outline"
             onClick={onSave}
             className={cn(
-              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground",
               validationErrors &&
                 "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
             )}
@@ -477,7 +474,7 @@ function WorkflowSaveActions({
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground"
             >
               <ChevronDownIcon className="size-3" />
             </Button>
