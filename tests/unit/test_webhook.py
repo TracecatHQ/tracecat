@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -6,7 +7,7 @@ from fastapi import Request
 from fastapi.datastructures import FormData
 
 from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
-from tracecat.webhooks.models import _normalize_cidrs
+from tracecat.webhooks.models import WebhookApiKeyRead, _normalize_cidrs
 
 
 class TestParseWebhookPayload:
@@ -173,3 +174,15 @@ class TestWebhookNetworkHelpers:
 
     def test_ip_allowed_negative(self):
         assert _ip_allowed("203.0.113.10", ["192.168.1.0/24"]) is False
+
+
+class TestWebhookApiKeyRead:
+    def test_is_active_true_when_not_revoked(self):
+        now = datetime.now(UTC)
+        api_key = WebhookApiKeyRead(suffix="abcd", created_at=now, revoked_at=None)
+        assert api_key.is_active is True
+
+    def test_is_active_false_when_revoked(self):
+        now = datetime.now(UTC)
+        api_key = WebhookApiKeyRead(suffix="abcd", created_at=now, revoked_at=now)
+        assert api_key.is_active is False

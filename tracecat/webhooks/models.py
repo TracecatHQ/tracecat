@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from ipaddress import ip_address, ip_network
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.db.schemas import Resource
 from tracecat.identifiers.workflow import WorkflowID
@@ -69,6 +69,11 @@ class WebhookApiKeyRead(BaseModel):
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
     is_active: bool = False
+
+    @model_validator(mode="after")
+    def compute_is_active(self) -> Self:
+        self.is_active = self.revoked_at is None
+        return self
 
 
 class WebhookApiKeyGenerateResponse(BaseModel):
