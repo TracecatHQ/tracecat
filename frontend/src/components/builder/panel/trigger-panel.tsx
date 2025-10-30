@@ -7,6 +7,7 @@ import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
   CalendarClockIcon,
+  KeyIcon,
   PlusCircleIcon,
   SaveIcon,
   WebhookIcon,
@@ -74,6 +75,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -655,30 +657,47 @@ export function WebhookControls({
         />
       </Form>
 
-      <div className="space-y-2">
-        <Label className="flex gap-2 items-center text-xs font-medium">
+      <div className="space-y-3">
+        <Label className="flex items-center gap-2 text-xs font-medium">
+          <KeyIcon className="size-4 text-muted-foreground" />
           <span>API Key</span>
         </Label>
         {hasActiveApiKey ? (
-          <div className="rounded-md border px-3 py-3 space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Key suffix</span>
-              <span className="font-mono">
-                {apiKeySuffix ? `...${apiKeySuffix}` : "—"}
+          <div className="rounded-lg border bg-muted/40 p-4 text-xs shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Active key
               </span>
+              <Badge
+                variant="outline"
+                className="font-mono text-[11px] uppercase tracking-widest"
+              >
+                {apiKeySuffix ? `•••${apiKeySuffix}` : "—"}
+              </Badge>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Created</span>
-              <span>{formatTimestamp(apiKeyCreatedAt)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Last used</span>
-              <span>{formatTimestamp(apiKeyLastUsedAt)}</span>
-            </div>
+            <Separator className="my-3" />
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Created
+                </dt>
+                <dd className="font-medium text-foreground">
+                  {formatTimestamp(apiKeyCreatedAt)}
+                </dd>
+              </div>
+              <div className="space-y-1">
+                <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Last used
+                </dt>
+                <dd className="font-medium text-foreground">
+                  {formatTimestamp(apiKeyLastUsedAt)}
+                </dd>
+              </div>
+            </dl>
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
-              className="w-full"
+              className="mt-4 w-full justify-center"
               onClick={handleGenerateApiKey}
               disabled={isGeneratingApiKey}
             >
@@ -686,13 +705,17 @@ export function WebhookControls({
             </Button>
           </div>
         ) : (
-          <div className="space-y-2 text-xs">
-            <p className="text-muted-foreground">
-              Generate an API key to require clients to authenticate webhook
-              requests.
-            </p>
+          <div className="rounded-lg border border-dashed bg-muted/30 p-4 text-xs shadow-sm">
+            <div className="space-y-2 text-foreground">
+              <p className="text-sm font-medium">No API key configured</p>
+              <p className="text-[11px] text-muted-foreground">
+                Generate an API key to require clients to authenticate webhook
+                requests.
+              </p>
+            </div>
             <Button
               size="sm"
+              className="mt-4 w-full justify-center"
               onClick={handleGenerateApiKey}
               disabled={isGeneratingApiKey}
             >
