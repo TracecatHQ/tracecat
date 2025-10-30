@@ -23,6 +23,12 @@ def test_generate_api_key_shapes() -> None:
     base64.b64decode(generated.salt_b64.encode("ascii"), validate=True)
 
 
+@pytest.mark.parametrize("length", [0, -1])
+def test_generate_api_key_rejects_non_positive_length(length: int) -> None:
+    with pytest.raises(ValueError, match="length must be positive"):
+        generate_api_key(length=length)
+
+
 def test_verify_api_key_round_trip() -> None:
     generated = generate_api_key()
     assert verify_api_key(generated.raw, generated.salt_b64, generated.hashed)

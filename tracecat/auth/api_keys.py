@@ -77,6 +77,8 @@ def generate_api_key(
         `GeneratedApiKey` containing the raw key (return this once),
         the hashed value, salt (base64), and a display suffix.
     """
+    if length <= 0:
+        raise ValueError("length must be positive")
     if suffix_length <= 0:
         raise ValueError("suffix_length must be positive")
     raw = generate_token(prefix=prefix, length=length)
