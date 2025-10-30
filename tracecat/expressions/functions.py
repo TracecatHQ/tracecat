@@ -133,6 +133,11 @@ def slice_str(x: str, start_index: int, length: int) -> str:
     return x[start_index : start_index + length]
 
 
+def index(sequence: Sequence[Any], index: int) -> Any:
+    """Return the element at the given index."""
+    return sequence[index]
+
+
 def endswith(x: str, suffix: str) -> bool:
     """Check if a string ends with a specified suffix."""
     return x.endswith(suffix)
@@ -1021,6 +1026,7 @@ _FUNCTION_MAPPING = {
     "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
+    "index": index,
     # Math
     "add": add,
     "sub": sub,
