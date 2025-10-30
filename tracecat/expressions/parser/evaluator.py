@@ -410,8 +410,7 @@ class ExprEvaluator(Transformer):
         if isinstance(value, Sequence):
             if not isinstance(index, int):
                 raise TracecatExpressionError(
-                    "Sequence indices must be integers, got"
-                    f" {type(index).__name__!r}"
+                    f"Sequence indices must be integers, got {type(index).__name__!r}"
                 )
             try:
                 return value[index]
