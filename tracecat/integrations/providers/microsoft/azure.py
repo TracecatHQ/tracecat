@@ -8,29 +8,16 @@ from tracecat.integrations.providers.base import (
     ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.providers.microsoft._common import (
-    DEFAULT_COMMERCIAL_AUTHORIZATION_ENDPOINT as MS_DEFAULT_AUTH_ENDPOINT,
-)
-from tracecat.integrations.providers.microsoft._common import (
-    DEFAULT_COMMERCIAL_TOKEN_ENDPOINT as MS_DEFAULT_TOKEN_ENDPOINT,
-)
-from tracecat.integrations.providers.microsoft._common import (
-    MICROSOFT_AUTH_ENDPOINT_HELP,
-    MICROSOFT_TOKEN_ENDPOINT_HELP,
-)
-from tracecat.integrations.providers.microsoft._common import (
-    get_ac_setup_steps as _common_get_ac_setup_steps,
+    DEFAULT_AUTHORIZATION_ENDPOINT,
+    DEFAULT_TOKEN_ENDPOINT,
+    get_ac_setup_steps,
+    get_cc_setup_steps,
 )
 
-DEFAULT_COMMERCIAL_AUTH_ENDPOINT = MS_DEFAULT_AUTH_ENDPOINT
-DEFAULT_COMMERCIAL_TOKEN_ENDPOINT = MS_DEFAULT_TOKEN_ENDPOINT
-AZURE_AUTH_ENDPOINT_HELP = MICROSOFT_AUTH_ENDPOINT_HELP
-AZURE_TOKEN_ENDPOINT_HELP = MICROSOFT_TOKEN_ENDPOINT_HELP
-
-
-def get_azure_setup_steps(service: str = "Azure Management") -> list[str]:
-    """Get setup steps for Azure Management OAuth."""
-    return _common_get_ac_setup_steps(service)
-
+API_DOCS_URL = "https://learn.microsoft.com/en-us/rest/api/azure/"
+AC_SETUP_GUIDE_URL = "https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app"
+CC_SETUP_GUIDE_URL = "https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow"
+TROUBLESHOOTING_URL = "https://learn.microsoft.com/en-us/azure/active-directory/develop/reference-aadsts-error-codes"
 
 AC_DESCRIPTION = "OAuth provider for Azure Resource Manager delegated permissions"
 AC_DEFAULT_SCOPES = [
@@ -45,59 +32,52 @@ CC_DEFAULT_SCOPES = ["https://management.azure.com/.default"]
 AC_SCOPES = ProviderScopes(
     default=AC_DEFAULT_SCOPES,
 )
-
-
 # Shared metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
     id="azure_management",
     name="Azure Management (Delegated)",
     description=f"Azure Management {AC_DESCRIPTION}",
-    setup_steps=get_azure_setup_steps(),
+    setup_steps=get_ac_setup_steps(service="Azure Management"),
     requires_config=True,
     enabled=True,
-    api_docs_url="https://learn.microsoft.com/en-us/rest/api/azure/",
-    setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app",
-    troubleshooting_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/reference-aadsts-error-codes",
+    api_docs_url=API_DOCS_URL,
+    setup_guide_url=AC_SETUP_GUIDE_URL,
+    troubleshooting_url=TROUBLESHOOTING_URL,
+)
+
+CC_SCOPES = ProviderScopes(
+    default=CC_DEFAULT_SCOPES,
+)
+CC_METADATA = ProviderMetadata(
+    id="azure_management",
+    name="Azure Management (Service Principal)",
+    description=f"Azure Management {CC_DESCRIPTION}",
+    setup_steps=get_cc_setup_steps(service="Azure Management"),
+    requires_config=True,
+    enabled=True,
+    api_docs_url=API_DOCS_URL,
+    setup_guide_url=CC_SETUP_GUIDE_URL,
+    troubleshooting_url=TROUBLESHOOTING_URL,
 )
 
 
 class AzureManagementACProvider(AuthorizationCodeOAuthProvider):
     """Azure Management OAuth provider using authorization code flow for delegated user permissions."""
 
+    default_tenant: ClassVar[str] = "organizations"
     id: ClassVar[str] = "azure_management"
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
-    default_authorization_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_AUTH_ENDPOINT
-    default_token_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_TOKEN_ENDPOINT
-    authorization_endpoint_help: ClassVar[str | None] = AZURE_AUTH_ENDPOINT_HELP
-    token_endpoint_help: ClassVar[str | None] = AZURE_TOKEN_ENDPOINT_HELP
-
-
-CC_SCOPES = ProviderScopes(
-    default=CC_DEFAULT_SCOPES,
-)
-
-
-CC_METADATA = ProviderMetadata(
-    id="azure_management",
-    name="Azure Management (Service Principal)",
-    description=f"Azure Management {CC_DESCRIPTION}",
-    setup_steps=get_azure_setup_steps(),
-    requires_config=True,
-    enabled=True,
-    api_docs_url="https://learn.microsoft.com/en-us/rest/api/azure/",
-    setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow",
-    troubleshooting_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/reference-aadsts-error-codes",
-)
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_AUTHORIZATION_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_TOKEN_ENDPOINT
 
 
 class AzureManagementCCProvider(ClientCredentialsOAuthProvider):
     """Azure Management OAuth provider using client credentials flow for application permissions."""
 
+    default_tenant: ClassVar[str] = "organizations"
     id: ClassVar[str] = "azure_management"
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
-    default_authorization_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_AUTH_ENDPOINT
-    default_token_endpoint: ClassVar[str] = DEFAULT_COMMERCIAL_TOKEN_ENDPOINT
-    authorization_endpoint_help: ClassVar[str | None] = AZURE_AUTH_ENDPOINT_HELP
-    token_endpoint_help: ClassVar[str | None] = AZURE_TOKEN_ENDPOINT_HELP
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_AUTHORIZATION_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_TOKEN_ENDPOINT

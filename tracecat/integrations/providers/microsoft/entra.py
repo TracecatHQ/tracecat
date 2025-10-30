@@ -3,15 +3,24 @@
 from typing import ClassVar
 
 from tracecat.integrations.models import ProviderMetadata, ProviderScopes
-from tracecat.integrations.providers.microsoft.graph import (
-    MicrosoftGraphACProvider,
-    MicrosoftGraphCCProvider,
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+    ClientCredentialsOAuthProvider,
+)
+from tracecat.integrations.providers.microsoft._common import (
+    DEFAULT_AUTHORIZATION_ENDPOINT,
+    DEFAULT_TOKEN_ENDPOINT,
     get_ac_setup_steps,
     get_cc_setup_steps,
 )
 
-# Microsoft Entra delegated operations require directory and group write scopes.
-ENTRA_AC_SCOPES = ProviderScopes(
+API_DOCS_URL = "https://learn.microsoft.com/en-us/graph/overview"
+AC_SETUP_GUIDE_URL = "https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app"
+CC_SETUP_GUIDE_URL = "https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow"
+TROUBLESHOOTING_URL = "https://learn.microsoft.com/en-us/graph/resolve-auth-errors"
+
+
+AC_SCOPES = ProviderScopes(
     default=[
         "offline_access",
         "https://graph.microsoft.com/User.ReadWrite.All",
@@ -20,13 +29,11 @@ ENTRA_AC_SCOPES = ProviderScopes(
     ],
 )
 
-ENTRA_CC_SCOPES = ProviderScopes(
+CC_SCOPES = ProviderScopes(
     default=[
         "https://graph.microsoft.com/.default",
     ]
 )
-
-ENTRA_API_DOC_URL = "https://learn.microsoft.com/en-us/graph/overview"
 
 
 AC_METADATA = ProviderMetadata(
@@ -36,18 +43,10 @@ AC_METADATA = ProviderMetadata(
     setup_steps=get_ac_setup_steps("Microsoft Entra ID"),
     requires_config=True,
     enabled=True,
-    api_docs_url=ENTRA_API_DOC_URL,
-    setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app",
-    troubleshooting_url="https://learn.microsoft.com/en-us/graph/resolve-auth-errors",
+    api_docs_url=API_DOCS_URL,
+    setup_guide_url=AC_SETUP_GUIDE_URL,
+    troubleshooting_url=TROUBLESHOOTING_URL,
 )
-
-
-class MicrosoftEntraACProvider(MicrosoftGraphACProvider):
-    """Microsoft Entra ID OAuth provider for delegated permissions."""
-
-    id: ClassVar[str] = "microsoft_entra"
-    scopes: ClassVar[ProviderScopes] = ENTRA_AC_SCOPES
-    metadata: ClassVar[ProviderMetadata] = AC_METADATA
 
 
 CC_METADATA = ProviderMetadata(
@@ -57,15 +56,27 @@ CC_METADATA = ProviderMetadata(
     setup_steps=get_cc_setup_steps("Microsoft Entra ID"),
     requires_config=True,
     enabled=True,
-    api_docs_url=ENTRA_API_DOC_URL,
-    setup_guide_url="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow",
-    troubleshooting_url="https://learn.microsoft.com/en-us/graph/resolve-auth-errors",
+    api_docs_url=API_DOCS_URL,
+    setup_guide_url=CC_SETUP_GUIDE_URL,
+    troubleshooting_url=TROUBLESHOOTING_URL,
 )
 
 
-class MicrosoftEntraCCProvider(MicrosoftGraphCCProvider):
+class MicrosoftEntraACProvider(AuthorizationCodeOAuthProvider):
+    """Microsoft Entra ID OAuth provider for delegated permissions."""
+
+    id: ClassVar[str] = "microsoft_entra"
+    scopes: ClassVar[ProviderScopes] = AC_SCOPES
+    metadata: ClassVar[ProviderMetadata] = AC_METADATA
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_AUTHORIZATION_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_TOKEN_ENDPOINT
+
+
+class MicrosoftEntraCCProvider(ClientCredentialsOAuthProvider):
     """Microsoft Entra ID OAuth provider for application permissions (service principal)."""
 
     id: ClassVar[str] = "microsoft_entra"
-    scopes: ClassVar[ProviderScopes] = ENTRA_CC_SCOPES
+    scopes: ClassVar[ProviderScopes] = CC_SCOPES
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
+    default_authorization_endpoint: ClassVar[str] = DEFAULT_AUTHORIZATION_ENDPOINT
+    default_token_endpoint: ClassVar[str] = DEFAULT_TOKEN_ENDPOINT

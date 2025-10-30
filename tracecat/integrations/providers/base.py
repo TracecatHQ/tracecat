@@ -185,6 +185,8 @@ class BaseOAuthProvider(ABC):
             client_id=self.client_id,
             scopes=self.requested_scopes,
             grant_type=self.grant_type,
+            authorization_endpoint=self.authorization_endpoint,
+            token_endpoint=self.token_endpoint,
         )
 
     @property
@@ -382,7 +384,12 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
             **self._get_additional_authorize_params(),
         )
 
-        self.logger.info("Generated OAuth authorization URL", provider=self.id)
+        self.logger.info(
+            "Generated OAuth authorization URL",
+            provider=self.id,
+            authorization_endpoint=self.authorization_endpoint,
+            state=state,
+        )
         return url
 
     async def exchange_code_for_token(self, code: str, state: str) -> TokenResponse:
@@ -399,8 +406,13 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                     **self._get_additional_token_params(),
                 ),  # type: ignore
             )
-
-            self.logger.info("Successfully acquired OAuth token", provider=self.id)
+            self.logger.info(
+                "Successfully acquired OAuth token from token endpoint",
+                provider=self.id,
+                token_endpoint=self.token_endpoint,
+                code=code,
+                state=state,
+            )
 
             # Convert authlib token response to our TokenResponse model
             return TokenResponse(
@@ -841,19 +853,17 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         client_secret: str | None
 
         if config:
-            client_id = config.client_id.strip() if config.client_id.strip() else None
-            if config.client_secret:
-                secret_value = config.client_secret.get_secret_value().strip()
-                client_secret = secret_value if secret_value else None
-            else:
-                client_secret = None
+            if isinstance(config.client_id, str):
+                client_id = config.client_id.strip()
+            if isinstance(config.client_secret, SecretStr):
+                client_secret = config.client_secret.get_secret_value().strip()
         else:
             client_id_value = kwargs.get("client_id")
-            client_id = (
-                client_id_value.strip()
-                if isinstance(client_id_value, str)
-                else client_id_value
-            )
+            if isinstance(client_id_value, str):
+                client_id = client_id_value.strip()
+            else:
+                client_id = client_id_value
+
             client_secret_value = kwargs.get("client_secret")
             if isinstance(client_secret_value, str):
                 client_secret = client_secret_value.strip() or None

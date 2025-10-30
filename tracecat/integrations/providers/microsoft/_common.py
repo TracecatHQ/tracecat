@@ -1,45 +1,34 @@
-"""Shared helpers and constants for Microsoft OAuth providers.
-
-This module centralizes common Microsoft identity platform details:
-- Default authorization and token endpoints (Public cloud)
-- Cloud endpoint help text (Public, US Gov, China, Germany)
-- Reusable setup steps for AC and CC flows
-"""
+"""Shared helpers and base classes for Microsoft OAuth providers."""
 
 from __future__ import annotations
 
 from typing import Final
 
-# Default endpoints for Microsoft identity platform (Public cloud)
-DEFAULT_COMMERCIAL_AUTHORIZATION_ENDPOINT: Final[str] = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-)
-DEFAULT_COMMERCIAL_TOKEN_ENDPOINT: Final[str] = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-)
+MICROSOFT_CLOUD_AUTHORITIES: Final[dict[str, str]] = {
+    "public": "https://login.microsoftonline.com",
+    "us_gov": "https://login.microsoftonline.us",
+}
+MICROSOFT_OAUTH_PATH: Final[str] = "oauth2/v2.0"
 
-
-# Help text referencing sovereign cloud endpoint patterns. Tenants should replace
-# {tenant} with a specific tenant ID or domain for production.
+TENANT_ID_HELP: Final[str] = (
+    "Replace {tenant_id} with your Entra ID app's tenant (directory) ID"
+    "or use `common` for multi-tenant applications, `organizations` for single-tenant applications, or `consumers` for personal accounts"
+)
 MICROSOFT_AUTH_ENDPOINT_HELP: Final[str] = (
     "Cloud endpoints:\n"
-    "- Public: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize\n"
-    "- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize\n"
-)
+    "- Public: https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize\n"
+    "- US Gov: https://login.microsoftonline.us/{tenant_id}/oauth2/v2.0/authorize\n"
+) + TENANT_ID_HELP
 
 MICROSOFT_TOKEN_ENDPOINT_HELP: Final[str] = (
     "Cloud endpoints:\n"
-    "- Public: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token\n"
-    "- US Gov: https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token\n"
-)
+    "- Public: https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token\n"
+    "- US Gov: https://login.microsoftonline.us/{tenant_id}/oauth2/v2.0/token\n"
+) + TENANT_ID_HELP
 
 
 def get_ac_setup_steps(service: str = "Microsoft service") -> list[str]:
-    """Reusable setup steps for Authorization Code flow providers.
-
-    Args:
-        service: A short label for the target service (e.g., "Microsoft Graph").
-    """
+    """Reusable setup steps for Authorization Code flow providers."""
 
     return [
         "Register your application in Azure Portal",
@@ -48,17 +37,13 @@ def get_ac_setup_steps(service: str = "Microsoft service") -> list[str]:
         "Copy Client ID and Client Secret",
         (
             "Configure the authorization and token endpoints for your tenant "
-            "(defaults use the Azure Public cloud with 'common')"
+            "(defaults use the Azure Public cloud with the class-specific tenant)"
         ),
     ]
 
 
 def get_cc_setup_steps(service: str = "Microsoft service") -> list[str]:
-    """Reusable setup steps for Client Credentials flow providers.
-
-    Args:
-        service: A short label for the target service (e.g., "Azure Management").
-    """
+    """Reusable setup steps for Client Credentials flow providers."""
 
     return [
         "Register your application in Azure Portal",
@@ -67,6 +52,14 @@ def get_cc_setup_steps(service: str = "Microsoft service") -> list[str]:
         "Copy Client ID and Client Secret",
         (
             "Configure the authorization and token endpoints for your tenant "
-            "(defaults use the Azure Public cloud with 'common')"
+            "(defaults use the Azure Public cloud with the class-specific tenant)"
         ),
     ]
+
+
+DEFAULT_AUTHORIZATION_ENDPOINT: Final[str] = (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+)
+DEFAULT_TOKEN_ENDPOINT: Final[str] = (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+)
