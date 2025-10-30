@@ -6,11 +6,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   $WebhookMethod,
+  $WebhookStatus,
   ApiError,
   type SchedulesCreateScheduleData,
   type WebhookMethod,
@@ -22,6 +23,7 @@ import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { CustomTagInput, type Tag } from "@/components/tags-input"
 import {
   Accordion,
   AccordionContent,
@@ -108,8 +110,6 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
-const CIDR_HELP_TEXT =
-  "Enter a valid IPv4 or IPv6 address or CIDR (e.g., 203.0.113.7, 203.0.113.0/24, or 2001:db8::/32)."
 
 const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
   const maybeNormalized =
@@ -117,26 +117,69 @@ const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
   return maybeNormalized
 }
 
-const validateCidr = (
+const validateAndNormalizeCidr = (
   value: string
-):
-  | { success: true; normalized: string }
-  | { success: false; error: string } => {
+): { normalized: string } | { error: string } => {
   try {
     const [address, prefixLength] = ipaddr.parseCIDR(value)
     const normalized = `${toCanonicalString(address)}/${prefixLength}`
-    return { success: true, normalized }
+    return { normalized }
   } catch {
     try {
       const address = ipaddr.parse(value)
       const prefixLength = address.kind() === "ipv4" ? 32 : 128
       const normalized = `${toCanonicalString(address)}/${prefixLength}`
-      return { success: true, normalized }
+      return { normalized }
     } catch {
-      return { success: false, error: CIDR_HELP_TEXT }
+      return {
+        error: `Invalid IP address or CIDR: "${value}"`,
+      }
     }
   }
 }
+
+const webhookFormSchema = z.object({
+  status: z.enum($WebhookStatus.enum),
+  methods: z
+    .array(z.enum($WebhookMethod.enum))
+    .min(1, "At least one method is required"),
+  allowlisted_cidrs: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string().trim().min(1, "Invalid IP address or CIDR"),
+      })
+    )
+    .superRefine((cidrs, ctx) => {
+      for (const cidr of cidrs) {
+        const result = validateAndNormalizeCidr(cidr.text)
+        if ("error" in result) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: result.error,
+          })
+          return
+        }
+      }
+    })
+    .transform((cidrs) => {
+      const normalized = new Map<string, Tag>()
+      for (const cidr of cidrs) {
+        const result = validateAndNormalizeCidr(cidr.text)
+        if ("error" in result) {
+          continue
+        }
+        const value = result.normalized
+        if (!normalized.has(value)) {
+          normalized.set(value, { id: value, text: value })
+        }
+      }
+      return Array.from(normalized.values())
+    })
+    .default([]),
+})
+
+type WebhookForm = z.infer<typeof webhookFormSchema>
 
 const extractApiErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) {
@@ -246,9 +289,6 @@ export function WebhookControls({
   webhook: WebhookRead
   workflowId: string
 }) {
-  const { url, status } = webhook
-  const methods = webhook.methods ?? ["POST"]
-  const allowlistedCidrs = webhook.allowlisted_cidrs ?? []
   const hasActiveApiKey = webhook.api_key?.is_active ?? false
   const apiKeySuffix = webhook.api_key?.suffix ?? null
   const apiKeyCreatedAt = webhook.api_key?.created_at ?? null
@@ -264,34 +304,127 @@ export function WebhookControls({
   const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null)
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false)
-  const [newAllowlistEntry, setNewAllowlistEntry] = useState("")
-  const [allowlistError, setAllowlistError] = useState<string | null>(null)
+
+  const form = useForm<WebhookForm>({
+    resolver: zodResolver(webhookFormSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
+    values: {
+      status: webhook.status,
+      methods: webhook.methods ?? ["POST"],
+      allowlisted_cidrs:
+        webhook.allowlisted_cidrs?.map((cidr) => ({
+          id: cidr,
+          text: cidr,
+        })) ?? [],
+    },
+  })
+
+  const handleAllowlistedCidrsChange = useCallback(
+    (newTags: Tag[]) => {
+      if (!Array.isArray(newTags)) {
+        form.setValue("allowlisted_cidrs", [], {
+          shouldDirty: true,
+          shouldValidate: true,
+          shouldTouch: true,
+        })
+        return
+      }
+
+      const normalized = new Map<string, Tag>()
+      let firstError: string | null = null
+
+      for (const tag of newTags) {
+        const trimmed = tag.text.trim()
+        if (!trimmed) {
+          firstError ??= "Invalid IP address or CIDR"
+          continue
+        }
+        const result = validateAndNormalizeCidr(trimmed)
+        if ("error" in result) {
+          firstError ??= result.error
+          continue
+        }
+        const canonical = result.normalized
+        if (!normalized.has(canonical)) {
+          normalized.set(canonical, { id: canonical, text: canonical })
+        }
+      }
+
+      if (firstError) {
+        form.setError("allowlisted_cidrs", {
+          type: "manual",
+          message: firstError,
+        })
+        toast({
+          title: "Invalid IP allowlist entry",
+          description: firstError,
+          variant: "destructive",
+        })
+      } else {
+        form.clearErrors("allowlisted_cidrs")
+      }
+
+      form.setValue("allowlisted_cidrs", Array.from(normalized.values()), {
+        shouldDirty: true,
+        shouldValidate: !firstError,
+        shouldTouch: true,
+      })
+    },
+    [form]
+  )
 
   const formatTimestamp = (value: string | null) =>
     value ? new Date(value).toLocaleString() : "—"
 
-  const onCheckedChange = async (checked: boolean) => {
-    await mutateAsync({
-      status: checked ? "online" : "offline",
-    })
+  const handleStatusChange = async (checked: boolean) => {
+    const newStatus = checked ? "online" : "offline"
+    form.setValue("status", newStatus)
+
+    try {
+      await mutateAsync({ status: newStatus })
+      toast({
+        title: "Webhook status updated",
+        description: `Webhook is now ${newStatus}`,
+      })
+    } catch (error) {
+      console.error("Failed to update webhook status", error)
+      form.setValue("status", webhook.status)
+      toast({
+        title: "Failed to update status",
+        description: extractApiErrorMessage(
+          error,
+          "An error occurred while updating the webhook status."
+        ),
+      })
+    }
   }
 
-  const onMethodsChange = async (newMethods: WebhookMethod[]) => {
+  const handleMethodsChange = async (newMethods: WebhookMethod[]) => {
     if (newMethods.length === 0) {
       console.log("No methods selected")
       return
     }
 
+    form.setValue("methods", newMethods)
+
     try {
-      await mutateAsync({
-        methods: newMethods,
-      })
+      await mutateAsync({ methods: newMethods })
       toast({
         title: "Webhook methods updated",
         description: `The webhook will accept requests via: ${newMethods.sort().join(", ")}`,
       })
     } catch (error) {
-      console.log("Failed to update webhook methods", error)
+      console.error("Failed to update webhook methods", error)
+      form.setValue("methods", webhook.methods ?? ["POST"])
+      toast({
+        title: "Failed to update methods",
+        description: extractApiErrorMessage(
+          error,
+          "An error occurred while updating the webhook methods."
+        ),
+        variant: "destructive",
+      })
     }
   }
 
@@ -326,214 +459,131 @@ export function WebhookControls({
     }
   }
 
-  const handleAddAllowlistEntry = async () => {
-    const trimmed = newAllowlistEntry.trim()
-    if (!trimmed) {
-      setAllowlistError("Enter an IP address or CIDR to add.")
-      return
-    }
-
-    const cidrValidation = validateCidr(trimmed)
-    if (!cidrValidation.success) {
-      setAllowlistError(cidrValidation.error)
-      return
-    }
-
-    const normalizedValue = cidrValidation.normalized
-
-    if (allowlistedCidrs.includes(normalizedValue)) {
-      toast({
-        title: "Allowlist entry exists",
-        description: `${normalizedValue} is already present.`,
-      })
-      setNewAllowlistEntry("")
-      setAllowlistError(null)
-      return
-    }
-
-    const nextAllowlist = Array.from(
-      new Set([...allowlistedCidrs, normalizedValue])
-    )
-
-    try {
-      await mutateAsync({
-        allowlisted_cidrs: nextAllowlist,
-      })
-      setNewAllowlistEntry("")
-      setAllowlistError(null)
-      toast({
-        title: "Allowlist updated",
-        description: `Added ${normalizedValue} to the webhook allowlist.`,
-      })
-    } catch (error) {
-      console.error("Failed to update allowlist", error)
-      toast({
-        title: "Error updating allowlist",
-        description: extractApiErrorMessage(
-          error,
-          "Could not update allowlist."
-        ),
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleRemoveAllowlistEntry = async (cidr: string) => {
-    const nextAllowlist = allowlistedCidrs.filter((entry) => entry !== cidr)
-
-    try {
-      await mutateAsync({
-        allowlisted_cidrs: nextAllowlist,
-      })
-      setAllowlistError(null)
-      toast({
-        title: "Allowlist updated",
-        description: `Removed ${cidr} from the webhook allowlist.`,
-      })
-    } catch (error) {
-      console.error("Failed to remove allowlist entry", error)
-      toast({
-        title: "Error updating allowlist",
-        description: extractApiErrorMessage(
-          error,
-          "Could not update allowlist."
-        ),
-        variant: "destructive",
-      })
-    }
-  }
-
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <Label
-            htmlFor="webhook-toggle"
-            className="flex gap-2 items-center text-xs font-medium"
-          >
-            <span>Toggle Webhook</span>
-          </Label>
-          <Switch
-            id="webhook-toggle"
-            checked={status === "online"}
-            onCheckedChange={onCheckedChange}
-            className="data-[state=checked]:bg-emerald-500"
-            disabled={isUpdatingWebhook}
-          />
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {status === "online"
-            ? "Webhook is currently active and receiving requests"
-            : "Webhook is disabled"}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label className="flex gap-2 items-center text-xs font-medium">
-          <span>Allowed HTTP Methods</span>
-        </Label>
-        <div className="relative w-full">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                className="justify-between w-full text-xs"
-                disabled={isUpdatingWebhook}
-              >
-                {methods.length > 0
-                  ? methods.sort().join(", ")
-                  : "Select HTTP methods"}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              style={{ width: "var(--radix-dropdown-menu-trigger-width)" }}
-              align="start"
-              sideOffset={4}
-            >
-              {HTTP_METHODS.map((method) => (
-                <DropdownMenuItem
-                  key={method}
-                  onClick={() => {
-                    const newMethods = methods.includes(method)
-                      ? methods.filter((m) => m !== method)
-                      : [...methods, method]
-
-                    onMethodsChange(newMethods)
-                  }}
-                  className="w-full text-xs"
-                >
-                  <CheckIcon
-                    className={cn(
-                      "mr-2 size-4",
-                      methods.includes(method) ? "opacity-100" : "opacity-0"
-                    )}
+      <Form {...form}>
+        <FormField
+          control={form.control}
+          name="status"
+          render={({ field }) => (
+            <FormItem>
+              <div className="flex justify-between items-center">
+                <FormLabel className="flex gap-2 items-center text-xs font-medium">
+                  <span>Toggle Webhook</span>
+                </FormLabel>
+                <FormControl>
+                  <Switch
+                    checked={field.value === "online"}
+                    onCheckedChange={handleStatusChange}
+                    className="data-[state=checked]:bg-emerald-500"
+                    disabled={isUpdatingWebhook}
                   />
-                  <span>{method}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label className="flex gap-2 items-center text-xs font-medium">
-          <span>IP Allowlist</span>
-        </Label>
-        {allowlistedCidrs.length > 0 ? (
-          <div className="space-y-2">
-            {allowlistedCidrs.map((cidr) => (
-              <div
-                key={cidr}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
-              >
-                <span className="font-mono">{cidr}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleRemoveAllowlistEntry(cidr)}
-                  disabled={isUpdatingWebhook}
-                >
-                  Remove
-                </Button>
+                </FormControl>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            No allowlist entries are configured. All source IPs are allowed.
-          </p>
-        )}
-        <div className="flex gap-2">
-          <Input
-            value={newAllowlistEntry}
-            onChange={(event) => {
-              setNewAllowlistEntry(event.target.value)
-              if (allowlistError) {
-                setAllowlistError(null)
-              }
-            }}
-            placeholder="e.g., 203.0.113.7 or 203.0.113.0/24"
-            className="text-xs"
-            disabled={isUpdatingWebhook}
-            aria-invalid={allowlistError ? "true" : "false"}
-          />
-          <Button
-            size="sm"
-            onClick={handleAddAllowlistEntry}
-            disabled={
-              isUpdatingWebhook || newAllowlistEntry.trim().length === 0
-            }
-          >
-            Add Entry
-          </Button>
-        </div>
-        {allowlistError ? (
-          <p className="text-[11px] text-destructive">{allowlistError}</p>
-        ) : null}
-        <p className="text-[11px] text-muted-foreground">{CIDR_HELP_TEXT}</p>
-      </div>
+              <FormDescription className="text-xs">
+                {field.value === "online"
+                  ? "Webhook is currently active and receiving requests"
+                  : "Webhook is disabled"}
+              </FormDescription>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="methods"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex gap-2 items-center text-xs font-medium">
+                <span>Allowed HTTP Methods</span>
+              </FormLabel>
+              <FormControl>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="justify-between w-full text-xs"
+                      disabled={isUpdatingWebhook}
+                    >
+                      {field.value.length > 0
+                        ? field.value.sort().join(", ")
+                        : "Select HTTP methods"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    style={{
+                      width: "var(--radix-dropdown-menu-trigger-width)",
+                    }}
+                    align="start"
+                    sideOffset={4}
+                  >
+                    {HTTP_METHODS.map((method) => (
+                      <DropdownMenuItem
+                        key={method}
+                        onClick={() => {
+                          const newMethods = field.value.includes(method)
+                            ? field.value.filter((m) => m !== method)
+                            : [...field.value, method]
+
+                          handleMethodsChange(newMethods)
+                        }}
+                        className="w-full text-xs"
+                      >
+                        <CheckIcon
+                          className={cn(
+                            "mr-2 size-4",
+                            field.value.includes(method)
+                              ? "opacity-100"
+                              : "opacity-0"
+                          )}
+                        />
+                        <span>{method}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </FormControl>
+              <FormMessage className="text-[11px]" />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="allowlisted_cidrs"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex gap-2 items-center text-xs font-medium">
+                <span>IP Allowlist</span>
+              </FormLabel>
+              <FormControl>
+                <CustomTagInput
+                  {...field}
+                  placeholder="Enter an IP address or CIDR..."
+                  tags={field.value}
+                  setTags={(newTags) =>
+                    handleAllowlistedCidrsChange(
+                      Array.isArray(newTags) ? newTags : []
+                    )
+                  }
+                />
+              </FormControl>
+              {field.value.length === 0 && (
+                <FormDescription className="text-xs">
+                  No allowlist entries are configured. All source IPs are
+                  allowed.
+                </FormDescription>
+              )}
+              <FormMessage className="text-[11px]" />
+              <FormDescription className="text-[11px]">
+                Enter a valid IPv4 or IPv6 address or CIDR (e.g., 203.0.113.7,
+                203.0.113.0/24, or 2001:db8::/32).
+              </FormDescription>
+            </FormItem>
+          )}
+        />
+      </Form>
 
       <div className="space-y-2">
         <Label className="flex gap-2 items-center text-xs font-medium">
@@ -623,12 +673,15 @@ export function WebhookControls({
       <div className="space-y-2">
         <Label className="flex gap-2 items-center text-xs font-medium">
           <span>URL</span>
-          <CopyButton value={url} toastMessage="Copied URL to clipboard" />
+          <CopyButton
+            value={webhook.url}
+            toastMessage="Copied URL to clipboard"
+          />
         </Label>
         <div className="rounded-md border shadow-sm">
           <Input
             name="url"
-            defaultValue={url}
+            defaultValue={webhook.url}
             className="text-xs rounded-md border-none shadow-none"
             readOnly
             disabled
