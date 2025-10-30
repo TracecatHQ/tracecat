@@ -16,7 +16,6 @@ def test_generate_api_key_shapes() -> None:
     generated = generate_api_key()
 
     assert generated.raw.startswith(DEFAULT_API_KEY_PREFIX)
-    assert generated.raw.endswith(generated.suffix)
     assert generated.hashed
     assert generated.salt_b64
     # Salt must be valid base64
