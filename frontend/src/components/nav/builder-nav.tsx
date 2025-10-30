@@ -510,17 +510,17 @@ function WorkflowSaveActions({
                 <Button
                   type="submit"
                   disabled={isPublishing}
-                  className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80"
+                  className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
                 >
                   {isPublishing ? (
                     <>
                       <Spinner className="size-3" />
-                      Publishing...
+                      Publishing changes...
                     </>
                   ) : (
                     <>
                       <GitBranchIcon className="size-3" />
-                      Publish
+                      Publish changes
                     </>
                   )}
                 </Button>
