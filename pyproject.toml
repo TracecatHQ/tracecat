@@ -94,6 +94,7 @@ dev = [
     "psycopg>=3.1.19",
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
+    "pytest-xdist==3.8.0",
     "pytest==8.3.2",
     "python-dotenv==1.1.1",
     "respx==0.22.0",

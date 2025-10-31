@@ -1544,7 +1544,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ Successful Response
+ * @returns WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (

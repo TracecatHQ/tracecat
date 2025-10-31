@@ -36,18 +36,35 @@ from tracecat.secrets import secrets_manager
 from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
 
-# MinIO test configuration
-MINIO_ENDPOINT = "localhost:9002"
+# Worker-specific configuration for pytest-xdist parallel execution
+# Get xdist worker ID, defaults to "master" if not using xdist
+WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+# Generate worker-specific port offsets
+# master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
+if WORKER_ID == "master":
+    WORKER_OFFSET = 0
+else:
+    # Extract number from "gwN" format
+    WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
+
+# MinIO test configuration - worker-specific
+MINIO_BASE_PORT = 9002
+MINIO_CONSOLE_BASE_PORT = 9003
+MINIO_PORT = MINIO_BASE_PORT + (WORKER_OFFSET * 2)  # Each worker gets 2 ports
+MINIO_CONSOLE_PORT = MINIO_CONSOLE_BASE_PORT + (WORKER_OFFSET * 2)
+MINIO_ENDPOINT = f"localhost:{MINIO_PORT}"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
-MINIO_CONTAINER_NAME = "test-minio-grep"
+MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
 
 # ---------------------------------------------------------------------------
-# Redis test configuration
+# Redis test configuration - worker-specific
 # ---------------------------------------------------------------------------
 
-REDIS_PORT = "6380"
-REDIS_CONTAINER_NAME = "test-redis-grep"
+REDIS_BASE_PORT = 6380
+REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
+REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
 
 
 # ---------------------------------------------------------------------------
@@ -490,9 +507,9 @@ def minio_server():
                 "--name",
                 MINIO_CONTAINER_NAME,
                 "-p",
-                "9002:9000",
+                f"{MINIO_PORT}:9000",
                 "-p",
-                "9003:9001",
+                f"{MINIO_CONSOLE_PORT}:9001",
                 "-e",
                 f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
                 "-e",
