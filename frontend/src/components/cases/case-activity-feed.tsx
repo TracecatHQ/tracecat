@@ -11,6 +11,7 @@ import {
   CaseClosedEvent,
   CaseReopenedEvent,
   CaseUpdatedEvent,
+  CaseViewedEvent,
   EventActor,
   EventIcon,
   FieldsChangedEvent,
@@ -92,6 +93,10 @@ function ActivityFeedEvent({
         {/* Case updated events */}
         {event.type === "case_updated" && (
           <CaseUpdatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "case_viewed" && (
+          <CaseViewedEvent event={event} actor={actor} />
         )}
 
         {/* Assignee events */}

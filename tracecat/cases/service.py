@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -14,6 +14,7 @@ from tracecat.auth.models import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -47,6 +48,7 @@ from tracecat.cases.models import (
     TaskStatusChangedEvent,
     TaskWorkflowChangedEvent,
     UpdatedEvent,
+    ViewedEvent,
 )
 from tracecat.cases.tags.models import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
@@ -89,6 +91,10 @@ def _normalize_filter_values(values: Any) -> list[Any]:
                 unique.append(value)
         return unique
     return [values]
+
+
+CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+"""Time window to deduplicate consecutive case view events for the same user."""
 
 
 class CasesService(BaseWorkspaceService):
@@ -452,11 +458,14 @@ class CasesService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_case(self, case_id: uuid.UUID) -> Case | None:
+    async def get_case(
+        self, case_id: uuid.UUID, *, track_view: bool = False
+    ) -> Case | None:
         """Get a case with its associated custom fields.
 
         Args:
             case_id: UUID of the case to retrieve
+            track_view: When True, record a case viewed event for the current user.
 
         Returns:
             Tuple containing the case and its fields (or None if no fields exist)
@@ -474,7 +483,12 @@ class CasesService(BaseWorkspaceService):
         )
 
         result = await self.session.exec(statement)
-        return result.first()
+        case = result.first()
+
+        if case and track_view:
+            await self.events.record_case_view(case)
+
+        return case
 
     async def create_case(self, params: CaseCreate) -> Case:
         try:
@@ -973,6 +987,48 @@ class CaseEventsService(BaseWorkspaceService):
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
         return db_event
+
+    async def record_case_view(self, case: Case) -> CaseEvent | None:
+        """Record a case viewed event for the current user.
+
+        Deduplicate consecutive view events for the same user within a short
+        time window to avoid creating duplicate entries on refreshes.
+        """
+        user_id = self.role.user_id
+        if user_id is None:
+            return None
+
+        now = datetime.now(UTC)
+        stmt = (
+            select(CaseEvent)
+            .where(
+                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.case_id == case.id,
+                CaseEvent.user_id == user_id,
+                CaseEvent.type == CaseEventType.CASE_VIEWED,
+            )
+            .order_by(desc(col(CaseEvent.created_at)))
+            .limit(1)
+        )
+        result = await self.session.exec(stmt)
+        last_event = result.first()
+        if last_event and (now - last_event.created_at) < CASE_VIEW_EVENT_DEDUP_WINDOW:
+            return None
+
+        try:
+            db_event = await self.create_event(case, ViewedEvent())
+            await self.session.commit()
+            await self.session.refresh(db_event)
+            return db_event
+        except Exception as exc:
+            await self.session.rollback()
+            self.logger.warning(
+                "Failed to record case view event",
+                case_id=str(case.id),
+                user_id=str(user_id),
+                error=str(exc),
+            )
+            return None
 
 
 class CaseTasksService(BaseWorkspaceService):

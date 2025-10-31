@@ -256,6 +256,10 @@ class UpdatedEvent(CaseEventBase):
     new: str | None
 
 
+class ViewedEvent(CaseEventBase):
+    type: Literal[CaseEventType.CASE_VIEWED] = CaseEventType.CASE_VIEWED
+
+
 class FieldDiff(BaseModel):
     field: str
     old: Any
@@ -292,6 +296,10 @@ class ReopenedEventRead(CaseEventReadBase, ReopenedEvent):
 
 class UpdatedEventRead(CaseEventReadBase, UpdatedEvent):
     """Event for when a case is updated."""
+
+
+class ViewedEventRead(CaseEventReadBase, ViewedEvent):
+    """Event for when a case is viewed."""
 
 
 class StatusChangedEventRead(CaseEventReadBase, StatusChangedEvent):
@@ -423,6 +431,7 @@ type CaseEventVariant = Annotated[
     | ClosedEvent
     | ReopenedEvent
     | UpdatedEvent
+    | ViewedEvent
     | StatusChangedEvent
     | PriorityChangedEvent
     | SeverityChangedEvent
@@ -449,6 +458,7 @@ class CaseEventRead(RootModel):
         | ClosedEventRead
         | ReopenedEventRead
         | UpdatedEventRead
+        | ViewedEventRead
         | StatusChangedEventRead
         | PriorityChangedEventRead
         | SeverityChangedEventRead

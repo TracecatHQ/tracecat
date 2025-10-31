@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -17,7 +18,11 @@ from tracecat.cases.models import (
     StatusChangedEvent,
     UpdatedEvent,
 )
-from tracecat.cases.service import CaseEventsService, CasesService
+from tracecat.cases.service import (
+    CASE_VIEW_EVENT_DEDUP_WINDOW,
+    CaseEventsService,
+    CasesService,
+)
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
@@ -85,6 +90,56 @@ class TestCaseEventsService:
         assert created_event.user_id == case_events_service.role.user_id
         assert created_event.owner_id == case_events_service.workspace_id
         assert created_event.data is not None
+
+    async def test_record_case_view_event(
+        self, case_events_service: CaseEventsService, test_case
+    ) -> None:
+        """Test recording a case viewed event."""
+        recorded_event = await case_events_service.record_case_view(test_case)
+
+        assert recorded_event is not None
+        assert recorded_event.case_id == test_case.id
+        assert recorded_event.type == CaseEventType.CASE_VIEWED
+        assert recorded_event.user_id == case_events_service.role.user_id
+
+        events = await case_events_service.list_events(test_case)
+        view_events = [
+            event for event in events if event.type == CaseEventType.CASE_VIEWED
+        ]
+        assert len(view_events) == 1
+
+    async def test_record_case_view_deduplicates_recent_views(
+        self, case_events_service: CaseEventsService, test_case
+    ) -> None:
+        """Ensure rapid case views are deduplicated."""
+        first_event = await case_events_service.record_case_view(test_case)
+        assert first_event is not None
+
+        duplicate_event = await case_events_service.record_case_view(test_case)
+        assert duplicate_event is None
+
+        events = await case_events_service.list_events(test_case)
+        view_events = [
+            event for event in events if event.type == CaseEventType.CASE_VIEWED
+        ]
+        assert len(view_events) == 1
+
+    async def test_record_case_view_after_window_creates_new_event(
+        self, case_events_service: CaseEventsService, test_case
+    ) -> None:
+        """Ensure a new view is recorded after the deduplication window."""
+        first_event = await case_events_service.record_case_view(test_case)
+        assert first_event is not None
+
+        first_event.created_at = first_event.created_at - (
+            CASE_VIEW_EVENT_DEDUP_WINDOW + timedelta(seconds=5)
+        )
+        await case_events_service.session.commit()
+        await case_events_service.session.refresh(first_event)
+
+        second_event = await case_events_service.record_case_view(test_case)
+        assert second_event is not None
+        assert second_event.id != first_event.id
 
     async def test_create_status_changed_event(
         self, case_events_service: CaseEventsService, test_case

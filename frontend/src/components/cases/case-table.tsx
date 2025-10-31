@@ -426,8 +426,9 @@ export default function CaseTable() {
   )
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
-    return () =>
-      router.push(`/workspaces/${workspaceId}/cases/${row.original.id}`)
+    return () => {
+      void router.push(`/workspaces/${workspaceId}/cases/${row.original.id}`)
+    }
   }
 
   const handleDeleteRows = useCallback(

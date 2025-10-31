@@ -462,10 +462,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { isFeatureEnabled } = useFeatureFlag()
   const caseTasksEnabled = isFeatureEnabled("case-tasks")
 
-  const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
-    caseId,
-    workspaceId,
-  })
+  const { caseData, caseDataIsLoading, caseDataError } = useGetCase(
+    {
+      caseId,
+      workspaceId,
+    },
+    { enabled: Boolean(caseId) }
+  )
   const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
     useCaseDurations({
       caseId,
@@ -492,6 +495,11 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
     [caseData?.fields]
   )
+  useEffect(() => {
+    if (caseData?.short_id && caseData?.summary) {
+      document.title = `${caseData.short_id} | ${caseData.summary}`
+    }
+  }, [caseData?.short_id, caseData?.summary])
   useEffect(() => {
     if (caseDurationsError) {
       console.error("Failed to load case durations:", caseDurationsError)

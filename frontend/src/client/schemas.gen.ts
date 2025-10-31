@@ -2535,6 +2535,9 @@ export const $CaseEventRead = {
       $ref: "#/components/schemas/UpdatedEventRead",
     },
     {
+      $ref: "#/components/schemas/ViewedEventRead",
+    },
+    {
       $ref: "#/components/schemas/StatusChangedEventRead",
     },
     {
@@ -2589,6 +2592,7 @@ export const $CaseEventRead = {
       case_created: "#/components/schemas/CreatedEventRead",
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
+      case_viewed: "#/components/schemas/ViewedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
       payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
@@ -2612,6 +2616,7 @@ export const $CaseEventType = {
   enum: [
     "case_created",
     "case_updated",
+    "case_viewed",
     "case_closed",
     "case_reopened",
     "priority_changed",
@@ -13653,6 +13658,52 @@ distinguish multiple files.`,
   required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
   description: "A URL to a video.",
+} as const
+
+export const $ViewedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "case_viewed",
+      title: "Type",
+      default: "case_viewed",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "ViewedEventRead",
+  description: "Event for when a case is viewed.",
 } as const
 
 export const $WaitStrategy = {

@@ -1,5 +1,6 @@
 import {
   BracesIcon,
+  EyeIcon,
   type LucideIcon,
   PaperclipIcon,
   PencilIcon,
@@ -26,6 +27,7 @@ import type {
   TaskStatusChangedEventRead,
   TaskWorkflowChangedEventRead,
   UpdatedEventRead,
+  ViewedEventRead,
 } from "@/client"
 import {
   PRIORITIES,
@@ -182,6 +184,22 @@ export function SeverityChangedEvent({
       <span>
         <EventActor user={actor} /> changed severity from {oldSeverity.label} to{" "}
         {newSeverity.label}
+      </span>
+    </div>
+  )
+}
+
+export function CaseViewedEvent({
+  actor,
+}: {
+  event: ViewedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={EyeIcon} />
+      <span>
+        <EventActor user={actor} /> viewed the case
       </span>
     </div>
   )

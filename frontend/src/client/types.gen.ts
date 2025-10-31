@@ -818,6 +818,7 @@ export type CaseEventRead =
   | ClosedEventRead
   | ReopenedEventRead
   | UpdatedEventRead
+  | ViewedEventRead
   | StatusChangedEventRead
   | PriorityChangedEventRead
   | SeverityChangedEventRead
@@ -839,6 +840,7 @@ export type CaseEventRead =
 export type CaseEventType =
   | "case_created"
   | "case_updated"
+  | "case_viewed"
   | "case_closed"
   | "case_reopened"
   | "priority_changed"
@@ -4599,6 +4601,25 @@ export type VideoUrl = {
    * distinguish multiple files.
    */
   readonly identifier: string
+}
+
+/**
+ * Event for when a case is viewed.
+ */
+export type ViewedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_viewed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type WaitStrategy = "wait" | "detach"

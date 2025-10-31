@@ -62,6 +62,7 @@ class CaseEventType(StrEnum):
 
     CASE_CREATED = "case_created"
     CASE_UPDATED = "case_updated"
+    CASE_VIEWED = "case_viewed"
     CASE_CLOSED = "case_closed"
     CASE_REOPENED = "case_reopened"
     PRIORITY_CHANGED = "priority_changed"

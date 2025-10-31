@@ -282,7 +282,7 @@ async def get_case(
 ) -> CaseRead:
     """Get a specific case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, track_view=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,

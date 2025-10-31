@@ -1,11 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  CheckCircleIcon,
-  ExternalLinkIcon,
-  GitBranchIcon,
-} from "lucide-react"
+import { CheckCircleIcon, ExternalLinkIcon, GitBranchIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -256,7 +252,11 @@ export function GitHubAppSetup() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="w-full space-y-4"
+        >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="manifest" disableUnderline>
               Create new GitHub App
