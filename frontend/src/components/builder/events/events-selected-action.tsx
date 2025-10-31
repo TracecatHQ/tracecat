@@ -3,13 +3,14 @@
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import {
+  ChevronLeftIcon,
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
   MessageCircle,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
 import {
   Conversation,
@@ -24,6 +25,7 @@ import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -32,6 +34,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Carousel,
+  type CarouselApi,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"
@@ -404,8 +412,50 @@ export function ActionEventDetails({
       />
     )
   }
+  const eventsWithSessions =
+    type === "result"
+      ? actionEventsForRef.filter((event) => event.session)
+      : []
+
+  if (type === "result" && eventsWithSessions.length > 1) {
+    const firstSessionIndex = actionEventsForRef.findIndex(
+      (event) => event.session
+    )
+    const nodes: ReactNode[] = []
+
+    actionEventsForRef.forEach((actionEvent, index) => {
+      const key = actionEvent.stream_id ?? actionEvent.source_event_id
+      if (actionEvent.session) {
+        if (index === firstSessionIndex) {
+          nodes.push(
+            <div key="session-streams">
+              <ActionSessionCarousel
+                events={eventsWithSessions}
+                type={type}
+                eventRef={eventRef}
+              />
+            </div>
+          )
+        }
+        return
+      }
+
+      nodes.push(
+        <div key={key}>
+          <ActionEventContent
+            actionEvent={actionEvent}
+            type={type}
+            eventRef={eventRef}
+          />
+        </div>
+      )
+    })
+
+    return nodes
+  }
+
   return actionEventsForRef.map((actionEvent) => (
-    <div key={actionEvent.stream_id}>
+    <div key={actionEvent.stream_id ?? actionEvent.source_event_id}>
       <ActionEventContent
         actionEvent={actionEvent}
         type={type}
@@ -413,6 +463,87 @@ export function ActionEventDetails({
       />
     </div>
   ))
+}
+
+function ActionSessionCarousel({
+  events,
+  type,
+  eventRef,
+}: {
+  events: WorkflowExecutionEventCompact[]
+  type: Omit<TabType, "interaction">
+  eventRef: string
+}) {
+  const [api, setApi] = useState<CarouselApi>()
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [canScrollPrev, setCanScrollPrev] = useState(false)
+  const [canScrollNext, setCanScrollNext] = useState(events.length > 1)
+
+  useEffect(() => {
+    if (!api) {
+      return
+    }
+
+    const update = () => {
+      setCurrentIndex(api.selectedScrollSnap())
+      setCanScrollPrev(api.canScrollPrev())
+      setCanScrollNext(api.canScrollNext())
+    }
+
+    update()
+    api.on("select", update)
+    api.on("reInit", update)
+
+    return () => {
+      api.off("select", update)
+      api.off("reInit", update)
+    }
+  }, [api])
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground">
+          Stream {currentIndex + 1} of {events.length}
+        </span>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollPrev()}
+          disabled={!canScrollPrev}
+        >
+          <ChevronLeftIcon className="size-4" />
+          <span className="sr-only">Previous stream</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollNext()}
+          disabled={!canScrollNext}
+        >
+          <ChevronRightIcon className="size-4" />
+          <span className="sr-only">Next stream</span>
+        </Button>
+      </div>
+      <Carousel setApi={setApi} opts={{ align: "start" }}>
+        <CarouselContent>
+          {events.map((actionEvent, index) => (
+            <CarouselItem
+              key={`session-${actionEvent.stream_id ?? actionEvent.source_event_id ?? index}`}
+            >
+              <ActionEventContent
+                actionEvent={actionEvent}
+                type={type}
+                eventRef={eventRef}
+              />
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </Carousel>
+    </div>
+  )
 }
 
 function ActionSessionStream({ session }: { session: Session_Any_ }) {
