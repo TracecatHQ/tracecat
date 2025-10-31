@@ -300,15 +300,17 @@ async def build_agent_tools(
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
     """Build tools from a list of actions."""
+    if not actions:
+        return BuildToolsResult(
+            tools=[],
+            collected_secrets=set(),
+        )
     tools: list[Tool] = []
     collected_secrets: set[RegistrySecretType] = set()
 
     # Get actions from registry
     async with RegistryActionsService.with_session() as service:
-        if actions:
-            selected_actions = await service.get_actions(actions)
-        else:
-            selected_actions = await service.list_actions(include_marked=True)
+        selected_actions = await service.get_actions(actions)
 
         # Collect action build issues
         failed_actions: set[str] = set()
