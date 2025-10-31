@@ -61,13 +61,14 @@ export function ActionEventPane({
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
 
-  let events = execution.events
+  let events: WorkflowExecutionEventCompact[] = execution.events
   if (type === "interaction") {
     // Filter events to only include interaction events
     const interactionEvents = new Set(
-      execution.interactions?.map((s) => s.action_ref) ?? []
+      execution.interactions?.map((interaction) => interaction.action_ref) ??
+        []
     )
-    events = events.filter((e) => interactionEvents.has(e.action_ref))
+    events = events.filter((event) => interactionEvents.has(event.action_ref))
   }
   const groupedEvents = groupEventsByActionRef(events)
   return (
@@ -81,16 +82,19 @@ export function ActionEventPane({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {Object.entries(groupedEvents).map(([actionRef, relatedEvents]) => (
-              <SelectItem
-                key={actionRef}
-                value={actionRef}
-                className="max-h-8 py-1 text-xs"
-              >
-                {refToLabel(actionRef)}
-                {relatedEvents.length !== 1 && ` (${relatedEvents.length})`}
-              </SelectItem>
-            ))}
+            {Object.keys(groupedEvents).map((actionRef) => {
+              const relatedEvents = groupedEvents[actionRef]
+              return (
+                <SelectItem
+                  key={actionRef}
+                  value={actionRef}
+                  className="max-h-8 py-1 text-xs"
+                >
+                  {refToLabel(actionRef)}
+                  {relatedEvents.length !== 1 && ` (${relatedEvents.length})`}
+                </SelectItem>
+              )
+            })}
           </SelectGroup>
         </SelectContent>
       </Select>
@@ -124,7 +128,7 @@ function ActionEventView({
   }
   if (type === "interaction") {
     const interaction = execution.interactions?.find(
-      (s) => s.action_ref === selectedRef
+      (interaction) => interaction.action_ref === selectedRef
     )
     if (!interaction) {
       // We reach this if we switch tabs or select an event that has no interaction state

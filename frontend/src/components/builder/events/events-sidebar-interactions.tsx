@@ -29,7 +29,7 @@ export function WorkflowInteractions({
 }: {
   execution: WorkflowExecutionReadCompact
 }) {
-  const interactions = execution.interactions || []
+  const interactions = execution.interactions ?? []
   return (
     <ScrollArea className="p-4 pt-0">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -46,34 +46,32 @@ export function WorkflowInteractions({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {interactions && Object.keys(interactions).length > 0 ? (
-              Object.entries(interactions).map(
-                ([id, { action_ref, type, status }]) => (
-                  <TableRow key={id}>
-                    <TableCell className="p-0 text-xs font-medium">
-                      <div className="flex size-full items-center justify-start pl-4">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            {getInteractionStatusIcon(status, "size-4")}
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side="top"
-                            className="flex items-center gap-4  shadow-lg"
-                          >
-                            <span>{undoSlugify(status.toLowerCase())}</span>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-28 text-xs text-foreground/70">
-                      {action_ref}
-                    </TableCell>
-                    <TableCell className="max-w-28 text-xs text-foreground/70">
-                      {type}
-                    </TableCell>
-                  </TableRow>
-                )
-              )
+            {interactions.length > 0 ? (
+              interactions.map(({ id, action_ref, type, status }) => (
+                <TableRow key={id}>
+                  <TableCell className="p-0 text-xs font-medium">
+                    <div className="flex size-full items-center justify-start pl-4">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          {getInteractionStatusIcon(status, "size-4")}
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          className="flex items-center gap-4  shadow-lg"
+                        >
+                          <span>{undoSlugify(status.toLowerCase())}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-28 text-xs text-foreground/70">
+                    {action_ref}
+                  </TableCell>
+                  <TableCell className="max-w-28 text-xs text-foreground/70">
+                    {type}
+                  </TableCell>
+                </TableRow>
+              ))
             ) : (
               <TableRow className="justify-center text-xs text-muted-foreground">
                 <TableCell

@@ -165,8 +165,8 @@ export function getWorkflowExecutionUrl(
 
 export function groupEventsByActionRef(
   events: WorkflowExecutionEventCompact[]
-) {
-  return events.reduce(
+): Record<string, WorkflowExecutionEventCompact[]> {
+  return events.reduce<Record<string, WorkflowExecutionEventCompact[]>>(
     (acc, event) => {
       const ref = event.action_ref
       if (!acc[ref]) {
@@ -175,7 +175,7 @@ export function groupEventsByActionRef(
       acc[ref].push(event)
       return acc
     },
-    {} as Record<string, WorkflowExecutionEventCompact[]>
+    {}
   )
 }
 
