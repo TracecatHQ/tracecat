@@ -13,11 +13,13 @@ from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-
-AUTHORIZATION_ENDPOINT = (
-    "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+from tracecat.integrations.providers.microsoft.clouds import (
+    AzureCloud,
+    get_authorization_endpoint,
+    get_graph_scopes,
+    get_token_endpoint,
+    map_graph_scopes,
 )
-TOKEN_ENDPOINT = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 
 
 def get_ac_setup_steps(service: str = "Microsoft Graph") -> list[str]:
@@ -27,7 +29,7 @@ def get_ac_setup_steps(service: str = "Microsoft Graph") -> list[str]:
         "Add the redirect URI shown above to 'Redirect URIs'",
         f"Configure required API permissions for {service}",
         "Copy Client ID and Client Secret",
-        "Configure credentials in Tracecat with your tenant ID",
+        "Configure credentials in Tracecat with your tenant ID and cloud selection",
     ]
 
 
@@ -38,14 +40,13 @@ def get_cc_setup_steps(service: str = "Microsoft Graph") -> list[str]:
         f"Configure API permissions for {service} with Application permissions (not Delegated)",
         "Grant admin consent for the application permissions",
         "Copy Client ID and Client Secret",
-        "Configure credentials in Tracecat with your tenant ID",
-        "Use scopes like 'https://graph.microsoft.com/.default' for client credentials flow",
+        "Configure credentials in Tracecat with your tenant ID and cloud selection",
+        "Use scopes like 'https://graph.microsoft.com/.default' (adjust domain per cloud)",
     ]
 
 
 AC_DESCRIPTION = "OAuth provider for delegated user permissions"
 CC_DESCRIPTION = "OAuth provider for application permissions (service account)"
-CC_DEFAULT_SCOPES = ["https://graph.microsoft.com/.default"]
 
 
 class MicrosoftGraphOAuthConfig(BaseModel):
@@ -57,14 +58,15 @@ class MicrosoftGraphOAuthConfig(BaseModel):
         min_length=1,
         max_length=100,
     )
+    cloud: AzureCloud = Field(
+        default=AzureCloud.PUBLIC,
+        description="Azure cloud environment. Use 'public' or 'us_gov'.",
+    )
 
 
 # Shared Microsoft Graph scopes for authorization code flow
 AC_SCOPES = ProviderScopes(
-    default=[
-        "offline_access",
-        "https://graph.microsoft.com/User.Read",
-    ],
+    default=get_graph_scopes(AzureCloud.PUBLIC, delegated=True),
 )
 
 
@@ -85,8 +87,6 @@ class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
     """Microsoft Graph OAuth provider using authorization code flow for delegated user permissions."""
 
     id: ClassVar[str] = "microsoft_graph"
-    _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
-    _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
     config_model: ClassVar[type[BaseModel]] = MicrosoftGraphOAuthConfig
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
@@ -94,19 +94,23 @@ class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
     def __init__(
         self,
         tenant_id: str,
+        cloud: AzureCloud = AzureCloud.PUBLIC,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
         """Initialize the Microsoft Graph OAuth provider."""
         self.tenant_id = tenant_id
+        self.cloud = AzureCloud(cloud)
+        if kwargs.get("scopes") is None:
+            kwargs["scopes"] = map_graph_scopes(self.scopes.default, self.cloud)
         super().__init__(**kwargs)
 
     @property
     def authorization_endpoint(self) -> str:
-        return self._authorization_endpoint.format(tenant=self.tenant_id)
+        return get_authorization_endpoint(self.cloud, self.tenant_id)
 
     @property
     def token_endpoint(self) -> str:
-        return self._token_endpoint.format(tenant=self.tenant_id)
+        return get_token_endpoint(self.cloud, self.tenant_id)
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Add Microsoft Graph-specific authorization parameters."""
@@ -120,7 +124,7 @@ class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
 CC_SCOPES = ProviderScopes(
     # Client credentials flow requires .default scope.
     # App permissions are configured in Azure Portal.
-    default=CC_DEFAULT_SCOPES,
+    default=get_graph_scopes(AzureCloud.PUBLIC, delegated=False),
 )
 
 # Shared metadata for client credentials flow
@@ -140,8 +144,6 @@ class MicrosoftGraphCCProvider(ClientCredentialsOAuthProvider):
     """Microsoft Graph OAuth provider using client credentials flow for application permissions (service account)."""
 
     id: ClassVar[str] = "microsoft_graph"
-    _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
-    _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
     config_model: ClassVar[type[BaseModel]] = MicrosoftGraphOAuthConfig
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
@@ -149,16 +151,20 @@ class MicrosoftGraphCCProvider(ClientCredentialsOAuthProvider):
     def __init__(
         self,
         tenant_id: str,
+        cloud: AzureCloud = AzureCloud.PUBLIC,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
         """Initialize the Microsoft Graph client credentials OAuth provider."""
         self.tenant_id = tenant_id
+        self.cloud = AzureCloud(cloud)
+        if kwargs.get("scopes") is None:
+            kwargs["scopes"] = map_graph_scopes(self.scopes.default, self.cloud)
         super().__init__(**kwargs)
 
     @property
     def authorization_endpoint(self) -> str:
-        return self._authorization_endpoint.format(tenant=self.tenant_id)
+        return get_authorization_endpoint(self.cloud, self.tenant_id)
 
     @property
     def token_endpoint(self) -> str:
-        return self._token_endpoint.format(tenant=self.tenant_id)
+        return get_token_endpoint(self.cloud, self.tenant_id)

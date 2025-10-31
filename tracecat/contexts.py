@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import uuid
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import loguru
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.dsl.models import ROOT_STREAM, RunContext, StreamID
 from tracecat.interactions.models import InteractionContext
@@ -14,6 +17,7 @@ __all__ = [
     "ctx_logger",
     "ctx_interaction",
     "ctx_stream_id",
+    "ctx_session",
     "get_env",
 ]
 
@@ -25,6 +29,19 @@ ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
 )
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
+ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
+ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
+"""ID for a streamable session, if any."""
+
+
+@asynccontextmanager
+async def with_session(session: AsyncSession):
+    """Set the session in the context."""
+    token = ctx_session.set(session)
+    try:
+        yield
+    finally:
+        ctx_session.reset(token)
 
 
 def get_env() -> dict[str, str]:

@@ -66,12 +66,6 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
         open={activeType === "delete"}
         onOpenChange={onOpenChange}
       />
-
-      <TableViewActionDeleteDialog
-        row={row}
-        open={activeType === "delete"}
-        onOpenChange={onOpenChange}
-      />
     </>
   )
 }

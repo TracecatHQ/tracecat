@@ -1,287 +1,266 @@
-"""Tests for agent tools implementations after secure refactor."""
-
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
+import inspect
+from typing import Any, get_args
 
 import pytest
-from tracecat_registry.integrations.agents.tools import create_secure_file_tools
+from pydantic import BaseModel, Field, TypeAdapter
+from pydantic_core import PydanticUndefined
+
+from tracecat.agent.tools import (
+    _create_function_signature,
+    _extract_action_metadata,
+    _generate_google_style_docstring,
+)
+from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.actions.models import (
+    ActionStep,
+    BoundRegistryAction,
+    TemplateAction,
+    TemplateActionDefinition,
+)
+from tracecat.registry.repository import Repository
 
 
-@pytest.fixture()
-def secure_tools():
-    """Provision a fresh, isolated set of secure tool functions for each test."""
+class DummyField:
+    """Minimal stub that mimics the parts of Pydantic's FieldInfo needed for tests."""
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tools_dict = {t.name: t.function for t in create_secure_file_tools(tmpdir)}
-        tmp_path = Path(tmpdir)
-        yield tools_dict, tmp_path
+    def __init__(
+        self,
+        annotation: Any,
+        *,
+        default: Any = PydanticUndefined,
+        default_factory: Any = None,
+    ):
+        self.annotation = annotation
+        self.default = default
+        self.default_factory = default_factory
 
 
-class TestReadFile:
-    def test_read_file_success(self, secure_tools):
-        """Read a small text file successfully."""
+class ExampleModel:
+    """Stub model that provides Pydantic-like field metadata and schema information."""
 
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "sample.txt"
-        content = "Line 1\nLine 2\nLine 3"
-        file_path.write_text(content)
+    model_fields = {
+        "required": DummyField(int),
+        "with_default": DummyField(str, default="hello"),
+        "with_factory": DummyField(list[int], default_factory=list),
+        "already_optional": DummyField(int | None, default_factory=lambda: 42),
+        "class": DummyField(bool),
+    }
 
-        result = tools["read_file"](str(file_path.relative_to(tmp_path)))
+    @staticmethod
+    def model_json_schema():
+        return {
+            "properties": {
+                "required": {"description": "Required field"},
+                "with_default": {"description": "Field with default"},
+                "with_factory": {"description": "Generated value"},
+                "already_optional": {},
+                "class": {"description": "Keyword field"},
+            }
+        }
 
-        assert result == content
 
-    def test_read_file_limit_250_lines(self, secure_tools):
-        """Ensure only the first 250 lines are returned."""
+def test_create_function_signature_handles_defaults_and_sanitizes():
+    result = _create_function_signature(ExampleModel, fixed_args={"with_default"})
 
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "many_lines.txt"
-        lines = [f"Line {i}" for i in range(300)]
-        file_path.write_text("\n".join(lines))
+    params = result.signature.parameters
+    assert list(params) == ["required", "with_factory", "already_optional", "class_"]
 
-        result = tools["read_file"](str(file_path.relative_to(tmp_path)))
-        result_lines = result.split("\n")
+    required = params["required"]
+    assert required.kind is inspect.Parameter.KEYWORD_ONLY
+    assert required.annotation is int
+    assert required.default is inspect.Parameter.empty
 
-        assert len(result_lines) == 250
-        assert result_lines[0] == "Line 0"
-        assert result_lines[249] == "Line 249"
+    with_factory = params["with_factory"]
+    assert with_factory.default is None
+    assert with_factory.kind is inspect.Parameter.KEYWORD_ONLY
+    assert with_factory.annotation == result.annotations["with_factory"]
+    assert get_args(with_factory.annotation) == (list[int], type(None))
 
-    def test_read_file_nonexistent(self, secure_tools):
-        """Reading a missing file raises an error."""
+    already_optional = params["already_optional"]
+    assert already_optional.default is None
+    assert already_optional.annotation == int | None
 
-        tools, _ = secure_tools
-        with pytest.raises(ValueError, match="Path does not exist"):
-            tools["read_file"]("missing.txt")
+    class_param = params["class_"]
+    assert class_param.annotation is bool
+    assert class_param.default is inspect.Parameter.empty
 
-    def test_read_file_directory(self, secure_tools):
-        """Attempting to read a directory should fail."""
+    assert "with_default" not in params
+    assert result.annotations["return"] is Any
+    assert result.param_mapping["class_"] == "class"
 
-        tools, tmp_path = secure_tools
-        dir_path = tmp_path / "somedir"
-        dir_path.mkdir()
 
-        with pytest.raises(ValueError, match="Path is not a file"):
-            tools["read_file"](str(dir_path.relative_to(tmp_path)))
-
-    @patch(
-        "tracecat_registry.integrations.agents.tools.TRACECAT__MAX_FILE_SIZE_BYTES", 10
+def test_generate_docstring_includes_schema_descriptions_and_skips_fixed_args():
+    docstring = _generate_google_style_docstring(
+        "Do something useful", ExampleModel, fixed_args={"with_default"}
     )
-    def test_read_file_too_large(self, secure_tools):
-        """Reading a file larger than the configured limit should fail."""
 
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "large.txt"
-        file_path.write_text("This content is longer than 10 bytes")
-
-        with pytest.raises(ValueError, match="File too large"):
-            tools["read_file"](str(file_path.relative_to(tmp_path)))
-
-
-class TestCreateFile:
-    def test_create_file_success(self, secure_tools):
-        tools, tmp_path = secure_tools
-        rel_path = "test_file.txt"
-        content = "Test content"
-
-        result = tools["create_file"](rel_path, content)
-
-        assert "File created successfully" in result
-        full_path = tmp_path / rel_path
-        assert full_path.exists() and full_path.read_text() == content
-
-    def test_create_file_empty_content(self, secure_tools):
-        tools, tmp_path = secure_tools
-        rel_path = "empty_file.txt"
-
-        result = tools["create_file"](rel_path)
-
-        assert "File created successfully" in result
-        assert (tmp_path / rel_path).read_text() == ""
-
-    def test_create_file_with_parent_dirs(self, secure_tools):
-        tools, tmp_path = secure_tools
-        rel_path = "subdir/test_file.txt"
-        content = "Test content"
-
-        result = tools["create_file"](rel_path, content)
-
-        assert "File created successfully" in result
-        full_path = tmp_path / rel_path
-        assert full_path.exists() and full_path.read_text() == content
-
-    def test_create_file_already_exists(self, secure_tools):
-        tools, tmp_path = secure_tools
-        rel_path = "exists.txt"
-
-        # Pre-create the file
-        (tmp_path / rel_path).write_text("original")
-
-        with pytest.raises(ValueError, match="File already exists"):
-            tools["create_file"](rel_path, "content")
-
-    @patch(
-        "tracecat_registry.integrations.agents.tools.TRACECAT__MAX_FILE_SIZE_BYTES", 10
+    expected = "\n".join(
+        [
+            "Do something useful",
+            "",
+            "Args:",
+            "    required: Required field",
+            "    with_factory: Generated value",
+            "    already_optional: Parameter already_optional",
+            "    class: Keyword field",
+        ]
     )
-    def test_create_file_content_too_large(self, secure_tools):
-        tools, _ = secure_tools
-        rel_path = "too_large.txt"
-        content = "This content is longer than 10 bytes"
 
-        with pytest.raises(ValueError, match="Content too large"):
-            tools["create_file"](rel_path, content)
+    assert docstring == expected
 
 
-class TestSearchFiles:
-    def test_search_files_exact_match(self, secure_tools):
-        tools, tmp_path = secure_tools
+def test_generate_docstring_returns_none_section_when_no_parameters():
+    class EmptyModel:
+        @staticmethod
+        def model_json_schema():
+            return {}
 
-        (tmp_path / "test_file.txt").touch()
-        (tmp_path / "another_file.py").touch()
-        (tmp_path / "test_script.py").touch()
-
-        results = tools["search_files"]("test_file.txt")
-
-        assert any(result == "test_file.txt" for result in results)
-
-    def test_search_files_fuzzy_match(self, secure_tools):
-        tools, tmp_path = secure_tools
-
-        (tmp_path / "test_file.txt").touch()
-        (tmp_path / "testing_script.py").touch()
-        (tmp_path / "unrelated.md").touch()
-
-        results = tools["search_files"]("test")
-
-        assert results
-        assert any("test" in Path(r).name.lower() for r in results)
-
-    def test_search_files_max_results(self, secure_tools):
-        tools, tmp_path = secure_tools
-
-        for i in range(20):
-            (tmp_path / f"test_file_{i}.txt").touch()
-
-        results = tools["search_files"]("test", max_results=5)
-
-        assert len(results) <= 5
-
-    def test_search_files_empty_query(self, secure_tools):
-        tools, _ = secure_tools
-        with pytest.raises(ValueError, match="Search query must be a non-empty string"):
-            tools["search_files"]("")
-
-    def test_search_files_query_too_long(self, secure_tools):
-        long_query = "a" * 101
-        tools, _ = secure_tools
-        with pytest.raises(ValueError, match="Search query too long"):
-            tools["search_files"](long_query)
+    docstring = _generate_google_style_docstring(
+        "No parameters here", EmptyModel, fixed_args=set()
+    )
+    assert docstring == "No parameters here\n\nArgs:\n    None"
 
 
-class TestListDirectory:
-    def test_list_directory_success(self, secure_tools):
-        tools, tmp_path = secure_tools
-
-        (tmp_path / "file1.txt").touch()
-        (tmp_path / "file2.py").touch()
-        (tmp_path / "subdir").mkdir()
-
-        results = tools["list_directory"]()
-
-        assert len(results) == 3
-        file_entries = [e for e in results if e.startswith("[FILE]")]
-        dir_entries = [e for e in results if e.startswith("[DIR]")]
-
-        assert len(file_entries) == 2
-        assert len(dir_entries) == 1
-        assert any("file1.txt" in e for e in file_entries)
-        assert any("file2.py" in e for e in file_entries)
-        assert any("subdir" in e for e in dir_entries)
-
-    def test_list_directory_empty(self, secure_tools):
-        tools, _ = secure_tools
-        results = tools["list_directory"]()
-        assert results == []
+def test_generate_docstring_raises_when_description_missing():
+    with pytest.raises(ValueError):
+        _generate_google_style_docstring(None, ExampleModel)
 
 
-class TestFindAndReplace:
-    def test_find_and_replace_success(self, secure_tools):
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "greetings.txt"
-        original = "Hello world\nHello universe\nGoodbye world"
-        file_path.write_text(original)
-
-        result = tools["find_and_replace"]("greetings.txt", r"Hello", "Hi")
-
-        expected = "Hi world\nHi universe\nGoodbye world"
-        assert result == expected
-        assert file_path.read_text() == expected
-
-    def test_find_and_replace_regex_pattern(self, secure_tools):
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "phones.txt"
-        original = "Phone: 123-456-7890\nPhone: 987-654-3210"
-        file_path.write_text(original)
-
-        result = tools["find_and_replace"](
-            "phones.txt", r"Phone: (\d{3}-\d{3}-\d{4})", r"Tel: \1"
-        )
-
-        expected = "Tel: 123-456-7890\nTel: 987-654-3210"
-        assert result == expected
-
-    def test_find_and_replace_no_matches(self, secure_tools):
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "no_match.txt"
-        original = "Hello world"
-        file_path.write_text(original)
-
-        result = tools["find_and_replace"]("no_match.txt", r"xyz", "abc")
-
-        assert result == original
-
-    def test_find_and_replace_nonexistent_file(self, secure_tools):
-        tools, _ = secure_tools
-        with pytest.raises(ValueError, match="Path does not exist"):
-            tools["find_and_replace"]("missing.txt", "pattern", "replacement")
-
-    def test_find_and_replace_empty_pattern(self, secure_tools):
-        tools, tmp_path = secure_tools
-        (tmp_path / "file.txt").write_text("content")
-
-        with pytest.raises(ValueError, match="Pattern must be a non-empty string"):
-            tools["find_and_replace"]("file.txt", "", "replacement")
-
-    def test_find_and_replace_invalid_regex(self, secure_tools):
-        tools, tmp_path = secure_tools
-        (tmp_path / "file.txt").write_text("content")
-
-        with pytest.raises(ValueError, match="Invalid regex pattern"):
-            tools["find_and_replace"]("file.txt", "[", "replacement")
-
-    def test_find_and_replace_pattern_too_long(self, secure_tools):
-        tools, tmp_path = secure_tools
-        (tmp_path / "file.txt").write_text("content")
-
-        long_pattern = "a" * 1001
-        with pytest.raises(ValueError, match="Pattern too long"):
-            tools["find_and_replace"]("file.txt", long_pattern, "replacement")
+class SampleArgs(BaseModel):
+    foo: int = Field(..., description="Foo argument")
 
 
-class TestApplyPythonLambda:
-    def test_apply_python_lambda_success(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"]("5", "lambda x: int(x) * 2")
-        assert result == 10
+def sample_udf(foo: int) -> int:
+    return foo
 
-    def test_apply_python_lambda_string_operation(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"]("hello", "lambda x: x.upper()")
-        assert result == "HELLO"
 
-    def test_apply_python_lambda_complex_operation(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"](
-            "hello world",
-            "lambda x: ' '.join(word.capitalize() for word in x.split())",
-        )
-        assert result == "Hello World"
+def build_udf_action(
+    description: str = "Sample UDF description",
+) -> BoundRegistryAction:
+    repo = Repository()
+    repo.register_udf(
+        fn=sample_udf,
+        name="sample_udf",
+        type="udf",
+        namespace="test",
+        description=description,
+        secrets=None,
+        args_cls=SampleArgs,
+        args_docs={"foo": "Foo argument"},
+        rtype=int,
+        rtype_adapter=TypeAdapter(int),
+        default_title=None,
+        display_group=None,
+        doc_url=None,
+        author="Tracecat",
+        deprecated=None,
+        include_in_schema=True,
+    )
+    return repo.get("test.sample_udf")
+
+
+def build_template_action(
+    *,
+    template_description: str = "Template action description",
+    expects_override: dict[str, ExpectedField] | None = None,
+) -> BoundRegistryAction:
+    repo = Repository()
+    expects = expects_override or {
+        "user_id": ExpectedField(type="int", description="User identifier"),
+        "message": ExpectedField(type="str", description="Message to send"),
+    }
+    template_def = TemplateActionDefinition(
+        name="send_message",
+        namespace="templates",
+        title="Send Message",
+        description=template_description,
+        display_group="Messaging",
+        doc_url="https://example.com",
+        author="Tracecat",
+        deprecated=None,
+        secrets=None,
+        expects=expects,
+        steps=[
+            ActionStep(
+                ref="first",
+                action="test.sample_udf",
+                args={"foo": 1},
+            )
+        ],
+        returns="result",
+    )
+    template_action = TemplateAction(type="action", definition=template_def)
+    repo.register_udf(
+        fn=sample_udf,
+        name="sample_udf",
+        type="udf",
+        namespace="test",
+        description="Sample UDF description",
+        secrets=None,
+        args_cls=SampleArgs,
+        args_docs={"foo": "Foo argument"},
+        rtype=int,
+        rtype_adapter=TypeAdapter(int),
+        default_title=None,
+        display_group=None,
+        doc_url=None,
+        author="Tracecat",
+        deprecated=None,
+        include_in_schema=True,
+    )
+    repo.register_template_action(template_action)
+    return repo.get("templates.send_message")
+
+
+def test_extract_action_metadata_udf_returns_description_and_args_model():
+    bound_action = build_udf_action()
+    description, model_cls = _extract_action_metadata(bound_action)
+
+    assert description == "Sample UDF description"
+    assert model_cls is SampleArgs
+
+
+def test_extract_action_metadata_template_uses_template_description():
+    bound_action = build_template_action()
+    description, model_cls = _extract_action_metadata(bound_action)
+
+    assert description == "Template action description"
+    assert issubclass(model_cls, BaseModel)
+    assert set(model_cls.model_fields) == {"user_id", "message"}
+    assert model_cls.model_fields["user_id"].annotation is int
+
+
+def test_extract_action_metadata_template_falls_back_to_bound_description():
+    bound_action = build_template_action(template_description="")
+    bound_action.description = "Fallback description"
+    assert bound_action.template_action is not None
+    bound_action.template_action.definition.description = ""
+
+    description, _ = _extract_action_metadata(bound_action)
+    assert description == "Fallback description"
+
+
+def test_extract_action_metadata_template_without_template_action_raises():
+    bound_action = BoundRegistryAction(
+        fn=sample_udf,
+        name="template_without_body",
+        namespace="tests",
+        description="Template missing body",
+        type="template",
+        origin="unit-test",
+        secrets=None,
+        args_cls=SampleArgs,
+        args_docs={"foo": "Foo argument"},
+        rtype_cls=int,
+        rtype_adapter=TypeAdapter(int),
+        default_title=None,
+        display_group=None,
+        doc_url=None,
+        author="Tracecat",
+        deprecated=None,
+        template_action=None,
+        include_in_schema=True,
+    )
+
+    with pytest.raises(ValueError):
+        _extract_action_metadata(bound_action)

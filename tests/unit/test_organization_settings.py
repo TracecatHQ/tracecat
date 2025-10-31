@@ -255,6 +255,9 @@ async def test_git_settings_valid_ssh_urls(
         "git://git@github.com/org/repo.git",  # Missing +ssh
         "not-a-url",  # Not a URL at all
         "",  # Empty string
+        "git+ssh://git@github.com:not_a_port/org/repo.git",  # Non numeric port
+        "git+ssh://git@github.com:/org/repo.git",  # Missing port after colon
+        "git+ssh://git@github.com/repo.git",  # Missing org segment
     ],
 )
 async def test_git_settings_invalid_ssh_urls(

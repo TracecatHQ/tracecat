@@ -10,9 +10,6 @@ definition:
       keys:
         - ELASTICSEARCH_API_KEY
   expects:
-    base_url:
-      type: str
-      description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
     index:
       type: str
       description: Name of the index to search in. Default is all indices.
@@ -52,12 +49,21 @@ definition:
       type: list[str]
       description: Source fields to return (improves performance, reduces data exposure).
       default: []
+    base_url:
+      type: str | None
+      description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
   steps:
     - ref: search_request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/${{ inputs.index }}/_search
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/${{ inputs.index }}/_search
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
           Content-Type: application/json

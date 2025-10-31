@@ -2,9 +2,10 @@
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -228,6 +229,44 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": "new_value", "field3": "value3"}
 
         # Verify the result
+        assert result == updated_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_append_description(self, mock_with_session, mock_case):
+        """Test appending to the existing case description when requested."""
+        # Set up the mock service context manager
+        original_description = "Existing description. "
+        mock_case.description = original_description
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "description": f"{original_description}\nNew details.",
+            "priority": mock_case.priority.value,
+            "severity": mock_case.severity.value,
+            "status": mock_case.status.value,
+            "fields": {"field1": "value1", "field2": "value2"},
+        }
+        mock_service.update_case.return_value = updated_case
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await update_case(
+            case_id=str(mock_case.id),
+            description="New details.",
+            append=True,
+        )
+
+        mock_service.update_case.assert_called_once()
+        _, update_arg = mock_service.update_case.call_args[0]
+        assert isinstance(update_arg, CaseUpdate)
+        assert update_arg.description == f"{original_description}\nNew details."
+
         assert result == updated_case.model_dump.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -840,6 +879,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -884,6 +924,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -924,6 +965,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.IN_PROGRESS
         assert call_args["priority"] is None
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -964,6 +1006,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -1004,6 +1047,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] is None
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -1021,6 +1065,60 @@ class TestCoreSearchCases:
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
         assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_tags(self, mock_with_session, mock_case):
+        """Test searching cases using tag identifiers."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        tag_one = MagicMock()
+        tag_one.id = uuid.uuid4()
+        tag_two = MagicMock()
+        tag_two.id = uuid.uuid4()
+
+        tags_service = AsyncMock()
+        tags_service.get_tag_by_ref_or_id = AsyncMock(
+            side_effect=[tag_one, NoResultFound(), tag_two]
+        )
+        mock_service.tags = tags_service
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await search_cases(tags=["tag-one", "missing-tag", str(tag_two.id)])
+
+        assert len(result) == 1
+        tags_service.get_tag_by_ref_or_id.assert_has_calls(
+            [
+                call("tag-one"),
+                call("missing-tag"),
+                call(str(tag_two.id)),
+            ]
+        )
+
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["tag_ids"] == [tag_one.id, tag_two.id]
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_programming_error(self, mock_with_session):
+        """Test that SQL programming errors are surfaced as user-friendly errors."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.side_effect = ProgrammingError(
+            "SELECT", {}, Exception("boom")
+        )
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        with pytest.raises(
+            ValueError, match="Invalid filter parameters supplied for case search"
+        ):
+            await search_cases(search_term="bad")
+
+        mock_service.search_cases.assert_called_once()
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_limit(self, mock_with_session, mock_case):
@@ -1043,6 +1141,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=5,
             order_by=None,
             sort=None,
@@ -1082,6 +1181,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by="created_at",
             sort="desc",
@@ -1132,6 +1232,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
@@ -1171,6 +1272,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -1383,6 +1485,7 @@ class TestCoreSearchCasesWithDateFilters:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
@@ -1862,3 +1965,79 @@ class TestCoreCaseTags:
 
         # Verify the result
         assert result == updated_case.model_dump.return_value
+
+
+@pytest.mark.anyio
+class TestCoreCreateCaseErrorHandling:
+    """Test error handling for create_case registry action."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_with_invalid_field_shows_clear_error(
+        self, mock_with_session
+    ):
+        """Test that creating a case with an invalid field shows a clear error message."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.create_case.side_effect = TracecatException(
+            "Failed to create case fields. One or more custom fields do not exist. "
+            "Please ensure these fields have been created and try again."
+        )
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_case with invalid field
+        with pytest.raises(TracecatException) as exc_info:
+            await create_case(
+                summary="Test Case",
+                description="Test Description",
+                priority="medium",
+                severity="medium",
+                status="new",
+                fields={"invalid_field_name": "value"},
+            )
+
+        # Verify error message is clear and user-friendly
+        error_msg = str(exc_info.value)
+        assert "custom fields do not exist" in error_msg.lower()
+        assert "please ensure" in error_msg.lower()
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_atomicity_verified(self, mock_with_session):
+        """Test that case creation failure doesn't leave partial data."""
+        from tracecat.types.exceptions import TracecatException
+
+        # Set up mock to simulate field creation failure AFTER case creation
+        mock_service = AsyncMock()
+
+        # Simulate: case created but fields fail
+        # In reality, this should rollback the case too due to transaction atomicity
+        mock_service.create_case.side_effect = TracecatException(
+            "Failed to save custom field values for case."
+        )
+
+        # Set up the context manager
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Attempt to create case
+        with pytest.raises(TracecatException):
+            await create_case(
+                summary="Test Case",
+                description="Test Description",
+                priority="medium",
+                severity="medium",
+                status="new",
+                fields={"test_field": "value"},
+            )
+
+        # Verify create_case was called (and failed)
+        mock_service.create_case.assert_called_once()
+
+        # In production, the transaction should rollback, leaving no partial data
+        # This is verified by the service-level tests

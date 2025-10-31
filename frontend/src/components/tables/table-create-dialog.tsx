@@ -5,6 +5,7 @@ import { PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -32,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useCreateTable } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createTableSchema = z.object({
@@ -48,7 +49,7 @@ const createTableSchema = z.object({
     .array(
       z.object({
         name: z.string().min(1, "Column name is required"),
-        type: z.enum(SqlTypeEnum),
+        type: z.enum(SqlTypeCreatableEnum),
       })
     )
     .min(1, "At least one column is required"),
@@ -70,7 +71,7 @@ export function CreateTableDialog({
     resolver: zodResolver(createTableSchema),
     defaultValues: {
       name: "",
-      columns: [{ name: "", type: SqlTypeEnum[0] }],
+      columns: [{ name: "", type: SqlTypeCreatableEnum[0] }],
     },
     mode: "onSubmit",
   })
@@ -194,15 +195,15 @@ export function CreateTableDialog({
                                     onValueChange={field.onChange}
                                   >
                                     <SelectTrigger>
-                                      <SelectValue
-                                        placeholder="Select column type"
-                                        className="w-full"
-                                      />
+                                      <SelectValue placeholder="Select column type" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {SqlTypeEnum.map((type) => (
+                                      {SqlTypeCreatableEnum.map((type) => (
                                         <SelectItem key={type} value={type}>
-                                          {type}
+                                          <SqlTypeDisplay
+                                            type={type}
+                                            labelClassName="text-xs"
+                                          />
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
@@ -235,7 +236,9 @@ export function CreateTableDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => append({ name: "", type: SqlTypeEnum[0] })}
+                onClick={() =>
+                  append({ name: "", type: SqlTypeCreatableEnum[0] })
+                }
                 className="space-x-2 text-xs"
                 aria-label="Add new column"
               >

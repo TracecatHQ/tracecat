@@ -45,7 +45,6 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
-from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
@@ -53,7 +52,6 @@ from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.models import ActionInteractionValidator
 from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatCredentialsError,
@@ -101,9 +99,6 @@ class DSLInput(BaseModel):
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
-    inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Static input parameters"
-    )
     returns: Any | None = Field(
         default=None, description="The action ref or value to return."
     )
@@ -114,28 +109,6 @@ class DSLInput(BaseModel):
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         kwargs["mode"] = "json"
         return super().model_dump(*args, **kwargs)
-
-    @field_validator("inputs")
-    @classmethod
-    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
-        try:
-            exceptions = []
-            for loc, value in traverse_leaves(inputs):
-                if not isinstance(value, str):
-                    continue
-                for match in patterns.TEMPLATE_STRING.finditer(value):
-                    template = match.group("template")
-                    exceptions.append(
-                        TracecatDSLError(
-                            "Static `INPUTS` context cannot contain expressions,"
-                            f" but found {template!r} in INPUTS.{loc}"
-                        )
-                    )
-            if exceptions:
-                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
-            return inputs
-        except* TracecatDSLError as eg:
-            raise eg
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
@@ -634,16 +607,16 @@ def build_action_statements(
 
 
 def create_default_execution_context(
-    INPUTS: dict[str, Any] | None = None,
     ACTIONS: dict[str, Any] | None = None,
     TRIGGER: dict[str, Any] | None = None,
     ENV: DSLEnvironment | None = None,
+    VARS: dict[str, Any] | None = None,
 ) -> ExecutionContext:
     return {
-        ExprContext.INPUTS: INPUTS or {},
         ExprContext.ACTIONS: ACTIONS or {},
         ExprContext.TRIGGER: TRIGGER or {},
         ExprContext.ENV: cast(DSLEnvironment, ENV or {}),
+        ExprContext.VARS: VARS or {},
     }
 
 

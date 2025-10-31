@@ -56,7 +56,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@v6
@@ -82,7 +82,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -93,18 +93,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Install system dependencies
-        run: |
-          # Install ripgrep for grep integration tests
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          kubectl version --client
 
       - name: Run environment setup script
         run: |
@@ -157,6 +145,7 @@ jobs:
         test_group:
           - unit
           - registry
+          - regression
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@v4
@@ -166,7 +155,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.4"
+          version: "0.8.6"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -215,18 +204,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Install system dependencies
-        run: |
-          # Install ripgrep for grep integration tests
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          kubectl version --client
 
       - name: Install kind
         run: |

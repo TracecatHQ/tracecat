@@ -1,3 +1,5 @@
+"use client"
+
 import React from "react"
 import JsonView from "react18-json-view"
 import type {
@@ -32,6 +34,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
@@ -42,6 +45,7 @@ import {
   parseExecutionId,
 } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
  * Event history for a specific workflow execution
@@ -186,22 +190,53 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
   const eventTimeDate = new Date(event.event_time)
   const { max_attempts, timeout } = action_retry_policy || {}
 
+  const workspaceId = useWorkspaceId()
+  const { members } = useWorkspaceMembers(workspaceId)
+
+  const triggeredBy = React.useMemo(() => {
+    if (!role) {
+      return undefined
+    }
+
+    if (role.type === "user") {
+      const matchedMember = members?.find(
+        (member) => member.user_id === role.user_id
+      )
+
+      if (matchedMember?.email) {
+        return { text: matchedMember.email }
+      }
+
+      if (role.user_id) {
+        return { text: role.user_id }
+      }
+
+      return { text: "User" }
+    }
+
+    if (role.type === "service") {
+      return { text: role.service_id ?? "Service" }
+    }
+
+    return undefined
+  }, [members, role])
+
   // Construct the link within the same workspace to the related workflow execution
   const params = useParams()
-  const workspaceId = params?.workspaceId
+  const workspaceIdForLinks = params?.workspaceId ?? workspaceId
   let relatedWorkflowExecutionLink: string | undefined
   if (related_wf_exec_id) {
     const [relatedWorkflowId, relatedExecutionId] =
       parseExecutionId(related_wf_exec_id)
 
-    relatedWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
+    relatedWorkflowExecutionLink = `/workspaces/${workspaceIdForLinks}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
   }
 
   let parentWorkflowExecutionLink: string | undefined
   if (parent_wf_exec_id) {
     const [parentWorkflowId, parentExecutionId] =
       parseExecutionId(parent_wf_exec_id)
-    parentWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${parentWorkflowId}/executions/${parentExecutionId}`
+    parentWorkflowExecutionLink = `/workspaces/${workspaceIdForLinks}/workflows/${parentWorkflowId}/executions/${parentExecutionId}`
   }
 
   return (
@@ -302,16 +337,14 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
           }
         />
       </div>
-      <div className="space-x-2">
-        {role?.type && (
-          <>
-            <Label className="w-24 text-xs text-muted-foreground">
-              Triggered By
-            </Label>
-            <DescriptorBadge text={role.type} className="capitalize" />
-          </>
-        )}
-      </div>
+      {triggeredBy && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Triggered By
+          </Label>
+          <DescriptorBadge text={triggeredBy.text} />
+        </div>
+      )}
       {event_type == "WORKFLOW_EXECUTION_STARTED" && workflow_timeout && (
         <div className="space-x-2">
           <Label className="w-24 text-xs text-muted-foreground">

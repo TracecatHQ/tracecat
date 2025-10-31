@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -27,6 +27,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseService
 from tracecat.tables.common import (
+    coerce_to_utc_datetime,
     handle_default_value,
     is_valid_sql_type,
     to_sql_clause,
@@ -82,6 +83,33 @@ class BaseTablesService(BaseService):
         if workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
         return WorkspaceUUID.new(workspace_id)
+
+    def _normalize_row_inputs(
+        self, table: Table, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Coerce row inputs to the expected SQL types."""
+        if not data:
+            return {}
+
+        column_index = {column.name: column for column in table.columns}
+        normalised: dict[str, Any] = {}
+        for column_name, value in data.items():
+            column = column_index.get(column_name)
+            if column is None:
+                raise ValueError(
+                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                )
+
+            sql_type = SqlType(column.type)
+            if (
+                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
+                and value is not None
+            ):
+                normalised[column_name] = coerce_to_utc_datetime(value)
+            else:
+                normalised[column_name] = value
+
+        return normalised
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -219,6 +247,11 @@ class BaseTablesService(BaseService):
         table = Table(owner_id=ws_id, name=table_name)
         self.session.add(table)
         await self.session.flush()
+
+        # Create columns if specified
+        # Call base class method directly to avoid per-column commits
+        for col_params in params.columns:
+            await BaseTablesService.create_column(self, table, col_params)
 
         return table
 
@@ -501,7 +534,7 @@ class BaseTablesService(BaseService):
 
     async def list_rows(
         self, table: Table, *, limit: int = 100, offset: int = 0
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all rows in a table."""
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -552,7 +585,7 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = params.data
+        row_data = self._normalize_row_inputs(table, params.data)
         col_map = {c.name: c for c in table.columns}
         upsert = params.upsert
 
@@ -681,13 +714,22 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Build update statement using SQLAlchemy
+        # Normalise inputs and build update statement using SQLAlchemy
+        normalised_data = self._normalize_row_inputs(table, data)
+        col_map = {c.name: c for c in table.columns}
         sanitized_table_name = self._sanitize_identifier(table.name)
-        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for column_name, value in normalised_data.items():
+            cols.append(sa.column(self._sanitize_identifier(column_name)))
+            value_clauses[column_name] = to_sql_clause(
+                value, col_map[column_name].name, SqlType(col_map[column_name].type)
+            )
+
         stmt = (
             sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
 
@@ -787,6 +829,77 @@ class BaseTablesService(BaseService):
                 )
                 raise
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
+    async def exists_rows(
+        self,
+        table_name: str,
+        *,
+        columns: Sequence[str],
+        values: Sequence[Any],
+    ) -> bool:
+        """Efficient existence check for rows matching column/value pairs.
+
+        Uses a SQL EXISTS query so the database can short-circuit at the first match.
+        """
+        if len(values) != len(columns):
+            raise ValueError("Values and column names must have the same length")
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table_name)
+
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        condition = sa.and_(
+            *[col == value for col, value in zip(cols, values, strict=True)]
+        )
+
+        exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
+        stmt = sa.select(exists_stmt)
+
+        async with self.session.begin() as txn:
+            conn = await txn.session.connection()
+            try:
+                result = await conn.execute(
+                    stmt,
+                    execution_options={
+                        "isolation_level": "READ COMMITTED",
+                    },
+                )
+                exists_val = result.scalar()
+                return bool(exists_val)
+            except _RETRYABLE_DB_EXCEPTIONS as e:
+                self.logger.warning(
+                    "Retryable DB exception occurred during exists_rows",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                await conn.rollback()
+                raise
+            except ProgrammingError as e:
+                while (cause := e.__cause__) is not None:
+                    e = cause
+                if isinstance(e, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from e
+                raise ValueError(str(e)) from e
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected DB exception occurred during exists_rows",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
+
     async def search_rows(
         self,
         table: Table,
@@ -875,13 +988,16 @@ class BaseTablesService(BaseService):
                 )
 
         # Add date filters
-        if start_time:
+        if start_time is not None:
             where_conditions.append(sa.column("created_at") >= start_time)
-        if end_time:
+
+        if end_time is not None:
             where_conditions.append(sa.column("created_at") <= end_time)
-        if updated_after:
+
+        if updated_after is not None:
             where_conditions.append(sa.column("updated_at") >= updated_after)
-        if updated_before:
+
+        if updated_before is not None:
             where_conditions.append(sa.column("updated_at") <= updated_before)
 
         # Apply WHERE conditions if any
@@ -1000,13 +1116,16 @@ class BaseTablesService(BaseService):
                 )
 
         # Add date filters
-        if start_time:
+        if start_time is not None:
             where_conditions.append(sa.column("created_at") >= start_time)
-        if end_time:
+
+        if end_time is not None:
             where_conditions.append(sa.column("created_at") <= end_time)
-        if updated_after:
+
+        if updated_after is not None:
             where_conditions.append(sa.column("updated_at") >= updated_after)
-        if updated_before:
+
+        if updated_before is not None:
             where_conditions.append(sa.column("updated_at") <= updated_before)
 
         # Apply WHERE conditions if any
@@ -1157,7 +1276,8 @@ class BaseTablesService(BaseService):
         # Group rows by their column sets to avoid inserting NULL into missing columns.
         rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            rows_by_columns[frozenset(row.keys())].append(row)
+            normalised_row = self._normalize_row_inputs(table, row)
+            rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
 
         conn = await self.session.connection()
 
@@ -1481,7 +1601,7 @@ class TableEditorService(BaseService):
 
     async def list_rows(
         self, *, limit: int = 100, offset: int = 0
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all rows in a table."""
         conn = await self.session.connection()
         stmt = (
@@ -1526,7 +1646,18 @@ class TableEditorService(BaseService):
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
         for col, value in row_data.items():
-            value_clauses[col] = sa.bindparam(col, value, type_=col_map[col]["type"])
+            column_info = col_map.get(col)
+            if column_info is None:
+                raise ValueError(
+                    f"Column '{col}' does not exist in table {self.table_name}"
+                )
+            column_type = column_info["type"]
+            coerced_value = (
+                coerce_to_utc_datetime(value)
+                if value is not None and getattr(column_type, "timezone", False)
+                else value
+            )
+            value_clauses[col] = sa.bindparam(col, coerced_value, type_=column_type)
             cols.append(sa.column(sanitize_identifier(col)))
 
         stmt = (
@@ -1553,13 +1684,32 @@ class TableEditorService(BaseService):
             TracecatNotFoundError: If the row does not exist
         """
         conn = await self.session.connection()
+        col_map = {c["name"]: c for c in await self.get_columns()}
 
         # Build update statement using SQLAlchemy
-        cols = [sa.column(sanitize_identifier(k)) for k in data.keys()]
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for column_name, value in data.items():
+            column_info = col_map.get(column_name)
+            if column_info is None:
+                raise ValueError(
+                    f"Column '{column_name}' does not exist in table {self.table_name}"
+                )
+            column_type = column_info["type"]
+            coerced_value = (
+                coerce_to_utc_datetime(value)
+                if value is not None and getattr(column_type, "timezone", False)
+                else value
+            )
+            cols.append(sa.column(sanitize_identifier(column_name)))
+            value_clauses[column_name] = sa.bindparam(
+                column_name, coerced_value, type_=column_type
+            )
+
         stmt = (
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
 

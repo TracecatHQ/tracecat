@@ -1,7 +1,10 @@
 import functools
 import importlib.metadata
+import uuid
 from collections.abc import Callable
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
+
+from pydantic_core import to_jsonable_python as _to_jsonable_python
 
 from tracecat import config
 from tracecat.logger import logger
@@ -24,3 +27,22 @@ def load_ee_impl[T: ImplT](group: str, *, default: T) -> T:
         return default
     logger.debug(f"Loaded {group} implementation from {impl}")
     return impl
+
+
+def is_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+def to_jsonable_python(value: Any) -> Any:
+    """Convert a value to a JSONable Python object. Drop nulls and use fallback for unknown values."""
+
+    def fallback(x: Any) -> Any:
+        """Fallback for unknown values."""
+        return None
+
+    return _to_jsonable_python(value, fallback=fallback, exclude_none=True)

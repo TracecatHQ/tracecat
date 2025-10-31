@@ -118,13 +118,6 @@ class BaseExprValidator(Visitor):
             msg=f"ACTIONS expressions are not supported in {self._expr_kind}",
         )
 
-    def inputs(self, node: Tree[Token]):
-        self.add(
-            status="error",
-            type=ExprType.INPUT,
-            msg=f"INPUTS expressions are not supported in {self._expr_kind}",
-        )
-
     def trigger(self, node: Tree):
         self.add(
             status="error",
@@ -185,6 +178,27 @@ class BaseExprValidator(Visitor):
             )
         name, key = parts
         return name, key
+
+    def vars(self, node: Tree[Token]) -> tuple[str, str | None] | None:
+        self.logger.trace("Visit vars expression", expr=node)
+
+        expr = node.children[0]
+        if not isinstance(expr, Token):
+            raise ValueError("Expected a string token")
+
+        var_path = expr.lstrip(".")
+        if not var_path:
+            self.add(
+                status="error",
+                msg="Invalid variable usage: Expected `VARS.my_variable.KEY`",
+                type=ExprType.VARIABLE,
+            )
+            return None
+        if "." in var_path:
+            name, remainder = var_path.split(".", 1)
+        else:
+            name, remainder = var_path, None
+        return name, remainder
 
     def function(self, node: Tree[Token]):
         fn_name = node.children[0]

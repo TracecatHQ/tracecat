@@ -22,5 +22,6 @@ definition:
         sdk_method: users_list
         params:
           include_locale: ${{ inputs.include_locale }}
+        key: members
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_users.result }}

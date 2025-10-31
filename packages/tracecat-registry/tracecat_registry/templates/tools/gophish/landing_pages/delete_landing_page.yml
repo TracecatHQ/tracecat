@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Delete landing page
+  description: Delete a landing page in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/landing-pages#delete-landing-page
+  namespace: tools.gophish
+  name: delete_landing_page
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    landing_page_id:
+      type: int
+      description: The ID of the landing page to delete.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: delete_landing_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/pages/${{ inputs.landing_page_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.delete_landing_page.result.data }}

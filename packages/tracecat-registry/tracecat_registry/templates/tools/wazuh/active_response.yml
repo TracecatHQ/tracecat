@@ -23,19 +23,20 @@ definition:
       description: Change the token base duration
       default: 900
     base_url:
-      type: str
+      type: str | None
       description: URL for the Wazuh WUI API.
+      default: null
   steps:
     - ref: get_access_token
       action: tools.wazuh.get_access_token
       args:
-        url: ${{ inputs.base_url }}
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}
         verify_ssl: ${{ inputs.verify_ssl  }}
         auth_token_exp_timeout: 900
     - ref: run_active_response
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/active-response
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/active-response
         method: PUT
         params:
           agents_list: ${{ inputs.agents_list }}

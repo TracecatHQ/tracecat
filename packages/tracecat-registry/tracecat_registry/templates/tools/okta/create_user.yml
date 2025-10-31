@@ -3,7 +3,7 @@ definition:
   title: Create user
   description: Create a new user in your Okta organization.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#create-user
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/createUser
   namespace: tools.okta
   name: create_user
   secrets:
@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     email:
       type: str
       description: Email address of the new user
@@ -62,7 +63,7 @@ definition:
       action: core.http_request
       args:
         method: POST
-        url: ${{ inputs.base_url }}/api/v1/users
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"

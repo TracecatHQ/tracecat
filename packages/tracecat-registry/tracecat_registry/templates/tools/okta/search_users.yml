@@ -3,7 +3,7 @@ definition:
   title: Search users
   description: Search for users using a query string that matches login, email, firstName, or lastName.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#list-users
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
   namespace: tools.okta
   name: search_users
   secrets:
@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     query:
       type: str
       description: Query string to search for users
@@ -42,7 +43,7 @@ definition:
       action: core.http_request
       args:
         method: GET
-        url: ${{ inputs.base_url }}/api/v1/users
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"

@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: Update incident
+  description: Update classification, determination, or assignment details for a Microsoft Defender for Endpoint incident.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/exposed-apis-list
+  namespace: tools.microsoft_defender_endpoint
+  name: update_incident
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    incident_id:
+      type: str
+      description: Incident ID to update.
+    classification:
+      type: str | None
+      description: Classification to apply to the incident (for example, Unknown, TruePositive, FalsePositive, InformationalExpectedActivity).
+      default: null
+    determination:
+      type: str | None
+      description: Determination that provides additional context for the classification (for example, Unknown, Malware, SecurityTesting).
+      default: null
+    status:
+      type: str | None
+      description: Incident status (for example, Active, Resolved, InProgress, Redirected).
+      default: null
+    assigned_to:
+      type: str | None
+      description: User principal name (UPN) or email to assign the incident to.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags to associate with the incident.
+      default: null
+    comment:
+      type: str | None
+      description: Comment to add to the incident history.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          classification: ${{ inputs.classification }}
+          determination: ${{ inputs.determination }}
+          status: ${{ inputs.status }}
+          assigned_to: ${{ inputs.assigned_to }}
+          tags: ${{ inputs.tags }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(classification, determination, status, assigned_to, tags, comment):
+              payload = {}
+              if classification:
+                  payload["classification"] = classification
+              if determination:
+                  payload["determination"] = determination
+              if status:
+                  payload["status"] = status
+              if assigned_to:
+                  payload["assignedTo"] = assigned_to
+              if tags is not None:
+                  payload["tags"] = tags
+              if comment:
+                  payload["comment"] = comment
+              if not payload:
+                  raise ValueError("At least one field must be provided to update the incident.")
+              return payload
+    - ref: update_incident
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/incidents/${{ FN.url_encode(inputs.incident_id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_incident.result.data }}

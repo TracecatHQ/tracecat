@@ -2,14 +2,13 @@ type: action
 definition:
   title: Call OpenAI (chat)
   description: Call an LLM via OpenAI chat completion API.
-  display_group: OpenAI
+  display_group: (Deprecated -> use ai.action instead) OpenAI
   doc_url: https://platform.openai.com/docs/api-reference/chat/create
   namespace: llm.openai
   name: chat_completion
   secrets:
     - name: openai
-      keys:
-        - OPENAI_API_KEY
+      optional_keys: ["OPENAI_API_KEY"]
   expects:
     prompt:
       type: str
@@ -18,10 +17,6 @@ definition:
       type: str
       description: Model to use
       default: gpt-4o-mini
-    memory:
-      type: list[dict[str, str]] | None
-      description: Past messages to include in the conversation.
-      default: null
     system_prompt:
       type: str | None
       description: Insert a system message at the beginning of the conversation.
@@ -30,7 +25,7 @@ definition:
       type: str | dict[str, Any] | None
       description: >
         Output format to use. Either JSONSchema
-        or a supported type (see `llm.pydantic_ai.call`).
+        or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
       default: null
     model_settings:
       type: dict[str, Any] | None
@@ -38,18 +33,17 @@ definition:
       default: null
     base_url:
       type: str | None
-      description: Base URL for OpenAI API. Defaults to `https://api.openai.com`.
+      description: Base URL for OpenAI API. Defaults to OpenAI's API endpoint.
       default: null
   steps:
     - ref: call_openai
-      action: llm.pydantic_ai.call
+      action: ai.action
       args:
-        base_url: ${{ inputs.base_url }}
-        instructions: ${{ inputs.system_prompt }}
-        message_history: ${{ inputs.memory }}
+        user_prompt: ${{ inputs.prompt }}
         model_name: ${{ inputs.model }}
         model_provider: openai
+        instructions: ${{ inputs.system_prompt }}
         output_type: ${{ inputs.response_format }}
-        user_prompt: ${{ inputs.prompt }}
         model_settings: ${{ inputs.model_settings }}
+        base_url: ${{ inputs.base_url || VARS.openai.base_url }}
   returns: ${{ steps.call_openai.result }}

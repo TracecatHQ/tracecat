@@ -2,8 +2,9 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { ColumnDef } from "@tanstack/react-table"
-import { format, formatDistanceToNow } from "date-fns"
+import { format } from "date-fns"
 import fuzzysort from "fuzzysort"
+import type { ReactNode } from "react"
 import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
@@ -14,7 +15,6 @@ import {
 import {
   AssignedUser,
   NoAssignee,
-  UNASSIGNED,
 } from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { TagBadge } from "@/components/tag-badge"
@@ -31,29 +31,33 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { User } from "@/lib/auth"
-import { capitalizeFirst } from "@/lib/utils"
-
-const NO_DATA = "--" as const
+import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 
 export function createColumns(
-  setSelectedCase: (case_: CaseReadMinimal) => void
+  setSelectedCase: (case_: CaseReadMinimal) => void,
+  caseTasksEnabled = false
 ): ColumnDef<CaseReadMinimal>[] {
-  return [
+  const columns: ColumnDef<CaseReadMinimal>[] = [
     {
       id: "select",
       header: ({ table }) => (
-        <Checkbox
-          className="border-foreground/50"
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
+        <div className="flex w-full justify-center">
+          <Checkbox
+            className="border-foreground/50"
+            checked={
+              table.getIsAllPageRowsSelected() ||
+              (table.getIsSomePageRowsSelected() && "indeterminate")
+            }
+            onCheckedChange={(value) =>
+              table.toggleAllPageRowsSelected(!!value)
+            }
+            aria-label="Select all"
+          />
+        </div>
       ),
       cell: ({ row }) => (
         <div
+          className="flex w-full justify-center"
           onClick={(e) => {
             e.stopPropagation()
             e.preventDefault()
@@ -69,6 +73,10 @@ export function createColumns(
       ),
       enableSorting: false,
       enableHiding: false,
+      meta: {
+        headerClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+        cellClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+      },
     },
 
     {
@@ -76,15 +84,32 @@ export function createColumns(
       header: ({ column }) => (
         <DataTableColumnHeader className="text-xs" column={column} title="ID" />
       ),
-      cell: ({ row }) => (
-        <div className="w-[80px] truncate text-xs">
-          {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const assignee = row.original.assignee
+
+        return (
+          <div className="flex w-[148px] min-w-[148px] max-w-[148px] flex-col gap-[0.4rem] text-xs">
+            <span className="truncate text-xs font-medium text-muted-foreground">
+              {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
+            </span>
+            {assignee ? (
+              <AssignedUser user={new User(assignee)} className="text-xs" />
+            ) : (
+              <NoAssignee text="Not assigned" className="text-xs" />
+            )}
+          </div>
+        )
+      },
       enableSorting: true,
       enableHiding: false,
       filterFn: (row, id, value) => {
         return value.includes(row.getValue<CaseReadMinimal["short_id"]>(id))
+      },
+      meta: {
+        headerClassName: "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        cellClassName: "w-[148px] min-w-[148px] max-w-[148px] pr-8 text-left",
+        headerStyle: { width: "148px" },
+        cellStyle: { width: "148px" },
       },
     },
     {
@@ -93,11 +118,52 @@ export function createColumns(
         <DataTableColumnHeader column={column} title="Summary" />
       ),
       cell: ({ row }) => {
+        const summary = row.getValue<CaseReadMinimal["summary"]>("summary")
+        const tags = row.original.tags
+        const priority = row.original.priority
+        const severity = row.original.severity
+
+        const priorityProps = priority ? PRIORITIES[priority] : undefined
+        const severityProps = severity ? SEVERITIES[severity] : undefined
+
+        const metadataItems: ReactNode[] = []
+
+        if (priorityProps) {
+          metadataItems.push(
+            <CaseBadge
+              key="priority"
+              {...priorityProps}
+              className="font-medium"
+            />
+          )
+        }
+
+        if (severityProps) {
+          metadataItems.push(
+            <CaseBadge
+              key="severity"
+              {...severityProps}
+              className="font-medium"
+            />
+          )
+        }
+
+        if (tags?.length) {
+          tags.forEach((tag) => {
+            metadataItems.push(
+              <TagBadge key={tag.id} tag={tag} className="font-medium" />
+            )
+          })
+        }
+
         return (
-          <div className="flex space-x-2">
-            <span className="max-w-[300px] truncate text-xs">
-              {row.getValue<CaseReadMinimal["summary"]>("summary")}
-            </span>
+          <div className="flex min-w-[24rem] flex-1 flex-col gap-[0.45rem] text-xs">
+            <span className="truncate text-xs font-medium">{summary}</span>
+            {metadataItems.length ? (
+              <div className="flex flex-wrap items-center gap-1 text-xs">
+                {metadataItems}
+              </div>
+            ) : null}
           </div>
         )
       },
@@ -105,11 +171,20 @@ export function createColumns(
         const rowValue = String(row.getValue<CaseReadMinimal["summary"]>(id))
         return fuzzysort.single(String(value), rowValue) !== null
       },
+      meta: {
+        headerClassName: "min-w-[24rem] max-w-none text-left",
+        cellClassName: "min-w-[24rem] max-w-none text-left",
+      },
     },
     {
       accessorKey: "status",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Status" />
+        <DataTableColumnHeader
+          column={column}
+          title="Status"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
         const status = row.getValue<CaseReadMinimal["status"]>("status")
@@ -118,77 +193,49 @@ export function createColumns(
           return null
         }
 
-        return <CaseBadge {...props} />
+        return (
+          <div className="flex w-full justify-end">
+            <CaseBadge {...props} className="font-medium" />
+          </div>
+        )
       },
       filterFn: (row, id, value) => {
         return value.includes(row.getValue<CaseReadMinimal["status"]>("status"))
       },
-    },
-    {
-      accessorKey: "priority",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Priority" />
-      ),
-      cell: ({ row }) => {
-        const priority = row.getValue<CaseReadMinimal["priority"]>("priority")
-        if (!priority) {
-          return null
-        }
-        const props = PRIORITIES[priority]
-
-        return <CaseBadge {...props} />
-      },
-      filterFn: (row, id, value) => {
-        return value.includes(
-          row.getValue<CaseReadMinimal["priority"]>("priority")
-        )
-      },
-    },
-    {
-      accessorKey: "severity",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Severity" />
-      ),
-      cell: ({ row }) => {
-        const severity = row.getValue<CaseReadMinimal["severity"]>("severity")
-        if (!severity) {
-          return null
-        }
-
-        const props = SEVERITIES[severity]
-        if (!props) {
-          return null
-        }
-
-        return <CaseBadge {...props} />
-      },
-      filterFn: (row, id, value) => {
-        return value.includes(
-          row.getValue<CaseReadMinimal["severity"]>("severity")
-        )
+      meta: {
+        headerClassName:
+          "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
+        cellClassName: "w-[136px] min-w-[136px] max-w-[136px] px-0 text-right",
+        headerStyle: { width: "136px" },
+        cellStyle: { width: "136px" },
       },
     },
     {
       accessorKey: "created_at",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Created At" />
+        <DataTableColumnHeader
+          column={column}
+          title="Created"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
         const dt = new Date(
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
         )
-        const timeAgo = capitalizeFirst(
-          formatDistanceToNow(dt, { addSuffix: true })
-        )
+        const shortTime = capitalizeFirst(shortTimeAgo(dt))
         const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
 
         return (
           <Tooltip>
-            <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+            <TooltipTrigger className="flex w-full justify-end">
+              <span className="block truncate text-right text-xs">
+                {shortTime}
+              </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
@@ -197,93 +244,61 @@ export function createColumns(
         const dateStr =
           row.getValue<CaseReadMinimal["created_at"]>("created_at")
         return value.includes(dateStr)
+      },
+      meta: {
+        headerClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] justify-end px-0 text-right",
+        cellClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] px-0 pl-2 text-right",
+        headerStyle: { width: "96px" },
+        cellStyle: { width: "96px" },
       },
     },
     {
       accessorKey: "updated_at",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Updated At" />
+        <DataTableColumnHeader
+          column={column}
+          title="Updated"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
       ),
       cell: ({ row }) => {
-        const dt = new Date(
+        const updatedAt =
           row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
-        )
-        const timeAgo = capitalizeFirst(
-          formatDistanceToNow(dt, { addSuffix: true })
-        )
-        const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
+        if (!updatedAt) {
+          return <span className="text-xs text-muted-foreground">—</span>
+        }
+
+        const dt = new Date(updatedAt)
+        const shortTime = capitalizeFirst(shortTimeAgo(dt))
+        const fullDateTime = format(dt, "PPpp")
 
         return (
           <Tooltip>
-            <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+            <TooltipTrigger className="flex w-full justify-end">
+              <span className="block truncate text-right text-xs">
+                {shortTime}
+              </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
       },
       filterFn: (row, id, value) => {
-        const dateStr =
-          row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
+        const dateStr = row.getValue<CaseReadMinimal["updated_at"]>(id)
         return value.includes(dateStr)
       },
-    },
-    {
-      id: "Assignee",
-      accessorKey: "assignee",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Assignee" />
-      ),
-      cell: ({ getValue }) => {
-        const user = getValue<CaseReadMinimal["assignee"]>()
-        if (!user) {
-          return <NoAssignee text="Not assigned" className="text-xs" />
-        }
-
-        return <AssignedUser user={new User(user)} className="text-xs" />
-      },
-      filterFn: (row, id, value) => {
-        const assignee = row.getValue<CaseReadMinimal["assignee"]>("assignee")
-        if (!assignee) {
-          // Handle unassigned case
-          return value.includes(UNASSIGNED)
-        }
-        const user = new User(assignee)
-        const displayName = user.getDisplayName()
-        return value.includes(displayName)
-      },
-    },
-    {
-      id: "Tags",
-      accessorKey: "tags",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Tags" />
-      ),
-      cell: ({ getValue }) => {
-        const tags = getValue<CaseReadMinimal["tags"]>()
-        return (
-          <div className="flex flex-wrap gap-1">
-            {tags?.length ? (
-              tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
-            ) : (
-              <span className="text-xs text-muted-foreground">{NO_DATA}</span>
-            )}
-          </div>
-        )
-      },
-      filterFn: (row, id, value) => {
-        const tags = row.getValue<CaseReadMinimal["tags"]>("tags")
-        if (!tags || tags.length === 0) {
-          return false
-        }
-        return tags.some(
-          (tag) =>
-            value.includes(tag.name) ||
-            value.includes(tag.id) ||
-            (tag.ref && value.includes(tag.ref))
-        )
+      meta: {
+        headerClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] justify-end px-0 text-right",
+        cellClassName:
+          "w-[96px] min-w-[96px] max-w-[96px] px-0 pl-2 text-right",
+        headerStyle: { width: "96px" },
+        cellStyle: { width: "96px" },
       },
     },
     {
@@ -318,6 +333,62 @@ export function createColumns(
           </DropdownMenu>
         )
       },
+      meta: {
+        headerClassName: "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        cellClassName: "w-14 min-w-[3.5rem] max-w-[3.5rem] px-0 text-right",
+        headerStyle: { width: "56px" },
+        cellStyle: { width: "56px" },
+      },
     },
   ]
+
+  // Conditionally add tasks column if enabled
+  if (caseTasksEnabled) {
+    // Find created_at column index and insert tasks before it
+    const createdAtIndex = columns.findIndex(
+      (col) => "accessorKey" in col && col.accessorKey === "created_at"
+    )
+    const insertIndex =
+      createdAtIndex !== -1 ? createdAtIndex : columns.length - 3
+    columns.splice(insertIndex, 0, {
+      accessorKey: "tasks",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Tasks"
+          className="justify-end"
+          buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+        />
+      ),
+      cell: ({ row }) => {
+        const completed = row.original.num_tasks_completed ?? 0
+        const total = row.original.num_tasks_total ?? 0
+
+        if (total === 0) {
+          return (
+            <div className="flex w-full justify-end text-xs text-muted-foreground">
+              –
+            </div>
+          )
+        }
+
+        return (
+          <div className="flex w-full justify-end text-xs">
+            <span className={completed === total ? "text-green-600" : ""}>
+              {completed}/{total}
+            </span>
+          </div>
+        )
+      },
+      meta: {
+        headerClassName:
+          "w-[72px] min-w-[72px] max-w-[72px] justify-end px-0 text-right",
+        cellClassName: "w-[72px] min-w-[72px] max-w-[72px] px-0 text-right",
+        headerStyle: { width: "72px" },
+        cellStyle: { width: "72px" },
+      },
+    })
+  }
+
+  return columns
 }

@@ -316,7 +316,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <WandSparkles {...rest} />
         <Sparkles
           className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+            "absolute top-0 right-0 -translate-y-1/8 translate-x-1/8 fill-yellow-500/70 text-amber-500/70",
             getFlairSize(flairsize)
           )}
         />
@@ -454,7 +454,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         viewBox="0 0 24 24"
         className={cn(
           basicIconsCommon,
-          "bg-green-400/20 rounded-xl",
+          "rounded-xl bg-green-400/20",
           className
         )}
         {...rest}
@@ -465,13 +465,93 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         />
       </svg>
     ),
+    "tools.gophish": ({ className, ...rest }: IconProps) => (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="186.667"
+        height="213.333"
+        viewBox="0 0 174.99999 199.99999"
+        className={cn(
+          basicIconsCommon,
+          "rounded-full bg-blue-400/20",
+          className
+        )}
+        {...rest}
+      >
+        <g transform="translate(-286.786 -403.79)">
+          <path
+            d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z"
+            fill="#283F50"
+          />
+          <path
+            d="M472.126 134.444l6.911 3.808-6.753 4.081z"
+            transform="matrix(.33514 0 0 .78956 188.901 398.936)"
+            fill="#283F50"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <path
+            d="M348.42 508.015v17.441-17.441z"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+          />
+          <circle
+            r="6.294"
+            cy="456.744"
+            cx="390.358"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <g stroke="#283F50">
+            <path
+              d="M390.45 463.343v61.879-61.88z"
+              fill="none"
+              stroke-width="4"
+            />
+            <path
+              d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
+              fill="#283F50"
+            />
+          </g>
+        </g>
+      </svg>
+    ),
     "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
     "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
-    "llm.openai": (props: IconProps) => <OpenAIIcon {...props} />,
+    "ai.openai": (props: IconProps) => <OpenAIIcon {...props} />,
     "llm.ollama": (props: IconProps) => <OllamaIcon {...props} />,
     openai: (props: IconProps) => <OpenAIIcon {...props} />,
     ollama: (props: IconProps) => <OllamaIcon {...props} />,
     "tools.jira": (props: IconProps) => <JiraIcon {...props} />,
+    "ai.anthropic": (props: IconProps) => <ClaudeIcon {...props} />,
+    "tools.github": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <GitHubIcon {...rest} />
+      </div>
+    ),
+    "tools.microsoft_sentinel": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <MicrosoftSentinelIcon {...rest} />
+      </div>
+    ),
+    "tools.azure_log_analytics": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <AzureLogAnalyticsIcon {...rest} />
+      </div>
+    ),
+    "ai.slackbot": (props: IconProps) => <SlackIcon {...props} />,
   }
 
 /**
@@ -511,6 +591,16 @@ export const providerIcons: Record<
       <MicrosoftSentinelIcon {...rest} />
     </div>
   ),
+  azure_log_analytics: ({ className, ...rest }) => (
+    <div className={className}>
+      <AzureLogAnalyticsIcon {...rest} />
+    </div>
+  ),
+  azure_management: ({ className, ...rest }) => (
+    <div className={className}>
+      <AzureManagementIcon {...rest} />
+    </div>
+  ),
   google: ({ className, ...rest }) => (
     <div className={className}>
       <GoogleIcon {...rest} />
@@ -529,6 +619,15 @@ export const providerIcons: Record<
       <Plug2 {...rest} fill="black" />
     </div>
   ),
+  sentry_mcp: (props) => <SentryIcon {...props} />,
+  notion_mcp: (props) => <NotionIcon {...props} />,
+  linear_mcp: (props) => <LinearIcon {...props} />,
+  runreveal_mcp: (props) => <RunRevealIcon {...props} />,
+  github_mcp: ({ className, ...rest }) => (
+    <div className={className}>
+      <GitHubIcon {...rest} />
+    </div>
+  ),
 }
 
 export function ProviderIcon({
@@ -543,7 +642,7 @@ export function ProviderIcon({
   return (
     <Icon
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-sm bg-stone-200/50 p-1",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-stone-200/50 p-1",
         className
       )}
       {...rest}
@@ -555,6 +654,27 @@ export function GenericWorkflowIcon({ className, ...rest }: IconProps) {
   return (
     <div className={cn(basicIconsCommon, className)}>
       <WorkflowIcon {...rest} />
+    </div>
+  )
+}
+
+export function ClaudeIcon({ className, ...rest }: IconProps) {
+  return (
+    <div className={cn(basicIconsCommon, className)}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="256"
+        height="257"
+        preserveAspectRatio="xMidYMid"
+        viewBox="0 0 256 257"
+        className={cn(basicIconsCommon, className)}
+        {...rest}
+      >
+        <path
+          fill="#D97757"
+          d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
+        />
+      </svg>
     </div>
   )
 }
@@ -784,7 +904,7 @@ export function MicrosoftIcon({ className, ...rest }: IconProps) {
 
 export function GitHubIcon({ className, ...rest }: IconProps) {
   return (
-    <svg viewBox="0 0 438.549 438.549" {...rest}>
+    <svg viewBox="0 0 438.549 438.549" className={className} {...rest}>
       <path
         fill="currentColor"
         d="M409.132 114.573c-19.608-33.596-46.205-60.194-79.798-79.8-33.598-19.607-70.277-29.408-110.063-29.408-39.781 0-76.472 9.804-110.063 29.408-33.596 19.605-60.192 46.204-79.8 79.8C9.803 148.168 0 184.854 0 224.63c0 47.78 13.94 90.745 41.827 128.906 27.884 38.164 63.906 64.572 108.063 79.227 5.14.954 8.945.283 11.419-1.996 2.475-2.282 3.711-5.14 3.711-8.562 0-.571-.049-5.708-.144-15.417a2549.81 2549.81 0 01-.144-25.406l-6.567 1.136c-4.187.767-9.469 1.092-15.846 1-6.374-.089-12.991-.757-19.842-1.999-6.854-1.231-13.229-4.086-19.13-8.559-5.898-4.473-10.085-10.328-12.56-17.556l-2.855-6.57c-1.903-4.374-4.899-9.233-8.992-14.559-4.093-5.331-8.232-8.945-12.419-10.848l-1.999-1.431c-1.332-.951-2.568-2.098-3.711-3.429-1.142-1.331-1.997-2.663-2.568-3.997-.572-1.335-.098-2.43 1.427-3.289 1.525-.859 4.281-1.276 8.28-1.276l5.708.853c3.807.763 8.516 3.042 14.133 6.851 5.614 3.806 10.229 8.754 13.846 14.842 4.38 7.806 9.657 13.754 15.846 17.847 6.184 4.093 12.419 6.136 18.699 6.136 6.28 0 11.704-.476 16.274-1.423 4.565-.952 8.848-2.383 12.847-4.285 1.713-12.758 6.377-22.559 13.988-29.41-10.848-1.14-20.601-2.857-29.264-5.14-8.658-2.286-17.605-5.996-26.835-11.14-9.235-5.137-16.896-11.516-22.985-19.126-6.09-7.614-11.088-17.61-14.987-29.979-3.901-12.374-5.852-26.648-5.852-42.826 0-23.035 7.52-42.637 22.557-58.817-7.044-17.318-6.379-36.732 1.997-58.24 5.52-1.715 13.706-.428 24.554 3.853 10.85 4.283 18.794 7.952 23.84 10.994 5.046 3.041 9.089 5.618 12.135 7.708 17.705-4.947 35.976-7.421 54.818-7.421s37.117 2.474 54.823 7.421l10.849-6.849c7.419-4.57 16.18-8.758 26.262-12.565 10.088-3.805 17.802-4.853 23.134-3.138 8.562 21.509 9.325 40.922 2.279 58.24 15.036 16.18 22.559 35.787 22.559 58.817 0 16.178-1.958 30.497-5.853 42.966-3.9 12.471-8.941 22.457-15.125 29.979-6.191 7.521-13.901 13.85-23.131 18.986-9.232 5.14-18.182 8.85-26.84 11.136-8.662 2.286-18.415 4.004-29.263 5.146 9.894 8.562 14.842 22.077 14.842 40.539v60.237c0 3.422 1.19 6.279 3.572 8.562 2.379 2.279 6.136 2.95 11.276 1.995 44.163-14.653 80.185-41.062 108.068-79.226 27.88-38.161 41.825-81.126 41.825-128.906-.01-39.771-9.818-76.454-29.414-110.049z"
@@ -956,7 +1076,12 @@ export function MicrosoftTeamsIcon({ className, ...rest }: IconProps) {
 
 export function MicrosoftSentinelIcon({ className, ...rest }: IconProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" {...rest}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 18 18"
+      className={className}
+      {...rest}
+    >
       <defs>
         <linearGradient
           id="a"
@@ -984,6 +1109,220 @@ export function MicrosoftSentinelIcon({ className, ...rest }: IconProps) {
         d="M9 7a3 3 0 0 1 3 2h2A5 5 0 0 0 4 9h2a3 3 0 0 1 3-2Z"
       />
       <circle cx="9" cy="9.4" r="1.9" fill="#fff" />
+    </svg>
+  )
+}
+
+export function AzureLogAnalyticsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <linearGradient
+          id="azure-log-gradient"
+          x1="12"
+          x2="12"
+          y1="6"
+          y2="20"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0" stopColor="#50e6ff" />
+          <stop offset="1" stopColor="#0078d4" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="5"
+        y="15"
+        width="2.5"
+        height="5"
+        rx="0.5"
+        fill="url(#azure-log-gradient)"
+      />
+      <rect
+        x="9"
+        y="12"
+        width="2.5"
+        height="8"
+        rx="0.5"
+        fill="url(#azure-log-gradient)"
+      />
+      <rect
+        x="13"
+        y="8"
+        width="2.5"
+        height="12"
+        rx="0.5"
+        fill="url(#azure-log-gradient)"
+      />
+      <rect
+        x="17"
+        y="11"
+        width="2.5"
+        height="9"
+        rx="0.5"
+        fill="url(#azure-log-gradient)"
+      />
+    </svg>
+  )
+}
+
+export function AzureManagementIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 18 18"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M5.33492 1.37491C5.44717 1.04229 5.75909 0.818359 6.11014 0.818359H11.25L5.91513 16.6255C5.80287 16.9581 5.49095 17.182 5.13991 17.182H1.13968C0.579936 17.182 0.185466 16.6325 0.364461 16.1022L5.33492 1.37491Z"
+        fill="url(#azure-mgmt-0)"
+      />
+      <path
+        d="M13.5517 11.4546H5.45126C5.1109 11.4546 4.94657 11.8715 5.19539 12.1037L10.4005 16.9618C10.552 17.1032 10.7515 17.1819 10.9587 17.1819H15.5453L13.5517 11.4546Z"
+        fill="#0078D4"
+      />
+      <path
+        d="M6.11014 0.818359C5.75909 0.818359 5.44717 1.04229 5.33492 1.37491L0.364461 16.1022C0.185466 16.6325 0.579936 17.182 1.13968 17.182H5.13991C5.49095 17.182 5.80287 16.9581 5.91513 16.6255L6.90327 13.6976L10.4005 16.9617C10.552 17.1032 10.7515 17.1818 10.9588 17.1818H15.5454L13.5517 11.4545H7.66032L11.25 0.818359H6.11014Z"
+        fill="url(#azure-mgmt-1)"
+      />
+      <path
+        d="M12.665 1.37478C12.5528 1.04217 12.2409 0.818237 11.8898 0.818237H6.13629H6.16254C6.51358 0.818237 6.82551 1.04217 6.93776 1.37478L11.9082 16.1021C12.0872 16.6324 11.6927 17.1819 11.133 17.1819H11.0454H16.8603C17.42 17.1819 17.8145 16.6324 17.6355 16.1021L12.665 1.37478Z"
+        fill="url(#azure-mgmt-2)"
+      />
+      <defs>
+        <linearGradient
+          id="azure-mgmt-0"
+          x1="6.07512"
+          y1="1.38476"
+          x2="0.738178"
+          y2="17.1514"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#114A8B" />
+          <stop offset="1" stopColor="#0669BC" />
+        </linearGradient>
+        <linearGradient
+          id="azure-mgmt-1"
+          x1="10.3402"
+          y1="11.4564"
+          x2="9.107"
+          y2="11.8734"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopOpacity="0.3" />
+          <stop offset="0.0711768" stopOpacity="0.2" />
+          <stop offset="0.321031" stopOpacity="0.1" />
+          <stop offset="0.623053" stopOpacity="0.05" />
+          <stop offset="1" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient
+          id="azure-mgmt-2"
+          x1="9.45858"
+          y1="1.38467"
+          x2="15.3168"
+          y2="16.9926"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#3CCBF4" />
+          <stop offset="1" stopColor="#2892DF" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
+export function SentryIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 50 44"
+      width="100%"
+      height="100%"
+      className={cn(basicIconsCommon, "origin-center scale-105", className)}
+      {...rest}
+    >
+      <path
+        d="M29,2.26a4.67,4.67,0,0,0-8,0L14.42,13.53A32.21,32.21,0,0,1,32.17,40.19H27.55A27.68,27.68,0,0,0,12.09,17.47L6,28a15.92,15.92,0,0,1,9.23,12.17H4.62A.76.76,0,0,1,4,39.06l2.94-5a10.74,10.74,0,0,0-3.36-1.9l-2.91,5a4.54,4.54,0,0,0,1.69,6.24A4.66,4.66,0,0,0,4.62,44H19.15a19.4,19.4,0,0,0-8-17.31l2.31-4A23.87,23.87,0,0,1,23.76,44H36.07a35.88,35.88,0,0,0-16.41-31.8l4.67-8a.77.77,0,0,1,1.05-.27c.53.29,20.29,34.77,20.66,35.17a.76.76,0,0,1-.68,1.13H40.6q.09,1.91,0,3.81h4.78A4.59,4.59,0,0,0,50,39.43a4.49,4.49,0,0,0-.62-2.28Z"
+        fill="#362d59"
+      />
+    </svg>
+  )
+}
+
+export function NotionIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      viewBox="0 0 100 100"
+      fill="none"
+      className={cn(basicIconsCommon, className)}
+      {...rest}
+    >
+      <path
+        d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z"
+        fill="#fff"
+      />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L74.167 3.143c-4.273 -3.107 -6.02 -3.5 -12.817 -2.917zM25.92 19.523c-5.247 0.353 -6.437 0.433 -9.417 -1.99L8.927 11.507c-0.77 -0.78 -0.383 -1.753 1.557 -1.947l53.193 -3.887c4.467 -0.39 6.793 1.167 8.54 2.527l9.123 6.61c0.39 0.197 1.36 1.36 0.193 1.36l-54.933 3.307 -0.68 0.047zM19.803 88.3V30.367c0 -2.53 0.777 -3.697 3.103 -3.893L86 22.78c2.14 -0.193 3.107 1.167 3.107 3.693v57.547c0 2.53 -0.39 4.67 -3.883 4.863l-60.377 3.5c-3.493 0.193 -5.043 -0.97 -5.043 -4.083zm59.6 -54.827c0.387 1.75 0 3.5 -1.75 3.7l-2.91 0.577v42.773c-2.527 1.36 -4.853 2.137 -6.797 2.137 -3.107 0 -3.883 -0.973 -6.21 -3.887l-19.03 -29.94v28.967l6.02 1.363s0 3.5 -4.857 3.5l-13.39 0.777c-0.39 -0.78 0 -2.723 1.357 -3.11l3.497 -0.97v-38.3L30.48 40.667c-0.39 -1.75 0.58 -4.277 3.3 -4.473l14.367 -0.967 19.8 30.327v-26.83l-5.047 -0.58c-0.39 -2.143 1.163 -3.7 3.103 -3.89l13.4 -0.78z"
+        fill="#000"
+      />
+    </svg>
+  )
+}
+
+export function LinearIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="#222326"
+      width="100%"
+      height="100%"
+      viewBox="0 0 100 100"
+      className={cn(basicIconsCommon, className)}
+      {...rest}
+    >
+      <path d="M1.22541 61.5228c-.2225-.9485.90748-1.5459 1.59638-.857L39.3342 97.1782c.6889.6889.0915 1.8189-.857 1.5964C20.0515 94.4522 5.54779 79.9485 1.22541 61.5228ZM.00189135 46.8891c-.01764375.2833.08887215.5599.28957165.7606L52.3503 99.7085c.2007.2007.4773.3075.7606.2896 2.3692-.1476 4.6938-.46 6.9624-.9259.7645-.157 1.0301-1.0963.4782-1.6481L2.57595 39.4485c-.55186-.5519-1.49117-.2863-1.648174.4782-.465915 2.2686-.77832 4.5932-.92588465 6.9624ZM4.21093 29.7054c-.16649.3738-.08169.8106.20765 1.1l64.77602 64.776c.2894.2894.7262.3742 1.1.2077 1.7861-.7956 3.5171-1.6927 5.1855-2.684.5521-.328.6373-1.0867.1832-1.5407L8.43566 24.3367c-.45409-.4541-1.21271-.3689-1.54074.1832-.99132 1.6684-1.88843 3.3994-2.68399 5.1855ZM12.6587 18.074c-.3701-.3701-.393-.9637-.0443-1.3541C21.7795 6.45931 35.1114 0 49.9519 0 77.5927 0 100 22.4073 100 50.0481c0 14.8405-6.4593 28.1724-16.7199 37.3375-.3903.3487-.984.3258-1.3542-.0443L12.6587 18.074Z" />
+    </svg>
+  )
+}
+
+export function RunRevealIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      viewBox="0 0 80 65"
+      fill="none"
+      className={cn(basicIconsCommon, className)}
+      {...rest}
+    >
+      <path
+        d="M52.7818 0.749144H27.8651V25.806C41.6268 25.806 52.7818 14.5883 52.7818 0.749144Z"
+        fill="#A13DF7"
+      />
+      <path
+        d="M25.7387 0.677246V64.6772H0.822021V25.7341C0.822021 11.904 11.9882 0.677246 25.7387 0.677246Z"
+        fill="#A13DF7"
+      />
+      <path
+        d="M27.9232 64.6054H52.8399V39.5485C39.0782 39.5485 27.9232 50.7663 27.9232 64.6054Z"
+        fill="#A13DF7"
+      />
+      <path
+        d="M54.9686 64.6772V0.677274H79.8853V39.6204C79.8853 53.4505 68.7191 64.6772 54.9686 64.6772Z"
+        fill="#A13DF7"
+      />
     </svg>
   )
 }

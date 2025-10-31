@@ -10,7 +10,6 @@ import {
 import { useState } from "react"
 import { useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { AgentCredentialsDialog } from "@/components/organization/org-agent-credentials-dialog"
@@ -54,20 +53,6 @@ import {
 
 const agentFormSchema = z.object({
   default_model: z.string().optional(),
-  agent_fixed_args: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        try {
-          JSON.parse(val ?? "{}")
-          return true
-        } catch {
-          return false
-        }
-      },
-      { message: "Must be valid JSON" }
-    ),
   agent_case_chat_prompt: z.string().optional(),
   agent_case_chat_inject_content: z.boolean().optional(),
 })
@@ -308,98 +293,6 @@ function ProviderCredentialsSection() {
 }
 
 /**
- * Subcomponent that handles fixed arguments configuration
- */
-function FixedArgumentsSection() {
-  const {
-    agentSettings,
-    agentSettingsIsLoading,
-    agentSettingsError,
-    updateAgentSettings,
-    updateAgentSettingsIsPending,
-  } = useOrgAgentSettings()
-
-  const form = useForm<AgentFormValues>({
-    resolver: zodResolver(agentFormSchema),
-    values: {
-      agent_fixed_args: agentSettings?.agent_fixed_args || "{}",
-    },
-  })
-
-  const onSubmit = async (data: AgentFormValues) => {
-    if (data.agent_fixed_args === undefined) return
-
-    try {
-      await updateAgentSettings({
-        requestBody: {
-          agent_fixed_args: data.agent_fixed_args,
-        },
-      })
-    } catch (err) {
-      console.error("Failed to update agent fixed arguments:", err)
-    }
-  }
-
-  if (agentSettingsIsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (agentSettingsError) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading agent settings: ${agentSettingsError instanceof Error ? agentSettingsError.message : "Unknown error"}`}
-      />
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Tool fixed arguments</h3>
-      <p className="text-sm text-muted-foreground">
-        Configure fixed arguments that will be automatically provided to agent
-        tools. Format:{" "}
-        {`{"tools.slack.post_message": {"channel_id": "C123456789"}}`}
-      </p>
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="agent_fixed_args"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Fixed arguments (JSON)</FormLabel>
-                <FormControl>
-                  <CodeEditor
-                    value={field.value || "{}"}
-                    language="json"
-                    onChange={field.onChange}
-                    className="min-h-[200px]"
-                  />
-                </FormControl>
-                <FormDescription>
-                  Define fixed arguments for agent tools in JSON format. These
-                  arguments will be automatically provided when the agent calls
-                  the specified tools.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Button type="submit" disabled={updateAgentSettingsIsPending}>
-            {updateAgentSettingsIsPending
-              ? "Updating..."
-              : "Update fixed arguments"}
-          </Button>
-        </form>
-      </Form>
-    </div>
-  )
-}
-
-/**
  * Subcomponent that handles case chat prompt configuration
  */
 function CaseChatPromptSection() {
@@ -632,8 +525,6 @@ export function OrgSettingsAgentForm() {
       </Form>
 
       <ProviderCredentialsSection />
-
-      <FixedArgumentsSection />
 
       <CaseChatPromptSection />
 

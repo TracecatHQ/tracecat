@@ -11,7 +11,6 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import {
   Form,
@@ -31,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
+import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
@@ -98,6 +99,7 @@ export function ProviderConfigForm({
     grant_type: grantType,
   } = provider
   const workspaceId = useWorkspaceId()
+  const _isMCP = isMCPProvider(provider)
   const {
     integration,
     integrationIsLoading,
@@ -114,7 +116,9 @@ export function ProviderConfigForm({
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512).nullish(),
     client_secret: z.string().max(512).optional(),
-    scopes: z.array(z.string()).optional(),
+    scopes: z
+      .array(z.string().min(1))
+      .min(1, { message: "At least one scope is required" }),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
@@ -387,7 +391,7 @@ export function ProviderConfigForm({
                             <FormItem>
                               <div className="flex items-center space-x-2">
                                 <FormControl>
-                                  <Checkbox
+                                  <Switch
                                     id={key}
                                     checked={Boolean(field.value)}
                                     onCheckedChange={field.onChange}

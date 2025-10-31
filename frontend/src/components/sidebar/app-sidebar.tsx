@@ -1,8 +1,10 @@
 "use client"
 
 import {
+  BoxIcon,
+  BracketsIcon,
   KeyRoundIcon,
-  ListTodoIcon,
+  type LucideIcon,
   ShapesIcon,
   SquareStackIcon,
   Table2Icon,
@@ -11,8 +13,9 @@ import {
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
@@ -27,6 +30,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -37,26 +41,47 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
+  const params = useParams<{ caseId?: string }>()
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
+  const caseId = params?.caseId
+  const casesListPath = `${basePath}/cases`
+  const isCasesList = pathname === casesListPath
 
-  const navMain = [
-    {
-      title: "Cases",
-      url: `${basePath}/cases`,
-      icon: SquareStackIcon,
-      isActive: pathname?.startsWith(`${basePath}/cases`),
-    },
-    {
-      title: "Runbooks",
-      url: `${basePath}/runbooks`,
-      icon: ListTodoIcon,
-      isActive: pathname?.startsWith(`${basePath}/runbooks`),
-    },
+  useEffect(() => {
+    setSidebarOpenRef.current = setSidebarOpen
+  }, [setSidebarOpen])
+
+  useEffect(() => {
+    const updateSidebarOpen = setSidebarOpenRef.current
+    if (caseId) {
+      updateSidebarOpen(false)
+    } else if (isCasesList) {
+      updateSidebarOpen(true)
+    }
+  }, [caseId, isCasesList])
+
+  type NavItem = {
+    title: string
+    url: string
+    icon: LucideIcon
+    isActive?: boolean
+    visible?: boolean
+  }
+
+  const navMain: NavItem[] = [
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
+    },
+    {
+      title: "Cases",
+      url: `${basePath}/cases`,
+      icon: SquareStackIcon,
+      isActive: pathname?.startsWith(`${basePath}/cases`),
     },
   ]
 
@@ -68,10 +93,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
+      title: "Records",
+      url: `${basePath}/records`,
+      icon: BoxIcon,
+      isActive: pathname?.startsWith(`${basePath}/records`),
+    },
+    {
       title: "Entities",
       url: `${basePath}/entities`,
       icon: ShapesIcon,
       isActive: pathname?.startsWith(`${basePath}/entities`),
+    },
+    {
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: BracketsIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
     },
     {
       title: "Credentials",
@@ -102,16 +139,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navMain.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navMain
+                .filter((item) => item.visible !== false)
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={item.isActive}>
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

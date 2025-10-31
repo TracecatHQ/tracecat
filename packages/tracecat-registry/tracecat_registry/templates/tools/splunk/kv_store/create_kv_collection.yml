@@ -16,8 +16,9 @@ definition:
         Name of the KV Store collection. Must be unique and contain only
         alphanumeric characters, underscores, and hyphens.
     base_url:
-      type: str
+      type: str | None
       description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+      default: null
     owner:
       type: str
       description: Splunk namespace owner for access control (use "nobody" for shared access).
@@ -34,7 +35,7 @@ definition:
     - ref: create_collection
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

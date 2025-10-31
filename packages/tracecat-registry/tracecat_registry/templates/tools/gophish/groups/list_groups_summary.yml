@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List groups summary
+  description: List groups summary from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/users-and-groups#get-groups-summary
+  namespace: tools.gophish
+  name: list_groups_summary
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: list_groups_summary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/groups/summary
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.list_groups_summary.result.data }}

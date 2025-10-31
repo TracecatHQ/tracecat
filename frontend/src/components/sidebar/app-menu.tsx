@@ -8,7 +8,7 @@ import {
   Plus,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,6 +42,8 @@ import { cn } from "@/lib/utils"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
   const { user } = useAuth()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -49,6 +51,25 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
+
+  const buildWorkspaceHref = (
+    targetWorkspaceId: string,
+    options: { preserveRelativePath?: boolean } = {}
+  ) => {
+    const { preserveRelativePath = true } = options
+    const currentPath = pathname ?? ""
+    const search = searchParams?.toString()
+    if (!preserveRelativePath || !currentPath.startsWith("/workspaces/")) {
+      return `/workspaces/${targetWorkspaceId}/workflows`
+    }
+    const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
+    const normalizedPath =
+      relativePath && relativePath !== "/" ? relativePath : "/workflows"
+
+    return `/workspaces/${targetWorkspaceId}${normalizedPath}${
+      search ? `?${search}` : ""
+    }`
+  }
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,7 +81,9 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       setDialogOpen(false)
       setWorkspaceName("")
       // Navigate to the new workspace
-      router.push(`/workspaces/${newWorkspace.id}/workflows`)
+      router.push(
+        buildWorkspaceHref(newWorkspace.id, { preserveRelativePath: false })
+      )
     } catch (error) {
       console.error("Failed to create workspace:", error)
     } finally {
@@ -87,7 +110,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
-              className="data-[state=open]:bg-sidebar-accent dark:data-[state=open]:bg-sidebar-accent pl-0"
+              className="data-[state=open]:bg-foreground/5 dark:data-[state=open]:bg-foreground/10 pl-0"
             >
               <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
               <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
@@ -105,14 +128,15 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
               Workspaces
             </DropdownMenuLabel>
-            {workspaces?.map((workspace, index) => (
+            {workspaces?.map((workspace) => (
               <DropdownMenuItem key={workspace.id} asChild>
                 <Link
-                  href={`/workspaces/${workspace.id}/workflows`}
+                  key={workspace.id}
+                  href={buildWorkspaceHref(workspace.id)}
                   className={cn(
                     "flex items-center gap-2 py-1 px-2",
                     workspace.id === workspaceId &&
-                      "bg-sidebar-accent dark:bg-sidebar-accent"
+                      "bg-foreground/5 dark:bg-foreground/10"
                   )}
                 >
                   <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">

@@ -40,6 +40,7 @@ from tracecat.ee.interactions.models import (
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.sessions import Session
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
@@ -124,8 +125,10 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     )
 
 
-class WorkflowExecutionReadCompact[TInput: Any, TResult: Any](WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact[TInput, TResult]] = Field(
+class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any](
+    WorkflowExecutionBase
+):
+    events: list[WorkflowExecutionEventCompact[TInput, TResult, TSessionEvent]] = Field(
         ..., description="Compact events in the workflow execution"
     )
     interactions: list[InteractionRead] = Field(
@@ -184,7 +187,11 @@ class EventGroup[T: EventInput](BaseModel):
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
         else:
-            action_input = RunActionInput(**activity_input_data)
+            try:
+                action_input = RunActionInput(**activity_input_data)
+            except Exception as e:
+                logger.warning("Error parsing run action input", error=e)
+                return None
         if action_input.task is None:
             # It's a utility action.
             return None
@@ -316,7 +323,9 @@ class WorkflowExecutionEvent[T: EventInput](BaseModel):
     workflow_timeout: float | None = None
 
 
-class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
+class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: Any](
+    BaseModel
+):
     """A compact representation of a workflow execution event."""
 
     source_event_id: int
@@ -333,10 +342,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     action_result: TResult | None = None
     action_error: EventFailure | None = None
     stream_id: StreamID = ROOT_STREAM
+    """The execution stream ID of the event, not to be confused with SSE streaming."""
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
     child_wf_wait_strategy: WaitStrategy | None = None
+    # SSE streaming for agents
+    session: Session[TSessionEvent] | None = None
 
     @staticmethod
     async def from_source_event(
@@ -378,11 +390,19 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         if act_type in (UTILITY_ACTIONS | {"get_workflow_definition_activity"}):
             logger.trace("Utility action is not supported.", act_type=act_type)
             return None
-        action_input = RunActionInput(**activity_input_data)
+        try:
+            action_input = RunActionInput(**activity_input_data)
+        except Exception as e:
+            logger.warning("Error parsing run action input", error=e)
+            return None
         task = action_input.task
         if task is None:
             logger.debug("Action input is None", event_id=event.event_id)
             return None
+
+        session = None
+        if action_input.session_id is not None:
+            session = Session(id=action_input.session_id)  # No events
 
         return WorkflowExecutionEventCompact(
             source_event_id=event.event_id,
@@ -393,6 +413,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             action_ref=task.ref,
             action_input=task.args,
             stream_id=action_input.stream_id,
+            session=session,
         )
 
     @staticmethod

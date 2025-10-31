@@ -7,8 +7,8 @@ from tracecat.agent.models import (
 # https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
     # Maps the pydantic-ai model name to the Tracecat model config
-    "o4-mini": ModelConfig(
-        name="o4-mini",
+    "gpt-4o-mini": ModelConfig(
+        name="gpt-4o-mini",
         provider="openai",
         org_secret_name="agent-openai-credentials",
         secrets={
@@ -23,8 +23,24 @@ MODEL_CONFIGS = {
             "required": ["anthropic"],
         },
     ),
-    "us.anthropic.claude-3-7-sonnet-20250219-v1:0": ModelConfig(
-        name="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+    "us.anthropic.claude-sonnet-4-20250514-v1:0": ModelConfig(
+        name="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        provider="bedrock",
+        org_secret_name="agent-bedrock-credentials",
+        secrets={
+            "required": ["bedrock"],
+        },
+    ),
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": ModelConfig(
+        name="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        provider="bedrock",
+        org_secret_name="agent-bedrock-credentials",
+        secrets={
+            "required": ["bedrock"],
+        },
+    ),
+    "openai.gpt-oss-120b-1:0": ModelConfig(
+        name="openai.gpt-oss-120b-1:0",
         provider="bedrock",
         org_secret_name="agent-bedrock-credentials",
         secrets={
@@ -68,7 +84,7 @@ PROVIDER_CREDENTIAL_CONFIGS = {
     ),
     "bedrock": ProviderCredentialConfig(
         provider="bedrock",
-        label="Anthropic (Bedrock)",
+        label="AWS Bedrock",
         fields=[
             ProviderCredentialField(
                 key="AWS_ACCESS_KEY_ID",

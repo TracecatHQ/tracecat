@@ -2,13 +2,13 @@ type: action
 definition:
   title: Call Anthropic
   description: Call an Anthropic LLM via Pydantic AI.
-  display_group: Anthropic
-  doc_url: https://docs.anthropic.com/en/docs/about-claude/models/all-models
+  display_group: (Deprecated -> use ai.action instead) Anthropic
+  doc_url: https://docs.anthropic.com/en/docs/about-claude/models
   namespace: llm.anthropic
   name: call
   secrets:
     - name: anthropic
-      keys: ["ANTHROPIC_API_KEY"]
+      optional_keys: ["ANTHROPIC_API_KEY"]
   expects:
     prompt:
       type: str
@@ -16,10 +16,6 @@ definition:
     model:
       type: str
       description: Model to use.
-    memory:
-      type: list[dict[str, str]] | None
-      description: List of messages to send to the LLM.
-      default: null
     system:
       type: str | None
       description: System prompt to use for the LLM.
@@ -28,7 +24,7 @@ definition:
       type: str | dict[str, Any] | None
       description: >
         Output format to use. Either JSONSchema
-        or a supported type (see `llm.pydantic_ai.call`).
+        or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
       default: null
     model_settings:
       type: dict[str, Any] | None
@@ -36,13 +32,12 @@ definition:
       default: null
   steps:
     - ref: call_anthropic
-      action: llm.pydantic_ai.call
+      action: ai.action
       args:
-        instructions: ${{ inputs.system }}
-        message_history: ${{ inputs.memory }}
+        user_prompt: ${{ inputs.prompt }}
         model_name: ${{ inputs.model }}
         model_provider: anthropic
-        model_settings: ${{ inputs.model_settings }}
+        instructions: ${{ inputs.system }}
         output_type: ${{ inputs.output_type }}
-        user_prompt: ${{ inputs.prompt }}
+        model_settings: ${{ inputs.model_settings }}
   returns: ${{ steps.call_anthropic.result }}

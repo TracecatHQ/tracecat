@@ -19,15 +19,12 @@ import UserAvatar from "@/components/user-avatar"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { useWorkspaceManager } from "@/lib/hooks"
 
 export function SidebarUserNav() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { clearLastWorkspaceId } = useWorkspaceManager()
 
   const handleLogout = async () => {
-    clearLastWorkspaceId()
     await logout()
   }
   const displayName = user ? user.getDisplayName() : userDefaults.name

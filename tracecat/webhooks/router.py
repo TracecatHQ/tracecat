@@ -48,10 +48,16 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
+type WebhookResponse = (
+    WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
+)
+
+
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
 # We need empty status 200 responses for slash command APIs (e.g. Slack)
-@router.api_route("", response_model=None, methods=["GET", "POST"])
-async def incoming_webhook(
+# POST is the primary method for webhook triggering
+@router.post("", response_model=None)
+async def incoming_webhook_post(
     *,
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
@@ -67,12 +73,71 @@ async def incoming_webhook(
     ),
     request: Request,
     content_type: Annotated[str | None, Header(alias="content-type")] = None,
-) -> WorkflowExecutionCreateResponse | OktaVerificationResponse | Response:
+) -> WebhookResponse:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
+    return await _incoming_webhook(
+        workflow_id=workflow_id,
+        defn=defn,
+        payload=payload,
+        echo=echo,
+        empty_echo=empty_echo,
+        vendor=vendor,
+        request=request,
+        content_type=content_type,
+    )
+
+
+# GET is secondary, mainly for webhook verification challenges (e.g., Okta)
+@router.get("", response_model=None)
+async def incoming_webhook_get(
+    *,
+    workflow_id: AnyWorkflowIDPath,
+    defn: ValidWorkflowDefinitionDep,
+    payload: PayloadDep,
+    echo: bool = Query(default=False, description="Echo back to the caller"),
+    empty_echo: bool = Query(
+        default=False,
+        description="Return an empty response. Assumes `echo` to be `True`.",
+    ),
+    vendor: str | None = Query(
+        default=None,
+        description="Vendor specific webhook verification. Supported vendors: `okta`.",
+    ),
+    request: Request,
+    content_type: Annotated[str | None, Header(alias="content-type")] = None,
+) -> WebhookResponse:
+    """Webhook endpoint to trigger a workflow.
+
+    This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+    The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
+    """
+    return await _incoming_webhook(
+        workflow_id=workflow_id,
+        defn=defn,
+        payload=payload,
+        echo=echo,
+        empty_echo=empty_echo,
+        vendor=vendor,
+        request=request,
+        content_type=content_type,
+    )
+
+
+async def _incoming_webhook(
+    *,
+    workflow_id: AnyWorkflowIDPath,
+    defn: ValidWorkflowDefinitionDep,
+    payload: PayloadDep,
+    echo: bool,
+    empty_echo: bool,
+    vendor: str | None,
+    request: Request,
+    content_type: str | None,
+) -> WebhookResponse:
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
     logger.trace("Webhook payload", payload=payload)
 

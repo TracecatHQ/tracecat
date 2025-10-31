@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Get analysis
+  description: Retrieve details for an ANY.RUN analysis by ID.
+  display_group: ANY.RUN
+  doc_url: https://any.run/api-documentation/#tag/analysis/GET/v1/analysis/{analysis_id}
+  namespace: tools.anyrun
+  name: get_analysis
+  secrets:
+    - name: anyrun
+      keys:
+        - ANYRUN_API_KEY
+  expects:
+    analysis_id:
+      type: str
+      description: Identifier of the analysis task.
+  steps:
+    - ref: get_analysis
+      action: core.http_request
+      args:
+        url: https://api.any.run/v1/analysis/${{ FN.url_encode(inputs.analysis_id) }}
+        method: GET
+        headers:
+          Accept: application/json
+          X-API-Key: ${{ SECRETS.anyrun.ANYRUN_API_KEY }}
+  returns: ${{ steps.get_analysis.result.data }}

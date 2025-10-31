@@ -11,7 +11,6 @@ from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.schemas import Case
 from tracecat.tags.models import TagCreate
-from tracecat.tags.service import TagsService
 from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -32,12 +31,6 @@ async def cases_service(session: AsyncSession, svc_role: Role) -> CasesService: 
 async def case_tags_service(session: AsyncSession, svc_role: Role) -> CaseTagsService:  # noqa: F811
     """Return an instance of CaseTagsService bound to the current session and role."""
     return CaseTagsService(session=session, role=svc_role)
-
-
-@pytest.fixture
-async def tags_service(session: AsyncSession, svc_role: Role) -> TagsService:  # noqa: F811
-    """Return an instance of TagsService bound to the current session and role."""
-    return TagsService(session=session, role=svc_role)
 
 
 @pytest.fixture
@@ -81,7 +74,9 @@ def tag_with_slug(request) -> tuple[TagCreate, str]:
 
 
 @pytest.fixture
-async def multiple_tags(tags_service: TagsService) -> AsyncGenerator[list, None]:
+async def multiple_tags(
+    case_tags_service: CaseTagsService,
+) -> AsyncGenerator[list, None]:
     """Create multiple tags for testing."""
     tags = []
     tag_data = [
@@ -93,7 +88,7 @@ async def multiple_tags(tags_service: TagsService) -> AsyncGenerator[list, None]
     ]
 
     for name, color in tag_data:
-        tag = await tags_service.create_tag(TagCreate(name=name, color=color))
+        tag = await case_tags_service.create_tag(TagCreate(name=name, color=color))
         tags.append(tag)
 
     yield tags
@@ -101,7 +96,7 @@ async def multiple_tags(tags_service: TagsService) -> AsyncGenerator[list, None]
     # Cleanup
     for tag in tags:
         try:
-            await tags_service.delete_tag(tag)
+            await case_tags_service.delete_tag(tag)
         except (IntegrityError, DatabaseError, NoResultFound):
             # Expected exceptions during cleanup - tag may be referenced elsewhere
             # or database connection issues. These are acceptable during test cleanup.
@@ -120,13 +115,12 @@ class TestCaseTagsService:  # noqa: D101
         self,
         identifier_attr: str,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
         """Add a tag to a case using either its UUID or ref and ensure listing works."""
         # Create a tag first
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
 
         # Determine which identifier to use when adding the tag
         identifier: str = str(getattr(tag, identifier_attr))
@@ -147,12 +141,11 @@ class TestCaseTagsService:  # noqa: D101
     async def test_remove_case_tag(
         self,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
         """Ensure that a tag can be removed from a case via its ref."""
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
 
         # Attach then detach
         await case_tags_service.add_case_tag(case_id, str(tag.id))
@@ -166,12 +159,11 @@ class TestCaseTagsService:  # noqa: D101
     async def test_add_duplicate_tag_idempotent(
         self,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
         """Test that adding the same tag twice is idempotent."""
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
 
         # Add tag first time
         await case_tags_service.add_case_tag(case_id, str(tag.id))
@@ -244,12 +236,11 @@ class TestCaseTagsService:  # noqa: D101
     async def test_get_case_tag_association(
         self,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
         """Test retrieving a specific case-tag association."""
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
 
         # Add tag to case
         await case_tags_service.add_case_tag(case_id, str(tag.id))
@@ -264,12 +255,11 @@ class TestCaseTagsService:  # noqa: D101
     async def test_remove_nonexistent_tag_raises_error(
         self,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
         """Test that removing a non-existent tag raises appropriate error."""
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
 
         # Try to remove tag that was never added
         with pytest.raises(ValueError):
@@ -278,21 +268,21 @@ class TestCaseTagsService:  # noqa: D101
     @pytest.mark.anyio
     async def test_tag_slug_generation(
         self,
-        tags_service: TagsService,
+        case_tags_service: CaseTagsService,
         tag_with_slug: tuple[TagCreate, str],
     ) -> None:
         """Test that tag slugs are generated correctly from various name formats."""
         tag_create, expected_slug = tag_with_slug
 
         # Create tag
-        tag = await tags_service.create_tag(tag_create)
+        tag = await case_tags_service.create_tag(tag_create)
 
         # Verify slug generation
         assert tag.ref == expected_slug
         assert tag.name == tag_create.name
 
         # Verify we can retrieve by slug
-        retrieved = await tags_service.get_tag_by_ref(expected_slug)
+        retrieved = await case_tags_service.get_tag_by_ref(expected_slug)
         assert retrieved.id == tag.id
 
     @pytest.mark.anyio
@@ -315,11 +305,10 @@ class TestCaseTagsService:  # noqa: D101
     async def test_add_tag_to_nonexistent_case(
         self,
         case_tags_service: CaseTagsService,
-        tags_service: TagsService,
         tag_params: TagCreate,
     ) -> None:
         """Test adding a tag to a non-existent case."""
-        tag = await tags_service.create_tag(tag_params)
+        tag = await case_tags_service.create_tag(tag_params)
         non_existent_case_id = uuid.uuid4()
 
         # This should fail due to foreign key constraint

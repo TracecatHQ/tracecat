@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Modify group
+  description: Modify a group in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/users-and-groups#modify-group
+  namespace: tools.gophish
+  name: modify_group
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    group_id:
+      type: int
+      description: The ID of the group to modify.
+    payload:
+      type: dict[str, Any]
+      description: The body of the group to modify. Look at the Gophish API documentation for the expected body.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: modify_group
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/groups/${{ inputs.group_id }}
+        method: PUT
+        payload: ${{ inputs.payload }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.modify_group.result.data }}

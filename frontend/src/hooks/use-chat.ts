@@ -1,21 +1,80 @@
+import * as aiSdk from "@ai-sdk/react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { DefaultChatTransport, type UIMessage } from "ai"
+import { useMemo, useState } from "react"
 import {
   type ApiError,
   type ChatCreate,
   type ChatEntity,
   type ChatRead,
-  type ChatRequest,
+  type ChatReadMinimal,
+  type ChatReadVercel,
   type ChatUpdate,
-  type ChatWithMessages,
   chatCreateChat,
   chatGetChat,
+  chatGetChatVercel,
   chatListChats,
-  chatStartChatTurn,
   chatUpdateChat,
+  type VercelChatRequest,
 } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
-import { isModelMessage, type ModelMessage } from "@/lib/chat"
+import type { ModelInfo } from "@/lib/chat"
+
+const DEFAULT_CHAT_ERROR_MESSAGE =
+  "The assistant couldn't complete that request. Please try again."
+
+export function parseChatError(error: unknown): string {
+  if (!error) {
+    return DEFAULT_CHAT_ERROR_MESSAGE
+  }
+
+  if (typeof error === "string") {
+    return error
+  }
+
+  if (error instanceof Response) {
+    const statusLine = `${error.status} ${error.statusText || "Unexpected response"}`
+    return statusLine.trim()
+  }
+
+  if (error instanceof Error) {
+    const message = error.message?.trim()
+    if (message) {
+      try {
+        const parsed = JSON.parse(message)
+        if (parsed && typeof parsed === "object" && "errorText" in parsed) {
+          const parsedMessage = (parsed as { errorText?: unknown }).errorText
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
+          }
+        }
+      } catch {
+        // message wasn't JSON; fall through to raw text
+      }
+      return message
+    }
+  }
+
+  if (typeof error === "object") {
+    const candidate = error as {
+      errorText?: unknown
+      error?: unknown
+      message?: unknown
+    }
+    for (const value of [
+      candidate.errorText,
+      candidate.error,
+      candidate.message,
+    ]) {
+      if (typeof value === "string" && value.trim()) {
+        return value.trim()
+      }
+    }
+  }
+
+  return DEFAULT_CHAT_ERROR_MESSAGE
+}
 
 // Hook for creating a new chat
 export function useCreateChat(workspaceId: string) {
@@ -68,134 +127,6 @@ export function useListChats({
   return { chats, chatsLoading, chatsError }
 }
 
-// Combined hook for chat functionality with streaming
-export function useChat({
-  chatId,
-  workspaceId,
-}: {
-  chatId?: string
-  workspaceId: string
-}) {
-  const [messages, setMessages] = useState<ModelMessage[]>([])
-  const [isConnected, setIsConnected] = useState(false)
-  const [isResponding, setIsResponding] = useState(false)
-  const [eventSource, setEventSource] = useState<EventSource | null>(null)
-
-  // Start chat turn mutation
-  const mutation = useMutation({
-    mutationFn: async (request: ChatRequest) => {
-      if (!chatId) {
-        throw new Error("No chat ID available")
-      }
-
-      const response = await chatStartChatTurn({
-        chatId,
-        workspaceId,
-        requestBody: request,
-      })
-
-      return response
-    },
-    onSuccess: () => {
-      setIsResponding(true)
-    },
-    onError: () => {
-      setIsResponding(false)
-    },
-  })
-
-  // Stream connection effect
-  useEffect(() => {
-    if (!chatId || !workspaceId) return
-
-    // Clear previous stream data when conversation changes
-    setMessages([])
-
-    // Close existing connection
-    if (eventSource) {
-      eventSource.close()
-    }
-
-    // Build the stream URL with workspace_id query parameter
-    const url = new URL(`/api/chat/${chatId}/stream`, getBaseUrl())
-    url.searchParams.set("workspace_id", workspaceId)
-
-    const newEventSource = new EventSource(url, {
-      withCredentials: true,
-    })
-
-    newEventSource.onopen = () => {
-      setIsConnected(true)
-    }
-
-    newEventSource.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        // Validate that the data is a model message using the type guard
-        if (!isModelMessage(data)) {
-          console.warn("Received invalid message format:", data)
-          return
-        }
-
-        setMessages((prev) => {
-          return [...prev, data]
-        })
-      } catch (error) {
-        console.error("Failed to parse stream data:", error)
-      }
-    }
-
-    newEventSource.addEventListener("connected", () => {
-      setIsConnected(true)
-    })
-
-    newEventSource.addEventListener("end", () => {
-      setIsConnected(false)
-      setIsResponding(false)
-    })
-
-    newEventSource.addEventListener("error", () => {
-      // Ignore the first error emitted immediately after connect
-      if (!isConnected) return
-      console.error("Chat stream error")
-      setIsConnected(false)
-      setIsResponding(false)
-    })
-
-    newEventSource.onerror = () => {
-      setIsConnected(false)
-      setIsResponding(false)
-    }
-
-    setEventSource(newEventSource)
-
-    return () => {
-      newEventSource.close()
-      setIsConnected(false)
-      setIsResponding(false)
-    }
-  }, [chatId, workspaceId])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (eventSource) {
-        eventSource.close()
-      }
-    }
-  }, [])
-
-  // Combine historical messages with real-time stream messages
-
-  return {
-    messages,
-    sendMessage: mutation.mutateAsync,
-    isResponding,
-    isConnected,
-  }
-}
-
 // Hook for getting a single chat
 export function useGetChat({
   chatId,
@@ -208,7 +139,7 @@ export function useGetChat({
     data: chat,
     isLoading,
     error,
-  } = useQuery<ChatWithMessages, ApiError>({
+  } = useQuery<ChatRead, ApiError>({
     queryKey: ["chat", chatId, workspaceId],
     queryFn: () => chatGetChat({ chatId, workspaceId }),
     enabled: !!chatId && !!workspaceId,
@@ -222,7 +153,7 @@ export function useUpdateChat(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const mutation = useMutation<
-    ChatRead,
+    ChatReadMinimal,
     ApiError,
     { chatId: string; update: ChatUpdate }
   >({
@@ -232,7 +163,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
-    onSuccess: (data, variables) => {
+    onSuccess: (_, variables) => {
       // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
@@ -247,5 +178,97 @@ export function useUpdateChat(workspaceId: string) {
     updateChat: mutation.mutateAsync,
     isUpdating: mutation.isPending,
     updateError: mutation.error,
+  }
+}
+
+export function useGetChatVercel({
+  chatId,
+  workspaceId,
+}: {
+  chatId?: string
+  workspaceId: string
+}) {
+  const {
+    data: chat,
+    isLoading: chatLoading,
+    error: chatError,
+  } = useQuery<ChatReadVercel, ApiError>({
+    queryKey: ["chat", chatId, workspaceId, "vercel"],
+    queryFn: async () => {
+      if (!chatId) {
+        throw new Error("No chat ID available")
+      }
+      return await chatGetChatVercel({ chatId, workspaceId })
+    },
+    enabled: !!chatId,
+  })
+  return { chat, chatLoading, chatError }
+}
+
+// Combined hook for chat functionality with Vercel AI SDK streaming
+export function useVercelChat({
+  chatId,
+  workspaceId,
+  messages,
+  modelInfo,
+}: {
+  chatId?: string
+  workspaceId: string
+  messages: UIMessage[]
+  modelInfo: ModelInfo
+}) {
+  const queryClient = useQueryClient()
+  const [lastError, setLastError] = useState<string | null>(null)
+
+  // Build the Vercel streaming endpoint URL
+  const apiEndpoint = useMemo(() => {
+    if (!chatId) return ""
+    const url = new URL(`/api/chat/${chatId}/vercel`, getBaseUrl())
+    url.searchParams.set("workspace_id", workspaceId)
+    return url.toString()
+  }, [chatId, workspaceId])
+
+  // Use Vercel's useChat hook for streaming
+  const chat = aiSdk.useChat({
+    id: chatId,
+    messages,
+    transport: new DefaultChatTransport({
+      api: apiEndpoint,
+      credentials: "include",
+      prepareSendMessagesRequest: ({ messages }) => {
+        // Send only the last message
+        const reqBody: VercelChatRequest = {
+          format: "vercel",
+          model: modelInfo?.name,
+          model_provider: modelInfo?.provider,
+          message: messages[messages.length - 1],
+        }
+        return {
+          body: reqBody,
+        }
+      },
+    }),
+    onError: (error) => {
+      const friendlyMessage = parseChatError(error)
+      setLastError(friendlyMessage)
+      console.error("Error in Vercel chat:", error)
+      toast({
+        title: "Chat error",
+        description: friendlyMessage,
+      })
+    },
+    onFinish: () => {
+      setLastError(null)
+      queryClient.invalidateQueries({
+        queryKey: ["chat", chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+    },
+  })
+
+  return {
+    ...chat,
+    lastError,
+    clearError: () => setLastError(null),
   }
 }

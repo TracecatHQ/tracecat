@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import redis.asyncio as redis
-
+import orjson
 from tracecat_registry import ActionIsInterfaceError, registry
 
 
@@ -191,7 +191,7 @@ async def _deduplicate_redis(
 
 @registry.register(
     default_title="Deduplicate",
-    description="Deduplicate a JSON object or a list of JSON objects given a list of keys.",
+    description="Deduplicate a JSON object or a list of JSON objects given a list of keys. Returns a list of deduplicated JSON objects.",
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -203,7 +203,7 @@ async def deduplicate(
     keys: Annotated[
         list[str],
         Doc(
-            "List of keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
+            "List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
         ),
     ],
     expire_seconds: Annotated[
@@ -216,7 +216,7 @@ async def deduplicate(
             "Whether to persist deduplicated items across calls. If True, deduplicates across calls. If False, deduplicates within the current call only."
         ),
     ] = True,
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if not items:
         return []
 
@@ -236,7 +236,7 @@ async def deduplicate(
         return tuple(values)
 
     seen = {}
-    result = []
+    results = []
 
     for item in items_list:
         key = get_nested_values(item, keys)
@@ -250,15 +250,35 @@ async def deduplicate(
             seen[key] = item.copy()
 
     if persist:
-        result = await _deduplicate_redis(seen, expire_seconds)
+        results = await _deduplicate_redis(seen, expire_seconds)
     else:
-        result = list(seen.values())
+        results = list(seen.values())
 
-    # Return single dict if input was single dict and we have exactly one result
-    if isinstance(items, dict) and len(result) == 1:
-        return result[0]
+    return results
 
-    return result
+
+@registry.register(
+    default_title="Is duplicate",
+    description="Check if a JSON object was recently seen.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+async def is_duplicate(
+    item: Annotated[
+        dict[str, Any],
+        Doc("JSON object to check."),
+    ],
+    keys: Annotated[
+        list[str],
+        Doc("List of JSONPath keys to check."),
+    ],
+    expire_seconds: Annotated[
+        int,
+        Doc("Time to live for the deduplicated items in seconds. Defaults to 1 hour."),
+    ] = 3600,
+) -> bool:
+    result = await deduplicate(item, keys, expire_seconds=expire_seconds, persist=True)
+    return len(result) == 0
 
 
 @registry.register(
@@ -331,6 +351,10 @@ def scatter(
             " be a JSONPath expression to a collection or a list of items."
         ),
     ],
+    interval: Annotated[
+        float | None,
+        Doc("The interval in seconds between each scatter task."),
+    ] = None,
 ) -> Any:
     raise ActionIsInterfaceError()
 
@@ -355,13 +379,102 @@ def gather(
         ),
     ] = False,
     error_strategy: Annotated[
-        Literal["partition", "include", "drop"],
+        Literal["partition", "include", "drop", "raise"],
         Doc(
             "Controls how errors are handled when gathering. "
             '"partition" puts successful results in `.result` and errors in `.error`. '
             '"include" puts errors in `.result` as JSON objects. '
-            '"drop" removes errors from `.result`.'
+            '"drop" removes errors from `.result`. '
+            '"raise" fails the gather if any branch errors.'
         ),
     ] = "partition",
 ) -> list[Any]:
     raise ActionIsInterfaceError()
+
+
+def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
+    """Return object with single level of keys (as jsonpath) and values."""
+
+    def _flatten(
+        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
+    ) -> dict[str, Any]:
+        if depth > max_depth:
+            raise ValueError(
+                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
+            )
+
+        result: dict[str, Any] = {}
+
+        # Handle arrays
+        if isinstance(obj, list):
+            for index, item in enumerate(obj):
+                array_path = f"[{index}]"
+                full_path = f"{prefix}{array_path}" if prefix else array_path
+
+                if isinstance(item, (dict, list)):
+                    result.update(_flatten(item, full_path, depth + 1))
+                else:
+                    result[full_path] = item
+            return result
+
+        # Handle dictionaries
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                # Build the path with dot notation
+                full_path = f"{prefix}.{key}" if prefix else key
+
+                if isinstance(value, dict):
+                    # Recursively flatten nested dicts
+                    result.update(_flatten(value, full_path, depth + 1))
+                elif isinstance(value, list):
+                    # Handle arrays within objects
+                    for index, item in enumerate(value):
+                        array_path = f"{full_path}[{index}]"
+                        if isinstance(item, (dict, list)):
+                            result.update(_flatten(item, array_path, depth + 1))
+                        else:
+                            result[array_path] = item
+                else:
+                    # Leaf value
+                    result[full_path] = value
+            return result
+
+        # Shouldn't reach here, but handle primitives
+        return {prefix: obj} if prefix else {"": obj}
+
+    return _flatten(x)
+
+
+@registry.register(
+    default_title="Flatten JSON",
+    description="Flatten a JSON object into a single level of fields.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def flatten_json(
+    json: Annotated[str | dict[str, Any], Doc("JSON object to flatten.")],
+) -> dict[str, Any]:
+    if isinstance(json, str):
+        json = orjson.loads(json)
+    if not isinstance(json, dict):
+        raise ValueError("json must be a JSON object or a string")
+    return flatten_dict(json)
+
+
+@registry.register(
+    default_title="Eval JSONPaths",
+    description="Eval multiple JSONPath expressions on an object.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def eval_jsonpaths(
+    json: Annotated[
+        str | dict[str, Any], Doc("JSON object to eval JSONPath expressions on.")
+    ],
+    jsonpaths: Annotated[list[str], Doc("JSONPath expressions to eval.")],
+) -> dict[str, Any]:
+    if isinstance(json, str):
+        json = orjson.loads(json)
+    if not isinstance(json, dict):
+        raise ValueError("json must be a JSON object or a string")
+    return {jsonpath: eval_jsonpath(jsonpath, json) for jsonpath in jsonpaths}

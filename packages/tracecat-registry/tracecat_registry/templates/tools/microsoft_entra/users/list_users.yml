@@ -1,0 +1,127 @@
+type: action
+definition:
+  title: List users
+  description: List Microsoft Entra ID users with optional OData query parameters.
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: list_users
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    filter:
+      type: str
+      description: Optional OData $filter expression.
+      default: null
+    search:
+      type: str
+      description: Optional search phrase. Use quoted property names per Microsoft Graph syntax, for example "displayName:Alex".
+      default: null
+    orderby:
+      type: str
+      description: Optional OData $orderby expression.
+      default: null
+    select:
+      type: list[str]
+      description: Optional set of user properties to return.
+      default: null
+    expand:
+      type: list[str]
+      description: Optional related entities to expand in the response.
+      default: null
+    top:
+      type: int
+      description: Maximum number of results to return in a single page ($top).
+      default: null
+    skip_token:
+      type: str
+      description: Opaque continuation token from a previous response ($skiptoken).
+      default: null
+    count:
+      type: bool
+      description: Include @odata.count in the response by setting $count=true.
+      default: false
+    consistency_level_eventual:
+      type: bool
+      description: Set ConsistencyLevel=eventual for advanced queries when required by Microsoft Graph.
+      default: false
+    max_page_size:
+      type: int
+      description: Optional maximum page size to request via Prefer=odata.maxpagesize.
+      default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          filter: ${{ inputs.filter }}
+          search: ${{ inputs.search }}
+          orderby: ${{ inputs.orderby }}
+          select: ${{ inputs.select }}
+          expand: ${{ inputs.expand }}
+          top: ${{ inputs.top }}
+          skip_token: ${{ inputs.skip_token }}
+          count: ${{ inputs.count }}
+          consistency_level_eventual: ${{ inputs.consistency_level_eventual }}
+          max_page_size: ${{ inputs.max_page_size }}
+          token: ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+        script: |
+          def main(
+              filter,
+              search,
+              orderby,
+              select,
+              expand,
+              top,
+              skip_token,
+              count,
+              consistency_level_eventual,
+              max_page_size,
+              token,
+          ):
+              params = {}
+              if filter:
+                  params["$filter"] = filter
+              if search:
+                  params["$search"] = search
+              if orderby:
+                  params["$orderby"] = orderby
+              if select:
+                  params["$select"] = ",".join(select)
+              if expand:
+                  params["$expand"] = ",".join(expand)
+              if top is not None:
+                  params["$top"] = top
+              if skip_token:
+                  params["$skiptoken"] = skip_token
+              if count:
+                  params["$count"] = "true"
+              headers = {"Authorization": f"Bearer {token}"}
+              if search or count or consistency_level_eventual:
+                  headers["ConsistencyLevel"] = "eventual"
+              if max_page_size is not None:
+                  headers["Prefer"] = f"odata.maxpagesize={max_page_size}"
+              return {"params": params, "headers": headers}
+    - ref: list_users
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/users
+        method: GET
+        headers: ${{ steps.build_request.result.headers }}
+        params: ${{ steps.build_request.result.params }}
+  returns: ${{ steps.list_users.result.data }}

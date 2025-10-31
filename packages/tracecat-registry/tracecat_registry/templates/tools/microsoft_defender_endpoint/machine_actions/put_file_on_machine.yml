@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Put file on machine
+  description: Copy a file from the Live Response library onto a device.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/run-live-response
+  namespace: tools.microsoft_defender_endpoint
+  name: put_file_on_machine
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to receive the file.
+    file_name:
+      type: str
+      description: Name of the file in the Live Response library to push to the device.
+    comment:
+      type: str | None
+      description: Comment describing why the file was delivered.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          file_name: ${{ inputs.file_name }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(file_name, comment):
+              command = {
+                  "type": "PutFile",
+                  "params": [
+                      {"key": "FileName", "value": file_name},
+                  ],
+              }
+              payload = {"Commands": [command]}
+              if comment:
+                  payload["Comment"] = comment
+              return payload
+    - ref: put_file
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.put_file.result.data }}

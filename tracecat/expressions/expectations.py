@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Union
@@ -38,7 +39,7 @@ ANY: "any" | "Any"
 NULL: "None"
 
 list_type: "list" "[" type "]"
-dict_type: "dict" "[" type "," type "]"
+dict_type: "dict" ("[" type "," type "]")?
 union_type: type ("|" type)+
 enum_type: "enum" "[" STRING_LITERAL ("," STRING_LITERAL)* "]"
 reference_type: "$" CNAME
@@ -86,7 +87,15 @@ class TypeTransformer(Transformer):
         return list[item_type]
 
     @v_args(inline=True)
-    def dict_type(self, key_type, value_type) -> type:
+    def dict_type(self, *types) -> type:
+        if not types:
+            logger.trace("Dict type:", key_type="Any", value_type="Any (implicit)")
+            return dict[str, Any]
+
+        if len(types) != 2:
+            raise ValueError("Dict type must have either zero or two type arguments")
+
+        key_type, value_type = types
         logger.trace("Dict type:", key_type=key_type, value_type=value_type)
         return dict[key_type, value_type]
 
@@ -144,7 +153,8 @@ class ExpectedField(BaseModel):
 
 
 def create_expectation_model(
-    schema: dict[str, ExpectedField], model_name: str = "ExpectedSchemaModel"
+    schema: Mapping[str, ExpectedField | Mapping[str, Any]],
+    model_name: str = "ExpectedSchemaModel",
 ) -> type[BaseModel]:
     fields = {}
     for field_name, field_info in schema.items():

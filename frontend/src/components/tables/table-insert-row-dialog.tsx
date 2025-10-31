@@ -1,13 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
-import { Spinner } from "@/components/loading/spinner"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { Button } from "@/components/ui/button"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -78,6 +79,15 @@ const createInsertTableRowSchema = (table: TableRead) => {
           )
           .transform((val) => JSON.parse(val))
         break
+      case "TIMESTAMPTZ":
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => !Number.isNaN(new Date(val).getTime()),
+            `${column.name} must be a valid date and time`
+          )
+        break
       default:
         // Default to text for any unknown types
         columnValidations[column.name] = z
@@ -89,7 +99,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
   return z.object(columnValidations)
 }
 
-type DynamicFormData = Record<string, string | number | boolean>
+type DynamicFormData = Record<string, unknown>
 
 export function TableInsertRowDialog({
   open,
@@ -142,7 +152,7 @@ export function TableInsertRowDialog({
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
-            Add a new row to the {table.name} table.
+            Add a new row to the "{table.name}" table.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -154,11 +164,9 @@ export function TableInsertRowDialog({
                 name={column.name}
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-xs lowercase">
-                      <span className="font-semibold">{column.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {column.type}
-                      </span>
+                    <FormLabel className="flex items-center gap-2">
+                      <span>{column.name}</span>
+                      <SqlTypeBadge type={column.type as SqlType} />
                     </FormLabel>
                     <FormControl>
                       <DynamicInput column={column} field={field} />
@@ -170,12 +178,7 @@ export function TableInsertRowDialog({
             ))}
             <DialogFooter>
               <Button type="submit" disabled={insertRowIsPending}>
-                {insertRowIsPending ? (
-                  <Spinner className="mr-2 size-4" />
-                ) : (
-                  <PlusCircle className="mr-2 size-4" />
-                )}
-                Insert Row
+                Add row
               </Button>
             </DialogFooter>
           </form>
@@ -230,6 +233,25 @@ function DynamicInput({
           onChange={(e) => field.onChange(e.target.value)}
         />
       )
+    case "TIMESTAMPTZ": {
+      const stringValue =
+        typeof field.value === "string" && field.value.length > 0
+          ? field.value
+          : undefined
+      const parsedDate =
+        stringValue !== undefined ? new Date(stringValue) : null
+      const dateValue =
+        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
+
+      return (
+        <DateTimePicker
+          value={dateValue}
+          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
+          onBlur={field.onBlur}
+          buttonProps={{ className: "w-full" }}
+        />
+      )
+    }
     case "TEXT":
     default:
       return (

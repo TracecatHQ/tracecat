@@ -21,27 +21,25 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "aioboto3==14.3.0",
+    "aioboto3>=15.0.0",
     "ansible-runner==2.4.0",
     "ansible==11.1.0",
-    "boto3==1.37.3",
+    "boto3>=1.39.0,<2.0.0",
     "crowdstrike-falconpy==1.5.3",
     "dnspython==2.6.1",
     "docker==7.1.0",
-    "grpcio==1.68.0",
+    "grpcio==1.75.1",
     "hatchling==1.27.0",
+    "langfuse==3.3.4",
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
-    "msal==1.31.1",
     "nh3==0.2.18",
-    "ollama==0.4.8",
-    "pydantic-ai-slim[openai,anthropic,bedrock,vertexai,mcp]==0.2.3",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tavily-python==0.7.6",
     "tenacity==8.3.0",
-    "types-aioboto3[sts,s3]==14.3.0",
-    "types-boto3[sts,s3]==1.37.3",
+    "types-aioboto3[sts,s3]>=15.0.0",
+    "types-boto3[sts,s3]>=1.39.0,<2.0.0",
 ]
 dynamic = ["version"]
 

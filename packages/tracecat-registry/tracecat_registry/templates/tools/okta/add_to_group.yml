@@ -3,7 +3,7 @@ definition:
   title: Add user to group
   description: Add a user to a specific group in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#add-user-to-group
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/assignUserToGroup
   namespace: tools.okta
   name: add_to_group
   secrets:
@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     user_id:
       type: str
       description: User ID, login, or email to add to the group
@@ -24,7 +25,7 @@ definition:
       action: core.http_request
       args:
         method: PUT
-        url: ${{ inputs.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ FN.url_encode(inputs.user_id) }}
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ FN.url_encode(inputs.user_id) }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"

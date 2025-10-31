@@ -1,16 +1,19 @@
 "use client"
 
-import type { CellContext, ColumnDef } from "@tanstack/react-table"
+import type { CellContext, Column, ColumnDef } from "@tanstack/react-table"
+import { format } from "date-fns"
 import { DatabaseZapIcon } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { DataTable } from "@/components/data-table"
+import { DataTable, SimpleColumnHeader } from "@/components/data-table"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
+import type { SqlType } from "@/lib/data-type"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function CollapsibleText({ text }: { text: string }) {
@@ -116,12 +119,18 @@ export function DatabaseTable({
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
       accessorKey: column.name,
-      header: () => (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-semibold text-foreground/90">
-            {column.name}
-          </span>
-          <span className="lowercase text-muted-foreground">{column.type}</span>
+      header: ({
+        column: tableColumn,
+      }: {
+        column: Column<TableRowRead, unknown>
+      }) => (
+        <div className="flex items-center gap-2">
+          <SimpleColumnHeader
+            column={tableColumn}
+            title={column.name}
+            className="text-xs"
+          />
+          <SqlTypeBadge type={column.type as SqlType} />
           {column.is_index && (
             <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
               <DatabaseZapIcon className="mr-1 size-3" />
@@ -133,6 +142,16 @@ export function DatabaseTable({
       ),
       cell: ({ row }: CellT) => {
         const value = row.original[column.name as keyof TableRowRead]
+        const isDateColumn = ["TIMESTAMP", "TIMESTAMPTZ"].includes(
+          column.type.toUpperCase()
+        )
+        const parsedDate =
+          isDateColumn && typeof value === "string" && value
+            ? new Date(value)
+            : undefined
+        const isValidDate =
+          parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
+
         return (
           <div className="w-full text-xs">
             {typeof value === "object" && value ? (
@@ -150,6 +169,8 @@ export function DatabaseTable({
                   <JsonViewWithControls src={value} />
                 </TooltipProvider>
               </button>
+            ) : isValidDate ? (
+              <span>{format(isValidDate, "MMM d yyyy '·' p")}</span>
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (

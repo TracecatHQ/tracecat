@@ -8,10 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
+import aioboto3
 import pytest
+import tracecat_registry.integrations.aws_boto3 as boto3_module
+from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
-from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -31,24 +33,8 @@ from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
-
-# Define Slack test skip markers
-skip_if_no_slack_token = pytest.mark.skipif(
-    not os.getenv("SLACK_BOT_TOKEN"),
-    reason="SLACK_BOT_TOKEN must be set as environment variable",
-)
-
-skip_if_no_slack_credentials = pytest.mark.skipif(
-    not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
-    reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set as environment variables",
-)
-
-# Define a reusable usefixture marker for slack tests
-requires_slack_mocks = pytest.mark.usefixtures("mock_slack_secrets")
 
 # MinIO test configuration
 MINIO_ENDPOINT = "localhost:9002"
@@ -272,8 +258,6 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
-    from dotenv import load_dotenv
-
     load_dotenv()
     logger.info("Setting up environment variables")
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
@@ -481,86 +465,6 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     )
 
 
-@pytest.fixture
-async def mock_slack_secrets():
-    """Mock the secrets.get function for slack_sdk integration.
-
-    This fixture is used by both the agent builder tests and MCP slackbot tests.
-    It mocks the secrets.get function for direct SDK access.
-    """
-    slack_token = os.getenv("SLACK_BOT_TOKEN")
-    if not slack_token:
-        pytest.skip("SLACK_BOT_TOKEN not set in environment")
-
-    with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
-
-        def side_effect(key):
-            if key == "SLACK_BOT_TOKEN":
-                return slack_token
-            return None
-
-        mock_get.side_effect = side_effect
-        yield mock_get
-
-
-@pytest.fixture
-async def slack_secret(test_role):
-    """Create a Slack secret in the Tracecat secrets manager for testing.
-
-    This fixture creates a temporary secret in the Tracecat secrets manager that
-    can be used by tests that need to access Slack via the Tracecat service.
-    """
-    slack_token = os.getenv("SLACK_BOT_TOKEN")
-    if not slack_token:
-        pytest.skip("SLACK_BOT_TOKEN not set in environment")
-
-    async with SecretsService.with_session(role=test_role) as svc:
-        # Check if slack secret already exists
-        try:
-            existing_secret = await svc.get_secret_by_name("slack")
-            if existing_secret:
-                # Update the existing secret
-                await svc.update_secret(
-                    existing_secret,
-                    SecretUpdate(
-                        keys=[
-                            SecretKeyValue(
-                                key="SLACK_BOT_TOKEN", value=SecretStr(slack_token)
-                            )
-                        ]
-                    ),
-                )
-                yield existing_secret
-                return
-        except Exception:
-            # Secret doesn't exist, create it
-            pass
-
-        # Create the slack secret
-        await svc.create_secret(
-            SecretCreate(
-                name="slack",
-                description="Slack bot token for testing",
-                environment="default",
-                keys=[
-                    SecretKeyValue(key="SLACK_BOT_TOKEN", value=SecretStr(slack_token))
-                ],
-            )
-        )
-
-        # Get the created secret to yield it
-        created_secret = await svc.get_secret_by_name("slack")
-
-        try:
-            yield created_secret
-        finally:
-            # Clean up the secret
-            try:
-                await svc.delete_secret(created_secret)
-            except Exception as e:
-                logger.warning(f"Failed to clean up slack secret: {e}")
-
-
 # MinIO and S3 testing fixtures
 @pytest.fixture(scope="session")
 def minio_server():
@@ -697,8 +601,6 @@ def mock_s3_secrets():
 @pytest.fixture
 async def aioboto3_minio_client(monkeypatch):
     """Fixture that mocks aioboto3 to use MinIO endpoint."""
-    import aioboto3
-    import tracecat_registry.integrations.aws_boto3 as boto3_module
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
@@ -752,3 +654,120 @@ async def test_worker_factory(
         )
 
     yield create_worker
+
+
+# ---------------------------------------------------------------------------
+# 3rd party credentials
+# Loaded in either via dotenv or env vars into the mocked Tracecat secrets manager
+# ---------------------------------------------------------------------------
+
+### OpenAI
+
+
+@pytest.fixture
+def mock_openai_secrets(monkeypatch: pytest.MonkeyPatch):
+    """Set up env_sandbox with OpenAI API key from environment."""
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        pytest.skip("OPENAI_API_KEY not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"OPENAI_API_KEY": openai_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "OPENAI_API_KEY":
+                return openai_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Anthropic
+
+
+@pytest.fixture
+def mock_anthropic_secrets():
+    """Set up env_sandbox with Anthropic API key from environment."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"ANTHROPIC_API_KEY": anthropic_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "ANTHROPIC_API_KEY":
+                return anthropic_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Bedrock
+
+
+@pytest.fixture
+def mock_bedrock_secrets():
+    """Set up env_sandbox with AWS credentials from environment for Bedrock."""
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+
+    if not aws_access_key or not aws_secret_key:
+        pytest.skip(
+            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY not found in environment"
+        )
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox(
+            {
+                "AWS_ACCESS_KEY_ID": aws_access_key,
+                "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+                "AWS_REGION": aws_region,
+            }
+        ),
+    ):
+
+        def side_effect(key: str):
+            if key == "AWS_ACCESS_KEY_ID":
+                return aws_access_key
+            if key == "AWS_SECRET_ACCESS_KEY":
+                return aws_secret_key
+            if key == "AWS_REGION":
+                return aws_region
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Slack
+
+
+@pytest.fixture
+def mock_slack_secrets():
+    """Mock Slack secrets lookups for direct SDK access while keeping env sandbox."""
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"SLACK_BOT_TOKEN": slack_token}),
+    ):
+
+        def side_effect(key: str):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get

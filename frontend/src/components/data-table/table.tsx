@@ -37,10 +37,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { cn } from "@/lib/utils"
 
 import type { DataTableToolbarProps } from "./toolbar"
+
+type ColumnMeta = {
+  headerClassName?: string
+  headerStyle?: React.CSSProperties
+  cellClassName?: string
+  cellStyle?: React.CSSProperties
+}
 
 export type TableCol<TData> = {
   table: ReturnType<typeof useReactTable<TData>>
@@ -61,9 +68,10 @@ interface DataTableProps<TData, TValue> {
   initialSortingState?: SortingState
   initialColumnVisibility?: VisibilityState
   tableId?: string
-  onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  onDeleteRows?: (selectedRows: Row<TData>[]) => Promise<void> | void
   onSelectionChange?: (selectedRows: Row<TData>[]) => void
   serverSidePagination?: ServerSidePaginationProps
+  clearSelectionTrigger?: number
 }
 
 export function DataTable<TData, TValue>({
@@ -84,6 +92,7 @@ export function DataTable<TData, TValue>({
   onDeleteRows,
   onSelectionChange,
   serverSidePagination,
+  clearSelectionTrigger,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -161,6 +170,11 @@ export function DataTable<TData, TValue>({
     }
   }, [rowSelection, onSelectionChange, table])
 
+  React.useEffect(() => {
+    if (clearSelectionTrigger === undefined) return
+    setRowSelection({})
+  }, [clearSelectionTrigger])
+
   // Handle initial sync when data is first loaded
   const [hasData, setHasData] = React.useState(false)
   React.useEffect(() => {
@@ -190,6 +204,10 @@ export function DataTable<TData, TValue>({
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
+                    const columnMeta = header.column.columnDef.meta as
+                      | ColumnMeta
+                      | undefined
+
                     return (
                       <AuxClickMenu
                         key={header.id}
@@ -200,8 +218,10 @@ export function DataTable<TData, TValue>({
                           colSpan={header.colSpan}
                           className={cn(
                             header.column.id?.toString().toLowerCase() ===
-                              "actions" && "text-right"
+                              "actions" && "text-right",
+                            columnMeta?.headerClassName
                           )}
+                          style={columnMeta?.headerStyle}
                         >
                           {header.isPlaceholder
                             ? null
@@ -328,6 +348,13 @@ function TableContents<TData>({
             {row.getVisibleCells().map((cell) => {
               const isActionsCol =
                 cell.column.id?.toString().toLowerCase() === "actions"
+              const columnMeta = cell.column.columnDef.meta as
+                | ColumnMeta
+                | undefined
+              const cellClassName = cn(
+                columnMeta?.cellClassName,
+                isActionsCol && "p-2"
+              )
 
               const content = flexRender(
                 cell.column.columnDef.cell,
@@ -339,7 +366,8 @@ function TableContents<TData>({
                 return (
                   <TableCell
                     key={cell.id}
-                    className={cn(isActionsCol && "p-2")}
+                    className={cellClassName}
+                    style={columnMeta?.cellStyle}
                   >
                     {isActionsCol ? (
                       <div className="flex justify-end">{content}</div>
@@ -352,7 +380,11 @@ function TableContents<TData>({
 
               // For regular cells with href, wrap content in Link
               return (
-                <TableCell key={cell.id}>
+                <TableCell
+                  key={cell.id}
+                  className={cellClassName}
+                  style={columnMeta?.cellStyle}
+                >
                   <Link href={href} prefetch={false} className="block -m-2 p-2">
                     {content}
                   </Link>

@@ -7,11 +7,12 @@ import json
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 from pydantic import (
     BaseModel,
@@ -743,25 +744,76 @@ class Repository:
         raise NotImplementedError("Template actions has no direct implementation")
 
 
+_import_reload_lock = threading.RLock()
+
+
 def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module."""
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
+    """Safely import and reload a module.
+
+    Uses a process-wide lock and avoids removing entries from sys.modules to
+    prevent races with concurrent imports. Invalidates caches before import.
+    """
+    with _import_reload_lock:
+        importlib.invalidate_caches()
+        module = sys.modules.get(module_name)
+        if module is None:
+            # Skip reload on first import
+            loaded_module = importlib.import_module(module_name)
+        else:
+            spec = getattr(module, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec is not None else None
+            if loader is None:
+                # Without a loader importlib.reload will raise ModuleNotFoundError;
+                # fall back to a best-effort fresh import and keep the existing module.
+                loaded_module = importlib.import_module(module_name)
+            else:
+                # Reload in-place to refresh definitions without dropping parent package
+                loaded_module = importlib.reload(module)
+        sys.modules[module_name] = loaded_module
+        return loaded_module
+
+
+def _annotated_with_validators(annotation: Any, validators: tuple[Any, ...]) -> Any:
+    """Return an Annotated type that includes the provided validators once each."""
+
+    if annotation is inspect._empty:
+        base = Any
+        metadata: list[Any] = []
+    else:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            args = get_args(annotation)
+            base = args[0]
+            metadata = list(args[1:])
+        else:
+            base = annotation
+            metadata = []
+
+    for validator in validators:
+        if any(isinstance(meta, validator.__class__) for meta in metadata):
+            continue
+        metadata.append(validator)
+
+    if metadata:
+        return Annotated[base, *metadata]
+    return base
 
 
 def attach_validators(func: F, *validators: Any):
-    sig = inspect.signature(func)
+    if not validators:
+        return
 
-    new_annotations = {
-        name: Annotated[param.annotation, *validators]
-        for name, param in sig.parameters.items()
-    }
+    sig = inspect.signature(func)
+    annotations = dict(func.__annotations__)
+
+    for name, param in sig.parameters.items():
+        current = annotations.get(name, param.annotation)
+        annotations[name] = _annotated_with_validators(current, validators)
+
     if sig.return_annotation is not sig.empty:
-        new_annotations["return"] = sig.return_annotation
-    func.__annotations__ = new_annotations
+        annotations.setdefault("return", sig.return_annotation)
+
+    func.__annotations__ = annotations
 
 
 def generate_model_from_function(

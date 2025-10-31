@@ -3,7 +3,7 @@ definition:
   title: List groups in organization
   description: List all groups in your Okta organization with optional filtering.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#list-groups
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/listGroups
   namespace: tools.okta
   name: list_groups_in_org
   secrets:
@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     limit:
       type: int
       description: Number of groups to return (default 200)
@@ -45,7 +46,7 @@ definition:
       action: core.http_request
       args:
         method: GET
-        url: ${{ inputs.base_url }}/api/v1/groups
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/groups
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"

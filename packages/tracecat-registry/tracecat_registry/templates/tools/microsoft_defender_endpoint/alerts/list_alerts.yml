@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: List alerts
+  description: List Microsoft Defender for Endpoint alerts with optional filtering and time range.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/get-alerts
+  namespace: tools.microsoft_defender_endpoint
+  name: list_alerts
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    top:
+      type: int | None
+      description: Maximum number of alerts to return (maps to $top OData query option).
+      default: null
+    filter:
+      type: str | None
+      description: OData filter expression to apply (for example, status eq 'Active' and severity eq 'High').
+      default: null
+    order_by:
+      type: str | None
+      description: OData order by clause (for example, lastUpdateTime desc).
+      default: null
+    since_time:
+      type: str | None
+      description: ISO 8601 timestamp to restrict alerts updated after this time (convenience filter applied as lastUpdateTime ge).
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          top: ${{ inputs.top }}
+          filter_: ${{ inputs.filter }}
+          order_by: ${{ inputs.order_by }}
+          since_time: ${{ inputs.since_time }}
+        script: |
+          def main(top, filter_, order_by, since_time):
+              params = {}
+              filters = []
+              if top is not None:
+                  params["$top"] = top
+              if filter_:
+                  filters.append(filter_)
+              if since_time:
+                  filters.append(f"lastUpdateTime ge {since_time}")
+              if filters:
+                  params["$filter"] = " and ".join(filters)
+              if order_by:
+                  params["$orderby"] = order_by
+              return params
+    - ref: list_alerts
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_alerts.result.data }}

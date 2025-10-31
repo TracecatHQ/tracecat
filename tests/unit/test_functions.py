@@ -11,6 +11,7 @@ from tracecat.expressions.functions import (
     add_prefix,
     add_suffix,
     and_,
+    at,
     b64_to_str,
     b64url_to_str,
     capitalize,
@@ -46,8 +47,11 @@ from tracecat.expressions.functions import (
     get_year,
     greater_than,
     greater_than_or_equal,
+    hash_md5,
+    hash_sha1,
+    hash_sha256,
+    hash_sha512,
     hours_between,
-    index_by_key,
     intersection,
     ipv4_in_subnet,
     ipv4_is_public,
@@ -177,6 +181,30 @@ def test_bool(input_val: Any, expected: bool) -> None:
 )
 def test_format_string(template: str, values: list[Any], expected: str) -> None:
     assert format_string(template, *values) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_base64_to_str(input_str: str, expected: str) -> None:
+    assert b64_to_str(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_b64url_to_str(input_str: str, expected: str) -> None:
+    assert b64url_to_str(input_str) == expected
 
 
 @pytest.mark.parametrize(
@@ -444,6 +472,62 @@ def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
     # Compare as multisets (order-independent, preserves multiplicity)
     # Ref: https://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets
     assert Counter(result) == Counter(expected)
+
+
+@pytest.mark.parametrize(
+    "sequence,idx,expected",
+    [
+        # List indexing
+        ([1, 2, 3, 4, 5], 0, 1),
+        ([1, 2, 3, 4, 5], 2, 3),
+        ([1, 2, 3, 4, 5], 4, 5),
+        ([1, 2, 3, 4, 5], -1, 5),
+        ([1, 2, 3, 4, 5], -2, 4),
+        (["a", "b", "c"], 0, "a"),
+        (["a", "b", "c"], 1, "b"),
+        (["a", "b", "c"], -1, "c"),
+        # String indexing
+        ("hello", 0, "h"),
+        ("hello", 1, "e"),
+        ("hello", 4, "o"),
+        ("hello", -1, "o"),
+        ("hello", -5, "h"),
+        # Tuple indexing
+        ((10, 20, 30), 0, 10),
+        ((10, 20, 30), 1, 20),
+        ((10, 20, 30), -1, 30),
+        # Mixed types in list
+        ([1, "two", 3.0, None], 0, 1),
+        ([1, "two", 3.0, None], 1, "two"),
+        ([1, "two", 3.0, None], 2, 3.0),
+        ([1, "two", 3.0, None], 3, None),
+        # Nested structures
+        ([[1, 2], [3, 4]], 0, [1, 2]),
+        ([[1, 2], [3, 4]], 1, [3, 4]),
+        ([{"a": 1}, {"b": 2}], 0, {"a": 1}),
+        ([{"a": 1}, {"b": 2}], -1, {"b": 2}),
+    ],
+)
+def test_at(sequence: Any, idx: int, expected: Any) -> None:
+    """Test at function with various sequence types and indices."""
+    assert at(sequence, idx) == expected
+
+
+@pytest.mark.parametrize(
+    "sequence,idx",
+    [
+        ([1, 2, 3], 5),  # Index too large
+        ([1, 2, 3], -10),  # Negative index too large
+        ("hello", 10),  # String index out of range
+        ([], 0),  # Empty list
+        ("", 0),  # Empty string
+        ((), 0),  # Empty tuple
+    ],
+)
+def test_at_out_of_range(sequence: Any, idx: int) -> None:
+    """Test that at raises IndexError for out-of-range indices."""
+    with pytest.raises(IndexError):
+        at(sequence, idx)
 
 
 @pytest.mark.parametrize(
@@ -804,48 +888,6 @@ def test_str_to_b64(input_str: str, expected: str) -> None:
 )
 def test_dict_lookup(input_dict: dict, key: Any, expected: Any) -> None:
     assert dict_lookup(input_dict, key) == expected
-
-
-@pytest.mark.parametrize(
-    "input_list,field_key,value_key,expected",
-    [
-        # Basic case with value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            "name",
-            {1: "Alice", 2: "Bob"},
-        ),
-        # Basic case without value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            None,
-            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
-        ),
-        # Empty list
-        ([], "id", "name", {}),
-        # Different key types
-        (
-            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
-            "num",
-            "val",
-            {1.5: "a", 2.5: "b"},
-        ),
-        # Nested dictionaries
-        (
-            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
-            "key",
-            "data",
-            {"a": {"x": 1}, "b": {"x": 2}},
-        ),
-    ],
-)
-def test_index_by_key(
-    input_list: list[dict], field_key: str, value_key: str | None, expected: dict
-) -> None:
-    """Test indexing a list of dictionaries by a specified key."""
-    assert index_by_key(input_list, field_key, value_key) == expected
 
 
 @pytest.mark.parametrize(
@@ -1505,3 +1547,35 @@ def test_to_time_errors(input_val: Any, expected_error: type[Exception]) -> None
     """Test that to_time raises appropriate errors for invalid inputs."""
     with pytest.raises(expected_error):
         to_time(input_val)
+
+
+def test_hash_md5() -> None:
+    assert hash_md5("test") == "098f6bcd4621d373cade4e832627b4f6"
+    assert hash_md5(b"test") == "098f6bcd4621d373cade4e832627b4f6"
+
+
+def test_hash_sha1() -> None:
+    assert hash_sha1("test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+    assert hash_sha1(b"test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+
+
+def test_hash_sha256() -> None:
+    assert (
+        hash_sha256("test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+    assert (
+        hash_sha256(b"test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+
+
+def test_hash_sha512() -> None:
+    assert (
+        hash_sha512("test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )
+    assert (
+        hash_sha512(b"test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )

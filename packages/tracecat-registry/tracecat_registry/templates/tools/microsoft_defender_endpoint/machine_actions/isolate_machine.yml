@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Isolate machine
+  description: Isolate a device from the network using Microsoft Defender for Endpoint.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/isolate-machine
+  namespace: tools.microsoft_defender_endpoint
+  name: isolate_machine
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to isolate.
+    isolation_type:
+      type: enum["Full", "Selective", "UnManagedDevice"]
+      description: Isolation scope to apply.
+      default: Full
+    comment:
+      type: str
+      description: Comment describing why the device is being isolated.
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          comment: ${{ inputs.comment }}
+          isolation_type: ${{ inputs.isolation_type }}
+        script: |
+          def main(comment, isolation_type):
+              return {
+                  "Comment": comment,
+                  "IsolationType": isolation_type,
+              }
+    - ref: isolate
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/isolate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.isolate.result.data }}

@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Run live response
+  description: Run a sequence of Live Response commands on a device in Microsoft Defender for Endpoint.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/run-live-response
+  namespace: tools.microsoft_defender_endpoint
+  name: run_live_response
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to target with Live Response commands.
+    commands:
+      type: list[dict[str, Any]]
+      description: Ordered list of Live Response commands (each object requires at least a 'type' key and optional 'params' list of key/value objects).
+    comment:
+      type: str | None
+      description: Comment describing the purpose of the Live Response session.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          commands: ${{ inputs.commands }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(commands, comment):
+              if not commands:
+                  raise ValueError("At least one Live Response command must be provided.")
+              payload = {
+                  "Commands": commands,
+              }
+              if comment:
+                  payload["Comment"] = comment
+              return payload
+    - ref: run_live_response
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.run_live_response.result.data }}

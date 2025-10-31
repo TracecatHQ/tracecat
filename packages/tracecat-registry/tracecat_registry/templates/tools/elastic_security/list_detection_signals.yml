@@ -25,8 +25,13 @@ definition:
       description: Maximum number of alerts to return.
       default: 100
     base_url:
-      type: str
+      type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
   steps:
     - ref: search_query
       action: core.transform.reshape
@@ -45,8 +50,9 @@ definition:
     - ref: query_detection_alerts
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/detection_engine/signals/search
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/detection_engine/signals/search
         method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           kbn-xsrf: kibana
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

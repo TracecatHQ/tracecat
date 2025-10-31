@@ -11,8 +11,9 @@ definition:
       keys: ["ALERTMEDIA_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+      default: null
     user_id:
       type: str
       description: User ID of the user to delete the trip for.
@@ -23,7 +24,7 @@ definition:
     - ref: delete_trip
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
+        url: ${{ inputs.base_url || VARS.alertmedia.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}

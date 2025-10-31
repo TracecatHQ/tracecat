@@ -26,18 +26,15 @@ import UserAvatar from "@/components/user-avatar"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { useWorkspaceManager } from "@/lib/hooks"
 
 export default function UserNav() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { clearLastWorkspaceId } = useWorkspaceManager()
   const params = useParams<{ workspaceId?: string }>()
   const workspaceId = params?.workspaceId
   const workspaceUrl = workspaceId ? `/workspaces/${workspaceId}` : null
 
   const handleLogout = async () => {
-    clearLastWorkspaceId()
     await logout()
   }
   const displayName = user ? user.getDisplayName() : userDefaults.name
@@ -111,7 +108,7 @@ export default function UserNav() {
               </DropdownMenuItem>
             </Link>
             <Link
-              href={`${workspaceUrl}/custom-fields`}
+              href={`${workspaceUrl}/cases/custom-fields`}
               className="my-2 w-full"
             >
               <DropdownMenuItem className="text-xs hover:cursor-pointer">

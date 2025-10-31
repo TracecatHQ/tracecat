@@ -1032,6 +1032,7 @@ class TestIntegrationService:
         )
         assert config is not None
         assert config.client_id == client_id
+        assert config.client_secret is not None
         assert (
             config.client_secret.get_secret_value() == client_secret.get_secret_value()
         )

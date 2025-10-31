@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
 
@@ -180,6 +180,7 @@ class DSLScheduler:
                         ref=ref,
                         message=message,
                         type=exc.__class__.__name__,
+                        stream_id=task.stream_id,
                     )
                 elif all(k in details for k in ("ref", "message", "type")):
                     # Regular action error
@@ -209,6 +210,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
                 else:
                     # Child workflow error
@@ -239,6 +241,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
             else:
                 self.logger.info(
@@ -259,6 +262,7 @@ class DSLScheduler:
                     ref=ref,
                     message=message,
                     type=exc.__class__.__name__,
+                    stream_id=task.stream_id,
                 )
             if task.stream_id == ROOT_STREAM:
                 self.logger.debug(
@@ -355,7 +359,8 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(ref=next_ref, stream_id=stream_id)
+                # Inherit the delay if it exists. We need this to stagger tasks for scatter.
+                next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -386,6 +391,10 @@ class DSLScheduler:
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
+        # Normalize delay immediately so downstream tasks never inherit it when we skip.
+        original_delay = task.delay
+        if original_delay > 0:
+            task = replace(task, delay=0.0)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
@@ -403,6 +412,13 @@ class DSLScheduler:
                 return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
+
+            # Respect the task delay if it exists. We need this to stagger tasks for scatter.
+            if original_delay > 0:
+                self.logger.info(
+                    "Task has delay, sleeping", task=task, delay=original_delay
+                )
+                await asyncio.sleep(original_delay)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
@@ -685,7 +701,10 @@ class DSLScheduler:
 
         # -- EXECUTION STREAM
         self.logger.debug(
-            "Exploding collection", task=task, collection_size=len(collection)
+            "Scattering collection",
+            task=task,
+            collection_size=len(collection),
+            interval=args.interval,
         )
 
         # Create stream for each collection item
@@ -705,7 +724,9 @@ class DSLScheduler:
             }
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
+            # Calculate the task delay
+            delay = i * (args.interval or 0)
+            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
                 item=item,
@@ -1012,21 +1033,49 @@ class DSLScheduler:
 
         # Error handling strategy
         results = []
-        errors = []
+        errors: list[ActionErrorInfo] = []
         # Consume generator here
         match err_strategy := gather_args.error_strategy:
             # Default behavior
             case StreamErrorHandlingStrategy.PARTITION:
                 # Filter out and place in task result error
-                for item in filtered_items:
-                    if _is_error_info(item):
-                        errors.append(item)
-                    else:
-                        results.append(item)
+                results, errors = _partition_errors(filtered_items)
             case StreamErrorHandlingStrategy.DROP:
                 results = [item for item in filtered_items if not _is_error_info(item)]
             case StreamErrorHandlingStrategy.INCLUDE:
                 results = list(filtered_items)
+            case StreamErrorHandlingStrategy.RAISE:
+                # 'raise' partitions first so we can raise an error if there are errors in the stream
+                # Only raise an error if there are errors in the stream
+                results, errors = _partition_errors(filtered_items)
+                if errors:
+                    message = (
+                        f"Gather '{gather_ref}' encountered {len(errors)} error(s)"
+                    )
+                    gather_error = ActionErrorInfo(
+                        ref=gather_ref,
+                        message=message,
+                        type=ApplicationError.__name__,
+                        children=errors,
+                        stream_id=parent_stream_id,
+                    )
+                    app_error = ApplicationError(
+                        message,
+                        {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                        non_retryable=True,
+                    )
+                    self.logger.warning(
+                        "Raising gather error", errors=errors, app_error=app_error
+                    )
+
+                    # Register the gather failure so the scheduler halts and the workflow error
+                    # handler can run, even though the exception originates from a non-root stream.
+                    self.task_exceptions[gather_ref] = TaskExceptionInfo(
+                        exception=app_error,
+                        details=gather_error,
+                    )
+                    raise app_error
+
             case _:
                 raise ApplicationError(
                     f"Invalid error handling strategy: {err_strategy}"
@@ -1044,7 +1093,6 @@ class DSLScheduler:
         task_result.update(result=results)
         if errors:
             task_result.update(error=errors, error_typename=type(errors).__name__)
-
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
             task=task,
@@ -1145,6 +1193,17 @@ class DSLScheduler:
                     raise
 
 
+def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results = []
+    errors = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
+
+
 def _is_error_info(detail: Any) -> bool:
     if isinstance(detail, ActionErrorInfo):
         return True
@@ -1155,3 +1214,10 @@ def _is_error_info(detail: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None

@@ -3,16 +3,19 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 from sqlmodel import col, select
 from typing_extensions import Doc
 
 from tracecat.auth.models import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.attachments import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
     CaseAttachmentRead,
+)
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.models import (
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
@@ -29,7 +32,31 @@ from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
 from tracecat.tags.models import TagRead
+from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
+
+# Must be imported directly to preserve the udf metadata
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.logger import logger
+
+if is_feature_enabled(FeatureFlag.CASE_TASKS):
+    logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
+    from tracecat_ee.cases.tasks import (
+        create_task,
+        get_task,
+        list_tasks,
+        update_task,
+        delete_task,
+    )
+else:
+    create_task = None
+    get_task = None
+    list_tasks = None
+    update_task = None
+    delete_task = None
+    logger.info(
+        "Case tasks feature flag is not enabled. Skipping case tasks integration."
+    )
 
 PriorityType = Literal[
     "unknown",
@@ -171,6 +198,12 @@ async def update_case(
             "List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags."
         ),
     ] = None,
+    append: Annotated[
+        bool,
+        Doc(
+            "If true, append the provided description to the existing description when it is not empty."
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
@@ -181,7 +214,10 @@ async def update_case(
         if summary is not None:
             params["summary"] = summary
         if description is not None:
-            params["description"] = description
+            if append and case.description:
+                params["description"] = f"{case.description}\n{description}"
+            else:
+                params["description"] = description
         if priority is not None:
             params["priority"] = CasePriority(priority)
         if severity is not None:
@@ -408,19 +444,19 @@ async def search_cases(
         Doc("Filter by case severity."),
     ] = None,
     start_time: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases created after this time."),
     ] = None,
     end_time: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases created before this time."),
     ] = None,
     updated_before: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases updated before this time."),
     ] = None,
     updated_after: Annotated[
-        datetime | None,
+        datetime | str | None,
         Doc("Filter cases updated after this time."),
     ] = None,
     order_by: Annotated[
@@ -430,6 +466,10 @@ async def search_cases(
     sort: Annotated[
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
     ] = None,
     limit: Annotated[
         int,
@@ -442,19 +482,34 @@ async def search_cases(
         )
 
     async with CasesService.with_session() as service:
-        cases = await service.search_cases(
-            search_term=search_term,
-            status=CaseStatus(status) if status else None,
-            priority=CasePriority(priority) if priority else None,
-            severity=CaseSeverity(severity) if severity else None,
-            limit=limit,
-            order_by=order_by,
-            sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-        )
+        tag_ids: list[UUID] = []
+        if tags:
+            for tag_identifier in tags:
+                try:
+                    tag = await service.tags.get_tag_by_ref_or_id(tag_identifier)
+                except NoResultFound:
+                    continue
+                tag_ids.append(tag.id)
+
+        try:
+            cases = await service.search_cases(
+                search_term=search_term,
+                status=CaseStatus(status) if status else None,
+                priority=CasePriority(priority) if priority else None,
+                severity=CaseSeverity(severity) if severity else None,
+                tag_ids=tag_ids or None,
+                limit=limit,
+                order_by=order_by,
+                sort=sort,
+                start_time=coerce_optional_to_utc_datetime(start_time),
+                end_time=coerce_optional_to_utc_datetime(end_time),
+                updated_before=coerce_optional_to_utc_datetime(updated_before),
+                updated_after=coerce_optional_to_utc_datetime(updated_after),
+            )
+        except ProgrammingError as exc:
+            raise ValueError(
+                "Invalid filter parameters supplied for case search"
+            ) from exc
     return [
         CaseReadMinimal(
             id=case.id,
@@ -970,23 +1025,3 @@ async def get_attachment_download_url(
             expiry=expiry,
         )
     return download_url
-
-
-@registry.register(
-    default_title="List case fields",
-    display_group="Cases",
-    description="List all available case fields and their definitions.",
-    namespace="core.cases",
-)
-async def list_case_fields() -> list[dict[str, Any]]:
-    """List all case field definitions.
-
-    Returns field metadata including name, type, description, and whether it's a reserved field.
-    """
-    async with CasesService.with_session() as service:
-        field_definitions = await service.fields.list_fields()
-
-    return [
-        CaseFieldRead.from_sa(field_def).model_dump(mode="json")
-        for field_def in field_definitions
-    ]

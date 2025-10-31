@@ -7,7 +7,7 @@ name = "tracecat-ee"
 description = "Enterprise Edition features for Tracecat"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {file = "tracecat_ee/LICENSE.md"}
+license = { file = "tracecat_ee/LICENSE.md" }
 authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -23,6 +23,7 @@ dependencies = [
     # Dependencies for EE features
     # Note: tracecat core types are imported but not listed as dependency
     # to avoid circular dependencies in workspace
+    "modal==1.1.4",
 ]
 dynamic = ["version"]
 

@@ -16,8 +16,9 @@ definition:
         Event data to send to Splunk. Can contain any key-value pairs.
         Example: {"action": "login", "username": "john", "ip": "192.168.1.100"}
     base_url:
-      type: str
+      type: str | None
       description: Splunk HEC endpoint URL (e.g. https://localhost:8088 or https://tracecat.splunkcloud.com:8088).
+      default: null
     index:
       type: str | None
       description: Splunk index to send the event to. If not specified, uses the default index configured for the HEC token.
@@ -42,7 +43,7 @@ definition:
     - ref: submit_event
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/services/collector/event
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/services/collector/event
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

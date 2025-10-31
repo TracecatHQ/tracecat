@@ -108,6 +108,8 @@ class RegistryOAuthSecret(BaseModel):
     """The provider id of the secret."""
     grant_type: Literal["authorization_code", "client_credentials"]
     """The grant type for the OAuth secret."""
+    optional: bool = False
+    """Indicates if the OAuth secret is optional."""
 
     @computed_field
     @property
@@ -133,7 +135,7 @@ class RegistryOAuthSecret(BaseModel):
 
     def __hash__(self) -> int:
         """Custom hash implementation based on relevant fields."""
-        return hash((self.type, self.provider_id, self.grant_type))
+        return hash((self.type, self.provider_id, self.grant_type, self.optional))
 
 
 # Custom validator to handle backward compatibility

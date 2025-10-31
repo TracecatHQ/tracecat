@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Create sending profile
+  description: Create a sending profile in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/sending-profiles#create-sending-profile
+  namespace: tools.gophish
+  name: create_sending_profile
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    payload:
+      type: dict[str, Any]
+      description: The body of the sending profile to create. Look at the Gophish API documentation for the expected body.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: create_sending_profile
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/smtp/
+        method: POST
+        payload: ${{ inputs.payload }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.create_sending_profile.result.data }}

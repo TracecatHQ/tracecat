@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from enum import StrEnum
+from pathlib import Path
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -20,12 +22,46 @@ class Author:
 
 
 @dataclass(frozen=True)
+class PushObject[T: BaseModel]:
+    """A single object to push to a repository."""
+
+    data: T
+    """The model data to serialize and write"""
+
+    path: Path | str
+    """Target path in repository"""
+
+    @property
+    def path_str(self) -> str:
+        """Get path as string."""
+        return str(self.path)
+
+
+class ConflictStrategy(StrEnum):
+    """Strategy for handling workflow conflicts during import."""
+
+    OVERWRITE = "overwrite"
+    """Overwrite existing workflows with new definitions"""
+
+
+@dataclass(frozen=True)
 class PullOptions:
     """Options controlling pull/checkout behavior."""
 
-    paths: list[str] | None = None  # subset of paths, if supported
-    depth: int | None = 1  # shallow clone depth; None for full
-    lfs: bool = False  # fetch LFS objects if needed
+    commit_sha: str | None = None
+    """Specific commit SHA to pull from"""
+
+    paths: list[str] | None = None
+    """Subset of paths, if supported"""
+
+    depth: int | None = 1
+    """Shallow clone depth; None for full"""
+
+    lfs: bool = False
+    """Fetch LFS objects if needed"""
+
+    dry_run: bool = False
+    """Validate only, don't perform actual import"""
 
 
 @dataclass(frozen=True)
@@ -33,9 +69,14 @@ class PushOptions:
     """Options controlling push/commit behavior."""
 
     message: str
-    author: Author | None = None
-    create_pr: bool = False  # optional provider feature (ignored by pure Git)
-    sign: bool = False  # GPG signing if configured
+    author: Author
+    """Author of the commit"""
+
+    create_pr: bool = False
+    """Create a pull request if supported"""
+
+    sign: bool = False
+    """GPG signing if configured"""
 
 
 @dataclass(frozen=True)
@@ -43,14 +84,68 @@ class CommitInfo:
     """Result of a push/commit operation."""
 
     sha: str
-    ref: str  # resolved ref after push (e.g., branch)
+    """SHA of the commit"""
+
+    ref: str
+    """Resolved ref after push (e.g., branch)"""
+
+
+@dataclass(frozen=True)
+class PullDiagnostic:
+    """Diagnostic information about workflow import issues."""
+
+    workflow_path: str
+    """Path to the workflow file in repository"""
+
+    workflow_title: str | None
+    """Title of the workflow, if parseable"""
+
+    error_type: Literal[
+        "conflict",
+        "validation",
+        "dependency",
+        "parse",
+        "github",
+        "system",
+        "transaction",
+    ]
+    """Type of error: 'conflict', 'validation', 'dependency', 'parse', 'github', 'system', 'transaction'"""
+
+    message: str
+    """Human-readable error message"""
+
+    details: dict[str, Any]
+    """Additional error details for debugging"""
+
+
+@dataclass(frozen=True)
+class PullResult:
+    """Result of a pull operation with atomic guarantees."""
+
+    success: bool
+    """Whether the entire pull operation succeeded"""
+
+    commit_sha: str
+    """The commit SHA that was pulled from"""
+
+    workflows_found: int
+    """Total number of workflow definitions found"""
+
+    workflows_imported: int
+    """Number of workflows actually imported (0 if failed, equals found if success)"""
+
+    diagnostics: list[PullDiagnostic]
+    """List of issues found (empty if success)"""
+
+    message: str
+    """Summary message about the operation"""
 
 
 class SyncService[T: BaseModel](Protocol):
     """Provider-agnostic Git/VCS sync interface.
 
-    This abstracts transport (Git over SSH/HTTPS). Domain layers (Workflows,
-    Runbooks) translate to/from TModel and call these methods.
+    This abstracts transport (Git over SSH/HTTPS). Domain layers (e.g. Workflows)
+    translate to/from TModel and call these methods.
     """
 
     async def pull(
@@ -58,7 +153,7 @@ class SyncService[T: BaseModel](Protocol):
         *,
         url: GitUrl,
         options: PullOptions | None = None,
-    ) -> list[T]:
+    ) -> PullResult:
         """Pull objects from a repository at the given ref.
 
         Args:
@@ -77,7 +172,7 @@ class SyncService[T: BaseModel](Protocol):
     async def push(
         self,
         *,
-        objects: Sequence[T],
+        objects: Sequence[PushObject[T]],
         url: GitUrl,
         options: PushOptions,
     ) -> CommitInfo:

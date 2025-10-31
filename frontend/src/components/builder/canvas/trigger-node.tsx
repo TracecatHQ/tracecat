@@ -1,6 +1,8 @@
 import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
+  Shield,
+  ShieldOff,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
@@ -26,6 +28,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -85,6 +93,28 @@ export default React.memo(function TriggerNode({
                   Workflow trigger
                 </CardDescription>
               )}
+            </div>
+            <div className="flex items-start">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {workflow.webhook.api_key?.is_active ? (
+                      <Shield className="size-4 text-emerald-400 fill-current" />
+                    ) : workflow.webhook.api_key ? (
+                      <Shield className="size-4 text-amber-400 fill-current" />
+                    ) : (
+                      <ShieldOff className="size-4 text-muted-foreground/70" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={4}>
+                    {workflow.webhook.api_key?.is_active
+                      ? "Webhook is protected"
+                      : workflow.webhook.api_key
+                        ? "API key revoked"
+                        : "Webhook is unprotected"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </div>
@@ -177,34 +207,48 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 
       <TableBody>
         {schedules.length > 0 ? (
-          schedules.map(({ status, every }, idx) => (
-            <TableRow
-              key={idx}
-              className="items-center text-center text-xs text-muted-foreground"
-            >
-              <TableCell>
-                <div className="flex w-full items-center justify-center">
-                  <span
-                    className={cn(
-                      status === "offline" && "text-muted-foreground/80"
-                    )}
-                  >
-                    Every {durationToHumanReadable(every)}
-                  </span>
-                  {status === "online" ? (
+          schedules.map(({ id, status, every, cron }) => {
+            const isCron = Boolean(cron)
+            const label = isCron
+              ? cron
+              : every
+                ? `Every ${durationToHumanReadable(every)}`
+                : "Scheduled"
+
+            return (
+              <TableRow
+                key={id}
+                className="items-center text-center text-xs text-muted-foreground"
+              >
+                <TableCell>
+                  <div className="flex w-full items-center justify-center gap-2">
                     <span
                       className={cn(
-                        "ml-2 inline-block size-2 rounded-full ",
-                        status === "online" ? "bg-emerald-500" : "bg-gray-300"
+                        "flex items-center gap-2",
+                        status === "offline" && "text-muted-foreground/80"
                       )}
-                    />
-                  ) : (
-                    <TimerOffIcon className="ml-2 size-3 text-muted-foreground" />
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))
+                    >
+                      {isCron ? (
+                        <>
+                          <span className="font-medium">Cron</span>
+                          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                            {label}
+                          </code>
+                        </>
+                      ) : (
+                        label
+                      )}
+                    </span>
+                    {status === "online" ? (
+                      <span className="inline-block size-2 rounded-full bg-emerald-500" />
+                    ) : (
+                      <TimerOffIcon className="size-3 text-muted-foreground" />
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })
         ) : (
           <TableRow className="justify-center text-xs text-muted-foreground">
             <TableCell

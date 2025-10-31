@@ -363,12 +363,13 @@ export const YamlStyledEditor = React.forwardRef<
 
   return (
     <div className="relative">
+      {fieldState.error && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="size-3" />
+          <span>{fieldState.error.message ?? "Invalid YAML"}</span>
+        </div>
+      )}
       <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border shadow-sm">
-        {fieldState.error && (
-          <p className="mt-1 text-sm text-red-500">
-            {fieldState.error.message ?? "Invalid YAML"}
-          </p>
-        )}
         <CodeMirror
           value={buffer}
           height="auto"
@@ -791,7 +792,7 @@ export function YamlViewOnlyEditor({
   const { appSettings } = useOrgAppSettings()
 
   const textValue = React.useMemo(() => {
-    if (!value) return ""
+    if (value == null) return ""
     return stripNewline(
       typeof value === "string"
         ? value

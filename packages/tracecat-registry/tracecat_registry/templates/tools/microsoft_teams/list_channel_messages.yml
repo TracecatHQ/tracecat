@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: List channel messages
+  description: Retrieve the list of messages (without the replies) in a channel of a team.
+  display_group: Microsoft Teams
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-beta&tabs=python
+  namespace: tools.microsoft_teams
+  name: list_channel_messages
+  secrets:
+    - type: oauth
+      provider_id: microsoft_teams
+      grant_type: authorization_code
+  expects:
+    team_id:
+      type: str
+      description: The ID of the team.
+    channel_id:
+      type: str
+      description: The ID of the channel.
+    top:
+      type: int | None
+      description: Number of messages to return per page (default 20, max 50).
+      default: null
+    expand_replies:
+      type: bool
+      description: Whether to expand replies for each message.
+      default: false
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          top: ${{ inputs.top }}
+          expand_replies: ${{ inputs.expand_replies }}
+        script: |
+          def main(top, expand_replies):
+              params = {}
+              if isinstance(top, int):
+                  if top < 1 or top > 50:
+                      raise ValueError("Top parameter must be between 1 and 50")
+                  params["$top"] = top
+              if expand_replies:
+                  params["$expand"] = "replies"
+              return params
+
+    - ref: list_messages
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_messages.result.data }}

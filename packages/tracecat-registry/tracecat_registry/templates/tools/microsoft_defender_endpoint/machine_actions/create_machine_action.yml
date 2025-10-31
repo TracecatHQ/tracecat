@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Create machine action
+  description: Submit a machine action (for example, isolate or run an antivirus scan) in Microsoft Defender for Endpoint.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/machineaction
+  namespace: tools.microsoft_defender_endpoint
+  name: create_machine_action
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to target with the action.
+    action_type:
+      type: enum["Isolate", "Unisolate", "CollectInvestigationPackage", "RunAntivirusScan", "RestrictCodeExecution", "UnrestrictCodeExecution", "StopAndQuarantineFile", "LiveResponse", "Offboard", "RequestSample"]
+      description: Type of machine action to perform.
+    comment:
+      type: str
+      description: Comment describing why the action is being taken.
+    parameters:
+      type: dict | None
+      description: 'Optional action parameters payload (for example, {"scanType": "Quick"} for RunAntivirusScan).'
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          machine_id: ${{ inputs.machine_id }}
+          action_type: ${{ inputs.action_type }}
+          comment: ${{ inputs.comment }}
+          parameters: ${{ inputs.parameters }}
+        script: |
+          def main(machine_id, action_type, comment, parameters):
+              payload = {
+                  "machineId": machine_id,
+                  "type": action_type,
+                  "requestorComment": comment,
+              }
+              if parameters:
+                  payload["parameters"] = parameters
+              return payload
+    - ref: create_action
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machineactions
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_action.result.data }}

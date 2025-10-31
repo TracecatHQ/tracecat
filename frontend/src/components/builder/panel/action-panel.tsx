@@ -285,12 +285,15 @@ function ActionPanelContent({
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
-    [action?.inputs]
+    // Include actionId so switching to a different action with identical
+    // inputs still recalculates and triggers downstream resets.
+    [action?.inputs, actionId]
   )
-
-  const methods = useForm<ActionFormSchema>({
-    resolver: zodResolver(actionFormSchema),
-    values: {
+  // Compute initial form values. Include actionId in deps so switching between
+  // two different actions with identical field values still produces a new
+  // object reference and triggers a reset.
+  const formValues = useMemo<ActionFormSchema>(
+    () => ({
       title: action?.title,
       description: action?.description,
       inputs: actionInputsObj,
@@ -305,8 +308,34 @@ function ActionPanelContent({
       environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
-    },
+    }),
+    [
+      actionId,
+      action?.title,
+      action?.description,
+      action?.is_interactive,
+      action?.interaction,
+      actionInputsObj,
+      actionControlFlow?.for_each,
+      actionControlFlow?.run_if,
+      actionControlFlow?.retry_policy?.max_attempts,
+      actionControlFlow?.retry_policy?.timeout,
+      actionControlFlow?.retry_policy?.retry_until,
+      actionControlFlow?.start_delay,
+      actionControlFlow?.join_strategy,
+      actionControlFlow?.wait_until,
+      actionControlFlow?.environment,
+    ]
+  )
+
+  const methods = useForm<ActionFormSchema>({
+    resolver: zodResolver(actionFormSchema),
+    defaultValues: formValues,
   })
+
+  useEffect(() => {
+    methods.reset(formValues)
+  }, [methods, formValues])
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
@@ -401,6 +430,13 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
+
+  // Force-reset the form whenever the action identity changes, even if the
+  // field values are identical. This prevents stale edits from the previous
+  // action from appearing on the newly selected action with identical data.
+  useEffect(() => {
+    methods.reset(formValues)
+  }, [actionId])
 
   useEffect(() => {
     // Reset input mode based on organization setting
@@ -768,14 +804,14 @@ function ActionPanelContent({
               <div className="flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>Inputs</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
@@ -783,7 +819,7 @@ function ActionPanelContent({
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
-                      className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                       value="template-inputs"
                     >
                       <FileTextIcon className="mr-2 size-4" />
@@ -1764,7 +1800,7 @@ function RegistryActionSecrets({
                   <TableCell className="flex items-center gap-1">
                     <span>{secret.provider_id}</span>
                     <Link
-                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=configuration`}
+                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=overview&grant_type=${secret.grant_type}`}
                       target="_blank"
                     >
                       <ExternalLinkIcon className="size-3" strokeWidth={2.5} />

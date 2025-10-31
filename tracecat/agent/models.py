@@ -2,52 +2,70 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Literal, NotRequired, TypedDict
+import uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
+from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage
 
-from tracecat.types.auth import Role
+if TYPE_CHECKING:
+    from tracecat.agent.stream.writers import StreamWriter
+
+ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
+
+
+class MessageStore(Protocol):
+    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
+    async def store(
+        self, session_id: uuid.UUID, messages: list[ModelMessage]
+    ) -> None: ...
+
+
+class StreamingAgentDeps(Protocol):
+    stream_writer: StreamWriter
+    message_store: MessageStore | None = None
+
+
+@dataclass(kw_only=True, slots=True)
+class AgentConfig:
+    """Configuration for an agent."""
+
+    # Model
+    model_name: str
+    model_provider: str
+    base_url: str | None = None
+    # Agent
+    instructions: str | None = None
+    output_type: OutputType | None = None
+    # Tools
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+    fixed_arguments: dict[str, dict[str, Any]] | None = None
+    # MCP
+    mcp_server_url: str | None = None
+    mcp_server_headers: dict[str, str] | None = None
+    model_settings: dict[str, Any] | None = None
+    retries: int = 3
+    deps_type: type[StreamingAgentDeps] | type[None] | None = None
 
 
 class RunAgentArgs(BaseModel):
-    role: Role
     user_prompt: str
-    tool_filters: ToolFilters | None = None
-    """This is static over the lifetime of the workflow, as it's for 1 turn."""
-    session_id: str
+    """User prompt for the agent."""
+    session_id: uuid.UUID
     """Session ID for the agent execution."""
-    instructions: str | None = None
-    """Optional instructions for the agent. Defaults set in workflow."""
-    model_info: ModelInfo
-    """Model configuration."""
+    config: AgentConfig
+    """Configuration for the agent."""
+    max_requests: int | None = None
+    """Maximum number of requests for the agent."""
+    max_tool_calls: int | None = None
+    """Maximum number of tool calls for the agent."""
 
 
 class RunAgentResult(BaseModel):
     messages: list[ModelMessage]
-
-
-class ModelInfo(BaseModel):
-    name: str
-    provider: str
-    base_url: str | None = None
-
-
-class ToolFilters(BaseModel):
-    actions: list[str] | None = None
-    namespaces: list[str] | None = None
-
-    @staticmethod
-    def default() -> ToolFilters:
-        return ToolFilters(
-            actions=[
-                "core.cases.create_case",
-                "core.cases.get_case",
-                "core.cases.list_cases",
-                "core.cases.update_case",
-                "core.cases.list_cases",
-            ],
-        )
 
 
 class ModelConfig(BaseModel):
@@ -143,3 +161,27 @@ class ModelCredentialUpdate(BaseModel):
     credentials: dict[str, str] = Field(
         ..., description="Provider-specific credentials to update"
     )
+
+
+class AgentOutput(BaseModel):
+    output: Any
+    message_history: list[ModelMessage]
+    duration: float
+    usage: RunUsage
+    session_id: uuid.UUID
+    trace_id: str | None = None
+
+
+type OutputType = (
+    Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+)

@@ -6,6 +6,7 @@ import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { ChatEntity } from "@/client"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -35,6 +36,7 @@ interface ChatInputProps {
   disabled?: boolean
   placeholder?: string
   chatId: string
+  entityType?: ChatEntity
 }
 
 export function ChatInput({
@@ -42,6 +44,7 @@ export function ChatInput({
   disabled = false,
   placeholder = "Type your message...",
   chatId,
+  entityType,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -143,7 +146,8 @@ export function ChatInput({
           </form>
           <ChatControls
             sendMessage={form.handleSubmit(handleMessageSubmit)}
-            disabled={disabled || isMessageEmpty}
+            sendDisabled={disabled || isMessageEmpty}
+            toolsDisabled={disabled}
             chatId={chatId}
           />
         </Form>
@@ -154,11 +158,13 @@ export function ChatInput({
 
 function ChatControls({
   sendMessage,
-  disabled = false,
+  sendDisabled = false,
+  toolsDisabled = false,
   chatId,
 }: {
   sendMessage: () => void
-  disabled?: boolean
+  sendDisabled?: boolean
+  toolsDisabled?: boolean
   chatId: string
 }) {
   const [toolsModalOpen, setToolsModalOpen] = useState(false)
@@ -192,6 +198,7 @@ function ChatControls({
               variant="ghost"
               className="h-6 flex items-center p-1 gap-1 rounded-md hover:text-muted-foreground"
               onClick={() => setToolsModalOpen(true)}
+              disabled={toolsDisabled}
             >
               <HammerIcon className="size-3.5" />
               <span className="text-xs">Tools</span>
@@ -211,7 +218,7 @@ function ChatControls({
           size="icon"
           type="submit"
           className="size-6 rounded-md hover:text-muted-foreground"
-          disabled={disabled}
+          disabled={sendDisabled}
           onClick={sendMessage}
         >
           <ArrowUpIcon className="size-3.5" />

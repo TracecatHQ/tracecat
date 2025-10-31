@@ -50,9 +50,13 @@ iterator: "for" local_vars_assignment "in" expression
            | "-" unary_expr -> neg_op
            | "+" unary_expr -> pos_op
 
-?primary_expr: atom
-             | TYPE_SPECIFIER "(" expression ")" -> typecast
-             | "(" expression ")"
+?primary_expr: base_expr indexer*
+
+?base_expr: atom
+          | TYPE_SPECIFIER "(" expression ")" -> typecast
+          | "(" expression ")"
+
+indexer: "[" expression "]"
 
 ?atom: context
      | literal
@@ -61,7 +65,7 @@ iterator: "for" local_vars_assignment "in" expression
 
 ?context: actions
         | secrets
-        | inputs
+        | vars
         | env
         | local_vars
         | trigger
@@ -74,7 +78,7 @@ arg_list: (expression ("," expression)*)?
 
 actions: "ACTIONS" PARTIAL_JSONPATH_EXPR
 secrets: "SECRETS" ATTRIBUTE_PATH
-inputs: "INPUTS" PARTIAL_JSONPATH_EXPR
+vars: "VARS" ATTRIBUTE_PATH
 env: "ENV" PARTIAL_JSONPATH_EXPR
 local_vars: "var" PARTIAL_JSONPATH_EXPR
 trigger: "TRIGGER" [PARTIAL_JSONPATH_EXPR]

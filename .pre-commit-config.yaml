@@ -17,7 +17,7 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.8
+    rev: v0.13.0
     hooks:
       - id: ruff
         args:
@@ -27,13 +27,12 @@ repos:
         exclude: ^alembic/versions/
       - id: ruff-format
         verbose: true
-        exclude: ^alembic/versions/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:
       - id: gitleaks
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.8.4
+    rev: 0.8.6
     hooks:
       # Keep uv.lock in sync with changes to pyproject.toml
       - id: uv-lock
@@ -41,9 +40,10 @@ repos:
       - id: uv-export
   - repo: local
     hooks:
-      - id: biome-check
-        name: biome check
-        entry: bash -c 'cd frontend && npx biome check --write .'
+      - id: gen-client
+        name: update frontend client
+        entry: bash -c "pnpm -C frontend generate-client-ci && pnpm -C frontend check"
         language: system
-        files: ^frontend/
+        files: ^(tracecat|packages)
         require_serial: true
+        pass_filenames: false

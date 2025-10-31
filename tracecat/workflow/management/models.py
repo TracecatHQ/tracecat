@@ -33,8 +33,8 @@ class WorkflowRead(BaseModel):
     webhook: WebhookRead
     schedules: list[Schedule]
     entrypoint: str | None
-    static_inputs: dict[str, Any]
     expects: dict[str, ExpectedField] | None = None
+    expects_schema: dict[str, Any] | None = None
     returns: Any
     config: DSLConfig | None
     alias: str | None = None
@@ -82,7 +82,6 @@ class WorkflowUpdate(BaseModel):
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None
-    static_inputs: dict[str, Any] | None = None
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
@@ -194,6 +193,15 @@ class WorkflowCommitResponse(BaseModel):
 class WorkflowDSLCreateResponse(BaseModel):
     workflow: Workflow | None = None
     errors: list[ValidationResult] | None = None
+
+
+class WorkflowEntrypointValidationRequest(BaseModel):
+    expects: dict[str, ExpectedField] | None = None
+
+
+class WorkflowEntrypointValidationResponse(BaseModel):
+    valid: bool
+    errors: list[ValidationResult] = Field(default_factory=list)
 
 
 @dataclass

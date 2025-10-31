@@ -6,7 +6,8 @@ import { WorkflowsTagsDashboardTable } from "@/components/dashboard/dashboard-ta
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
 import { WorkflowTagsSidebar } from "@/components/dashboard/workflow-tags-sidebar"
-import { useLocalStorage, useTags } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useWorkflowTags } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowsDashboard() {
@@ -32,7 +33,7 @@ function WorkflowTagsDashboard({ workspaceId }: { workspaceId: string }) {
   const searchParams = useSearchParams()
   const queryTag = searchParams?.get("tag")
   // Only fetch tags when in Tags view
-  const { tags } = useTags(workspaceId)
+  const { tags } = useWorkflowTags(workspaceId)
   // Use useEffect to handle redirect instead of calling it during render
   useEffect(() => {
     // If we navigate to a tag that doesn't exist, redirect to the workflows page

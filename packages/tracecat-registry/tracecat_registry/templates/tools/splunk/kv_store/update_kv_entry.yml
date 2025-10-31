@@ -24,8 +24,9 @@ definition:
         Fields to update in the entry. Only specified fields will be updated.
         Example: {"status": "completed", "updated_at": "2024-01-15"}
     base_url:
-      type: str
+      type: str | None
       description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+      default: null
     owner:
       type: str
       description: Splunk namespace owner for access control (use "nobody" for shared access).
@@ -42,7 +43,7 @@ definition:
     - ref: update_entry
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}/${{ inputs.entry_key }}
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}/${{ inputs.entry_key }}
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

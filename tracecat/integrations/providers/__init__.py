@@ -2,20 +2,62 @@ from typing import Final
 
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.providers.base import BaseOAuthProvider
+from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
+from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
+from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
+from tracecat.integrations.providers.microsoft.azure import (
+    AzureManagementACProvider,
+    AzureManagementCCProvider,
+)
+from tracecat.integrations.providers.microsoft.defender_endpoint import (
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+)
+from tracecat.integrations.providers.microsoft.entra import (
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
+)
 from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+)
+from tracecat.integrations.providers.microsoft.loganalytics import (
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+)
+from tracecat.integrations.providers.microsoft.sentinel import (
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
 )
 from tracecat.integrations.providers.microsoft.teams import (
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
 )
+from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
+from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
+from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+    AzureManagementACProvider,
+    AzureManagementCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
+    GitHubOAuthProvider,
+    GitHubMCPProvider,
+    LinearMCPProvider,
+    NotionMCPProvider,
+    RunRevealMCPProvider,
+    SentryMCPProvider,
 ]
 
 

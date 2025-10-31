@@ -130,7 +130,8 @@ just gen-functions
 - Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
 - Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
 - Always avoid use of `type: ignore` when writing python code
-- You must *NEVER* put import statements in function bodies. If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+- You must *NEVER* put import statements in function bodies.
+- If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
 
 ### Frontend Standards
 - Use kebab-case for file names
@@ -165,7 +166,6 @@ just gen-functions
 
 ### Action Templates and Registry
 - **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
 - **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words

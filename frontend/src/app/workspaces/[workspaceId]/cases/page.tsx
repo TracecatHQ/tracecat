@@ -1,33 +1,43 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { useEffect } from "react"
 import CaseTable from "@/components/cases/case-table"
+import { CaseTagsSidebar } from "@/components/cases/case-tags-sidebar"
 import { CasesViewMode } from "@/components/cases/cases-view-toggle"
-import { CustomFieldsView } from "@/components/cases/custom-fields-view"
-import { useLocalStorage } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
-  const [view] = useLocalStorage("cases-view", CasesViewMode.Cases)
+  const searchParams = useSearchParams()
+  const workspaceId = useWorkspaceId()
 
-  // Update document title based on view
   useEffect(() => {
     if (typeof window !== "undefined") {
-      document.title =
-        view === CasesViewMode.CustomFields ? "Custom fields" : "Cases"
+      document.title = "Cases"
     }
-  }, [view])
+  }, [])
 
-  return (
-    <>
-      {view === CasesViewMode.Cases ? (
-        <div className="size-full overflow-auto">
-          <div className="container flex h-full flex-col space-y-12 py-8">
+  const viewParam = searchParams?.get("view") as CasesViewMode | null
+  const view = viewParam ?? CasesViewMode.Cases
+
+  if (view === CasesViewMode.Tags) {
+    return (
+      <div className="size-full overflow-auto px-3 py-6">
+        <div className="flex h-full flex-row gap-4">
+          <div className="w-48">
+            <CaseTagsSidebar workspaceId={workspaceId} />
+          </div>
+          <div className="flex-1">
             <CaseTable />
           </div>
         </div>
-      ) : (
-        <CustomFieldsView />
-      )}
-    </>
+      </div>
+    )
+  }
+
+  return (
+    <div className="size-full overflow-auto px-3 py-6 space-y-6">
+      <CaseTable />
+    </div>
   )
 }

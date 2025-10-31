@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Execute KQL query
+  description: Execute a KQL query against Azure Log Analytics workspace.
+  display_group: Azure Log Analytics
+  doc_url: https://learn.microsoft.com/en-us/rest/api/loganalytics/dataaccess/query/execute
+  namespace: tools.azure_log_analytics
+  name: execute_kql_query
+  secrets:
+    - type: oauth
+      provider_id: azure_log_analytics
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_log_analytics
+      grant_type: client_credentials
+      optional: true
+  expects:
+    workspace_id:
+      type: str
+      description: Log Analytics workspace ID (GUID).
+    query:
+      type: str
+      description: KQL query to execute (e.g., "SecurityIncident | take 10").
+    timespan:
+      type: str | None
+      description: ISO8601 time period to limit query results (e.g., "P7D" for 7 days, "PT1H" for 1 hour).
+      default: null
+    base_url:
+      type: enum["https://api.loganalytics.io", "https://api.loganalytics.us"]
+      description: Base URL for the Azure Log Analytics API.
+      default: https://api.loganalytics.io
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          timespan: ${{ inputs.timespan }}
+        script: |
+          def main(query, timespan):
+              payload = {"query": query}
+              if timespan:
+                  payload["timespan"] = timespan
+              return payload
+    - ref: execute_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v1/workspaces/${{ FN.url_encode(inputs.workspace_id) }}/query
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.execute_query.result.data }}

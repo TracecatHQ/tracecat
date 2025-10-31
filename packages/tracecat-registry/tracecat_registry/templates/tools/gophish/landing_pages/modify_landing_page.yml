@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Modify landing page
+  description: Modify a landing page in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/landing-pages#modify-landing-page
+  namespace: tools.gophish
+  name: modify_landing_page
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    landing_page_id:
+      type: int
+      description: The ID of the landing page to modify.
+    payload:
+      type: dict[str, Any]
+      description: The body of the landing page to modify. Look at the Gophish API documentation for the expected body.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: modify_landing_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/pages/${{ inputs.landing_page_id }}
+        method: PUT
+        payload: ${{ inputs.payload }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.modify_landing_page.result.data }}

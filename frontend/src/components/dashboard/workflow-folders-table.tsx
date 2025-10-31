@@ -221,13 +221,13 @@ export function WorkflowsDashboardTable({
               enableHiding: false,
             },
             {
-              id: "Last Edited",
+              id: "Last edited",
               accessorKey: "updated_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Edited"
+                  title="Last edited"
                 />
               ),
               cell: ({ getValue, row }) => {
@@ -302,7 +302,7 @@ export function WorkflowsDashboardTable({
               enableSorting: true,
             },
             {
-              id: "Last Saved",
+              id: "Last saved",
               accessorFn: (row: DirectoryItem) =>
                 row.type === "workflow"
                   ? row.latest_definition?.created_at
@@ -311,7 +311,7 @@ export function WorkflowsDashboardTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Saved"
+                  title="Last saved"
                 />
               ),
               cell: ({ getValue, row }) => {

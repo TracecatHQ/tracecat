@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
 
@@ -44,33 +45,6 @@ class TaskResult[TResult: Any, TError: Any](TypedDict):
     interaction: NotRequired[Any]
     interaction_id: NotRequired[str]
     interaction_type: NotRequired[str]
-
-
-@dataclass(frozen=True)
-class ActionErrorInfo:
-    """Contains information about an action error."""
-
-    ref: str
-    """The task reference."""
-
-    message: str
-    """The error message."""
-
-    type: str
-    """The error type."""
-
-    expr_context: ExprContext = ExprContext.ACTIONS
-    """The expression context where the error occurred."""
-
-    attempt: int = 1
-    """The attempt number."""
-
-    def format(self, loc: str = "run_action") -> str:
-        locator = f"{self.expr_context}.{self.ref} -> {loc}"
-        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
-
-
-ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
 
 
 class ActionRetryPolicy(BaseModel):
@@ -333,6 +307,18 @@ class RunActionInput(BaseModel):
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
+    session_id: uuid.UUID | None = None
+    """ID for a streamable session, if any."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_deprecated_inputs_context(cls, data: Any):
+        """Drop legacy INPUTS execution context entries."""
+        if isinstance(data, dict):
+            exec_ctx = data.get("exec_context")
+            if isinstance(exec_ctx, dict) and "INPUTS" in exec_ctx:
+                exec_ctx.pop("INPUTS", None)
+        return data
 
 
 class DSLExecutionError(TypedDict, total=False):
@@ -365,11 +351,16 @@ class Task:
     """The task action reference"""
     stream_id: StreamID
     """The stream ID of the task"""
+    delay: float = field(default=0.0, compare=False)
+    """Delay in seconds before scheduling an action."""
 
 
 class ScatterArgs(BaseModel):
     collection: ExpressionStr | list[Any] = Field(
         ..., description="The collection to scatter"
+    )
+    interval: float | None = Field(
+        default=None, description="The interval in seconds between each scatter task"
     )
 
 
@@ -383,3 +374,36 @@ class GatherArgs(BaseModel):
     error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ActionErrorInfo:
+    """Contains information about an action error."""
+
+    ref: str
+    """The task reference."""
+
+    message: str
+    """The error message."""
+
+    type: str
+    """The error type."""
+
+    expr_context: ExprContext = ExprContext.ACTIONS
+    """The expression context where the error occurred."""
+
+    attempt: int = 1
+    """The attempt number."""
+
+    stream_id: StreamID = ROOT_STREAM
+    """Execution stream where the error occurred."""
+
+    children: list[ActionErrorInfo] | None = None
+    """Child errors."""
+
+    def format(self, loc: str = "run_action") -> str:
+        locator = f"{self.expr_context}.{self.ref} -> {loc}"
+        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
+
+
+ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)

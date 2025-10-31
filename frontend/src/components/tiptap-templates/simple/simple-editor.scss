@@ -1,0 +1,196 @@
+.simple-editor-wrapper {
+  width: 100%;
+  height: auto;
+}
+
+.simple-editor-toolbar {
+  --tt-toolbar-bg-color: color-mix(
+    in srgb,
+    hsl(var(--muted)) 20%,
+    hsl(var(--background)) 80%
+  );
+
+  position: relative;
+  min-height: var(--tt-toolbar-height);
+  margin: 0;
+  margin-bottom: var(--simple-editor-toolbar-gap, 1.5rem);
+  padding: 0.1875rem 0 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background-color: var(--tt-toolbar-bg-color);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  &[data-visible="false"] {
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  .tiptap-toolbar-group {
+    gap: 0.25rem;
+    padding-inline: 0.1875rem;
+
+    &:first-of-type {
+      padding-inline-start: 0;
+    }
+
+    &:last-of-type {
+      padding-inline-end: 0;
+    }
+  }
+
+  .tiptap-button {
+    border-radius: var(--tt-radius-xs);
+    background: transparent;
+    box-shadow: none;
+
+    &[data-active-state="on"],
+    &[data-state="open"],
+    &:hover:not([disabled]),
+    &[data-highlighted]:not([data-highlighted="false"]) {
+      background-color: hsl(var(--muted));
+    }
+  }
+
+  &.tiptap-toolbar[data-variant="floating"] {
+    padding: 0.1875rem 0 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: var(--tt-toolbar-bg-color);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tiptap-toolbar-group {
+      padding-inline: 0.375rem;
+      flex: 0 0 auto;
+
+      &:first-of-type {
+        padding-inline-start: 0;
+      }
+
+      &:last-of-type {
+        padding-inline-end: 0;
+      }
+    }
+  }
+
+  &.tiptap-toolbar[data-variant="fixed"] {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: var(--tt-toolbar-bg-color);
+    border-top: 1px solid hsl(var(--border));
+    padding: 0.1875rem 0 0;
+    margin-bottom: 0;
+
+    .tiptap-toolbar-group {
+      padding-inline: 0.375rem;
+
+      &:first-of-type {
+        padding-inline-start: 0;
+      }
+
+      &:last-of-type {
+        padding-inline-end: 0;
+      }
+    }
+
+    &::after {
+      display: none;
+    }
+  }
+
+}
+
+.simple-editor-toolbar + .tiptap-toolbar-group,
+.simple-editor-toolbar + .simple-editor-content {
+  margin-top: 0;
+}
+
+.simple-editor-content {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor {
+  flex: 1;
+  min-height: 12rem;
+  padding: 0.125rem 0 0.25rem;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor > :first-child {
+  margin-top: 0;
+  margin-block-start: 0;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor ::selection {
+  background: hsl(var(--primary) / 0.15);
+}
+
+.simple-editor-content
+  .tiptap.ProseMirror.simple-editor
+  p[data-markdown-table-row="true"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  white-space: pre;
+  margin: 0;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor .tableWrapper {
+  margin: 0.75rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th,
+.simple-editor-content .tiptap.ProseMirror.simple-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th {
+  font-weight: 600;
+  background-color: hsl(var(--muted) / 0.35);
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr:nth-of-type(odd) td {
+  background-color: hsl(var(--muted) / 0.18);
+}

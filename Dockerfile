@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.8.4-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.8.6-python3.12-bookworm-slim
 
 ENV HOST=0.0.0.0
 ENV PORT=8000
@@ -71,9 +71,10 @@ COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
-# Copy the entrypoint script
+# Copy the entrypoint script and health check script
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
+RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
 
 # Install the project with EE features
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -106,7 +107,6 @@ USER apiuser
 
 # Verify apiuser can access required directories and binaries
 RUN deno --version && \
-    rg --version && \
     python3 -c "import os; print(f'DENO_DIR accessible: {os.access(os.environ[\"DENO_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'UV_CACHE_DIR accessible: {os.access(os.environ[\"UV_CACHE_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os, tempfile; f=tempfile.NamedTemporaryFile(dir=os.environ['UV_CACHE_DIR'], delete=True); print(f'UV_CACHE_DIR write test: SUCCESS - {f.name}')" && \

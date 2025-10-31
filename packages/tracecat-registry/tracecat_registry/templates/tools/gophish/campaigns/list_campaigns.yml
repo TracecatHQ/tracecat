@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List campaigns
+  description: List campaigns from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaigns
+  namespace: tools.gophish
+  name: list_campaigns
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: list_campaigns
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/campaigns/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    # This is needed because the API will return results and timelines for all campaigns. This can exceed the max size of workflow data steps very easily. For example a campaign with 1,000 recipients will return 11,000 lines of just results, in addition to the at least 1000 timeline items which are each another 8 lines of data. Very quickly this can exceed the max size of workflow data steps.
+    - ref: parse_campaigns_list
+      action: core.script.run_python
+      args:
+        inputs:
+          data: ${{ steps.list_campaigns.result.data }}
+        script: |
+          def main(data):
+            return [
+                {"id": campaign["id"], "name": campaign["name"]}
+                for campaign in data
+            ]
+  returns: ${{ steps.parse_campaigns_list.result }}

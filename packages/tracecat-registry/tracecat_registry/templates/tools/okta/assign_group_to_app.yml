@@ -3,7 +3,7 @@ definition:
   title: Assign group to application
   description: Assign a group to an application in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/apps/#assign-group-to-application
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/ApplicationGroups/#tag/ApplicationGroups/operation/updateGroupAssignmentToApplication
   namespace: tools.okta
   name: assign_group_to_app
   secrets:
@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     app_id:
       type: str
       description: Application ID to assign the group to
@@ -40,14 +41,14 @@ definition:
               if priority is not None:
                   return {**assignment, "priority": priority}
               return assignment
-    - ref: assign_group
+    - ref: assign_group_to_app
       action: core.http_request
       args:
         method: PUT
-        url: ${{ inputs.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
           Content-Type: "application/json"
         payload: ${{ steps.add_priority.result }}
-  returns: ${{ steps.assign_group.result.data }}
+  returns: ${{ steps.assign_group_to_app.result.data }}

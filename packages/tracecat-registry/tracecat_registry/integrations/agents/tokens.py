@@ -1,3 +1,0 @@
-DATA_KEY = "d"
-END_TOKEN = "__end__"
-END_TOKEN_VALUE = 1

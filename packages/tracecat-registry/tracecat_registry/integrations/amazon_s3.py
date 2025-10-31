@@ -46,12 +46,13 @@ s3_secret = RegistrySecret(
     Either:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
-        - `AWS_REGION`
     Or:
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME` (optional)
+    And:
+        - `AWS_REGION`
 """
 
 
@@ -74,6 +75,23 @@ async def parse_uri(uri: str) -> tuple[str, str]:
     key = "/".join(uri_paths)
 
     return bucket, key
+
+
+@registry.register(
+    default_title="Call S3 method",
+    description="Instantiate a S3 client and call a S3 method.",
+    display_group="Amazon S3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
+    namespace="tools.amazon_s3",
+    secrets=[s3_secret],
+)
+async def call_method(
+    method_name: Annotated[str, Doc("S3 method name.")],
+    params: Annotated[dict[str, Any], Doc("S3 method parameters.")],
+) -> dict[str, Any]:
+    session = await aws_boto3.get_session()
+    async with session.client("s3") as s3_client:  # type: ignore
+        return await getattr(s3_client, method_name)(**params)
 
 
 @registry.register(
@@ -241,7 +259,7 @@ async def get_objects(
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
-async def upload_object(
+async def put_object(
     bucket: Annotated[str, Doc("S3 bucket name.")],
     key: Annotated[str, Doc("S3 object key.")],
     file_data: Annotated[str, Doc("Base64 encoded content of the file to upload.")],

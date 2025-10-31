@@ -14,13 +14,14 @@ definition:
       type: str
       description: ID of the agent/device to abort scan on.
     base_url:
-      type: str
+      type: str | None
       description: SentinelOne tenant URL.
+      default: null
   steps:
     - ref: abort_scan
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/abort-scan
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/agents/actions/abort-scan
         method: POST
         timeout: 60
         headers:

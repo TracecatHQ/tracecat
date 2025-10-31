@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Delete Teams channel
+  description: Delete a channel from a Microsoft Teams team.
+  display_group: Microsoft Teams
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-delete?view=graph-rest-beta&tabs=http
+  namespace: tools.microsoft_teams
+  name: delete_channel
+  secrets:
+    - type: oauth
+      provider_id: microsoft_teams
+      grant_type: authorization_code
+  expects:
+    team_id:
+      type: str
+      description: The ID of the team.
+    channel_id:
+      type: str
+      description: The ID of the channel.
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+  steps:
+    - ref: delete_channel
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+  returns: ${{ steps.delete_channel.result.data }}

@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: Send adaptive card
+  description: Send a message with Adaptive Cards to a Microsoft Teams channel.
+  display_group: Microsoft Teams
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post-messages
+  namespace: tools.microsoft_teams
+  name: send_adaptive_card
+  secrets:
+    - type: oauth
+      provider_id: microsoft_teams
+      grant_type: authorization_code
+  expects:
+    team_id:
+      type: str
+      description: The ID of the team.
+    channel_id:
+      type: str
+      description: The ID of the channel.
+    card_elements:
+      type: list[dict[str, Any]]
+      description: List of Adaptive Card elements.
+    title:
+      type: str | None
+      description: Title for the card (appears as subject).
+      default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+  steps:
+    - ref: build_message
+      action: core.script.run_python
+      args:
+        inputs:
+          card_elements: ${{ inputs.card_elements }}
+          title: ${{ inputs.title }}
+        script: |
+          import json
+          import uuid
+
+          def main(card_elements, title):
+              # Build Adaptive Card structure
+              card_content = {
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": card_elements
+              }
+
+              # Generate attachment ID
+              attachment_id = str(uuid.uuid4()).replace("-", "")
+
+              # Build payload
+              payload = {
+                  "body": {
+                      "contentType": "html",
+                      "content": f'<attachment id="{attachment_id}"></attachment>'
+                  },
+                  "attachments": [
+                      {
+                          "id": attachment_id,
+                          "contentType": "application/vnd.microsoft.card.adaptive",
+                          "content": json.dumps(card_content)
+                      }
+                  ]
+              }
+
+              if title:
+                  payload["subject"] = title
+
+              return payload
+
+    - ref: send_adaptive_card
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_message.result }}
+  returns: ${{ steps.send_adaptive_card.result.data }}

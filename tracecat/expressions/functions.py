@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import ipaddress
 import itertools
 import json
@@ -22,7 +23,12 @@ from slugify import slugify
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
-from tracecat.expressions.formatters import tabulate
+from tracecat.expressions.formatters import (
+    tabulate,
+    to_markdown_list,
+    to_markdown_table,
+    to_markdown_tasks,
+)
 from tracecat.expressions.ioc_extractors import (
     extract_asns,
     extract_cves,
@@ -127,6 +133,11 @@ def slice_str(x: str, start_index: int, length: int) -> str:
     return x[start_index : start_index + length]
 
 
+def at(sequence: Sequence[Any], index: int) -> Any:
+    """Return the element at the given index."""
+    return sequence[index]
+
+
 def endswith(x: str, suffix: str) -> bool:
     """Check if a string ends with a specified suffix."""
     return x.endswith(suffix)
@@ -154,7 +165,7 @@ def str_to_b64(x: str) -> str:
 
 def b64_to_str(x: str) -> str:
     """Decode base64 string to string."""
-    return base64.b64decode(x).decode()
+    return base64.b64decode(x.encode("utf-8")).decode()
 
 
 def str_to_b64url(x: str) -> str:
@@ -164,7 +175,38 @@ def str_to_b64url(x: str) -> str:
 
 def b64url_to_str(x: str) -> str:
     """Decode URL-safe base64 string to string."""
-    return base64.urlsafe_b64decode(x).decode()
+    return base64.urlsafe_b64decode(x.encode("utf-8")).decode()
+
+
+# Hash functions
+
+
+def hash_md5(x: str | bytes) -> str:
+    """Generate MD5 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.md5(x).hexdigest()
+
+
+def hash_sha1(x: str | bytes) -> str:
+    """Generate SHA1 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha1(x).hexdigest()
+
+
+def hash_sha256(x: str | bytes) -> str:
+    """Generate SHA256 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha256(x).hexdigest()
+
+
+def hash_sha512(x: str | bytes) -> str:
+    """Generate SHA512 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha512(x).hexdigest()
 
 
 def replace(x: str, old: str, new: str) -> str:
@@ -422,17 +464,6 @@ def is_json(x: str) -> bool:
         return True
     except orjson.JSONDecodeError:
         return False
-
-
-def index_by_key(
-    x: list[dict[str, Any]],
-    field_key: str,
-    value_key: str | None = None,
-) -> dict[str, Any]:
-    """Convert a list of objects into an object indexed by the specified key."""
-    if value_key:
-        return {item[field_key]: item[value_key] for item in x}
-    return {item[field_key]: item for item in x}
 
 
 def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
@@ -813,14 +844,20 @@ def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
     return x.isoformat(timespec=timespec)
 
 
-def now() -> datetime:
+def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
     """Return the current datetime."""
-    return datetime.now()
+    dt = datetime.now()
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
-def utcnow() -> datetime:
+def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
     """Return the current timezone-aware datetime."""
-    return datetime.now(UTC)
+    dt = datetime.now(UTC)
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
 def today() -> date:
@@ -989,6 +1026,7 @@ _FUNCTION_MAPPING = {
     "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
+    "at": at,
     # Math
     "add": add,
     "sub": sub,
@@ -1006,13 +1044,16 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
-    "index_by_key": index_by_key,
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,
+    # Formatters
+    "to_markdown_list": to_markdown_list,
+    "to_markdown_table": to_markdown_table,
+    "to_markdown_tasks": to_markdown_tasks,
     # Logical
     "and": and_,
     "or": or_,
@@ -1064,6 +1105,11 @@ _FUNCTION_MAPPING = {
     "from_base64": b64_to_str,
     "to_base64url": str_to_b64url,
     "from_base64url": b64url_to_str,
+    # Hash functions
+    "hash_md5": hash_md5,
+    "hash_sha1": hash_sha1,
+    "hash_sha256": hash_sha256,
+    "hash_sha512": hash_sha512,
     # IP addresses
     "ipv4_in_subnet": ipv4_in_subnet,
     "ipv6_in_subnet": ipv6_in_subnet,

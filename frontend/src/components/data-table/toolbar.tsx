@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input"
 export interface DataTableToolbarProps<TData> {
   filterProps?: DataTableToolbarFilterProps
   fields?: DataTableToolbarField[]
-  onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  onDeleteRows?: (selectedRows: Row<TData>[]) => Promise<void> | void
 }
 
 interface DataTableToolbarFilterProps {
@@ -59,22 +59,20 @@ export function DataTableToolbar<TData>({
   return (
     <div className="flex items-center justify-between">
       <div className="flex flex-1 items-center space-x-2">
-        <Input
-          placeholder={filterProps?.placeholder ?? "Filter..."}
-          value={
-            table
-              .getColumn(filterProps?.column ?? "")
-              ?.getFilterValue() as string
-          }
-          onChange={(event) =>
-            filterProps?.column
-              ? table
-                  .getColumn(filterProps.column)
-                  ?.setFilterValue(event.target.value)
-              : null
-          }
-          className="h-8 w-[150px] text-xs lg:w-[250px]"
-        />
+        {filterProps && (
+          <Input
+            placeholder={filterProps.placeholder ?? "Filter..."}
+            value={
+              table.getColumn(filterProps.column)?.getFilterValue() as string
+            }
+            onChange={(event) =>
+              table
+                .getColumn(filterProps.column)
+                ?.setFilterValue(event.target.value)
+            }
+            className="h-8 w-[150px] text-xs lg:w-[250px]"
+          />
+        )}
         {fields?.map((field) => (
           <DataTableFacetedFilter
             key={field.column}
@@ -119,12 +117,13 @@ export function DataTableToolbar<TData>({
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
-                  onClick={() => {
+                  onClick={async () => {
                     try {
                       setIsDeleting(true)
                       const selectedRows =
                         table.getFilteredSelectedRowModel().rows
-                      onDeleteRows(selectedRows)
+                      if (!onDeleteRows || selectedRows.length === 0) return
+                      await onDeleteRows(selectedRows)
                       table.resetRowSelection()
                     } finally {
                       setIsDeleting(false)
