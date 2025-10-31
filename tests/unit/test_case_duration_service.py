@@ -141,6 +141,54 @@ async def test_duration_filters_match_event_payload(
 
 
 @pytest.mark.anyio
+async def test_duration_filters_support_multiple_values(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Time to resolved or closed",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": [CaseStatus.RESOLVED, CaseStatus.CLOSED]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Investigate suspicious login",
+            description="Track the suspicious user activity.",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    initial_value = values[0]
+    assert initial_value.end_event_id is None
+
+    case = await cases_service.update_case(
+        case,
+        CaseUpdate(status=CaseStatus.RESOLVED),
+    )
+
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    updated_value = values[0]
+    assert updated_value.end_event_id is not None
+    assert updated_value.duration is not None
+
+
+@pytest.mark.anyio
 async def test_duration_definition_update_accepts_nested_anchor_models(
     session: AsyncSession, svc_role
 ) -> None:
