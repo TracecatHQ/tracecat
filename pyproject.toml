@@ -33,7 +33,7 @@ dependencies = [
     "defusedxml==0.7.1",
     "email-validator>=2.0.0",
     "fastapi-users[sqlalchemy,oauth]==14.0.1",
-    "fastapi[standard]==0.118.0",
+    "fastapi[standard]==0.120.3",
     "google-auth==2.37.0",
     "greenlet==3.0.3",
     "hatchling==1.27.0",
