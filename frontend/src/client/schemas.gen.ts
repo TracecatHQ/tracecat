@@ -1474,6 +1474,63 @@ distinguish multiple files.`,
   description: "Binary content, e.g. an audio or image file.",
 } as const
 
+export const $Body_auth_auth_database_login = {
+  properties: {
+    grant_type: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^password$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Grant Type",
+    },
+    username: {
+      type: "string",
+      title: "Username",
+    },
+    password: {
+      type: "string",
+      format: "password",
+      title: "Password",
+    },
+    scope: {
+      type: "string",
+      title: "Scope",
+      default: "",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      format: "password",
+      title: "Client Secret",
+    },
+  },
+  type: "object",
+  required: ["username", "password"],
+  title: "Body_auth-auth:database.login",
+} as const
+
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -14428,146 +14485,147 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
-  properties: {
-    source_event_id: {
-      type: "integer",
-      title: "Source Event Id",
+export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
+  {
+    properties: {
+      source_event_id: {
+        type: "integer",
+        title: "Source Event Id",
+      },
+      schedule_time: {
+        type: "string",
+        format: "date-time",
+        title: "Schedule Time",
+      },
+      start_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Start Time",
+      },
+      close_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Close Time",
+      },
+      curr_event_type: {
+        $ref: "#/components/schemas/WorkflowEventType",
+      },
+      status: {
+        $ref: "#/components/schemas/WorkflowExecutionEventStatus",
+      },
+      action_name: {
+        type: "string",
+        title: "Action Name",
+      },
+      action_ref: {
+        type: "string",
+        title: "Action Ref",
+      },
+      action_input: {
+        title: "Action Input",
+      },
+      action_result: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/AgentOutput",
+          },
+          {},
+          {
+            type: "null",
+          },
+        ],
+        title: "Action Result",
+      },
+      action_error: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/EventFailure",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
+      stream_id: {
+        type: "string",
+        title: "Stream Id",
+        default: "<root>:0",
+      },
+      child_wf_exec_id: {
+        anyOf: [
+          {
+            type: "string",
+            pattern:
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Child Wf Exec Id",
+      },
+      child_wf_count: {
+        type: "integer",
+        title: "Child Wf Count",
+        default: 0,
+      },
+      loop_index: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Loop Index",
+      },
+      child_wf_wait_strategy: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/WaitStrategy",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
+      session: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/Session_Any_",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
     },
-    schedule_time: {
-      type: "string",
-      format: "date-time",
-      title: "Schedule Time",
-    },
-    start_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Start Time",
-    },
-    close_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Close Time",
-    },
-    curr_event_type: {
-      $ref: "#/components/schemas/WorkflowEventType",
-    },
-    status: {
-      $ref: "#/components/schemas/WorkflowExecutionEventStatus",
-    },
-    action_name: {
-      type: "string",
-      title: "Action Name",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    action_input: {
-      title: "Action Input",
-    },
-    action_result: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/AgentOutput",
-        },
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Result",
-    },
-    action_error: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/EventFailure",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    stream_id: {
-      type: "string",
-      title: "Stream Id",
-      default: "<root>:0",
-    },
-    child_wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-          pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Child Wf Exec Id",
-    },
-    child_wf_count: {
-      type: "integer",
-      title: "Child Wf Count",
-      default: 0,
-    },
-    loop_index: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Loop Index",
-    },
-    child_wf_wait_strategy: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WaitStrategy",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    session: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/Session_Any_",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  required: [
-    "source_event_id",
-    "schedule_time",
-    "curr_event_type",
-    "status",
-    "action_name",
-    "action_ref",
-  ],
-  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
-} as const
+    type: "object",
+    required: [
+      "source_event_id",
+      "schedule_time",
+      "curr_event_type",
+      "status",
+      "action_name",
+      "action_ref",
+    ],
+    title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
+  } as const
 
 export const $WorkflowExecutionEventStatus = {
   type: "string",
@@ -14702,122 +14760,123 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
-  properties: {
-    id: {
-      type: "string",
-      title: "Id",
-      description: "The ID of the workflow execution",
-    },
-    run_id: {
-      type: "string",
-      title: "Run Id",
-      description: "The run ID of the workflow execution",
-    },
-    start_time: {
-      type: "string",
-      format: "date-time",
-      title: "Start Time",
-      description: "The start time of the workflow execution",
-    },
-    execution_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Execution Time",
-      description: "When this workflow run started or should start.",
-    },
-    close_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Close Time",
-      description: "When the workflow was closed if closed.",
-    },
-    status: {
-      type: "string",
-      enum: [
-        "RUNNING",
-        "COMPLETED",
-        "FAILED",
-        "CANCELED",
-        "TERMINATED",
-        "CONTINUED_AS_NEW",
-        "TIMED_OUT",
-      ],
-    },
-    workflow_type: {
-      type: "string",
-      title: "Workflow Type",
-    },
-    task_queue: {
-      type: "string",
-      title: "Task Queue",
-    },
-    history_length: {
-      type: "integer",
-      title: "History Length",
-      description: "Number of events in the history",
-    },
-    parent_wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-          pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Wf Exec Id",
-    },
-    trigger_type: {
-      $ref: "#/components/schemas/TriggerType",
-    },
-    events: {
-      items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_",
+export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
+  {
+    properties: {
+      id: {
+        type: "string",
+        title: "Id",
+        description: "The ID of the workflow execution",
       },
-      type: "array",
-      title: "Events",
-      description: "Compact events in the workflow execution",
-    },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
+      run_id: {
+        type: "string",
+        title: "Run Id",
+        description: "The run ID of the workflow execution",
       },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
+      start_time: {
+        type: "string",
+        format: "date-time",
+        title: "Start Time",
+        description: "The start time of the workflow execution",
+      },
+      execution_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Execution Time",
+        description: "When this workflow run started or should start.",
+      },
+      close_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Close Time",
+        description: "When the workflow was closed if closed.",
+      },
+      status: {
+        type: "string",
+        enum: [
+          "RUNNING",
+          "COMPLETED",
+          "FAILED",
+          "CANCELED",
+          "TERMINATED",
+          "CONTINUED_AS_NEW",
+          "TIMED_OUT",
+        ],
+      },
+      workflow_type: {
+        type: "string",
+        title: "Workflow Type",
+      },
+      task_queue: {
+        type: "string",
+        title: "Task Queue",
+      },
+      history_length: {
+        type: "integer",
+        title: "History Length",
+        description: "Number of events in the history",
+      },
+      parent_wf_exec_id: {
+        anyOf: [
+          {
+            type: "string",
+            pattern:
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Parent Wf Exec Id",
+      },
+      trigger_type: {
+        $ref: "#/components/schemas/TriggerType",
+      },
+      events: {
+        items: {
+          $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
+        },
+        type: "array",
+        title: "Events",
+        description: "Compact events in the workflow execution",
+      },
+      interactions: {
+        items: {
+          $ref: "#/components/schemas/InteractionRead",
+        },
+        type: "array",
+        title: "Interactions",
+        description: "The interactions in the workflow execution",
+      },
     },
-  },
-  type: "object",
-  required: [
-    "id",
-    "run_id",
-    "start_time",
-    "status",
-    "workflow_type",
-    "task_queue",
-    "history_length",
-    "trigger_type",
-    "events",
-  ],
-  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
-} as const
+    type: "object",
+    required: [
+      "id",
+      "run_id",
+      "start_time",
+      "status",
+      "workflow_type",
+      "task_queue",
+      "history_length",
+      "trigger_type",
+      "events",
+    ],
+    title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
+  } as const
 
 export const $WorkflowExecutionReadMinimal = {
   properties: {
@@ -14917,6 +14976,15 @@ export const $WorkflowExecutionReadMinimal = {
     "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
+} as const
+
+export const $WorkflowExecutionStatus = {
+  type: "integer",
+  enum: [1, 2, 3, 4, 5, 6, 7],
+  title: "WorkflowExecutionStatus",
+  description: `Status of a workflow execution.
+
+See :py:class:\`temporalio.api.enums.v1.WorkflowExecutionStatus\`.`,
 } as const
 
 export const $WorkflowExecutionTerminate = {
@@ -15944,61 +16012,4 @@ export const $Yaml = {
   },
   type: "object",
   title: "Yaml",
-} as const
-
-export const $login = {
-  properties: {
-    grant_type: {
-      anyOf: [
-        {
-          type: "string",
-          pattern: "^password$",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Grant Type",
-    },
-    username: {
-      type: "string",
-      title: "Username",
-    },
-    password: {
-      type: "string",
-      format: "password",
-      title: "Password",
-    },
-    scope: {
-      type: "string",
-      title: "Scope",
-      default: "",
-    },
-    client_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Id",
-    },
-    client_secret: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      format: "password",
-      title: "Client Secret",
-    },
-  },
-  type: "object",
-  required: ["username", "password"],
-  title: "Body_auth-auth:database.login",
 } as const
