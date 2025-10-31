@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -107,9 +106,7 @@ export function GitHubAppManualForm({
 
   const buttonLabel = existingAppId ? "Save changes" : "Save credentials"
 
-  const containerClass = className
-    ? `space-y-4 ${className}`
-    : "space-y-4"
+  const containerClass = className ? `space-y-4 ${className}` : "space-y-4"
 
   return (
     <div className={containerClass}>
@@ -154,8 +151,8 @@ MIIEpAIBAAKCAQEA...
                       />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Paste the full contents of the PEM file you downloaded from
-                      GitHub
+                      Paste the full contents of the PEM file you downloaded
+                      from GitHub
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -211,7 +208,9 @@ MIIEpAIBAAKCAQEA...
               disabled={isSubmitting || saveCredentials.isPending}
               className="min-w-32"
             >
-              {isSubmitting || saveCredentials.isPending ? "Saving..." : buttonLabel}
+              {isSubmitting || saveCredentials.isPending
+                ? "Saving..."
+                : buttonLabel}
             </Button>
           </div>
         </form>
