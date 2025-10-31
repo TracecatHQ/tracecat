@@ -71,7 +71,7 @@ const getInitialValues = (
       selection: duration.end_anchor.selection ?? "first",
       eventType: duration.end_anchor.event_type,
       filterValue: endFilters[0],
-      filterValues: endFilters,
+      filterValues: [],
     },
   }
 }
