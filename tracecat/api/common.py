@@ -19,6 +19,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 def generic_exception_handler(request: Request, exc: Exception):
@@ -86,8 +87,9 @@ async def add_temporal_search_attributes():
         await client.operator_service.add_search_attributes(
             AddSearchAttributesRequest(
                 search_attributes={
-                    "TracecatTriggerType": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                    "TracecatTriggeredByUserId": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+                    TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+                    TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
                 },
                 namespace=namespace,
             )
@@ -102,7 +104,11 @@ async def add_temporal_search_attributes():
         logger.info(
             "Temporal search attributes added",
             namespace=namespace,
-            search_attributes=["TracecatTriggerType", "TracecatTriggeredByUserId"],
+            search_attributes=[
+                TemporalSearchAttr.TRIGGER_TYPE.value,
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+                TemporalSearchAttr.WORKSPACE_ID.value,
+            ],
         )
 
 
@@ -123,8 +129,9 @@ async def remove_temporal_search_attributes():
         await client.operator_service.remove_search_attributes(
             RemoveSearchAttributesRequest(
                 search_attributes=[
-                    "TracecatTriggerType",
-                    "TracecatTriggeredByUserId",
+                    TemporalSearchAttr.TRIGGER_TYPE.value,
+                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+                    TemporalSearchAttr.WORKSPACE_ID.value,
                 ],
                 namespace=namespace,
             )
@@ -139,5 +146,9 @@ async def remove_temporal_search_attributes():
         logger.info(
             "Temporal search attributes removed",
             namespace=namespace,
-            search_attributes=["TracecatTriggerType", "TracecatTriggeredByUserId"],
+            search_attributes=[
+                TemporalSearchAttr.TRIGGER_TYPE.value,
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+                TemporalSearchAttr.WORKSPACE_ID.value,
+            ],
         )
