@@ -191,6 +191,14 @@ class TestWorkflowExecutionSearchAttributes:
         )
         assert trigger_pair.value == TriggerType.SCHEDULED.value
 
+        # Verify workspace ID is set correctly
+        workspace_pair = next(
+            p
+            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
+            if p.key.name == TemporalSearchAttr.WORKSPACE_ID.value
+        )
+        assert workspace_pair.value == str(mock_role_with_workspace.workspace_id)
+
     async def test_webhook_trigger_sets_correct_attributes(
         self,
         mock_client: Mock,
@@ -229,6 +237,14 @@ class TestWorkflowExecutionSearchAttributes:
             if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
         )
         assert trigger_pair.value == TriggerType.WEBHOOK.value
+
+        # Verify workspace ID is set correctly
+        workspace_pair = next(
+            p
+            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
+            if p.key.name == TemporalSearchAttr.WORKSPACE_ID.value
+        )
+        assert workspace_pair.value == str(mock_role_with_workspace.workspace_id)
 
     async def test_service_role_without_workspace_omits_workspace_id(
         self,
