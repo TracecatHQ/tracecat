@@ -43,6 +43,7 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -501,6 +502,7 @@ function WorkflowSaveActions({
                     name="message"
                     render={({ field }) => (
                       <FormItem>
+                        <FormLabel>Commit message</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
