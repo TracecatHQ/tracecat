@@ -27,6 +27,7 @@ import type {
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
+import { CaseWorkflowTriggerButton } from "@/components/cases/case-panel-common"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
@@ -733,26 +734,31 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="flex-1 min-w-0">
             <div className="h-full overflow-auto min-w-0 bg-muted/20">
               <div className="border-b bg-background">
-                <div className="mx-auto flex h-11 max-w-4xl items-center justify-center gap-x-4 overflow-x-auto px-6 text-sm">
-                  <PrioritySelect
-                    priority={caseData.priority || "unknown"}
-                    onValueChange={handlePriorityChange}
-                  />
-                  <SeveritySelect
-                    severity={caseData.severity || "unknown"}
-                    onValueChange={handleSeverityChange}
-                  />
-                  <AssigneeSelect
-                    assignee={caseData.assignee}
-                    workspaceMembers={members ?? []}
-                    onValueChange={handleAssigneeChange}
-                  />
-                  <CaseDurationMetrics
-                    durations={caseDurations}
-                    definitions={caseDurationDefinitions}
-                    isLoading={durationsAreLoading}
-                    variant="inline"
-                  />
+                <div className="flex h-11 items-center px-3">
+                  <div className="flex flex-1 justify-center overflow-hidden">
+                    <div className="flex h-full items-center gap-x-4 overflow-x-auto text-sm">
+                      <PrioritySelect
+                        priority={caseData.priority || "unknown"}
+                        onValueChange={handlePriorityChange}
+                      />
+                      <SeveritySelect
+                        severity={caseData.severity || "unknown"}
+                        onValueChange={handleSeverityChange}
+                      />
+                      <AssigneeSelect
+                        assignee={caseData.assignee}
+                        workspaceMembers={members ?? []}
+                        onValueChange={handleAssigneeChange}
+                      />
+                      <CaseDurationMetrics
+                        durations={caseDurations}
+                        definitions={caseDurationDefinitions}
+                        isLoading={durationsAreLoading}
+                        variant="inline"
+                      />
+                    </div>
+                  </div>
+                  <CaseWorkflowTriggerButton className="ml-3 shrink-0" />
                 </div>
               </div>
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">

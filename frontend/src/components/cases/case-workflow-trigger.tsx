@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
 import { workflowsGetWorkflow } from "@/client"
+import { CASE_WORKFLOW_TRIGGER_EVENT } from "@/components/cases/case-panel-common"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { SystemInfoAlert } from "@/components/system"
 import {
@@ -205,6 +206,9 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     null
   )
   const [isCommandOpen, setIsCommandOpen] = useState(false)
+  const openCommandPalette = useCallback(() => {
+    setIsCommandOpen(true)
+  }, [])
   // Use the useLocalStorage hook
   const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
     "groupCaseFields",
@@ -224,6 +228,16 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [setIsCommandOpen])
+  useEffect(() => {
+    const handleOpen = () => {
+      openCommandPalette()
+    }
+
+    window.addEventListener(CASE_WORKFLOW_TRIGGER_EVENT, handleOpen)
+    return () => {
+      window.removeEventListener(CASE_WORKFLOW_TRIGGER_EVENT, handleOpen)
+    }
+  }, [openCommandPalette])
 
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(selectedWorkflowId || "")

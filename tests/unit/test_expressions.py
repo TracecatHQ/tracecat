@@ -45,6 +45,44 @@ from tracecat.variables.models import VariableCreate
 from tracecat.variables.service import VariablesService
 
 
+@pytest.fixture
+def evaluator() -> ExprEvaluator:
+    return ExprEvaluator()
+
+
+@pytest.mark.parametrize(
+    "base,indexes,expected",
+    [
+        (["hello", "world"], (1,), "world"),
+        ((1, 2, 3), (0,), 1),
+        ("tracecat", (-1,), "t"),
+        (([["nested"]], 1), (0, 0, 0), "nested"),
+        ({"foo": {"bar": 42}}, ("foo", "bar"), 42),
+    ],
+)
+def test_primary_expr_indexing(
+    evaluator: ExprEvaluator, base, indexes, expected
+) -> None:
+    assert evaluator.primary_expr(base, *indexes) == expected
+
+
+@pytest.mark.parametrize(
+    "base,indexes,error_message",
+    [
+        ([1, 2], (5,), "Sequence index 5 out of range"),
+        ([1, 2], ("0",), "Sequence indices must be integers"),
+        (42, (0,), "Object of type 'int' is not indexable"),
+        ({"foo": 1}, ("bar",), "Key 'bar' not found for mapping access"),
+    ],
+)
+def test_primary_expr_indexing_errors(
+    evaluator: ExprEvaluator, base, indexes, error_message: str
+) -> None:
+    with pytest.raises(TracecatExpressionError) as exc:
+        evaluator.primary_expr(base, *indexes)
+    assert error_message in str(exc.value)
+
+
 @pytest.mark.parametrize(
     "lambda_str,test_input,expected_result",
     [
@@ -623,6 +661,45 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("TRIGGER.data.people[*].name", ["Alice", "Bob", "Charlie"]),
         ("TRIGGER.data.people[*].gender", ["female", "male"]),
         # ('TRIGGER.data.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
+        # Test direct indexing expressions
+        ## List indexing
+        ("ACTIONS.test_list[0]", "hello"),
+        ("ACTIONS.test_list[1]", "world"),
+        ("ACTIONS.test_list[3]", "bar"),
+        ("ACTIONS.test_list[-1]", "bar"),
+        ("ACTIONS.test_list[-2]", "foo"),
+        ## String indexing
+        ("ACTIONS.test_string[0]", "t"),
+        ("ACTIONS.test_string[-1]", "t"),
+        ("ACTIONS.test_string[5]", "c"),
+        ## Tuple indexing
+        ("ACTIONS.test_tuple[0]", 10),
+        ("ACTIONS.test_tuple[1]", 20),
+        ("ACTIONS.test_tuple[2]", 30),
+        ("ACTIONS.test_tuple[-1]", 30),
+        ## Nested indexing
+        ("ACTIONS.nested_structure['level1']['level2'][0]['name']", "nested_item"),
+        ("ACTIONS.nested_structure['level1']['level2'][0]['value']", 99),
+        ("ACTIONS.mixed_nested[0][0][0]", "deep"),
+        ("ACTIONS.mixed_nested[1][0][0]", "value"),
+        ## Mixed dot and bracket notation
+        ("ACTIONS.nested_structure.level1.level2[0].name", "nested_item"),
+        ("ACTIONS.nested_structure.level1['level2'][0]['value']", 99),
+        ## List indexing with existing data
+        ("TRIGGER.data.list[0]", 1),
+        ("TRIGGER.data.list[1]", 2),
+        ("TRIGGER.data.list[-1]", 3),
+        ("TRIGGER.data.adjectives[0]", "cool"),
+        ("TRIGGER.data.adjectives[2]", "happy"),
+        ("TRIGGER.data.my.module.items[0]", "a"),
+        ("TRIGGER.data.my.module.items[1]", "b"),
+        ("TRIGGER.data.my.module.items[-1]", "c"),
+        ## Function result indexing
+        ("FN.split('hello,world,foo', ',')[0]", "hello"),
+        ("FN.split('hello,world,foo', ',')[1]", "world"),
+        ("FN.split('hello,world,foo', ',')[-1]", "foo"),
+        ("FN.split(TRIGGER.data.text, 'e')[0]", "t"),
+        ("FN.split(TRIGGER.data.text, 'e')[1]", "st"),
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -689,6 +766,13 @@ def test_expression_parser(expr, expected):
                 "bar": 1,
                 "baz": 2,
             },
+            "test_list": ["hello", "world", "foo", "bar"],
+            "test_string": "tracecat",
+            "test_tuple": (10, 20, 30),
+            "nested_structure": {
+                "level1": {"level2": [{"name": "nested_item", "value": 99}]}
+            },
+            "mixed_nested": [[["deep"]], [["value"]]],
             "users": [
                 {
                     "name": "Alice",

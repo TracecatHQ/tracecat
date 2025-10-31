@@ -837,11 +837,32 @@ class VercelStreamContext:
                     output=event.result.model_response_str(),
                 )
             elif isinstance(event.result, RetryPromptPart):
+                # Validation or runtime error from a tool call.
+                # Do NOT emit a top-level error frame which aborts the stream.
+                # Instead, surface the failure as the tool's output so the UI
+                # can render a completed tool block and the model can continue.
                 if event.result.tool_call_id:
                     tool_call_id = event.result.tool_call_id
                     self.tool_finished[tool_call_id] = True
                     self.tool_input_emitted.pop(tool_call_id, None)
-                yield ErrorEventPayload(errorText=event.result.model_response())
+                    # Encode validation failure within the tool output payload
+                    # instead of emitting a top-level error frame. The client
+                    # derives an error state from the presence of `errorText`.
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output={
+                            "errorText": event.result.model_response(),
+                        },
+                    )
+                else:
+                    # No tool_call_id to associate with — fall back to a text block
+                    # rather than raising an error that would terminate streaming.
+                    text_id = f"msg_{uuid.uuid4().hex}"
+                    yield TextStartEventPayload(id=text_id)
+                    yield TextDeltaEventPayload(
+                        id=text_id, delta=event.result.model_response()
+                    )
+                    yield TextEndEventPayload(id=text_id)
 
 
 # ==============================================================================

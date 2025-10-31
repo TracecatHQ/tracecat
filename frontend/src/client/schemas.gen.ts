@@ -3496,7 +3496,7 @@ export const $CaseTagCreate = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "string",
@@ -3517,7 +3517,7 @@ export const $CaseTagRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -7036,7 +7036,7 @@ export const $IntegrationRead = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -7798,7 +7798,7 @@ export const $OrgMemberRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -9861,7 +9861,7 @@ export const $Role = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -9883,7 +9883,7 @@ export const $Role = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -11304,7 +11304,7 @@ export const $TableColumnRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11437,7 +11437,7 @@ export const $TableRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11462,7 +11462,7 @@ export const $TableReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -11534,7 +11534,7 @@ export const $TableRowRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     created_at: {
@@ -11621,7 +11621,7 @@ export const $TagRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -13767,7 +13767,7 @@ export const $VariableRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -13844,7 +13844,7 @@ export const $VariableReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -14072,6 +14072,73 @@ export const $WaitStrategy = {
   title: "WaitStrategy",
 } as const
 
+export const $WebhookApiKeyGenerateResponse = {
+  properties: {
+    api_key: {
+      type: "string",
+      title: "Api Key",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["api_key", "preview", "created_at"],
+  title: "WebhookApiKeyGenerateResponse",
+} as const
+
+export const $WebhookApiKeyRead = {
+  properties: {
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["preview", "created_at"],
+  title: "WebhookApiKeyRead",
+} as const
+
 export const $WebhookCreate = {
   properties: {
     status: {
@@ -14096,6 +14163,13 @@ export const $WebhookCreate = {
         },
       ],
       title: "Entrypoint Ref",
+    },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
     },
   },
   type: "object",
@@ -14146,6 +14220,13 @@ export const $WebhookRead = {
       ],
       title: "Entrypoint Ref",
     },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+    },
     filters: {
       additionalProperties: true,
       type: "object",
@@ -14166,6 +14247,16 @@ export const $WebhookRead = {
     url: {
       type: "string",
       title: "Url",
+    },
+    api_key: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookApiKeyRead",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -14222,6 +14313,20 @@ export const $WebhookUpdate = {
         },
       ],
       title: "Entrypoint Ref",
+    },
+    allowlisted_cidrs: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowlisted Cidrs",
     },
   },
   type: "object",
@@ -15705,7 +15810,7 @@ export const $WorkflowTagCreate = {
   properties: {
     tag_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Tag Id",
     },
   },
@@ -15894,7 +15999,7 @@ export const $WorkspaceMember = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -15947,7 +16052,7 @@ export const $WorkspaceMembershipCreate = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     role: {
@@ -15964,12 +16069,12 @@ export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     workspace_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Workspace Id",
     },
     role: {
@@ -16002,7 +16107,7 @@ export const $WorkspaceRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -16034,7 +16139,7 @@ export const $WorkspaceReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {

@@ -792,7 +792,7 @@ export function YamlViewOnlyEditor({
   const { appSettings } = useOrgAppSettings()
 
   const textValue = React.useMemo(() => {
-    if (!value) return ""
+    if (value == null) return ""
     return stripNewline(
       typeof value === "string"
         ? value
