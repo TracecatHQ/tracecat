@@ -9,6 +9,7 @@ icon: user-lock
 - [Okta](#okta)
 - [Microsoft Entra ID](#microsoft-entra-id)
 - [Authentik](#authentik)
+- [Keycloak](#keycloak)
 
 ## Configuration
 
@@ -133,6 +134,59 @@ SAML_IDP_METADATA_URL=https://<your-idp-metadata-url>
     <Step title="Test SSO configuration">
         Navigate to your Tracecat instance and click on the **Login** button.
         You should be redirected to Authentik for authentication.
+    </Step>
+</Steps>
+
+### Keycloak
+
+<Steps>
+    <Step title="Create a client">
+        - Go to **Providers** and select the **Create client** button.
+        - Set the **Client type** to **SAML**.
+        - Set the **Client ID** to `https://<your-tracecat-instance>/api` and select the **Next** button.
+
+        ![Keycloak Client General Settings](/img/self-hosting/keycloak-client-general.png)
+    </Step>
+    <Step title="Configure a client">
+        - Set the **Valid redirect URIs** to `https://<your-tracecat-instance>/auth/saml/acs`.
+        - Set the **Master SAML Processing URL** to `https://<your-tracecat-instance>/auth/saml/acs` and select the **Save** button.
+
+        ![Keycloak Client Login Settings](/img/self-hosting/keycloak-client-login.png)
+    </Step>
+    <Step title="Configure document signing">
+        - In **Settings** tab scroll down to **Signature and Encryption** section.
+        - Ensure **Sign documents** is enabled.
+
+        ![Keycloak Document Signing](/img/self-hosting/keycloak-document-signing.png)
+    </Step>
+    <Step title="Disable client signing">
+        - Open **Keys** tab and look into **Signing keys config** section.
+        - Ensure **Client signature required** is disabled.
+
+        ![Keycloak Client Signing](/img/self-hosting/keycloak-client-signing.png)
+    </Step>
+    <Step title="Configure property mapping">
+        - Open **Client scopes** tab and click on client scope `https://<your-tracecat-instance>/api-dedicated`.
+        - Create new **User Property** mapper for **email** attribute and click **Save**.
+
+        ![Keycloak Property Mapping](/img/self-hosting/keycloak-email-mapper.png)
+    </Step>
+    <Step title="Find metadata URL">
+        - Go to **Realm Settings** ➤ **General** ➤ **Endpoints**.
+        - Copy the **SAML 2.0 Identity Provider Metadata** link.
+
+        ![Keycloak Property Mapping](/img/self-hosting/keycloak-metadata-url.png)
+    </Step>
+    <Step title="Configure SAML settings in environment variables">
+        Set the following environment variables in your `.env` file:
+        - `SAML_IDP_METADATA_URL`: Metadata download URL
+    </Step>
+    <Step title="Restart Tracecat instance">
+        Restart Tracecat to apply the changes.
+    </Step>
+    <Step title="Test SSO configuration">
+        Navigate to your Tracecat instance and click on the **Login** button.
+        You should be redirected to Keycloak for authentication.
     </Step>
 </Steps>
 
