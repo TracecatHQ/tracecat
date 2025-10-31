@@ -43,7 +43,6 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -59,6 +58,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
@@ -295,26 +295,28 @@ function WorkflowManualTrigger({
   const executionPending = createExecutionIsPending || isTriggering
   return (
     <Form {...form}>
-      <div className="flex h-7 gap-px rounded-lg border border-input bg-emerald-400">
+      <div
+        className={cn(
+          "flex h-7 divide-x rounded-lg border border-input overflow-hidden",
+          manualTriggerErrors
+            ? "divide-white/30 dark:divide-black/30"
+            : "divide-white/20 dark:divide-black/40"
+        )}
+      >
         {/* Main Button */}
         <Button
           type="button"
-          variant="outline"
-          className={cn(
-            "h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs font-bold",
-            manualTriggerErrors
-              ? "text-rose-400 hover:text-rose-500"
-              : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
-          )}
+          variant={manualTriggerErrors ? "destructive" : "default"}
+          className="h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs"
           disabled={disabled || executionPending}
           onClick={() => runWorkflow({ payload: undefined })}
         >
           {executionPending ? (
-            <Spinner className="size-3" segmentColor="#fff" />
+            <Spinner className="size-3" segmentColor="currentColor" />
           ) : manualTriggerErrors ? (
-            <AlertTriangleIcon className="size-3 fill-red-500 stroke-white" />
+            <AlertTriangleIcon className="size-3" />
           ) : (
-            <PlayIcon className="size-3 fill-white stroke-white" />
+            <PlayIcon className="size-3" />
           )}
           <span>Run</span>
         </Button>
@@ -328,13 +330,8 @@ function WorkflowManualTrigger({
               <PopoverTrigger asChild>
                 <Button
                   type="button"
-                  variant="outline"
-                  className={cn(
-                    "h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold",
-                    manualTriggerErrors
-                      ? "text-rose-400 hover:text-rose-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
-                  )}
+                  variant={manualTriggerErrors ? "destructive" : "default"}
+                  className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold"
                   disabled={disabled || executionPending}
                 >
                   <ChevronDownIcon className="size-3" />
@@ -367,12 +364,15 @@ function WorkflowManualTrigger({
                     type="submit"
                     variant="default"
                     disabled={executionPending}
-                    className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                    className="group mt-2 flex h-7 items-center px-3 py-0 text-xs"
                   >
                     {executionPending ? (
-                      <Spinner className="mr-2 size-3" />
+                      <Spinner
+                        className="mr-2 size-3"
+                        segmentColor="currentColor"
+                      />
                     ) : (
-                      <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                      <PlayIcon className="mr-2 size-3" />
                     )}
                     <span>{executionPending ? "Starting..." : "Run"}</span>
                   </Button>
@@ -420,6 +420,7 @@ function WorkflowSaveActions({
   onSave: () => Promise<void>
   onPublish: (params: { message?: string }) => Promise<void>
 }) {
+  const { isFeatureEnabled } = useFeatureFlag()
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
 
@@ -441,6 +442,8 @@ function WorkflowSaveActions({
     }
   }
 
+  const isGitSyncEnabled = isFeatureEnabled("git-sync")
+
   return (
     <div className="flex items-center space-x-2">
       <div className="flex h-7 gap-px rounded-lg border border-input">
@@ -458,7 +461,8 @@ function WorkflowSaveActions({
             variant="outline"
             onClick={onSave}
             className={cn(
-              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+              "h-full border-none px-3 py-0 text-xs text-muted-foreground",
+              isGitSyncEnabled ? "rounded-r-none" : "rounded-lg",
               validationErrors &&
                 "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
             )}
@@ -472,69 +476,64 @@ function WorkflowSaveActions({
           </Button>
         </ValidationErrorView>
 
-        {/* Dropdown Button */}
-        <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
-            >
-              <ChevronDownIcon className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <div className="p-3">
+        {/* Dropdown Button - Only show if git-sync is enabled */}
+        {isGitSyncEnabled && (
+          <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground"
+              >
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-96 p-3">
               <Form {...publishForm}>
-                <form onSubmit={publishForm.handleSubmit(handlePublish)}>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <GitBranchIcon className="size-4" />
-                      <span className="text-sm font-medium">
-                        Publish Workflow
-                      </span>
-                    </div>
-                    <FormField
-                      control={publishForm.control}
-                      name="message"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs">
-                            Commit Message (Optional)
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder="Enter a commit message..."
-                              className="h-8 text-xs"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isPublishing}
-                      className="w-full h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
-                    >
-                      {isPublishing ? (
-                        <>
-                          <Spinner className="mr-2 size-3" />
-                          Publishing...
-                        </>
-                      ) : (
-                        <>
-                          <GitBranchIcon className="mr-2 size-4" />
-                          Publish
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                <form
+                  onSubmit={publishForm.handleSubmit(handlePublish)}
+                  className="flex flex-col"
+                >
+                  <span className="mb-2 text-xs text-muted-foreground">
+                    Commit workflow
+                  </span>
+                  <FormField
+                    control={publishForm.control}
+                    name="message"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Add a short description of your changes (optional)"
+                            className="h-7 px-3 text-xs"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    disabled={isPublishing}
+                    className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
+                  >
+                    {isPublishing ? (
+                      <>
+                        <Spinner className="size-3" />
+                        Publishing changes...
+                      </>
+                    ) : (
+                      <>
+                        <GitBranchIcon className="size-3" />
+                        Publish changes
+                      </>
+                    )}
+                  </Button>
                 </form>
               </Form>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <Badge

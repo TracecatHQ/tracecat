@@ -87,6 +87,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         if not updates:
             return self._to_read_model(entity)
 
+        set_fields = params.model_fields_set
+
         if (new_name := updates.get("name")) is not None:
             await self._ensure_unique_name(new_name, exclude_id=entity.id)
             entity.name = new_name
@@ -94,10 +96,20 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         if "description" in updates:
             entity.description = updates["description"]
 
-        if (start_anchor := updates.get("start_anchor")) is not None:
+        if "start_anchor" in set_fields:
+            start_anchor = params.start_anchor
+            if start_anchor is None:
+                raise TracecatValidationError(
+                    "Start anchor cannot be null when updating a duration definition."
+                )
             self._apply_anchor(entity, start_anchor, "start")
 
-        if (end_anchor := updates.get("end_anchor")) is not None:
+        if "end_anchor" in set_fields:
+            end_anchor = params.end_anchor
+            if end_anchor is None:
+                raise TracecatValidationError(
+                    "End anchor cannot be null when updating a duration definition."
+                )
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)

@@ -2,6 +2,8 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, Lock, Timer } from "lucide-react"
+import { useState } from "react"
+import type { CaseDurationDefinitionUpdate } from "@/client"
 import { CaseDurationsTable } from "@/components/cases/case-durations-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -16,7 +18,10 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
-import { deleteCaseDurationDefinition } from "@/lib/case-durations"
+import {
+  deleteCaseDurationDefinition,
+  updateCaseDurationDefinition,
+} from "@/lib/case-durations"
 import { useCaseDurationDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -63,6 +68,63 @@ export function CaseDurationsView() {
               : "Failed to delete the case duration definition. Please try again.",
           variant: "destructive",
         })
+      },
+    }
+  )
+
+  const [updatingDurationId, setUpdatingDurationId] = useState<string | null>(
+    null
+  )
+
+  const { mutateAsync: handleUpdate, isPending: updateIsPending } = useMutation(
+    {
+      mutationFn: async ({
+        durationId,
+        payload,
+      }: {
+        durationId: string
+        payload: CaseDurationDefinitionUpdate
+      }) => {
+        if (!workspaceId) {
+          throw new Error("Workspace ID is required")
+        }
+
+        return await updateCaseDurationDefinition(
+          workspaceId,
+          durationId,
+          payload
+        )
+      },
+      onMutate: async ({ durationId }) => {
+        setUpdatingDurationId(durationId)
+      },
+      onSuccess: async () => {
+        if (!workspaceId) {
+          return
+        }
+
+        await queryClient.invalidateQueries({
+          queryKey: ["case-duration-definitions", workspaceId],
+        })
+
+        toast({
+          title: "Duration updated",
+          description: "The case duration definition was updated successfully.",
+        })
+      },
+      onError: (error: unknown) => {
+        console.error("Failed to update case duration definition", error)
+        toast({
+          title: "Error updating duration",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Failed to update the case duration definition. Please try again.",
+          variant: "destructive",
+        })
+      },
+      onSettled: () => {
+        setUpdatingDurationId(null)
       },
     }
   )
@@ -160,6 +222,11 @@ export function CaseDurationsView() {
           durations={caseDurationDefinitions}
           onDeleteDuration={handleDelete}
           isDeleting={deleteIsPending}
+          onUpdateDuration={async (durationId, payload) => {
+            await handleUpdate({ durationId, payload })
+          }}
+          isUpdating={updateIsPending}
+          updatingDurationId={updatingDurationId}
         />
       </div>
     </div>
