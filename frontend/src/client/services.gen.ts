@@ -377,8 +377,14 @@ import type {
   TagsUpdateTagResponse,
   TriggersCreateWebhookData,
   TriggersCreateWebhookResponse,
+  TriggersDeleteWebhookApiKeyData,
+  TriggersDeleteWebhookApiKeyResponse,
+  TriggersGenerateWebhookApiKeyData,
+  TriggersGenerateWebhookApiKeyResponse,
   TriggersGetWebhookData,
   TriggersGetWebhookResponse,
+  TriggersRevokeWebhookApiKeyData,
+  TriggersRevokeWebhookApiKeyResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
   UsersSearchUserData,
@@ -1332,6 +1338,87 @@ export const triggersUpdateWebhook = (
 }
 
 /**
+ * Generate Webhook Api Key
+ * Create or rotate the API key for a webhook.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns WebhookApiKeyGenerateResponse Successful Response
+ * @throws ApiError
+ */
+export const triggersGenerateWebhookApiKey = (
+  data: TriggersGenerateWebhookApiKeyData
+): CancelablePromise<TriggersGenerateWebhookApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/webhook/api-key",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Webhook Api Key
+ * Delete the current API key for a webhook.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersDeleteWebhookApiKey = (
+  data: TriggersDeleteWebhookApiKeyData
+): CancelablePromise<TriggersDeleteWebhookApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workflows/{workflow_id}/webhook/api-key",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Webhook Api Key
+ * Revoke the current API key for a webhook.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersRevokeWebhookApiKey = (
+  data: TriggersRevokeWebhookApiKeyData
+): CancelablePromise<TriggersRevokeWebhookApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/webhook/api-key/revoke",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Move Workflow To Folder
  * Move a workflow to a different folder.
  *
@@ -1453,7 +1540,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ Successful Response
+ * @returns WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (

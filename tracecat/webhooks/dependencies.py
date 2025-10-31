@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from ipaddress import ip_address, ip_network
 from typing import Annotated, Any, cast
 
 import orjson
@@ -8,6 +11,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 
+from tracecat.auth.api_keys import verify_api_key
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
@@ -19,6 +23,36 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.webhooks.models import NDJSON_CONTENT_TYPES
+
+API_KEY_HEADER = "x-tracecat-api-key"
+
+
+def _extract_client_ip(request: Request) -> str | None:
+    # Assume proxy middleware already validated/sanitized headers; treat
+    # X-Forwarded-For as untrusted and rely on the resolved client host.
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _ip_allowed(client_ip: str, cidr_list: Sequence[str]) -> bool:
+    try:
+        ip_obj = ip_address(client_ip)
+    except ValueError:
+        return False
+
+    for cidr in cidr_list:
+        try:
+            network = ip_network(cidr, strict=False)
+        except ValueError:
+            logger.warning(
+                "Invalid IP allowlist entry",
+                entry=cidr,
+            )
+            continue
+        if ip_obj in network:
+            return True
+    return False
 
 
 async def validate_incoming_webhook(
@@ -63,6 +97,73 @@ async def validate_incoming_webhook(
                 status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
                 detail="Request method not allowed",
             ) from None
+
+        updated = False
+
+        client_ip = _extract_client_ip(request)
+        if webhook.allowlisted_cidrs:
+            if client_ip is None:
+                logger.warning(
+                    "Request missing client IP while allowlist configured",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Unauthorized webhook request",
+                )
+            if not _ip_allowed(client_ip, webhook.allowlisted_cidrs):
+                logger.warning(
+                    "Request IP not in allowlist",
+                    webhook_id=webhook.id,
+                    client_ip=client_ip,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Unauthorized webhook request",
+                )
+
+        api_key_header = request.headers.get(API_KEY_HEADER)
+        if api_key_record := webhook.api_key:
+            if api_key_record.revoked_at is not None:
+                logger.warning(
+                    "Rejected request using revoked webhook API key",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            if not api_key_header:
+                logger.warning(
+                    "Missing API key for webhook with active key",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            if not verify_api_key(
+                api_key_header, api_key_record.salt, api_key_record.hashed
+            ):
+                logger.warning(
+                    "Invalid API key presented",
+                    webhook_id=webhook.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized webhook request",
+                )
+            api_key_record.last_used_at = datetime.now(UTC)
+            updated = True
+        elif api_key_header:
+            logger.info(
+                "API key provided for webhook without active key configuration",
+                webhook_id=webhook.id,
+            )
+
+        if updated:
+            session.add(webhook.api_key)
+            await session.commit()
 
         ctx_role.set(
             Role(

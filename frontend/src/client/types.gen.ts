@@ -483,6 +483,15 @@ export type BinaryContent = {
   readonly identifier: string
 }
 
+export type Body_auth_auth_database_login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
+}
+
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -4624,6 +4633,20 @@ export type VideoUrl = {
 
 export type WaitStrategy = "wait" | "detach"
 
+export type WebhookApiKeyGenerateResponse = {
+  api_key: string
+  preview: string
+  created_at: string
+}
+
+export type WebhookApiKeyRead = {
+  preview: string
+  created_at: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  is_active?: boolean
+}
+
 export type WebhookCreate = {
   status?: WebhookStatus
   /**
@@ -4631,6 +4654,7 @@ export type WebhookCreate = {
    */
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
 }
 
 export type WebhookMethod = "GET" | "POST"
@@ -4643,6 +4667,7 @@ export type WebhookRead = {
   secret: string
   status: WebhookStatus
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
   filters: {
     [key: string]: unknown
   }
@@ -4652,6 +4677,7 @@ export type WebhookRead = {
   methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
+  api_key?: WebhookApiKeyRead | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -4660,6 +4686,7 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string> | null
 }
 
 export type WorkflowAlias = {
@@ -4808,7 +4835,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
+export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -4895,7 +4922,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
+export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -4935,7 +4962,7 @@ export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
+  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -4980,6 +5007,13 @@ export type WorkflowExecutionReadMinimal = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
 }
+
+/**
+ * Status of a workflow execution.
+ *
+ * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
+ */
+export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -5197,15 +5231,6 @@ export type WorkspaceUpdate = {
 
 export type Yaml = {
   component_id?: "yaml"
-}
-
-export type login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
 }
 
 export type PublicIncomingWebhookPostData = {
@@ -5458,6 +5483,28 @@ export type TriggersUpdateWebhookData = {
 
 export type TriggersUpdateWebhookResponse = void
 
+export type TriggersGenerateWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersGenerateWebhookApiKeyResponse =
+  WebhookApiKeyGenerateResponse
+
+export type TriggersDeleteWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteWebhookApiKeyResponse = void
+
+export type TriggersRevokeWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersRevokeWebhookApiKeyResponse = void
+
 export type WorkflowsMoveWorkflowToFolderData = {
   requestBody: WorkflowMoveToFolder
   workflowId: string
@@ -5499,7 +5546,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
+  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -7103,7 +7150,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: login
+  formData: Body_auth_auth_database_login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -7587,6 +7634,49 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/webhook/api-key": {
+    post: {
+      req: TriggersGenerateWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebhookApiKeyGenerateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+    post: {
+      req: TriggersRevokeWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows/{workflow_id}/move": {
     post: {
       req: WorkflowsMoveWorkflowToFolderData
@@ -7652,7 +7742,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
+        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
         /**
          * Validation Error
          */

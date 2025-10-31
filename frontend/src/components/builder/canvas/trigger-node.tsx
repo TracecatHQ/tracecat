@@ -1,6 +1,8 @@
 import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
+  Shield,
+  ShieldOff,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
@@ -26,6 +28,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -85,6 +93,28 @@ export default React.memo(function TriggerNode({
                   Workflow trigger
                 </CardDescription>
               )}
+            </div>
+            <div className="flex items-start">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {workflow.webhook.api_key?.is_active ? (
+                      <Shield className="size-4 text-emerald-400 fill-current" />
+                    ) : workflow.webhook.api_key ? (
+                      <Shield className="size-4 text-amber-400 fill-current" />
+                    ) : (
+                      <ShieldOff className="size-4 text-muted-foreground/70" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={4}>
+                    {workflow.webhook.api_key?.is_active
+                      ? "Webhook is protected"
+                      : workflow.webhook.api_key
+                        ? "API key revoked"
+                        : "Webhook is unprotected"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </div>

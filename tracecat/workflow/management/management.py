@@ -312,7 +312,9 @@ class WorkflowsManagementService(BaseService):
             )
             .options(
                 selectinload(Workflow.actions),  # type: ignore
-                selectinload(Workflow.webhook),  # type: ignore
+                selectinload(Workflow.webhook).options(  # type: ignore
+                    selectinload(Webhook.api_key)  # type: ignore
+                ),
                 selectinload(Workflow.schedules),  # type: ignore
             )
         )

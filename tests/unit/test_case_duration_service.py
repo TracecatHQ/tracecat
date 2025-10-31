@@ -5,6 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
     CaseDurationDefinitionCreate,
+    CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
     CaseDurationService,
 )
@@ -137,6 +138,52 @@ async def test_duration_filters_match_event_payload(
     value = values[0]
     assert value.end_event_id is not None
     assert value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_definition_update_accepts_nested_anchor_models(
+    session: AsyncSession, svc_role
+) -> None:
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+
+    definition = await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Time to review",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": CaseStatus.RESOLVED},
+            ),
+        )
+    )
+
+    update_payload = CaseDurationDefinitionUpdate(
+        start_anchor=CaseDurationEventAnchor(
+            event_type=CaseEventType.STATUS_CHANGED,
+            selection=CaseDurationAnchorSelection.LAST,
+            field_filters={"data.new": CaseStatus.IN_PROGRESS},
+        ),
+        end_anchor=CaseDurationEventAnchor(
+            event_type=CaseEventType.STATUS_CHANGED,
+            selection=CaseDurationAnchorSelection.FIRST,
+            field_filters={"data.new": CaseStatus.RESOLVED},
+        ),
+    )
+
+    updated = await definition_service.update(definition.id, update_payload)
+
+    assert updated.start_anchor.event_type == CaseEventType.STATUS_CHANGED
+    assert updated.start_anchor.selection == CaseDurationAnchorSelection.LAST
+    assert updated.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
+    assert updated.end_anchor.selection == CaseDurationAnchorSelection.FIRST
+    assert updated.end_anchor.field_filters == {"data.new": CaseStatus.RESOLVED}
+
+    persisted = await definition_service.get(definition.id)
+    assert persisted.start_anchor.event_type == CaseEventType.STATUS_CHANGED
+    assert persisted.start_anchor.selection == CaseDurationAnchorSelection.LAST
+    assert persisted.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
 
 
 @pytest.mark.anyio
