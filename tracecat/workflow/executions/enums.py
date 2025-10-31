@@ -113,3 +113,6 @@ class TemporalSearchAttr(StrEnum):
 
     TRIGGERED_BY_USER_ID = "TracecatTriggeredByUserId"
     """The `Keyword` Search Attribute for the user ID that triggered the workflow execution."""
+
+    WORKSPACE_ID = "TracecatWorkspaceId"
+    """The `Keyword` Search Attribute for the workspace that owns the workflow execution."""
