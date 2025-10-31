@@ -556,6 +556,10 @@ email-validator==2.2.0 \
     #   fastapi-users
     #   pydantic
     #   tracecat
+execnet==2.1.1 \
+    --hash=sha256:26dee51f1b80cebd6d0ca8e74dd8745419761d3bef34163928cbebbdc4749fdc \
+    --hash=sha256:5189b52c6121c24feae288166ab41b32549c7e2348652736540b9e6e7d4e72e3
+    # via pytest-xdist
 fastapi==0.120.3 \
     --hash=sha256:17db50718ee86c9e01e54f9d8600abf130f6f762711cd0d8f02eb392668271ba \
     --hash=sha256:bfee21c98db9128dc425a686eafd14899e26e4471aab33076bff2427fd6dcd22
@@ -1736,12 +1740,16 @@ pytest==8.3.2 \
     # via
     #   pytest-mock
     #   pytest-repeat
+    #   pytest-xdist
 pytest-mock==3.14.0 \
     --hash=sha256:0b72c38033392a5f4621342fe11e9219ac11ec9d375f8e2a0c164539e0d70f6f \
     --hash=sha256:2719255a1efeceadbc056d6bf3df3d1c5015530fb40cf347c0f9afac88410bd0
 pytest-repeat==0.9.3 \
     --hash=sha256:26ab2df18226af9d5ce441c858f273121e92ff55f5bb311d25755b8d7abdd8ed \
     --hash=sha256:ffd3836dfcd67bb270bec648b330e20be37d2966448c4148c4092d1e8aba8185
+pytest-xdist==3.8.0 \
+    --hash=sha256:202ca578cfeb7370784a8c33d6d05bc6e13b4f25b5053c30a152269fd10f0b88 \
+    --hash=sha256:7e578125ec9bc6050861aa93f2d59f1d8d085595d6551c2c90b6f4fad8d3a9f1
 python-daemon==3.1.2 \
     --hash=sha256:b906833cef63502994ad48e2eab213259ed9bb18d54fa8774dcba2ff7864cec6 \
     --hash=sha256:f7b04335adc473de877f5117e26d5f1142f4c9f7cd765408f0877757be5afbf4
