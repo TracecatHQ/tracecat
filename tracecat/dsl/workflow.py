@@ -63,6 +63,7 @@ with workflow.unsafe.imports_passed_through():
         WaitStrategy,
     )
     from tracecat.dsl.models import (
+        ROOT_STREAM,
         ActionErrorInfo,
         ActionErrorInfoAdapter,
         ActionStatement,
@@ -579,6 +580,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             loop_index=None,
+                            stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
                 case _:

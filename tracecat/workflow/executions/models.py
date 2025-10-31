@@ -524,6 +524,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     action_input=agent_run_args,
                     child_wf_exec_id=None,
                     loop_index=memo.loop_index,
+                    stream_id=memo.stream_id,
                     session=session,
                 )
             case _:

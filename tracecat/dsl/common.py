@@ -499,6 +499,10 @@ class AgentActionMemo(BaseModel):
         default=None,
         description="The loop index of the child workflow, if any.",
     )
+    stream_id: StreamID = Field(
+        default=ROOT_STREAM,
+        description="The execution stream ID where the agent workflow was spawned.",
+    )
 
     @staticmethod
     def from_temporal(memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
@@ -512,14 +516,30 @@ class AgentActionMemo(BaseModel):
         except Exception as e:
             logger.warning("Error parsing agent action memo action title", error=e)
             action_title = "Unknown Agent Action"
-        if loop_index_data := memo.fields["loop_index"].data:
-            loop_index = orjson.loads(loop_index_data)
+        loop_index = None
+        try:
+            if "loop_index" in memo.fields:
+                loop_index = orjson.loads(memo.fields["loop_index"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo loop index", error=e)
+
+        if "stream_id" in memo.fields:
+            try:
+                stream_id = StreamID(orjson.loads(memo.fields["stream_id"].data))
+            except Exception as e:
+                logger.warning(
+                    "Error parsing agent action memo stream id",
+                    error=e,
+                )
+                stream_id = ROOT_STREAM
         else:
-            loop_index = None
+            stream_id = ROOT_STREAM
+
         return AgentActionMemo(
             action_ref=action_ref,
             action_title=action_title,
             loop_index=loop_index,
+            stream_id=stream_id,
         )
 
 

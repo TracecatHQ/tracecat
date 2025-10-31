@@ -27,6 +27,12 @@ import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Carousel,
+  type CarouselApi,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -34,12 +40,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Carousel,
-  type CarouselApi,
-  CarouselContent,
-  CarouselItem,
-} from "@/components/ui/carousel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"
@@ -73,9 +73,11 @@ export function ActionEventPane({
   if (type === "interaction") {
     // Filter events to only include interaction events
     const interactionEvents = new Set(
-      execution.interactions?.map((s) => s.action_ref) ?? []
+      execution.interactions?.map((s: InteractionRead) => s.action_ref) ?? []
     )
-    events = events.filter((e) => interactionEvents.has(e.action_ref))
+    events = events.filter((e: WorkflowExecutionEventCompact) =>
+      interactionEvents.has(e.action_ref)
+    )
   }
   const groupedEvents = groupEventsByActionRef(events)
   return (
@@ -89,7 +91,12 @@ export function ActionEventPane({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {Object.entries(groupedEvents).map(([actionRef, relatedEvents]) => (
+            {(
+              Object.entries(groupedEvents) as [
+                string,
+                WorkflowExecutionEventCompact[],
+              ][]
+            ).map(([actionRef, relatedEvents]) => (
               <SelectItem
                 key={actionRef}
                 value={actionRef}
@@ -132,7 +139,7 @@ function ActionEventView({
   }
   if (type === "interaction") {
     const interaction = execution.interactions?.find(
-      (s) => s.action_ref === selectedRef
+      (s: InteractionRead) => s.action_ref === selectedRef
     )
     if (!interaction) {
       // We reach this if we switch tabs or select an event that has no interaction state
@@ -413,9 +420,7 @@ export function ActionEventDetails({
     )
   }
   const eventsWithSessions =
-    type === "result"
-      ? actionEventsForRef.filter((event) => event.session)
-      : []
+    type === "result" ? actionEventsForRef.filter((event) => event.session) : []
 
   if (type === "result" && eventsWithSessions.length > 1) {
     const firstSessionIndex = actionEventsForRef.findIndex(
@@ -527,7 +532,17 @@ function ActionSessionCarousel({
           <span className="sr-only">Next stream</span>
         </Button>
       </div>
-      <Carousel setApi={setApi} opts={{ align: "start" }}>
+      <Carousel
+        setApi={setApi}
+        opts={{
+          align: "start",
+          duration: 0, // Set to 0 to disable animation
+          dragFree: false,
+          containScroll: false,
+          watchDrag: false, // This is the correct way to disable dragging in Embla Carousel
+          loop: true, // Enable looping
+        }}
+      >
         <CarouselContent>
           {events.map((actionEvent, index) => (
             <CarouselItem
