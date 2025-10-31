@@ -539,7 +539,12 @@ class DSLWorkflow:
                             non_retryable=True,
                             type="FeatureDisabledError",
                         )
-                    action_args = ApprovalsAgentActionArgs(**task.args)
+                    # Evaluate templated arguments before invoking the agent workflow.
+                    agent_operand = self._build_action_context(task, stream_id)
+                    evaluated_args = eval_templated_object(
+                        task.args, operand=agent_operand
+                    )
+                    action_args = ApprovalsAgentActionArgs(**evaluated_args)
                     wf_info = workflow.info()
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
@@ -953,15 +958,10 @@ class DSLWorkflow:
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
         # Parent stream
         stream_id = ctx_stream_id.get()
-        new_action_context: dict[str, Any] = {}
-        action_ref = task.ref
         self.logger.debug(
-            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+            "Noop gather action", action_ref=task.ref, stream_id=stream_id
         )
-        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-        new_action_context[action_ref] = res
-
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        new_context = self._build_action_context(task, stream_id)
 
         arg = RunActionInput(
             task=task,
@@ -982,17 +982,24 @@ class DSLWorkflow:
             ),
         )
 
+    def _build_action_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Construct the execution context for an action with resolved dependencies."""
+        expr_ctxs = extract_expressions(task.model_dump())
+        resolved_actions: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            resolved_actions[action_ref] = (
+                self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+            )
+
+        return {**self.context, ExprContext.ACTIONS: resolved_actions}
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
-        expr_ctxs = extract_expressions(task.model_dump())
-        new_action_context: dict[str, Any] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
-            res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-            new_action_context[action_ref] = res
-
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        new_context = self._build_action_context(task, stream_id)
 
         # Check if action has environment override
         run_context = self.run_context
