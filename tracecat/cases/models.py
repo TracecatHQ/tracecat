@@ -249,6 +249,10 @@ class ReopenedEvent(CaseEventBase):
     new: CaseStatus
 
 
+class CaseViewedEvent(CaseEventBase):
+    type: Literal[CaseEventType.CASE_VIEWED] = CaseEventType.CASE_VIEWED
+
+
 class UpdatedEvent(CaseEventBase):
     type: Literal[CaseEventType.CASE_UPDATED] = CaseEventType.CASE_UPDATED
     field: Literal["summary"]
@@ -288,6 +292,10 @@ class ClosedEventRead(CaseEventReadBase, ClosedEvent):
 
 class ReopenedEventRead(CaseEventReadBase, ReopenedEvent):
     """Event for when a case is reopened."""
+
+
+class CaseViewedEventRead(CaseEventReadBase, CaseViewedEvent):
+    """Event for when a case is viewed."""
 
 
 class UpdatedEventRead(CaseEventReadBase, UpdatedEvent):
@@ -422,6 +430,7 @@ type CaseEventVariant = Annotated[
     CreatedEvent
     | ClosedEvent
     | ReopenedEvent
+    | CaseViewedEvent
     | UpdatedEvent
     | StatusChangedEvent
     | PriorityChangedEvent
@@ -448,6 +457,7 @@ class CaseEventRead(RootModel):
         CreatedEventRead
         | ClosedEventRead
         | ReopenedEventRead
+        | CaseViewedEventRead
         | UpdatedEventRead
         | StatusChangedEventRead
         | PriorityChangedEventRead
