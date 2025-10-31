@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import temporalio.client
+from temporalio.api.common.v1 import Payloads
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import TemporalError
 
@@ -125,8 +126,11 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
             state.paused = set_fields["status"] != "online"
         if isinstance(action, temporalio.client.ScheduleActionStartWorkflow):
             # Extract role from existing schedule to rebuild search attributes
+            from tracecat.workflow.executions.common import extract_first
+
             try:
-                run_args = DSLRunArgs.model_validate(action.args[0])
+                raw_args = await extract_first(Payloads(payloads=[action.args[0]]))
+                run_args = DSLRunArgs.model_validate(raw_args)
                 role = run_args.role
             except Exception as e:
                 logger.warning(
