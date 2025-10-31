@@ -1,5 +1,6 @@
 import {
   BracesIcon,
+  EyeIcon,
   type LucideIcon,
   PaperclipIcon,
   PencilIcon,
@@ -12,6 +13,7 @@ import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
   AttachmentDeletedEventRead,
+  CaseEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
   PayloadChangedEventRead,
@@ -200,6 +202,23 @@ export function CaseReopenedEvent({
       <EventIcon icon={newStatus.icon} className={newStatus.color} />
       <span>
         <EventActor user={actor} /> reopened the case as {newStatus.label}
+      </span>
+    </div>
+  )
+}
+
+export function CaseViewedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CaseEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={EyeIcon} />
+      <span>
+        <EventActor user={actor} /> viewed the case
       </span>
     </div>
   )

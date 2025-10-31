@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -14,6 +14,7 @@ from tracecat.auth.models import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -31,6 +32,7 @@ from tracecat.cases.models import (
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
+    CaseViewedEvent,
     ClosedEvent,
     CreatedEvent,
     FieldDiff,
@@ -89,6 +91,11 @@ def _normalize_filter_values(values: Any) -> list[Any]:
                 unique.append(value)
         return unique
     return [values]
+
+
+# Views triggered while a user refreshes the detail page should not spam events.
+# Treat multiple views within this window as a single view.
+CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
 
 
 class CasesService(BaseWorkspaceService):
@@ -452,7 +459,9 @@ class CasesService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_case(self, case_id: uuid.UUID) -> Case | None:
+    async def get_case(
+        self, case_id: uuid.UUID, *, track_view: bool = False
+    ) -> Case | None:
         """Get a case with its associated custom fields.
 
         Args:
@@ -474,7 +483,31 @@ class CasesService(BaseWorkspaceService):
         )
 
         result = await self.session.exec(statement)
-        return result.first()
+        case = result.first()
+
+        if case and track_view:
+            try:
+                created_event = await self.events.create_case_viewed_event(case)
+            except Exception:
+                await self.session.rollback()
+                self.logger.exception(
+                    "Failed to record case viewed event",
+                    case_id=case_id,
+                    user_id=self.role.user_id,
+                )
+            else:
+                if created_event is not None:
+                    try:
+                        await self.session.commit()
+                    except Exception:
+                        await self.session.rollback()
+                        self.logger.exception(
+                            "Failed to commit case viewed event",
+                            case_id=case_id,
+                            user_id=self.role.user_id,
+                        )
+
+        return case
 
     async def create_case(self, params: CaseCreate) -> Case:
         try:
@@ -973,6 +1006,42 @@ class CaseEventsService(BaseWorkspaceService):
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
         return db_event
+
+    async def create_case_viewed_event(
+        self,
+        case: Case,
+        *,
+        dedupe_window: timedelta = CASE_VIEW_EVENT_DEDUP_WINDOW,
+    ) -> CaseEvent | None:
+        """Record a case viewed event for the current user if not recently recorded."""
+        if not self.role.user_id:
+            # Service or system contexts do not have a viewing user.
+            return None
+
+        now_utc = datetime.now(UTC)
+        stmt = (
+            select(CaseEvent)
+            .where(
+                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.case_id == case.id,
+                CaseEvent.type == CaseEventType.CASE_VIEWED.value,
+                CaseEvent.user_id == self.role.user_id,
+            )
+            .order_by(desc(col(CaseEvent.created_at)))
+            .limit(1)
+        )
+        result = await self.session.exec(stmt)
+        last_event = result.first()
+        if last_event:
+            last_created_at = last_event.created_at
+            if last_created_at.tzinfo is None:
+                if datetime.now() - last_created_at < dedupe_window:
+                    return None
+            else:
+                if now_utc - last_created_at < dedupe_window:
+                    return None
+
+        return await self.create_event(case=case, event=CaseViewedEvent())
 
 
 class CaseTasksService(BaseWorkspaceService):

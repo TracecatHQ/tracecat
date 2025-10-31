@@ -817,6 +817,7 @@ export type CaseEventRead =
   | CreatedEventRead
   | ClosedEventRead
   | ReopenedEventRead
+  | CaseViewedEventRead
   | UpdatedEventRead
   | StatusChangedEventRead
   | PriorityChangedEventRead
@@ -841,6 +842,7 @@ export type CaseEventType =
   | "case_updated"
   | "case_closed"
   | "case_reopened"
+  | "case_viewed"
   | "priority_changed"
   | "severity_changed"
   | "status_changed"
@@ -1191,6 +1193,25 @@ export type CaseUpdate = {
   payload?: {
     [key: string]: unknown
   } | null
+}
+
+/**
+ * Event for when a case is viewed.
+ */
+export type CaseViewedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_viewed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
