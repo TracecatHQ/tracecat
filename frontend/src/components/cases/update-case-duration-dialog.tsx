@@ -64,14 +64,12 @@ const getInitialValues = (
     start: {
       selection: duration.start_anchor.selection ?? "first",
       eventType: duration.start_anchor.event_type,
-      filterValue: undefined,
       filterValues: startFilters,
     },
     end: {
       selection: duration.end_anchor.selection ?? "first",
       eventType: duration.end_anchor.event_type,
-      filterValue: endFilters[0],
-      filterValues: [],
+      filterValues: endFilters,
     },
   }
 }
@@ -96,12 +94,10 @@ export function UpdateCaseDurationDialog({
 
       const startFieldFilters = buildFieldFilters(
         values.start.eventType,
-        values.start.filterValue,
         values.start.filterValues
       )
       const endFieldFilters = buildFieldFilters(
         values.end.eventType,
-        values.end.filterValue,
         values.end.filterValues
       )
 

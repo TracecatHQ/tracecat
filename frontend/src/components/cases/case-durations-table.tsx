@@ -147,21 +147,31 @@ export function CaseDurationsTable({
     }
 
     return (
-      <div className="flex items-center gap-2 text-xs text-foreground">
-        <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-        <span className="font-medium">{label}</span>
-        {valueLabels.map((displayValue, index) => (
+      <div className="flex flex-col gap-2 text-xs text-foreground">
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <Icon
+            className="h-4 w-4 flex-none text-muted-foreground"
+            aria-hidden
+          />
+          <span className="font-medium">{label}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {valueLabels.map((displayValue, index) => (
+            <Badge
+              key={`${anchor.event_type}-${displayValue}-${index}`}
+              variant="secondary"
+              className="px-2 py-0.5 whitespace-nowrap"
+            >
+              {displayValue}
+            </Badge>
+          ))}
           <Badge
-            key={`${anchor.event_type}-${displayValue}-${index}`}
-            variant="secondary"
-            className="px-2 py-0.5"
+            variant="outline"
+            className="border-dashed px-2 py-0.5 whitespace-nowrap"
           >
-            {displayValue}
+            {SELECTION_LABELS[selection]}
           </Badge>
-        ))}
-        <Badge variant="outline" className="border-dashed px-2 py-0.5">
-          {SELECTION_LABELS[selection]}
-        </Badge>
+        </div>
       </div>
     )
   }
@@ -208,6 +218,10 @@ export function CaseDurationsTable({
               ),
               enableSorting: true,
               enableHiding: false,
+              meta: {
+                headerStyle: { width: "18%" },
+                cellStyle: { width: "18%" },
+              },
             },
             {
               id: "start_anchor",
@@ -217,6 +231,10 @@ export function CaseDurationsTable({
               cell: ({ row }) => renderAnchor(row.original.start_anchor),
               enableSorting: false,
               enableHiding: false,
+              meta: {
+                headerStyle: { width: "41%" },
+                cellStyle: { width: "41%", verticalAlign: "top" },
+              },
             },
             {
               id: "end_anchor",
@@ -226,6 +244,10 @@ export function CaseDurationsTable({
               cell: ({ row }) => renderAnchor(row.original.end_anchor),
               enableSorting: false,
               enableHiding: false,
+              meta: {
+                headerStyle: { width: "41%" },
+                cellStyle: { width: "41%", verticalAlign: "top" },
+              },
             },
             {
               id: "actions",
