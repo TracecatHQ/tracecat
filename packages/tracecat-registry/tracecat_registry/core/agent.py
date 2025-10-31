@@ -2,7 +2,6 @@
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel
 from tracecat_registry import RegistrySecret, RegistrySecretType, registry
 
 from tracecat.agent.models import AgentConfig, OutputType
@@ -240,17 +239,3 @@ async def action(
     )
     result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
     return result.model_dump()
-
-
-class ApprovalsAgentActionArgs(BaseModel):
-    user_prompt: str
-    model_name: str
-    model_provider: str
-    tool_approvals: dict[str, bool] | None = None
-    instructions: str | None = None
-    output_type: OutputType | None = None
-    model_settings: dict[str, Any] | None = None
-    max_requests: int = 45
-    retries: int = 3
-    base_url: str | None = None
-    actions: list[str] | None = None

@@ -25,12 +25,12 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from tracecat_ee.agent.actions import ApprovalsAgentActionArgs
     from tracecat_ee.agent.types import AgentWorkflowID
     from tracecat_ee.agent.workflows.durable import (
         AgentWorkflowArgs,
         DurableAgentWorkflow,
     )
-    from tracecat_registry.core.agent import ApprovalsAgentActionArgs
 
     from tracecat import config, identifiers
     from tracecat.agent.models import AgentConfig, RunAgentArgs

@@ -7,6 +7,7 @@ import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_ee.agent.actions import ApprovalsAgentActionArgs
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -278,6 +279,8 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
+            elif action_name == PlatformAction.AI_APPROVALS_AGENT:
+                validated = ApprovalsAgentActionArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)
@@ -368,6 +371,15 @@ async def validate_dsl_actions(
                     type="action",
                     msg=f"`run_if` must only contain an expression. Got {act_stmt.run_if!r}.",
                     loc=(act_stmt.ref, "run_if"),
+                )
+            )
+        # Validate that ai.approvals_agent doesn't use loops
+        if act_stmt.action == PlatformAction.AI_APPROVALS_AGENT and act_stmt.for_each:
+            details.append(
+                ValidationDetail(
+                    type="action",
+                    msg=f"The `{PlatformAction.AI_APPROVALS_AGENT.value}` action does not support loops. Use `core.transform.scatter` instead to iterate over multiple items.",
+                    loc=(act_stmt.ref, "for_each"),
                 )
             )
         # Validate `for_each`

@@ -1,5 +1,6 @@
 from typing import Annotated, Any
 
+from pydantic import BaseModel
 from tracecat_registry import registry
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret
@@ -57,3 +58,17 @@ async def approvals_agent(
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
     raise ActionIsInterfaceError()
+
+
+class ApprovalsAgentActionArgs(BaseModel):
+    user_prompt: str
+    model_name: str
+    model_provider: str
+    tool_approvals: dict[str, bool] | None = None
+    instructions: str | None = None
+    output_type: OutputType | None = None
+    model_settings: dict[str, Any] | None = None
+    max_requests: int = 45
+    retries: int = 3
+    base_url: str | None = None
+    actions: list[str] | None = None
