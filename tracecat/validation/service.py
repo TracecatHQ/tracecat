@@ -378,7 +378,7 @@ async def validate_dsl_actions(
             details.append(
                 ValidationDetail(
                     type="action",
-                    msg=f"The `{PlatformAction.AI_APPROVALS_AGENT.value}` action does not support loops. Use `core.transform.scatter` instead to iterate over multiple items.",
+                    msg=f"The `{PlatformAction.AI_APPROVALS_AGENT.value}` action cannot be used with for_each. Use `core.transform.scatter` instead to iterate over multiple items.",
                     loc=(act_stmt.ref, "for_each"),
                 )
             )
