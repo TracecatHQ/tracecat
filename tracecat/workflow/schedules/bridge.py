@@ -11,12 +11,18 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.workflow.executions.enums import TriggerType
+from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
 
-SEARCH_ATTRS = TypedSearchAttributes(
-    search_attributes=[TriggerType.SCHEDULED.to_temporal_search_attr_pair()]
-)
+
+def build_schedule_search_attributes(role: Role) -> TypedSearchAttributes:
+    """Build search attributes for scheduled workflows."""
+    pairs = [TriggerType.SCHEDULED.to_temporal_search_attr_pair()]
+    if role.workspace_id is not None:
+        pairs.append(
+            TemporalSearchAttr.WORKSPACE_ID.create_pair(str(role.workspace_id))
+        )
+    return TypedSearchAttributes(search_attributes=pairs)
 
 
 async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHandle:
@@ -74,7 +80,7 @@ async def create_schedule(
                 DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_id),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                typed_search_attributes=SEARCH_ATTRS,
+                typed_search_attributes=build_schedule_search_attributes(role),
                 **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(**spec_kwargs),
@@ -118,7 +124,17 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
         if "status" in set_fields:
             state.paused = set_fields["status"] != "online"
         if isinstance(action, temporalio.client.ScheduleActionStartWorkflow):
-            action.typed_search_attributes = SEARCH_ATTRS
+            # Extract role from existing schedule to rebuild search attributes
+            try:
+                run_args = DSLRunArgs.model_validate(action.args[0])
+                role = run_args.role
+            except Exception as e:
+                logger.warning(
+                    "Error extracting role from schedule action",
+                    error=e,
+                )
+                role = Role(type="service", service_id="tracecat-schedule-runner")
+            action.typed_search_attributes = build_schedule_search_attributes(role)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
         else:

@@ -17,11 +17,7 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
-from temporalio.common import (
-    SearchAttributeKey,
-    SearchAttributePair,
-    TypedSearchAttributes,
-)
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
@@ -762,12 +758,13 @@ class WorkflowExecutionsService:
         pairs = [trigger_type.to_temporal_search_attr_pair()]
         if self.role.user_id is not None:
             pairs.append(
-                SearchAttributePair(
-                    key=SearchAttributeKey.for_keyword(
-                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-                    ),
-                    value=str(self.role.user_id),
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                    str(self.role.user_id)
                 )
+            )
+        if self.role.workspace_id is not None:
+            pairs.append(
+                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
             )
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
