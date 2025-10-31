@@ -3932,7 +3932,7 @@ requires-dist = [
     { name = "redis", extras = ["hiredis"], specifier = ">=5.0.0" },
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlmodel", specifier = "==0.0.18" },
-    { name = "starlette", specifier = ">=0.49.1" },
+    { name = "starlette", specifier = ">=0.49.1,<0.50.0" },
     { name = "temporalio", specifier = "==1.17.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tomli", specifier = "==2.2.1" },
