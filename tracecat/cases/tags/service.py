@@ -7,14 +7,57 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import select
 
-from tracecat.db.schemas import CaseTag, CaseTagLink
+from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.enums import CaseEventType
+from tracecat.db.schemas import Case, CaseEvent, CaseTag, CaseTagLink
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.models import TagCreate, TagUpdate
+from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class CaseTagsService(BaseWorkspaceService):
     service_name = "case_tags"
+
+    async def _get_case(self, case_id: uuid.UUID) -> Case:
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
+            raise ValueError("Workspace ID is required")
+
+        stmt = select(Case).where(
+            Case.owner_id == workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.exec(stmt)
+        case = result.one_or_none()
+        if case is None:
+            raise TracecatNotFoundError(f"Case {case_id} not found in this workspace.")
+        return case
+
+    async def _sync_case_durations(self, case: Case) -> None:
+        durations_service = CaseDurationService(session=self.session, role=self.role)
+        await durations_service.sync_case_durations(case)
+
+    async def _create_tag_event(
+        self,
+        *,
+        case: Case,
+        tag: CaseTag,
+        event_type: CaseEventType,
+    ) -> None:
+        event = CaseEvent(
+            owner_id=self.workspace_id,
+            case_id=case.id,
+            type=event_type,
+            data={
+                "tag_id": str(tag.id),
+                "tag_ref": tag.ref,
+                "tag_name": tag.name,
+            },
+            user_id=self.role.user_id,
+        )
+        self.session.add(event)
+        await self.session.flush()
 
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""
@@ -166,6 +209,8 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def add_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> CaseTag:
         """Add a tag to a case by ID or ref."""
+        case = await self._get_case(case_id)
+
         # Resolve tag identifier to ID
         tag = await self.get_tag_by_ref_or_id(tag_identifier)
 
@@ -184,16 +229,26 @@ class CaseTagsService(BaseWorkspaceService):
         case_tag = CaseTagLink(case_id=case_id, tag_id=tag.id)
         self.session.add(case_tag)
 
+        await self._create_tag_event(
+            case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
+        )
+        await self._sync_case_durations(case)
+
         await self.session.commit()
         await self.session.refresh(tag)
         return tag
 
     async def remove_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> None:
         """Remove a tag from a case by ID or ref."""
+        case = await self._get_case(case_id)
         tag = await self.get_tag_by_ref_or_id(tag_identifier)
 
         case_tag = await self.get_case_tag(case_id, tag.id)
         if not case_tag:
             raise ValueError(f"Tag {tag_identifier} not found on case {case_id}")
         await self.session.delete(case_tag)
+        await self._create_tag_event(
+            case=case, tag=tag, event_type=CaseEventType.TAG_REMOVED
+        )
+        await self._sync_case_durations(case)
         await self.session.commit()

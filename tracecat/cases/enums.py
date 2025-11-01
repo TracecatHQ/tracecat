@@ -72,6 +72,8 @@ class CaseEventType(StrEnum):
     ASSIGNEE_CHANGED = "assignee_changed"
     ATTACHMENT_CREATED = "attachment_created"
     ATTACHMENT_DELETED = "attachment_deleted"
+    TAG_ADDED = "tag_added"
+    TAG_REMOVED = "tag_removed"
     PAYLOAD_CHANGED = "payload_changed"
     TASK_CREATED = "task_created"
     TASK_DELETED = "task_deleted"

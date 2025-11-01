@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { FlagTriangleRight, Timer } from "lucide-react"
+import { FlagTriangleRight, Tag, Timer } from "lucide-react"
 import { type ReactNode, useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -16,6 +16,7 @@ import {
   CASE_EVENT_OPTIONS,
   CASE_EVENT_VALUES,
   isCaseEventFilterType,
+  isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
 import {
   CaseFilterMultiSelect,
@@ -48,6 +49,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useCaseTagCatalog } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const anchorSchema = z.object({
   selection: z.enum(["first", "last"]),
@@ -60,6 +63,26 @@ const CATEGORY_OPTIONS = {
   severity_changed: SEVERITIES,
   status_changed: STATUSES,
 } as const
+
+type CaseDurationEventTypeValue = (typeof CASE_EVENT_VALUES)[number]
+
+const requiresFilterSelection = (
+  eventType: CaseDurationEventTypeValue
+): boolean => {
+  return isCaseEventFilterType(eventType) || isCaseTagEventType(eventType)
+}
+
+const getFilterLabel = (
+  eventType: CaseDurationEventTypeValue
+): string | null => {
+  if (isCaseEventFilterType(eventType)) {
+    return CASE_EVENT_FILTER_OPTIONS[eventType].label
+  }
+  if (isCaseTagEventType(eventType)) {
+    return "Tag"
+  }
+  return null
+}
 
 const getOptionIconClass = (color?: string) =>
   color?.split(" ").find((token) => token.startsWith("text-")) ||
@@ -84,72 +107,83 @@ const formSchema = z
     const startFilterValues = values.start.filterValues ?? []
     const endFilterValues = values.end.filterValues ?? []
 
-    if (isCaseEventFilterType(startEventType)) {
-      if (startFilterValues.length === 0) {
-        const label = CASE_EVENT_FILTER_OPTIONS[startEventType].label
-        ctx.addIssue({
-          path: ["start", "filterValues"],
-          code: z.ZodIssueCode.custom,
-          message: `Select at least one ${label.toLowerCase()}.`,
-        })
-      }
+    const startRequiresFilter = requiresFilterSelection(startEventType)
+    const endRequiresFilter = requiresFilterSelection(endEventType)
 
-      if (
-        isCaseEventFilterType(endEventType) &&
-        startEventType === endEventType
-      ) {
-        const overlappingValues = startFilterValues.filter((value) =>
-          endFilterValues.includes(value)
-        )
-        if (overlappingValues.length > 0) {
-          const label = CASE_EVENT_FILTER_OPTIONS[startEventType].label
-          ctx.addIssue({
-            path: ["start", "filterValues"],
-            code: z.ZodIssueCode.custom,
-            message: `Remove duplicate ${label.toLowerCase()} selections shared with the "To event".`,
-          })
-          ctx.addIssue({
-            path: ["end", "filterValues"],
-            code: z.ZodIssueCode.custom,
-            message: `Choose ${label.toLowerCase()} values that differ from the "From event".`,
-          })
-        }
-      }
+    if (startRequiresFilter && startFilterValues.length === 0) {
+      const label = getFilterLabel(startEventType) ?? "value"
+      ctx.addIssue({
+        path: ["start", "filterValues"],
+        code: z.ZodIssueCode.custom,
+        message: `Select at least one ${label.toLowerCase()}.`,
+      })
     }
 
-    if (isCaseEventFilterType(endEventType) && endFilterValues.length === 0) {
-      const label = CASE_EVENT_FILTER_OPTIONS[endEventType].label
+    if (endRequiresFilter && endFilterValues.length === 0) {
+      const label = getFilterLabel(endEventType) ?? "value"
       ctx.addIssue({
         path: ["end", "filterValues"],
         code: z.ZodIssueCode.custom,
         message: `Select a ${label.toLowerCase()}.`,
       })
     }
+
+    if (
+      startRequiresFilter &&
+      endRequiresFilter &&
+      startEventType === endEventType
+    ) {
+      const overlappingValues = startFilterValues.filter((value) =>
+        endFilterValues.includes(value)
+      )
+      if (overlappingValues.length > 0) {
+        const label = getFilterLabel(startEventType) ?? "value"
+        ctx.addIssue({
+          path: ["start", "filterValues"],
+          code: z.ZodIssueCode.custom,
+          message: `Remove duplicate ${label.toLowerCase()} selections shared with the "To event".`,
+        })
+        ctx.addIssue({
+          path: ["end", "filterValues"],
+          code: z.ZodIssueCode.custom,
+          message: `Choose ${label.toLowerCase()} values that differ from the "From event".`,
+        })
+      }
+    }
   })
 
 export type CaseDurationFormValues = z.infer<typeof formSchema>
 
 const buildFilterOptions = (
-  eventType: CaseDurationFormValues["start"]["eventType"]
+  eventType: CaseDurationFormValues["start"]["eventType"] | undefined,
+  tagOptions: CaseFilterOption[]
 ): CaseFilterOption[] => {
-  if (!isCaseEventFilterType(eventType)) {
+  if (!eventType) {
     return []
   }
 
-  const categoryMap = CATEGORY_OPTIONS[eventType] as Record<
-    string,
-    { icon: CaseFilterOption["icon"]; color?: string }
-  >
+  if (isCaseEventFilterType(eventType)) {
+    const categoryMap = CATEGORY_OPTIONS[eventType] as Record<
+      string,
+      { icon: CaseFilterOption["icon"]; color?: string }
+    >
 
-  return CASE_EVENT_FILTER_OPTIONS[eventType].options.map((option) => {
-    const category = categoryMap[option.value]
-    return {
-      value: option.value,
-      label: option.label,
-      icon: category?.icon,
-      iconClassName: getOptionIconClass(category?.color),
-    }
-  })
+    return CASE_EVENT_FILTER_OPTIONS[eventType].options.map((option) => {
+      const category = categoryMap[option.value]
+      return {
+        value: option.value,
+        label: option.label,
+        icon: category?.icon,
+        iconClassName: getOptionIconClass(category?.color),
+      }
+    })
+  }
+
+  if (isCaseTagEventType(eventType)) {
+    return tagOptions
+  }
+
+  return []
 }
 
 export interface CaseDurationDialogProps {
@@ -179,19 +213,49 @@ export const createEmptyCaseDurationFormValues =
     },
   })
 
+export const normalizeFilterValues = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string")
+  }
+
+  if (typeof value === "string") {
+    return [value]
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as { $in?: unknown[] }).$in)
+  ) {
+    const inArray = (value as { $in: unknown[] }).$in
+    return inArray.filter((item): item is string => typeof item === "string")
+  }
+
+  return []
+}
+
+export const getFilterFieldKey = (
+  eventType: CaseDurationFormValues["start"]["eventType"]
+): string | null => {
+  if (isCaseEventFilterType(eventType)) {
+    return "data.new"
+  }
+  if (isCaseTagEventType(eventType)) {
+    return "data.tag_ref"
+  }
+  return null
+}
+
 export const buildFieldFilters = (
   eventType: CaseDurationFormValues["start"]["eventType"],
   filterValues: CaseDurationFormValues["start"]["filterValues"]
 ): Record<string, unknown> | null => {
-  if (!isCaseEventFilterType(eventType)) {
+  const fieldKey = getFilterFieldKey(eventType)
+  if (!fieldKey || !filterValues || filterValues.length === 0) {
     return null
   }
 
-  if (filterValues && filterValues.length > 0) {
-    return { "data.new": filterValues }
-  }
-
-  return null
+  return { [fieldKey]: filterValues }
 }
 
 export function CaseDurationDialog({
@@ -215,28 +279,42 @@ export function CaseDurationDialog({
     }
   }, [open, initialValues, form])
 
+  const workspaceId = useWorkspaceId()
+  const { caseTags } = useCaseTagCatalog(workspaceId ?? "", {
+    enabled: Boolean(workspaceId),
+  })
+
+  const tagFilterOptions = useMemo<CaseFilterOption[]>(() => {
+    if (!caseTags) {
+      return []
+    }
+
+    return caseTags.map((tag) => ({
+      value: tag.ref,
+      label: tag.name,
+      icon: Tag,
+    }))
+  }, [caseTags])
+
   const startEventType = form.watch("start.eventType")
   const endEventType = form.watch("end.eventType")
   const nameValue = form.watch("name")
   const startFilterCount = form.watch("start.filterValues")?.length ?? 0
   const endFilterCount = form.watch("end.filterValues")?.length ?? 0
 
-  const startFilterConfig =
-    startEventType && isCaseEventFilterType(startEventType)
-      ? CASE_EVENT_FILTER_OPTIONS[startEventType]
-      : null
-  const endFilterConfig =
-    endEventType && isCaseEventFilterType(endEventType)
-      ? CASE_EVENT_FILTER_OPTIONS[endEventType]
-      : null
   const startFilterOptions = useMemo(
-    () => buildFilterOptions(startEventType),
-    [startEventType]
+    () => buildFilterOptions(startEventType, tagFilterOptions),
+    [startEventType, tagFilterOptions]
   )
   const endFilterOptions = useMemo(
-    () => buildFilterOptions(endEventType),
-    [endEventType]
+    () => buildFilterOptions(endEventType, tagFilterOptions),
+    [endEventType, tagFilterOptions]
   )
+
+  const startFilterLabel = startEventType
+    ? getFilterLabel(startEventType)
+    : null
+  const endFilterLabel = endEventType ? getFilterLabel(endEventType) : null
   const isSubmitDisabled = useMemo(() => {
     if (isSubmitting) {
       return true
@@ -248,10 +326,10 @@ export function CaseDurationDialog({
     if (!startEventType || !endEventType) {
       return true
     }
-    if (isCaseEventFilterType(startEventType) && startFilterCount === 0) {
+    if (requiresFilterSelection(startEventType) && startFilterCount === 0) {
       return true
     }
-    if (isCaseEventFilterType(endEventType) && endFilterCount === 0) {
+    if (requiresFilterSelection(endEventType) && endFilterCount === 0) {
       return true
     }
     return false
@@ -377,18 +455,18 @@ export function CaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                {startFilterConfig && (
+                {startFilterLabel && (
                   <FormField
                     control={form.control}
                     name="start.filterValues"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
                         <FormLabel className="text-xs">
-                          {startFilterConfig.label}
+                          {startFilterLabel}
                         </FormLabel>
                         <FormControl className="w-full">
                           <CaseFilterMultiSelect
-                            placeholder={`Select ${startFilterConfig.label.toLowerCase()}`}
+                            placeholder={`Select ${startFilterLabel.toLowerCase()}`}
                             value={field.value ?? []}
                             options={startFilterOptions}
                             onChange={(nextValue) => {
@@ -468,18 +546,18 @@ export function CaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                {endFilterConfig && (
+                {endFilterLabel && (
                   <FormField
                     control={form.control}
                     name="end.filterValues"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
                         <FormLabel className="text-xs">
-                          {endFilterConfig.label}
+                          {endFilterLabel}
                         </FormLabel>
                         <FormControl className="w-full">
                           <CaseFilterMultiSelect
-                            placeholder={`Select ${endFilterConfig.label.toLowerCase()}`}
+                            placeholder={`Select ${endFilterLabel.toLowerCase()}`}
                             value={field.value ?? []}
                             options={endFilterOptions}
                             onChange={(nextValue) => {
