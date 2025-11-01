@@ -2616,6 +2616,12 @@ export const $CaseEventRead = {
       $ref: "#/components/schemas/AttachmentDeletedEventRead",
     },
     {
+      $ref: "#/components/schemas/TagAddedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TagRemovedEventRead",
+    },
+    {
       $ref: "#/components/schemas/PayloadChangedEventRead",
     },
     {
@@ -2655,6 +2661,8 @@ export const $CaseEventRead = {
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
+      tag_added: "#/components/schemas/TagAddedEventRead",
+      tag_removed: "#/components/schemas/TagRemovedEventRead",
       task_assignee_changed:
         "#/components/schemas/TaskAssigneeChangedEventRead",
       task_created: "#/components/schemas/TaskCreatedEventRead",
@@ -2683,6 +2691,8 @@ export const $CaseEventType = {
     "assignee_changed",
     "attachment_created",
     "attachment_deleted",
+    "tag_added",
+    "tag_removed",
     "payload_changed",
     "task_created",
     "task_deleted",
@@ -11362,6 +11372,65 @@ export const $TableUpdate = {
   description: "Update model for a table.",
 } as const
 
+export const $TagAddedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "tag_added",
+      title: "Type",
+      default: "tag_added",
+    },
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+    tag_ref: {
+      type: "string",
+      title: "Tag Ref",
+    },
+    tag_name: {
+      type: "string",
+      title: "Tag Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["tag_id", "tag_ref", "tag_name", "created_at"],
+  title: "TagAddedEventRead",
+  description: "Event for when a tag is added to a case.",
+} as const
+
 export const $TagCreate = {
   properties: {
     name: {
@@ -11438,6 +11507,65 @@ export const $TagRead = {
   required: ["id", "name", "ref"],
   title: "TagRead",
   description: "Model for reading tag data with validation.",
+} as const
+
+export const $TagRemovedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "tag_removed",
+      title: "Type",
+      default: "tag_removed",
+    },
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+    tag_ref: {
+      type: "string",
+      title: "Tag Ref",
+    },
+    tag_name: {
+      type: "string",
+      title: "Tag Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["tag_id", "tag_ref", "tag_name", "created_at"],
+  title: "TagRemovedEventRead",
+  description: "Event for when a tag is removed from a case.",
 } as const
 
 export const $TagUpdate = {

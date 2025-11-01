@@ -9,9 +9,14 @@ import type {
   CaseDurationDefinitionUpdate,
 } from "@/client"
 import {
+  getFilterFieldKey,
+  normalizeFilterValues,
+} from "@/components/cases/case-duration-dialog"
+import {
   CASE_EVENT_FILTER_OPTIONS,
   getCaseEventOption,
   isCaseEventFilterType,
+  isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
 import { UpdateCaseDurationDialog } from "@/components/cases/update-case-duration-dialog"
 import {
@@ -44,6 +49,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useCaseTagCatalog } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseDurationsTableProps {
   durations: CaseDurationDefinitionRead[]
@@ -60,27 +67,6 @@ interface CaseDurationsTableProps {
 const SELECTION_LABELS: Record<CaseDurationAnchorSelection, string> = {
   first: "First seen",
   last: "Last seen",
-}
-
-const normalizeFilterValues = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string")
-  }
-
-  if (typeof value === "string") {
-    return [value]
-  }
-
-  if (
-    value &&
-    typeof value === "object" &&
-    Array.isArray((value as { $in?: unknown[] }).$in)
-  ) {
-    const inArray = (value as { $in: unknown[] }).$in
-    return inArray.filter((item): item is string => typeof item === "string")
-  }
-
-  return []
 }
 
 const defaultToolbarProps: DataTableToolbarProps<CaseDurationDefinitionRead> = {
@@ -103,6 +89,24 @@ export function CaseDurationsTable({
   const [editingDuration, setEditingDuration] =
     useState<CaseDurationDefinitionRead | null>(null)
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false)
+
+  const workspaceId = useWorkspaceId()
+  const { caseTags } = useCaseTagCatalog(workspaceId ?? "", {
+    enabled: Boolean(workspaceId),
+  })
+
+  const tagLabelByRef = useMemo(() => {
+    const map = new Map<string, string>()
+    if (!caseTags) {
+      return map
+    }
+
+    for (const tag of caseTags) {
+      map.set(tag.ref, tag.name)
+    }
+
+    return map
+  }, [caseTags])
 
   const handleUpdateDialogChange = (open: boolean) => {
     setIsUpdateDialogOpen(open)
@@ -133,16 +137,23 @@ export function CaseDurationsTable({
     const selection = anchor.selection ?? "first"
     const valueLabels: string[] = []
 
-    if (isCaseEventFilterType(anchor.event_type)) {
-      const rawFilterValue = anchor.field_filters?.["data.new"]
+    const filterFieldKey = getFilterFieldKey(anchor.event_type)
+    if (filterFieldKey) {
+      const rawFilterValue = anchor.field_filters?.[filterFieldKey]
       const values = normalizeFilterValues(rawFilterValue)
 
       for (const value of values) {
-        const option = CASE_EVENT_FILTER_OPTIONS[
-          anchor.event_type
-        ].options.find((filterOption) => filterOption.value === value)
+        if (isCaseEventFilterType(anchor.event_type)) {
+          const option = CASE_EVENT_FILTER_OPTIONS[
+            anchor.event_type
+          ].options.find((filterOption) => filterOption.value === value)
 
-        valueLabels.push(option?.label ?? value)
+          valueLabels.push(option?.label ?? value)
+        } else if (isCaseTagEventType(anchor.event_type)) {
+          valueLabels.push(tagLabelByRef.get(value) ?? value)
+        } else {
+          valueLabels.push(value)
+        }
       }
     }
 

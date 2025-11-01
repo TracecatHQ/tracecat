@@ -10,6 +10,8 @@ import {
   CaseDurationDialog,
   type CaseDurationFormValues,
   createEmptyCaseDurationFormValues,
+  getFilterFieldKey,
+  normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
 
 interface UpdateCaseDurationDialogProps {
@@ -23,27 +25,6 @@ interface UpdateCaseDurationDialogProps {
   isUpdating?: boolean
 }
 
-const normalizeFilterValues = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string")
-  }
-
-  if (typeof value === "string") {
-    return [value]
-  }
-
-  if (
-    value &&
-    typeof value === "object" &&
-    Array.isArray((value as { $in?: unknown[] }).$in)
-  ) {
-    const inArray = (value as { $in: unknown[] }).$in
-    return inArray.filter((item): item is string => typeof item === "string")
-  }
-
-  return []
-}
-
 const getInitialValues = (
   duration: CaseDurationDefinitionRead | null
 ): CaseDurationFormValues | undefined => {
@@ -51,11 +32,16 @@ const getInitialValues = (
     return undefined
   }
 
+  const startFieldKey = getFilterFieldKey(duration.start_anchor.event_type)
+  const endFieldKey = getFilterFieldKey(duration.end_anchor.event_type)
+
   const startFilters = normalizeFilterValues(
-    duration.start_anchor.field_filters?.["data.new"]
+    startFieldKey
+      ? duration.start_anchor.field_filters?.[startFieldKey]
+      : undefined
   )
   const endFilters = normalizeFilterValues(
-    duration.end_anchor.field_filters?.["data.new"]
+    endFieldKey ? duration.end_anchor.field_filters?.[endFieldKey] : undefined
   )
 
   return {
