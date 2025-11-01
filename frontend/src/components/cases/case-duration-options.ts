@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   CircleCheck,
+  Eye,
   FilePlus2,
   Flag,
   Flame,
@@ -42,6 +43,11 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
     value: "case_reopened",
     label: "Case reopened",
     icon: RotateCcw,
+  },
+  {
+    value: "case_viewed",
+    label: "Case viewed",
+    icon: Eye,
   },
   {
     value: "priority_changed",
