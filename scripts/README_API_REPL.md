@@ -89,7 +89,7 @@ pretty_json(resp.json())
 
 #### Make authenticated service calls
 ```python
-from tracecat.types.auth import system_role
+from tracecat.auth.types import system_role
 
 role = system_role()
 resp = session.post(

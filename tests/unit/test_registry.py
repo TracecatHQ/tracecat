@@ -11,10 +11,10 @@ from uuid import UUID
 
 import pytest
 
+from tracecat.exceptions import RegistryValidationError
 from tracecat.git.utils import GitUrl, parse_git_url
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
-from tracecat.types.exceptions import RegistryValidationError
 
 
 @pytest.mark.anyio

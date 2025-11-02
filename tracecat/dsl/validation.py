@@ -4,10 +4,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 
 from tracecat.dsl.common import DSLInput
-from tracecat.dsl.models import TriggerInputs
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.validation.models import DSLValidationResult, ValidationDetail
+from tracecat.validation.schemas import DSLValidationResult, ValidationDetail
 
 
 def validate_trigger_inputs(

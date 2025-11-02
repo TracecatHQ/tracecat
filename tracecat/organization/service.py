@@ -6,18 +6,18 @@ from contextlib import asynccontextmanager
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from tracecat.auth.models import SessionRead, UserUpdate
+from tracecat.auth.schemas import SessionRead, UserUpdate
+from tracecat.auth.types import AccessLevel
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
-from tracecat.db.schemas import AccessToken, User
+from tracecat.db.models import AccessToken, User
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import SessionID, UserID
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class OrgService(BaseService):

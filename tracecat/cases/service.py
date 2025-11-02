@@ -10,7 +10,8 @@ from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
@@ -20,7 +21,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCommentCreate,
     CaseCommentUpdate,
@@ -50,10 +51,10 @@ from tracecat.cases.models import (
     TaskWorkflowChangedEvent,
     UpdatedEvent,
 )
-from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
-from tracecat.db.schemas import (
+from tracecat.db.models import (
     Case,
     CaseComment,
     CaseEvent,
@@ -62,20 +63,19 @@ from tracecat.db.schemas import (
     CaseTask,
     User,
 )
-from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
 )
-from tracecat.types.pagination import (
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.service import TableEditorService, TablesService
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -497,11 +497,12 @@ class CasesService(BaseWorkspaceService):
             else:
                 if created_event is not None:
                     try:
+                        await self.durations.sync_case_durations(case)
                         await self.session.commit()
                     except Exception:
                         await self.session.rollback()
                         self.logger.exception(
-                            "Failed to commit case viewed event",
+                            "Failed to persist case viewed tracking updates",
                             case_id=case_id,
                             user_id=self.role.user_id,
                         )

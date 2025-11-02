@@ -6,10 +6,10 @@ from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.service import get_setting, get_setting_override
-from tracecat.types.auth import AccessLevel, Role
 
 WorkspaceUserRole = Annotated[
     Role,

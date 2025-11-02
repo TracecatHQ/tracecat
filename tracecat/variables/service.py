@@ -5,11 +5,11 @@ from collections.abc import Sequence
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import col, select
 
-from tracecat.db.schemas import WorkspaceVariable
+from tracecat.db.models import WorkspaceVariable
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
-from tracecat.variables.models import (
+from tracecat.variables.schemas import (
     VariableCreate,
     VariableSearch,
     VariableUpdate,

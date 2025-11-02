@@ -5,8 +5,8 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
-from tracecat.tags.models import TagRead
-from tracecat.workflow.tags.models import WorkflowTagCreate
+from tracecat.tags.schemas import TagRead
+from tracecat.workflow.tags.schemas import WorkflowTagCreate
 from tracecat.workflow.tags.service import WorkflowTagsService
 
 # Create a FastAPI router for workflow tags

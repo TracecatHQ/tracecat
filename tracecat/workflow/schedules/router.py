@@ -3,13 +3,13 @@ from sqlmodel import select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Schedule
+from tracecat.db.models import Schedule
+from tracecat.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.schedules.models import (
+from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
     ScheduleSearch,
     ScheduleUpdate,

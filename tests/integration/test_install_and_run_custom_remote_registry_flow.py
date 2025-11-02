@@ -21,13 +21,13 @@ import requests
 from pydantic import SecretStr, ValidationError
 
 from tests.shared import generate_test_exec_id
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext, StreamID
+from tracecat.auth.types import system_role
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import SecretCreate
-from tracecat.settings.models import GitSettingsUpdate
-from tracecat.types.auth import system_role
+from tracecat.secrets.schemas import SecretCreate
+from tracecat.settings.schemas import GitSettingsUpdate
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
 

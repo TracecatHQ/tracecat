@@ -5,8 +5,8 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.workflow.management.folders.models import (
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.workflow.management.folders.schemas import (
     DirectoryItem,
     WorkflowFolderCreate,
     WorkflowFolderDelete,

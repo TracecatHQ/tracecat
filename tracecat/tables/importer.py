@@ -2,11 +2,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import TracecatImportError
 from tracecat.tables.common import convert_value
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
-from tracecat.types.exceptions import TracecatImportError
 
 
 class ColumnInfo(BaseModel):

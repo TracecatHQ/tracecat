@@ -3,18 +3,18 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
-from tracecat.git.utils import parse_git_url
-from tracecat.identifiers.workflow import AnyWorkflowIDPath
-from tracecat.logger import logger
-from tracecat.registry.repositories.models import GitCommitInfo
-from tracecat.sync import PullOptions, PullResult
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatSettingsError,
 )
+from tracecat.git.utils import parse_git_url
+from tracecat.identifiers.workflow import AnyWorkflowIDPath
+from tracecat.logger import logger
+from tracecat.registry.repositories.schemas import GitCommitInfo
+from tracecat.sync import PullOptions, PullResult
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflow.store.models import WorkflowDslPublish, WorkflowSyncPullRequest
+from tracecat.workflow.store.schemas import WorkflowDslPublish, WorkflowSyncPullRequest
 from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService

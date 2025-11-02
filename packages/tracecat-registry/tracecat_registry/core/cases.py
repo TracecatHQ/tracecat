@@ -7,7 +7,7 @@ from sqlalchemy.exc import NoResultFound, ProgrammingError
 from sqlmodel import col, select
 from typing_extensions import Doc
 
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.cases.attachments import (
     CaseAttachmentCreate,
@@ -15,7 +15,7 @@ from tracecat.cases.attachments import (
     CaseAttachmentRead,
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
@@ -31,7 +31,7 @@ from tracecat.cases.models import (
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
-from tracecat.tags.models import TagRead
+from tracecat.tags.schemas import TagRead
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
 
@@ -577,7 +577,7 @@ async def list_case_events(
     users = []
     if user_ids:
         async with get_async_session_context_manager() as session:
-            from tracecat.db.schemas import User
+            from tracecat.db.models import User
 
             stmt = select(User).where(col(User.id).in_(user_ids))
             result = await session.exec(stmt)

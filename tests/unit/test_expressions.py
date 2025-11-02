@@ -10,7 +10,8 @@ from httpx import Response
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.db.schemas import BaseSecret
+from tracecat.db.models import BaseSecret
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import (
     ExprContext,
     ExprType,
@@ -37,11 +38,10 @@ from tracecat.expressions.validator.validator import (
 )
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue
-from tracecat.types.exceptions import TracecatExpressionError
+from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.validation.common import get_validators
-from tracecat.validation.models import ExprValidationResult, ValidationDetail
-from tracecat.variables.models import VariableCreate
+from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
+from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 
 

@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from tracecat_registry.core.agent import action, agent
 
-from tracecat.types.auth import Role
+from tracecat.auth.types import Role
 
 requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
 

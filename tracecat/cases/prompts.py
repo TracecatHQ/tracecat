@@ -3,7 +3,7 @@ import textwrap
 import yaml
 from pydantic import BaseModel
 
-from tracecat.db.schemas import Case
+from tracecat.db.models import Case
 
 
 class CaseCopilotPrompts(BaseModel):

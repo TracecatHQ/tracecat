@@ -18,11 +18,11 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

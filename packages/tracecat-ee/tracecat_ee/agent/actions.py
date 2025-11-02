@@ -6,7 +6,7 @@ from tracecat_registry._internal.exceptions import ActionIsInterfaceError
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret
 from typing_extensions import Doc
 
-from tracecat.agent.models import OutputType
+from tracecat.agent.schemas import OutputType
 from tracecat.registry.fields import ActionType, TextArea, Yaml
 
 

@@ -5,8 +5,8 @@ from typing import NotRequired, TypedDict
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
-from tracecat.auth.models import UserRole
-from tracecat.authz.models import WorkspaceRole
+from tracecat.auth.schemas import UserRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 

@@ -13,7 +13,7 @@ from tracecat_registry.core.transform import (
     not_in,
 )
 
-from tracecat.types.exceptions import TracecatExpressionError
+from tracecat.exceptions import TracecatExpressionError
 
 
 @pytest.mark.parametrize(

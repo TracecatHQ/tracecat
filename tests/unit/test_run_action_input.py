@@ -1,6 +1,6 @@
 import uuid
 
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 

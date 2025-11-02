@@ -13,12 +13,12 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatException
 from tracecat.logger import logger
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 

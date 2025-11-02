@@ -16,11 +16,11 @@ import pytest
 from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes
 
-from tracecat.db.schemas import Workspace
+from tracecat.auth.types import Role
+from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers import UserID, WorkflowID
-from tracecat.types.auth import Role
 from tracecat.workflow.executions.common import build_query
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService

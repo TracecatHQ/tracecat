@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 from sqlmodel import select
 
-from tracecat.db.schemas import Tag, WorkflowTag
+from tracecat.db.models import Tag, WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.service import BaseService

@@ -7,9 +7,9 @@ from contextvars import ContextVar
 import loguru
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.dsl.models import ROOT_STREAM, RunContext, StreamID
-from tracecat.interactions.models import InteractionContext
-from tracecat.types.auth import Role
+from tracecat.auth.types import Role
+from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
+from tracecat.interactions.schemas import InteractionContext
 
 __all__ = [
     "ctx_run",

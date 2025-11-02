@@ -29,10 +29,11 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Workflow
+from tracecat.db.models import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
     RETRY_POLICIES,
@@ -46,8 +47,7 @@ from tracecat.dsl.enums import (
     StreamErrorHandlingStrategy,
     WaitStrategy,
 )
-from tracecat.dsl.models import (
-    ActionErrorInfoAdapter,
+from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
@@ -55,6 +55,7 @@ from tracecat.dsl.models import (
     RunActionInput,
     ScatterArgs,
 )
+from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import (
@@ -64,23 +65,22 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
-from tracecat.variables.models import VariableCreate
+from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import WorkflowEventType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventGroup,
     WorkflowExecutionEvent,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.models import WorkflowUpdate
+from tracecat.workflow.management.schemas import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
@@ -258,8 +258,7 @@ async def test_workflow_completes_and_correct(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2185,8 +2184,7 @@ async def test_workflow_error_path(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2262,7 +2260,7 @@ async def test_workflow_join_unreachable(
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "tracecat.exceptions.TracecatExpressionError",
                         "TracecatValidationError",
                     ],
                 ),
@@ -2341,7 +2339,7 @@ async def test_workflow_multiple_entrypoints(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2373,7 +2371,7 @@ async def test_workflow_runs_template_for_each(
     """
 
     from tracecat.expressions.expectations import ExpectedField
-    from tracecat.registry.actions.models import (
+    from tracecat.registry.actions.schemas import (
         ActionStep,
         RegistryActionCreate,
         TemplateAction,
@@ -2459,7 +2457,7 @@ async def test_workflow_runs_template_for_each(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),

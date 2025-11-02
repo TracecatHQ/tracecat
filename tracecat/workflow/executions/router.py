@@ -10,20 +10,20 @@ import tracecat.agent.adapter.vercel
 from tracecat.agent.runtime import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
-from tracecat.chat.models import ChatMessage
+from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import WorkflowDefinition
+from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
-from tracecat.ee.interactions.models import InteractionRead
+from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionRead,

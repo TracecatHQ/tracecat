@@ -45,7 +45,7 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
-from tracecat.interactions.models import InteractionContext
+from tracecat.interactions.schemas import InteractionContext
 from tracecat.parse import unescape_string
 
 

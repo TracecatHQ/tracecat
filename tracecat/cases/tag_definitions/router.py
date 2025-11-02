@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
-from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import CaseTagID
-from tracecat.tags.models import TagCreate, TagUpdate
+from tracecat.tags.schemas import TagCreate, TagUpdate
 
 router = APIRouter(prefix="/case-tags", tags=["case-tags"])
 

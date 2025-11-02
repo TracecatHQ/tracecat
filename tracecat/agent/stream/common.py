@@ -5,11 +5,11 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from tracecat.agent.models import MessageStore
 from tracecat.agent.persistence import DBMessageStore
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.stream.writers import AgentStreamWriter, StreamWriter
+from tracecat.agent.types import MessageStore
 
 
 @dataclass

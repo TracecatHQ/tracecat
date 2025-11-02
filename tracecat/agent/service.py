@@ -7,23 +7,23 @@ from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
-from tracecat.agent.models import (
+from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
-from tracecat.db.schemas import OrganizationSecret
+from tracecat.auth.types import Role
+from tracecat.db.models import OrganizationSecret
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
-from tracecat.settings.models import SettingCreate, SettingUpdate, ValueType
+from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class AgentManagementService(BaseService):

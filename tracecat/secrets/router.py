@@ -4,12 +4,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.authz.models import WorkspaceRole
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretRead,
     SecretReadMinimal,
@@ -17,8 +19,6 @@ from tracecat.secrets.models import (
     SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 org_router = APIRouter(prefix="/organization/secrets", tags=["organization-secrets"])

@@ -11,7 +11,8 @@ from typing import Any, Literal
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.cases.durations.models import (
+from tracecat.auth.types import Role
+from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
     CaseDurationCreate,
@@ -22,15 +23,14 @@ from tracecat.cases.durations.models import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.db.schemas import Case, CaseDuration, CaseEvent
-from tracecat.db.schemas import CaseDurationDefinition as CaseDurationDefinitionDB
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.common import coerce_to_utc_datetime
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.db.models import Case, CaseDuration, CaseEvent
+from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import coerce_to_utc_datetime
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):
@@ -506,7 +506,7 @@ class CaseDurationService(BaseWorkspaceService):
     def _normalize_filter_value(self, value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
-        if isinstance(value, (list, tuple, set)):
+        if isinstance(value, list | tuple | set):
             return [self._normalize_filter_value(item) for item in value]
         return value
 

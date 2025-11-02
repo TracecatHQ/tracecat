@@ -21,11 +21,11 @@ from sqlmodel import col, select
 from temporalio import activity, workflow
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.auth.types import Role
 from tracecat.common import all_activities
-from tracecat.db.schemas import Approval, User, Workflow
+from tracecat.db.models import Approval, User, Workflow
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     ApprovalDecisionPayload,

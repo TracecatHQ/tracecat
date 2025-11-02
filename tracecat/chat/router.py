@@ -14,7 +14,8 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
-from tracecat.chat.models import (
+from tracecat.auth.types import Role
+from tracecat.chat.schemas import (
     ChatCreate,
     ChatMessage,
     ChatRead,
@@ -25,9 +26,8 @@ from tracecat.chat.models import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

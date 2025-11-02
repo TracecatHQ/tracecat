@@ -10,8 +10,8 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
 class GitHubOAuthConfig(BaseModel):

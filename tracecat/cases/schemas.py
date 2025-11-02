@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, RootModel
 
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import (
     CaseEventType,
@@ -16,11 +16,11 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
+from tracecat.tables.schemas import TableColumnCreate, TableColumnUpdate
 
 
 class CaseReadMinimal(BaseModel):

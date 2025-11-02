@@ -8,7 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.records.models import (
+from tracecat.auth.types import Role
+from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordDeleteResponse,
     CaseRecordLink,
@@ -19,12 +20,11 @@ from tracecat.cases.records.models import (
 from tracecat.cases.records.service import CaseRecordService
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.logger import logger
 
 router = APIRouter(tags=["case-records"], prefix="/cases/{case_id}/records")
 

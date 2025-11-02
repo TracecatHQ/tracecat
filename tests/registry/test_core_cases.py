@@ -21,9 +21,9 @@ from tracecat_registry.core.cases import (
 )
 
 # Import UserRead and UserRole for realistic user objects
-from tracecat.auth.models import UserRead, UserRole
+from tracecat.auth.schemas import UserRead, UserRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentUpdate,
     CaseCreate,
@@ -1976,7 +1976,7 @@ class TestCoreCreateCaseErrorHandling:
         self, mock_with_session
     ):
         """Test that creating a case with an invalid field shows a clear error message."""
-        from tracecat.types.exceptions import TracecatException
+        from tracecat.exceptions import TracecatException
 
         # Set up the mock service context manager
         mock_service = AsyncMock()
@@ -2009,7 +2009,7 @@ class TestCoreCreateCaseErrorHandling:
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_create_case_atomicity_verified(self, mock_with_session):
         """Test that case creation failure doesn't leave partial data."""
-        from tracecat.types.exceptions import TracecatException
+        from tracecat.exceptions import TracecatException
 
         # Set up mock to simulate field creation failure AFTER case creation
         mock_service = AsyncMock()

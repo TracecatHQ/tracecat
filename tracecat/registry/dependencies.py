@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat.types.exceptions import RegistryError
+from tracecat.exceptions import RegistryError
 
 
 class VersionOperator(StrEnum):

@@ -7,13 +7,13 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import TemporalError
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
-from tracecat.workflow.schedules.models import ScheduleUpdate
+from tracecat.workflow.schedules.schemas import ScheduleUpdate
 
 
 def build_schedule_search_attributes(role: Role) -> TypedSearchAttributes:

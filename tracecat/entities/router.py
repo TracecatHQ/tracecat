@@ -5,10 +5,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import EntityField
+from tracecat.db.models import EntityField
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import (
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldOptionRead,
@@ -19,14 +20,13 @@ from tracecat.entities.models import (
     coerce_default_value,
 )
 from tracecat.entities.service import EntityService
-from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
-from tracecat.records.service import RecordService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
-from tracecat.types.pagination import (
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
+from tracecat.records.service import RecordService
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 

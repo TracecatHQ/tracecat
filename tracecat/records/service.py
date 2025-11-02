@@ -7,17 +7,17 @@ from typing import Any
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, col, or_, select
 
-from tracecat.db.schemas import Entity, EntityField, EntityRecord
+from tracecat.db.models import Entity, EntityField, EntityRecord
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import coerce_default_value
-from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
-from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatNotFoundError
-from tracecat.types.pagination import (
+from tracecat.entities.schemas import coerce_default_value
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
+from tracecat.service import BaseWorkspaceService
 
 
 class RecordService(BaseWorkspaceService):

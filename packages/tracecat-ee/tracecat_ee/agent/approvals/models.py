@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.auth.models import UserReadMinimal
+from tracecat.auth.schemas import UserReadMinimal
 
 
 class ApprovalCreate(BaseModel):

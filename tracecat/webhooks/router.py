@@ -19,7 +19,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import (
@@ -29,9 +29,9 @@ from tracecat.webhooks.dependencies import (
     parse_interaction_payload,
     validate_incoming_webhook,
 )
-from tracecat.webhooks.models import NDJSON_CONTENT_TYPES
+from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     ReceiveInteractionResponse,
     WorkflowExecutionCreateResponse,
 )

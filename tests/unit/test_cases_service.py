@@ -6,11 +6,11 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -712,7 +712,7 @@ class TestCasesService:
         self, cases_service: CasesService, case_create_params: CaseCreate, mocker
     ) -> None:
         """Test that case creation is atomic when field update fails."""
-        from tracecat.types.exceptions import TracecatException, TracecatNotFoundError
+        from tracecat.exceptions import TracecatException, TracecatNotFoundError
 
         # Add fields to the params
         params_with_fields = CaseCreate(

@@ -8,22 +8,22 @@ import yaml
 from pydantic import ValidationError
 from sqlmodel import select
 
-from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.models import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.types.exceptions import TracecatAuthorizationError
-from tracecat.workflow.actions.models import ActionControlFlow
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.schedules.models import ScheduleCreate
+from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
-from tracecat.workflow.store.models import (
+from tracecat.workflow.store.schemas import (
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,

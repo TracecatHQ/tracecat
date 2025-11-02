@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import pytest
 
 from tracecat.identifiers.workflow import WorkflowID
-from tracecat.workflow.store.models import WorkflowSource
+from tracecat.workflow.store.schemas import WorkflowSource
 
 
 class TestWorkflowSource:

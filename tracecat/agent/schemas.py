@@ -13,14 +13,14 @@ from typing import (
     runtime_checkable,
 )
 
-import pydantic
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 
-from tracecat.types.auth import Role
+from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
 
 if TYPE_CHECKING:
     from tracecat.agent.stream.writers import StreamWriter
@@ -47,30 +47,6 @@ class MessageStore(Protocol):
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
     message_store: MessageStore | None = None
-
-
-@pydantic.dataclasses.dataclass(kw_only=True, slots=True)
-class AgentConfig:
-    """Configuration for an agent."""
-
-    # Model
-    model_name: str
-    model_provider: str
-    base_url: str | None = None
-    # Agent
-    instructions: str | None = None
-    output_type: OutputType | None = None
-    # Tools
-    actions: list[str] | None = None
-    namespaces: list[str] | None = None
-    fixed_arguments: dict[str, dict[str, Any]] | None = None
-    tool_approvals: dict[str, bool] | None = None
-    # MCP
-    mcp_server_url: str | None = None
-    mcp_server_headers: dict[str, str] | None = None
-    model_settings: dict[str, Any] | None = None
-    retries: int = 3
-    deps_type: type[Any] | None = None
 
 
 class RunAgentArgs(BaseModel):

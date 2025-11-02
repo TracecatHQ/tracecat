@@ -7,9 +7,9 @@ from pydantic.alias_generators import to_camel
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretSearch
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.validation.models import ExprValidationResult
+from tracecat.validation.schemas import ExprValidationResult
 
 
 def json_schema_to_pydantic(

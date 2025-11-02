@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import json
 import traceback
-from dataclasses import dataclass
 from typing import Any
 
 from pydantic import UUID4, BaseModel
 
 from tracecat.config import TRACECAT__APP_ENV
-from tracecat.git.models import GitUrl
-from tracecat.types.auth import Role
 
 
 class ExecutorSyncInput(BaseModel):
@@ -76,10 +73,3 @@ class ExecutorActionErrorInfo(BaseModel):
             function=tb.name,
             lineno=tb.lineno,
         )
-
-
-@dataclass
-class DispatchActionContext:
-    role: Role
-    ssh_command: str | None = None
-    git_url: GitUrl | None = None

@@ -24,8 +24,8 @@ from tracecat_registry.core.records import (
     update_record as update_entity_record,
 )
 
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.records.model import RecordRead
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 @pytest.fixture(scope="session")

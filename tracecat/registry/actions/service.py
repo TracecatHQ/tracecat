@@ -10,7 +10,12 @@ from sqlmodel import cast, func, or_, select
 from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
-from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
@@ -20,7 +25,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionCreate,
     RegistryActionImplValidator,
@@ -33,11 +38,6 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
-from tracecat.types.exceptions import (
-    RegistryActionValidationError,
-    RegistryError,
-    RegistryValidationError,
-)
 
 
 class RegistryActionsService(BaseService):

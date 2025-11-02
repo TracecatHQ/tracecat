@@ -8,12 +8,13 @@ import pytest
 from temporalio.client import Client
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_interaction
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
-from tracecat.ee.interactions.models import (
+from tracecat.ee.interactions.schemas import (
     InteractionContext,
     InteractionInput,
     ResponseInteraction,
@@ -22,7 +23,6 @@ from tracecat.ee.interactions.service import InteractionService
 from tracecat.expressions.functions import get_interaction
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

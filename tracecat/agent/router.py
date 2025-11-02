@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat.agent.models import (
+from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
@@ -10,9 +10,9 @@ from tracecat.agent.models import (
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 

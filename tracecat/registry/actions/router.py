@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import RegistryError
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionRead,
     RegistryActionReadMinimal,
@@ -12,8 +14,6 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_ACTIONS_PATH
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import RegistryError
 
 router = APIRouter(prefix=REGISTRY_ACTIONS_PATH, tags=["registry-actions"])
 

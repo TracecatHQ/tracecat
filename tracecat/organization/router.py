@@ -2,13 +2,13 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.models import SessionRead, UserUpdate
+from tracecat.auth.schemas import SessionRead, UserUpdate
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import SessionID, UserID
-from tracecat.organization.models import OrgMemberRead, OrgRead
+from tracecat.organization.schemas import OrgMemberRead, OrgRead
 from tracecat.organization.service import OrgService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 

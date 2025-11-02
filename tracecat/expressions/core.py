@@ -9,6 +9,7 @@ from typing import Any
 
 from lark import Token, Tree, Visitor
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
@@ -16,7 +17,6 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
-from tracecat.types.exceptions import TracecatExpressionError
 
 
 class Expression:

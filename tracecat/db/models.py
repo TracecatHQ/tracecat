@@ -24,9 +24,9 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.auth.models import UserRole
-from tracecat.authz.models import WorkspaceRole
-from tracecat.cases.durations.models import CaseDurationAnchorSelection
+from tracecat.auth.schemas import UserRole
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -45,7 +45,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.workspaces.models import WorkspaceSettings
+from tracecat.workspaces.schemas import WorkspaceSettings
 
 
 class TimestampMixin(BaseModel):

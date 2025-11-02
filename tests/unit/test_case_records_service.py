@@ -4,26 +4,26 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate
-from tracecat.cases.records.models import (
+from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordLink,
     CaseRecordUpdate,
 )
 from tracecat.cases.records.service import CaseRecordService
+from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import EntityCreate, EntityFieldCreate
+from tracecat.entities.schemas import EntityCreate, EntityFieldCreate
 from tracecat.entities.service import EntityService
-from tracecat.records.model import RecordCreate
-from tracecat.records.service import RecordService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.records.model import RecordCreate
+from tracecat.records.service import RecordService
 
 pytestmark = pytest.mark.usefixtures("db")
 

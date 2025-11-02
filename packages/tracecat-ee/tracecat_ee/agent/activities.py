@@ -17,13 +17,13 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import ModelRequestParameters
 from temporalio import activity
 
-from tracecat.agent.models import (
+from tracecat.agent.providers import get_model
+from tracecat.agent.schemas import (
     ModelInfo,
     ModelRequestArgs,
     ModelRequestResult,
     ToolFilters,
 )
-from tracecat.agent.providers import get_model
 from tracecat.agent.stream.common import (
     PersistableStreamingAgentDeps,
     PersistableStreamingAgentDepsSpec,
@@ -34,12 +34,12 @@ from tracecat.agent.tools import (
     build_agent_tools,
     denormalize_tool_name,
 )
+from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
 from tracecat.dsl.enums import PlatformAction
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
-from tracecat.types.auth import Role
 from tracecat_ee.agent.context import AgentContext
 
 

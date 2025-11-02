@@ -10,15 +10,16 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
-from tracecat.db.schemas import OrganizationSetting
+from tracecat.db.models import OrganizationSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
 from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.models import (
+from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuthSettingsUpdate,
@@ -29,7 +30,6 @@ from tracecat.settings.models import (
     SettingCreate,
     SettingUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
 
 
 class SettingsService(BaseService):

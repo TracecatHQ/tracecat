@@ -9,14 +9,14 @@ from github import Auth, Github, GithubIntegration
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 
+from tracecat.auth.types import AccessLevel
 from tracecat.authz.controls import require_access_level
-from tracecat.git.models import GitUrl
+from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
-from tracecat.vcs.github.models import (
+from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
 )

@@ -5,11 +5,11 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.tags.models import CaseTagCreate, CaseTagRead
+from tracecat.auth.types import Role
+from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 
 WorkspaceUser = Annotated[
     Role,

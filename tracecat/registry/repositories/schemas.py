@@ -2,8 +2,9 @@ from datetime import datetime
 
 from pydantic import UUID4, BaseModel, Field, field_validator
 
+from tracecat.exceptions import TracecatValidationError
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionRead,
     RegistryActionValidationErrorInfo,
 )
@@ -12,7 +13,6 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.types.exceptions import TracecatValidationError
 
 
 class RegistryRepositoryRead(BaseModel):

@@ -16,14 +16,14 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
-from tracecat.secrets.models import SSHKeyTarget
+from tracecat.secrets.schemas import SSHKeyTarget
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
-    from tracecat.git.models import GitUrl
+    from tracecat.git.types import GitUrl
 
 # Export list for backward compatibility
 __all__ = [

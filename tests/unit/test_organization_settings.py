@@ -6,9 +6,11 @@ from fastapi import HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.enums import AuthType
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.models import (
+from tracecat.settings.router import check_other_auth_enabled
+from tracecat.settings.schemas import (
     AuthSettingsUpdate,
     GitSettingsUpdate,
     OAuthSettingsUpdate,
@@ -17,9 +19,7 @@ from tracecat.settings.models import (
     SettingUpdate,
     ValueType,
 )
-from tracecat.settings.router import check_other_auth_enabled
 from tracecat.settings.service import SettingsService, get_setting, get_setting_override
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

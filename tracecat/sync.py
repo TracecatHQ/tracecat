@@ -10,7 +10,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
-from tracecat.git.models import GitUrl
+from tracecat.git.types import GitUrl
 
 
 @dataclass(frozen=True)
