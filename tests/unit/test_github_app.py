@@ -344,7 +344,7 @@ class TestGitHubAppService:
         self, github_service, mock_credentials
     ):
         """Test that non-admin role cannot register app."""
-        from tracecat.types.exceptions import TracecatAuthorizationError
+        from tracecat.exceptions import TracecatAuthorizationError
 
         with pytest.raises(
             TracecatAuthorizationError,
@@ -362,7 +362,7 @@ class TestGitHubAppService:
         self, github_service
     ):
         """Test that non-admin role cannot update credentials."""
-        from tracecat.types.exceptions import TracecatAuthorizationError
+        from tracecat.exceptions import TracecatAuthorizationError
 
         with pytest.raises(
             TracecatAuthorizationError,

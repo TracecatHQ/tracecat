@@ -11,6 +11,7 @@ from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.service import (
     _dispatch_action,
@@ -35,7 +36,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import ExecutionError, LoopExecutionError
 
 
 @pytest.fixture

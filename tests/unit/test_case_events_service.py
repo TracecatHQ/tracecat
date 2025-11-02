@@ -22,7 +22,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import CaseEvent
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
 

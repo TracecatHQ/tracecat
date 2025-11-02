@@ -26,11 +26,11 @@ from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow, WorkflowDefinition
 from tracecat.dsl.schemas import DSLConfig
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.validation.schemas import (
     ValidationDetail,

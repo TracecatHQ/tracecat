@@ -5,9 +5,9 @@ from typing import Any, TypeVar, cast
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 T = TypeVar("T", bound=Callable[..., Coroutine[Any, Any, Any] | Any])
 

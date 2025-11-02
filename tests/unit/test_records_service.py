@@ -11,9 +11,9 @@ from tracecat.entities.schemas import (
     EntityFieldOptionCreate,
 )
 from tracecat.entities.service import EntityService
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.records.model import RecordCreate, RecordUpdate
 from tracecat.records.service import RecordService
-from tracecat.types.exceptions import TracecatAuthorizationError
 from tracecat.types.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")

@@ -14,8 +14,8 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.enums import EdgeType
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import action
-from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
     from tracecat.db.models import Workflow

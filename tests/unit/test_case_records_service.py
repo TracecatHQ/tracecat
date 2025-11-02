@@ -17,13 +17,13 @@ from tracecat.cases.service import CasesService
 from tracecat.entities.enums import FieldType
 from tracecat.entities.schemas import EntityCreate, EntityFieldCreate
 from tracecat.entities.service import EntityService
-from tracecat.records.model import RecordCreate
-from tracecat.records.service import RecordService
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.records.model import RecordCreate
+from tracecat.records.service import RecordService
 
 pytestmark = pytest.mark.usefixtures("db")
 

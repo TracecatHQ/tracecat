@@ -63,14 +63,14 @@ from tracecat.db.models import (
     CaseTask,
     User,
 )
-from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,

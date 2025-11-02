@@ -11,6 +11,7 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role, get_env
 from tracecat.db.models import BaseSecret
+from tracecat.exceptions import TracecatCredentialsError
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.schemas import (
@@ -19,7 +20,6 @@ from tracecat.secrets.schemas import (
     SecretSearch,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import TracecatCredentialsError
 
 
 @pytest.mark.anyio

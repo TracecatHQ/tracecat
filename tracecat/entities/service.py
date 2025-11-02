@@ -13,8 +13,8 @@ from tracecat.entities.schemas import (
     EntityFieldUpdate,
     EntityUpdate,
 )
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class EntityService(BaseWorkspaceService):

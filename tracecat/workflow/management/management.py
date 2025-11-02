@@ -22,6 +22,10 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.dsl.view import RFGraph
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -29,10 +33,6 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.service import BaseService
-from tracecat.types.exceptions import (
-    TracecatAuthorizationError,
-    TracecatValidationError,
-)
 from tracecat.types.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,

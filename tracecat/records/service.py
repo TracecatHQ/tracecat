@@ -10,9 +10,9 @@ from sqlmodel import and_, col, or_, select
 from tracecat.db.models import Entity, EntityField, EntityRecord
 from tracecat.entities.enums import FieldType
 from tracecat.entities.schemas import coerce_default_value
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.types.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,

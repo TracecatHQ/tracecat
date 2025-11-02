@@ -7,8 +7,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class BaseService:

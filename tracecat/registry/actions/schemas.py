@@ -24,14 +24,14 @@ from tracecat_registry import (
 )
 
 from tracecat.db.models import RegistryAction
-from tracecat.expressions.expectations import ExpectedField, create_expectation_model
-from tracecat.logger import logger
-from tracecat.registry.actions.enums import TemplateActionValidationErrorType
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     RegistryActionError,
     RegistryValidationError,
     TracecatValidationError,
 )
+from tracecat.expressions.expectations import ExpectedField, create_expectation_model
+from tracecat.logger import logger
+from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.validation.schemas import (
     ActionValidationResult,
     TemplateActionExprValidationResult,

@@ -9,9 +9,9 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import VariableID
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.variables.schemas import (
     VariableCreate,
     VariableRead,

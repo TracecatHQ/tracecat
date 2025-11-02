@@ -15,9 +15,9 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import require_access_level
 from tracecat.db.models import AccessToken, User
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import SessionID, UserID
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class OrgService(BaseService):

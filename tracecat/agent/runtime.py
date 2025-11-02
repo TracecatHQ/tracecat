@@ -18,8 +18,8 @@ from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
 from tracecat.contexts import ctx_role, ctx_session_id
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 # Initialize Pydantic AI instrumentation for Langfuse
 Agent.instrument_all()

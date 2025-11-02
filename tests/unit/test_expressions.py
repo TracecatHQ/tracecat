@@ -11,6 +11,7 @@ from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.db.models import BaseSecret
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import (
     ExprContext,
     ExprType,
@@ -38,7 +39,6 @@ from tracecat.expressions.validator.validator import (
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.common import get_validators
 from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
 from tracecat.variables.schemas import VariableCreate

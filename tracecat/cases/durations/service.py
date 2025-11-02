@@ -25,12 +25,12 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.common import coerce_to_utc_datetime
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import coerce_to_utc_datetime
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):

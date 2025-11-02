@@ -1,9 +1,9 @@
 from lark import Lark, Token, Tree
 from lark.exceptions import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
 
 
 class ExprParser:

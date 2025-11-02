@@ -3,6 +3,10 @@ from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.exceptions import (
+    TracecatCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
     SecretCreate,
@@ -11,10 +15,6 @@ from tracecat.secrets.schemas import (
     SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import (
-    TracecatCredentialsNotFoundError,
-    TracecatNotFoundError,
-)
 
 pytestmark = pytest.mark.usefixtures("db")
 

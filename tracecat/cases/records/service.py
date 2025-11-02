@@ -18,14 +18,14 @@ from tracecat.cases.records.schemas import (
 )
 from tracecat.db.models import Case, CaseRecord, Entity, EntityRecord
 from tracecat.entities.service import EntityService
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.records.model import RecordUpdate
 from tracecat.records.service import RecordService
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import (
-    TracecatNotFoundError,
-    TracecatValidationError,
-)
 
 
 class CaseRecordService(BaseWorkspaceService):

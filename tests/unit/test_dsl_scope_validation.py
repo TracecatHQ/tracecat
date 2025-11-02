@@ -4,7 +4,7 @@ import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.types.exceptions import TracecatDSLError
+from tracecat.exceptions import TracecatDSLError
 
 
 class TestScopeValidation:

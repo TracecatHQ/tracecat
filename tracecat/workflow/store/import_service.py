@@ -12,11 +12,11 @@ from tracecat.db.models import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.types.exceptions import TracecatAuthorizationError
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService

@@ -48,10 +48,10 @@ with workflow.unsafe.imports_passed_through():
         Task,
         TaskExceptionInfo,
     )
+    from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
-    from tracecat.types.exceptions import TaskUnreachable
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,7 +2,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.variables.schemas import VariableCreate, VariableSearch, VariableUpdate
 from tracecat.variables.service import VariablesService
 

@@ -4,6 +4,7 @@ from typing import Any, TypeVar, cast
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import functions
 from tracecat.expressions.common import (
     MAX_VARS_PATH_DEPTH,
@@ -13,7 +14,6 @@ from tracecat.expressions.common import (
     eval_jsonpath,
 )
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
 

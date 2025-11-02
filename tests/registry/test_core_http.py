@@ -14,7 +14,7 @@ from tracecat_registry.core.http import (
     httpx_to_response,
 )
 
-from tracecat.types.exceptions import TracecatException
+from tracecat.exceptions import TracecatException
 
 
 # Test fixtures

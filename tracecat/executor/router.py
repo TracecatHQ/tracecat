@@ -11,15 +11,15 @@ from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.contexts import ctx_logger
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.schemas import RunActionInput
-from tracecat.executor.schemas import ExecutorActionErrorInfo
-from tracecat.executor.service import dispatch_action_on_cluster
-from tracecat.logger import logger
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     PayloadSizeExceeded,
     TracecatSettingsError,
 )
+from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.service import dispatch_action_on_cluster
+from tracecat.logger import logger
 
 router = APIRouter()
 

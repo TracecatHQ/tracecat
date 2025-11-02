@@ -9,7 +9,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 
 WorkspaceUser = Annotated[
     Role,

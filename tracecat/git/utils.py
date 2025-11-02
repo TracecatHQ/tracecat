@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatSettingsError
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.git.types import GitUrl
 from tracecat.logger import logger
@@ -15,7 +16,6 @@ from tracecat.registry.repositories.schemas import GitCommitInfo
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv
-from tracecat.types.exceptions import TracecatSettingsError
 
 
 def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:

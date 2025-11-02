@@ -9,14 +9,14 @@ from temporalio import activity
 from tracecat.auth.types import AccessLevel
 from tracecat.db.models import Schedule
 from tracecat.db.session_events import add_after_commit_callback
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import (
-    TracecatAuthorizationError,
-    TracecatNotFoundError,
-)
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,

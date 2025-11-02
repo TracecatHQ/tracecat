@@ -10,10 +10,10 @@ from sqlmodel import select
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Case, CaseEvent, CaseTag, CaseTagLink
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class CaseTagsService(BaseWorkspaceService):

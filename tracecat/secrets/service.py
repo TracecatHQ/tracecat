@@ -11,6 +11,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatCredentialsError,
+    TracecatCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
 from tracecat.registry.constants import (
@@ -28,12 +34,6 @@ from tracecat.secrets.schemas import (
     SSHKeyTarget,
 )
 from tracecat.service import BaseService
-from tracecat.types.exceptions import (
-    TracecatAuthorizationError,
-    TracecatCredentialsError,
-    TracecatCredentialsNotFoundError,
-    TracecatNotFoundError,
-)
 
 
 class SecretsService(BaseService):

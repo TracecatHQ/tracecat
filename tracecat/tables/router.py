@@ -20,6 +20,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.tables.enums import SqlType
@@ -38,7 +39,6 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
-from tracecat.types.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/tables", tags=["tables"])

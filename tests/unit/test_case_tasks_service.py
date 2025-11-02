@@ -9,8 +9,8 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTas
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CasesService, CaseTasksService
 from tracecat.db.models import Case, Workflow, Workspace
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import WorkflowUUID
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 

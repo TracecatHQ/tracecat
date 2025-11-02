@@ -24,6 +24,7 @@ from tenacity import (
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseService
@@ -41,7 +42,6 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.types.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,

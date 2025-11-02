@@ -17,7 +17,7 @@ from tracecat.entities.schemas import (
     EntityUpdate,
 )
 from tracecat.entities.service import EntityService
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 

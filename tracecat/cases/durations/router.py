@@ -20,11 +20,11 @@ from tracecat.cases.durations.service import (
     CaseDurationService,
 )
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.logger import logger
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.logger import logger
 
 router = APIRouter(tags=["case-durations"])
 definitions_router = APIRouter(prefix="/case-durations", tags=["case-durations"])

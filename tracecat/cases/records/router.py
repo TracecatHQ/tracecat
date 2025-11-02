@@ -20,11 +20,11 @@ from tracecat.cases.records.schemas import (
 from tracecat.cases.records.service import CaseRecordService
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.logger import logger
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.logger import logger
 
 router = APIRouter(tags=["case-records"], prefix="/cases/{case_id}/records")
 

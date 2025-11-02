@@ -17,6 +17,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
+from tracecat.exceptions import RegistryValidationError, TracecatValidationError
 from tracecat.executor import service
 from tracecat.executor.service import run_action_from_input
 from tracecat.expressions.expectations import ExpectedField
@@ -31,7 +32,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import RegistryValidationError, TracecatValidationError
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 

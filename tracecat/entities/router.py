@@ -20,9 +20,9 @@ from tracecat.entities.schemas import (
     coerce_default_value,
 )
 from tracecat.entities.service import EntityService
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
 from tracecat.records.service import RecordService
-from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
