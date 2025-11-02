@@ -497,11 +497,12 @@ class CasesService(BaseWorkspaceService):
             else:
                 if created_event is not None:
                     try:
+                        await self.durations.sync_case_durations(case)
                         await self.session.commit()
                     except Exception:
                         await self.session.rollback()
                         self.logger.exception(
-                            "Failed to commit case viewed event",
+                            "Failed to persist case viewed tracking updates",
                             case_id=case_id,
                             user_id=self.role.user_id,
                         )
