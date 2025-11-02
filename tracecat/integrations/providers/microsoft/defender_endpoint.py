@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Unpack
 
 from pydantic import BaseModel, Field, field_validator
 
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     OAuthProviderKwargs,
     ProviderMetadata,
     ProviderScopes,

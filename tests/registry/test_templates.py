@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )

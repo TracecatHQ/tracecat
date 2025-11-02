@@ -1,7 +1,7 @@
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Webhook
+from tracecat.db.models import Webhook
 from tracecat.identifiers import WorkflowID
 
 

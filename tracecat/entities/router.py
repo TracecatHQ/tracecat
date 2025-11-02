@@ -6,9 +6,9 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import EntityField
+from tracecat.db.models import EntityField
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import (
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldOptionRead,

@@ -12,14 +12,14 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import OAuthStateDB
+from tracecat.db.models import OAuthStateDB
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     IntegrationOAuthCallback,
     IntegrationOAuthConnect,
     IntegrationRead,

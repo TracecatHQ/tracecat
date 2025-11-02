@@ -6,7 +6,6 @@ Terminology:
 """
 
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, NotRequired, Required, Self, TypedDict
 
@@ -228,17 +227,6 @@ class ProviderSchema(BaseModel):
     """Schema for a provider."""
 
     json_schema: dict[str, Any]
-
-
-@dataclass(slots=True)
-class TokenResponse:
-    """Data class for OAuth token response."""
-
-    access_token: SecretStr
-    refresh_token: SecretStr | None = None
-    expires_in: int = 3600
-    scope: str = ""
-    token_type: str = "Bearer"
 
 
 class ProviderConfig(BaseModel):

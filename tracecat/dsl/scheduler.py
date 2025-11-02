@@ -33,18 +33,20 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
-    from tracecat.dsl.models import (
+    from tracecat.dsl.schemas import (
         ROOT_STREAM,
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
         ActionStatement,
         ExecutionContext,
         GatherArgs,
         ScatterArgs,
         StreamID,
+        TaskResult,
+    )
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
         Task,
         TaskExceptionInfo,
-        TaskResult,
     )
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object

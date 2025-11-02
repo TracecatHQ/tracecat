@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import UUID4, BaseModel, Field, field_validator
 
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionRead,
     RegistryActionValidationErrorInfo,
 )

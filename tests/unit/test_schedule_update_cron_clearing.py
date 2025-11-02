@@ -8,7 +8,7 @@ import temporalio.client
 
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.workflow.schedules import bridge
-from tracecat.workflow.schedules.models import ScheduleUpdate
+from tracecat.workflow.schedules.schemas import ScheduleUpdate
 
 
 @pytest.mark.anyio

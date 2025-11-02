@@ -11,12 +11,8 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
-from tracecat.agent.models import (
-    AgentConfig,
-    AgentOutput,
-    OutputType,
-    RunAgentArgs,
-)
+from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps

@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Table
+from tracecat.db.models import Table
 from tracecat.logger import logger
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,

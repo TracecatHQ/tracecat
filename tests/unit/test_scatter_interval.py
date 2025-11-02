@@ -15,7 +15,7 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.models import ActionStatement, GatherArgs, ScatterArgs
+from tracecat.dsl.schemas import ActionStatement, GatherArgs, ScatterArgs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.types.auth import Role
 

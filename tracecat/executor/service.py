@@ -5,6 +5,7 @@ import itertools
 import time
 import traceback
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,26 +30,27 @@ from tracecat.contexts import (
 )
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.dsl.common import context_locator, create_default_execution_context
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunActionInput,
     TaskResult,
 )
-from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
+from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     collect_expressions,
     eval_templated_object,
     get_iterables_from_expression,
 )
+from tracecat.git.types import GitUrl
 from tracecat.git.utils import safe_prepare_git_url
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
-from tracecat.registry.actions.models import BoundRegistryAction
+from tracecat.registry.actions.schemas import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -62,7 +64,7 @@ from tracecat.types.exceptions import (
     TracecatCredentialsError,
     TracecatException,
 )
-from tracecat.variables.models import VariableSearch
+from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
 """All these methods are used in the registry executor, not on the worker"""
@@ -70,6 +72,14 @@ from tracecat.variables.service import VariablesService
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+
+@dataclass
+class DispatchActionContext:
+    role: Role
+    ssh_command: str | None = None
+    git_url: GitUrl | None = None
+
 
 _git_context_lock = asyncio.Lock()
 _git_context_cache: dict[str, tuple[float, Any, str | None]] = {}

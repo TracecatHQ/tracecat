@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.records.models import (
+from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordDeleteResponse,
     CaseRecordLink,

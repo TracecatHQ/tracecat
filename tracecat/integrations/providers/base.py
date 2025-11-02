@@ -11,12 +11,8 @@ from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import (
-    ProviderConfig,
-    ProviderMetadata,
-    ProviderScopes,
-    TokenResponse,
-)
+from tracecat.integrations.schemas import ProviderConfig, ProviderMetadata, ProviderScopes
+from tracecat.integrations.types import TokenResponse
 from tracecat.logger import logger
 
 

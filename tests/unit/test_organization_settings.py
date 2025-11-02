@@ -8,7 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.auth.enums import AuthType
 from tracecat.contexts import ctx_role
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.models import (
+from tracecat.settings.schemas import (
     AuthSettingsUpdate,
     GitSettingsUpdate,
     OAuthSettingsUpdate,

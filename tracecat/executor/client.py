@@ -12,10 +12,10 @@ from fastapi import status
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
-from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorActionErrorInfo
+from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role

@@ -4,8 +4,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from tracecat.contexts import ctx_interaction
-from tracecat.dsl.models import ActionStatement, TaskResult
-from tracecat.interactions.models import (
+from tracecat.dsl.schemas import ActionStatement, TaskResult
+from tracecat.interactions.schemas import (
     InteractionContext,
     ResponseInteraction,
 )

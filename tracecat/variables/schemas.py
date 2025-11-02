@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
-from tracecat.db.schemas import WorkspaceVariable
+from tracecat.db.models import WorkspaceVariable
 from tracecat.identifiers import OwnerID, VariableID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 

@@ -24,7 +24,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError, ChildWorkflowError, FailureError
 
-from tracecat.db.schemas import Action
+from tracecat.db.models import Action
 from tracecat.dsl.enums import (
     EdgeType,
     FailStrategy,
@@ -32,7 +32,7 @@ from tracecat.dsl.enums import (
     PlatformAction,
     WaitStrategy,
 )
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ROOT_STREAM,
     ActionStatement,
     DSLConfig,
@@ -50,7 +50,7 @@ from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.models import ActionInteractionValidator
+from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
@@ -60,7 +60,7 @@ from tracecat.types.exceptions import (
     TracecatExpressionError,
     TracecatValidationError,
 )
-from tracecat.workflow.actions.models import ActionControlFlow
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
 

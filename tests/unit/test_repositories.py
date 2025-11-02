@@ -1,6 +1,6 @@
 import pytest
 
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.types.exceptions import TracecatValidationError
 
 

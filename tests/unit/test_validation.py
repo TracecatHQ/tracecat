@@ -10,7 +10,7 @@ from typing_extensions import Doc
 
 # Add imports for expression validation
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.registry.actions.models import TemplateAction
+from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import validate_action_template
 from tracecat.registry.repository import Repository
 from tracecat.types.exceptions import RegistryValidationError

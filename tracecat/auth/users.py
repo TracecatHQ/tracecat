@@ -35,8 +35,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
-from tracecat.auth.models import UserCreate, UserRole, UserUpdate
-from tracecat.authz.models import WorkspaceRole
+from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
 from tracecat.db.adapter import (
@@ -44,11 +44,11 @@ from tracecat.db.adapter import (
     SQLModelUserDatabaseAsync,
 )
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.schemas import AccessToken, OAuthAccount, User
+from tracecat.db.models import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import AccessLevel, system_role
-from tracecat.workspaces.models import WorkspaceMembershipCreate
+from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 from tracecat.workspaces.service import WorkspaceService
 
 

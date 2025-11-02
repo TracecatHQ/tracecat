@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.dependencies import WorkspaceUserRole
-from tracecat.cases.durations.models import (
+from tracecat.cases.durations.schemas import (
     CaseDurationCreate,
     CaseDurationDefinitionCreate,
     CaseDurationDefinitionRead,

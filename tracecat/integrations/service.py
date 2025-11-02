@@ -8,16 +8,17 @@ from typing import Any
 from pydantic import SecretStr
 from sqlmodel import and_, or_, select
 
-from tracecat.db.schemas import OAuthIntegration
+from tracecat.db.models import OAuthIntegration
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderConfig, ProviderKey
+from tracecat.integrations.schemas import ProviderConfig, ProviderKey
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
+from tracecat.integrations.types import TokenResponse
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 

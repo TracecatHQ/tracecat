@@ -9,7 +9,7 @@ from typing_extensions import Doc
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
     TableCreate,

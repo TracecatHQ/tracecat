@@ -5,7 +5,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from tracecat.secrets.enums import SecretType
 
-from .models import SecretBase, SecretKeyValue
+from .schemas import SecretBase, SecretKeyValue
 
 
 def encrypt_bytes(obj: dict[str, Any], *, key: str) -> bytes:

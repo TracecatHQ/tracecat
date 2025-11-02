@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCreate,
     ClosedEvent,
@@ -20,7 +20,7 @@ from tracecat.cases.models import (
     UpdatedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
-from tracecat.db.schemas import CaseEvent
+from tracecat.db.models import CaseEvent
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 

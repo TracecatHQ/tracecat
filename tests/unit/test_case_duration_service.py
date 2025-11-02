@@ -11,11 +11,11 @@ from tracecat.cases.durations import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate, CaseUpdate
+from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.schemas import CaseDuration
-from tracecat.tags.models import TagCreate
+from tracecat.db.models import CaseDuration
+from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
 

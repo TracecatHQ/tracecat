@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
 

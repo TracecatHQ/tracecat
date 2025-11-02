@@ -6,9 +6,9 @@ import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseFieldCreate, CaseFieldRead, CaseFieldUpdate
+from tracecat.cases.schemas import CaseFieldCreate, CaseFieldRead, CaseFieldUpdate
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.schemas import Case, CaseFields
+from tracecat.db.models import Case, CaseFields
 from tracecat.tables.enums import SqlType
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError

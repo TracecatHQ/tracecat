@@ -14,15 +14,15 @@ from sqlmodel import col, select
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Webhook, WorkflowDefinition
-from tracecat.dsl.models import TriggerInputs
+from tracecat.db.models import Webhook, WorkflowDefinition
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.ee.interactions.connectors import parse_slack_interaction_input
 from tracecat.ee.interactions.enums import InteractionCategory
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.webhooks.models import NDJSON_CONTENT_TYPES
+from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
 
 API_KEY_HEADER = "x-tracecat-api-key"
 

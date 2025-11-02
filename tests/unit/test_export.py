@@ -6,7 +6,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.models import ExternalWorkflowDefinition
+from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
 
 @pytest.mark.parametrize(

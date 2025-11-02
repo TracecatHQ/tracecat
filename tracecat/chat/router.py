@@ -14,7 +14,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
-from tracecat.chat.models import (
+from tracecat.chat.schemas import (
     ChatCreate,
     ChatMessage,
     ChatRead,

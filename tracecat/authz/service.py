@@ -5,11 +5,11 @@ from collections.abc import Sequence
 from sqlmodel import and_, select
 
 from tracecat.authz.controls import require_workspace_role
-from tracecat.authz.models import WorkspaceRole
-from tracecat.db.schemas import Membership, User
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.db.models import Membership, User
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.service import BaseService
-from tracecat.workspaces.models import (
+from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipUpdate,

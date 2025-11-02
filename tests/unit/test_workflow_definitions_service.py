@@ -5,7 +5,7 @@ import pytest
 import yaml
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Workflow, Workspace
+from tracecat.db.models import Workflow, Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role

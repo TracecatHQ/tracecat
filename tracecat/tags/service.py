@@ -4,10 +4,10 @@ from collections.abc import Sequence
 from slugify import slugify
 from sqlmodel import select
 
-from tracecat.db.schemas import Tag
+from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseService
-from tracecat.tags.models import TagCreate, TagUpdate
+from tracecat.tags.schemas import TagCreate, TagUpdate
 
 
 class TagsService(BaseService):

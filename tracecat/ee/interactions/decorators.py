@@ -5,7 +5,7 @@ except ImportError:
     # Provide a no-op fallback when EE is not installed
     from collections.abc import Awaitable, Callable
 
-    from tracecat.dsl.models import TaskResult
+    from tracecat.dsl.schemas import TaskResult
 
     def maybe_interactive(
         func: Callable[..., Awaitable[TaskResult]],

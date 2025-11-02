@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,

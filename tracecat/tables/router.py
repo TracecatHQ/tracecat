@@ -23,7 +23,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
     TableColumnUpdate,

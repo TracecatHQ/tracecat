@@ -11,14 +11,11 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from tracecat.db.schemas import Interaction
+from tracecat.db.models import Interaction
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.interactions.enums import InteractionStatus, InteractionType
-from tracecat.interactions.models import (
-    InteractionInput,
-    InteractionResult,
-    InteractionState,
-)
+from tracecat.interactions.schemas import InteractionInput, InteractionResult
+from tracecat.interactions.types import InteractionState
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 

@@ -8,7 +8,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.cases.models import CaseCreate, CaseTaskCreate, CaseTaskUpdate
+from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
 from tracecat.types.auth import Role
 

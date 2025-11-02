@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.auth.models import UserRole
+from tracecat.auth.schemas import UserRole
 from tracecat.identifiers import UserID
 
 # Members

@@ -12,7 +12,7 @@ Tests cover:
 import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.models import ActionStatement, DSLConfig
+from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.common import ExprType
 from tracecat.validation.service import (
     ActionEnvPair,

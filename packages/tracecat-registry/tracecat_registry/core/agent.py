@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 from tracecat_registry import registry, RegistrySecret, RegistrySecretType
-from tracecat.agent.models import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
 

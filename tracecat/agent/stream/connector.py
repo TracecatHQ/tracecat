@@ -9,7 +9,7 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.models import ModelMessageTA
+from tracecat.agent.types import ModelMessageTA
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,

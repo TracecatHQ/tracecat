@@ -13,9 +13,9 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import OAuthStateDB, User, Workspace
+from tracecat.db.models import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,

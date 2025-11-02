@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.router import run_action
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role

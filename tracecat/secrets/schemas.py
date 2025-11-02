@@ -13,7 +13,7 @@ from pydantic import (
     field_validator,
 )
 
-from tracecat.db.schemas import BaseSecret
+from tracecat.db.models import BaseSecret
 from tracecat.identifiers import OwnerID, SecretID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType

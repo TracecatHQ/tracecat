@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from tracecat.workflow.management.models import WorkflowReadMinimal
+from tracecat.workflow.management.schemas import WorkflowReadMinimal
 
 
 class WorkflowFolderRead(BaseModel):

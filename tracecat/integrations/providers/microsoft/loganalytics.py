@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Unpack
 
 from pydantic import BaseModel, Field
 
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     OAuthProviderKwargs,
     ProviderMetadata,
     ProviderScopes,

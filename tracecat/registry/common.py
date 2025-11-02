@@ -12,7 +12,7 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import Role

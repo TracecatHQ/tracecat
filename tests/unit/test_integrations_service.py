@@ -10,13 +10,13 @@ from pydantic import BaseModel, SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
-    TokenResponse,
 )
+from tracecat.integrations.types import TokenResponse
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,

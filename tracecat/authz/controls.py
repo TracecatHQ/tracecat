@@ -3,7 +3,7 @@ import functools
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar, cast
 
-from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.types.auth import AccessLevel, Role

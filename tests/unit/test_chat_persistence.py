@@ -12,9 +12,9 @@ from pydantic_ai.messages import (
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.models import ChatMessage
+from tracecat.chat.schemas import ChatMessage
 from tracecat.chat.service import ChatService
-from tracecat.db.schemas import Chat, User, Workspace
+from tracecat.db.models import Chat, User, Workspace
 from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")

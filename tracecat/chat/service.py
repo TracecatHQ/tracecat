@@ -7,12 +7,13 @@ from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.models import AgentConfig, ModelMessageTA, RunAgentArgs
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.types import AgentConfig, ModelMessageTA
 from tracecat.agent.service import AgentManagementService
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
-from tracecat.chat.models import (
+from tracecat.chat.schemas import (
     BasicChatRequest,
     ChatMessage,
     ChatRequest,
@@ -20,8 +21,8 @@ from tracecat.chat.models import (
     VercelChatRequest,
 )
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.schemas import Case, Chat
-from tracecat.db.schemas import ChatMessage as DBChatMessage
+from tracecat.db.models import Case, Chat
+from tracecat.db.models import ChatMessage as DBChatMessage
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService

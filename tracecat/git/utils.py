@@ -8,9 +8,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.git.models import GitUrl
+from tracecat.git.types import GitUrl
 from tracecat.logger import logger
-from tracecat.registry.repositories.models import GitCommitInfo
+from tracecat.registry.repositories.schemas import GitCommitInfo
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv

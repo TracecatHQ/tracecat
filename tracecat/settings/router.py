@@ -8,7 +8,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
-from tracecat.settings.models import (
+from tracecat.settings.schemas import (
     AgentSettingsRead,
     AgentSettingsUpdate,
     AppSettingsRead,

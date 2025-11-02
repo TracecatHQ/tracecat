@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
-from tracecat.agent.models import (
+from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,

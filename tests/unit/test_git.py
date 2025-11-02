@@ -11,7 +11,7 @@ from tracecat.git.utils import (
     resolve_git_ref,
     run_git,
 )
-from tracecat.registry.repositories.models import GitCommitInfo
+from tracecat.registry.repositories.schemas import GitCommitInfo
 from tracecat.ssh import SshEnv
 
 

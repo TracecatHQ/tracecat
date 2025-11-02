@@ -15,8 +15,8 @@ import httpx
 from pydantic_core import ValidationError
 
 if TYPE_CHECKING:
-    from tracecat.executor.models import ExecutorActionErrorInfo
-    from tracecat.registry.actions.models import RegistryActionValidationErrorInfo
+    from tracecat.executor.schemas import ExecutorActionErrorInfo
+    from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 
 
 class TracecatException(Exception):

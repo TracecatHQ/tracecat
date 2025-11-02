@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from tracecat.agent.models import MessageStore
+from tracecat.agent.types import MessageStore
 from tracecat.agent.persistence import DBMessageStore
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat

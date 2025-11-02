@@ -4,10 +4,10 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.models import UserRead
-from tracecat.authz.models import WorkspaceRole
+from tracecat.auth.schemas import UserRead
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import User
+from tracecat.db.models import User
 from tracecat.types.auth import AccessLevel, Role
 
 router = APIRouter(prefix="/users")
