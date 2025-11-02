@@ -13,7 +13,9 @@ from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.schemas import CaseDuration
+from tracecat.tags.models import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -138,6 +140,110 @@ async def test_duration_filters_match_event_payload(
     value = values[0]
     assert value.end_event_id is not None
     assert value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_support_multiple_values(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Time to resolved or closed",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": [CaseStatus.RESOLVED, CaseStatus.CLOSED]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Investigate suspicious login",
+            description="Track the suspicious user activity.",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    initial_value = values[0]
+    assert initial_value.end_event_id is None
+
+    case = await cases_service.update_case(
+        case,
+        CaseUpdate(status=CaseStatus.RESOLVED),
+    )
+
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    updated_value = values[0]
+    assert updated_value.end_event_id is not None
+    assert updated_value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_supports_tag_events(session: AsyncSession, svc_role) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    tags_service = CaseTagsService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    tag = await tags_service.create_tag(TagCreate(name="Urgent", color="#ff0000"))
+
+    metric = await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Tag window",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.TAG_ADDED,
+                field_filters={"data.tag_ref": [tag.ref]},
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.TAG_REMOVED,
+                field_filters={"data.tag_ref": [tag.ref]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Investigate missing data",
+            description="Ensure data completeness",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    values = await duration_service.compute_for_case(case.id)
+    assert len(values) == 1
+    assert values[0].start_event_id is None
+    assert values[0].end_event_id is None
+
+    await tags_service.add_case_tag(case.id, str(tag.id))
+
+    values = await duration_service.compute_for_case(case.id)
+    tag_duration = values[0]
+    assert tag_duration.duration_id == metric.id
+    assert tag_duration.start_event_id is not None
+    assert tag_duration.end_event_id is None
+
+    await tags_service.remove_case_tag(case.id, str(tag.id))
+
+    values = await duration_service.compute_for_case(case.id)
+    tag_duration = values[0]
+    assert tag_duration.start_event_id is not None
+    assert tag_duration.end_event_id is not None
+    assert tag_duration.duration is not None
+    assert tag_duration.duration.total_seconds() >= 0
 
 
 @pytest.mark.anyio

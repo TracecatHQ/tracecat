@@ -681,7 +681,7 @@ export function WebhookControls({
               <FormControl>
                 <CustomTagInput
                   {...field}
-                  placeholder="Enter an IP address or CIDR..."
+                  placeholder="Enter an IP address or CIDR. Allow all IPs by default."
                   tags={field.value}
                   setTags={(newTags) =>
                     handleAllowlistedCidrsChange(
@@ -690,17 +690,7 @@ export function WebhookControls({
                   }
                 />
               </FormControl>
-              {field.value.length === 0 && (
-                <FormDescription className="text-xs">
-                  No allowlist entries are configured. All source IPs are
-                  allowed.
-                </FormDescription>
-              )}
               <FormMessage className="text-xs" />
-              <FormDescription className="text-xs">
-                Enter a valid IPv4 address or CIDR (e.g., 203.0.113.7 or
-                203.0.113.0/24).
-              </FormDescription>
             </FormItem>
           )}
         />
@@ -964,17 +954,9 @@ export function WebhookControls({
             <AlertDialogHeader>
               <AlertDialogTitle>Delete API key?</AlertDialogTitle>
               <AlertDialogDescription>
-                This permanently removes the key and its history.
+                This permanently removes the API key.
+                The webhook will no longer require authenticated requests until a new API key is generated.
               </AlertDialogDescription>
-              <Alert variant="warning" className="mt-3">
-                <AlertTriangleIcon className="size-4" />
-                <AlertTitle>Warning</AlertTitle>
-                <AlertDescription>
-                  After deletion, the webhook will no longer be protected by an
-                  API key and will accept unauthenticated requests until a new
-                  key is generated.
-                </AlertDescription>
-              </Alert>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel

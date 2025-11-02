@@ -217,7 +217,7 @@ export function CaseDurationsView() {
 
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
+      <div className="flex h-full w-full flex-col space-y-8 p-8">
         <CaseDurationsTable
           durations={caseDurationDefinitions}
           onDeleteDuration={handleDelete}

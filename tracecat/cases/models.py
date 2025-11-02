@@ -348,6 +348,28 @@ class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
 
 
+class TagAddedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TAG_ADDED] = CaseEventType.TAG_ADDED
+    tag_id: uuid.UUID
+    tag_ref: str
+    tag_name: str
+
+
+class TagRemovedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TAG_REMOVED] = CaseEventType.TAG_REMOVED
+    tag_id: uuid.UUID
+    tag_ref: str
+    tag_name: str
+
+
+class TagAddedEventRead(CaseEventReadBase, TagAddedEvent):
+    """Event for when a tag is added to a case."""
+
+
+class TagRemovedEventRead(CaseEventReadBase, TagRemovedEvent):
+    """Event for when a tag is removed from a case."""
+
+
 # Task Events
 
 
@@ -439,6 +461,8 @@ type CaseEventVariant = Annotated[
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
     | AttachmentDeletedEvent
+    | TagAddedEvent
+    | TagRemovedEvent
     | PayloadChangedEvent
     | TaskCreatedEvent
     | TaskStatusChangedEvent
@@ -466,6 +490,8 @@ class CaseEventRead(RootModel):
         | AssigneeChangedEventRead
         | AttachmentCreatedEventRead
         | AttachmentDeletedEventRead
+        | TagAddedEventRead
+        | TagRemovedEventRead
         | PayloadChangedEventRead
         | TaskCreatedEventRead
         | TaskStatusChangedEventRead

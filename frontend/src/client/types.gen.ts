@@ -888,6 +888,8 @@ export type CaseEventRead =
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
+  | TagAddedEventRead
+  | TagRemovedEventRead
   | PayloadChangedEventRead
   | TaskCreatedEventRead
   | TaskStatusChangedEventRead
@@ -912,6 +914,8 @@ export type CaseEventType =
   | "assignee_changed"
   | "attachment_created"
   | "attachment_deleted"
+  | "tag_added"
+  | "tag_removed"
   | "payload_changed"
   | "task_created"
   | "task_deleted"
@@ -3972,6 +3976,28 @@ export type TableUpdate = {
 }
 
 /**
+ * Event for when a tag is added to a case.
+ */
+export type TagAddedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_added"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Model for creating new tags with validation.
  */
 export type TagCreate = {
@@ -4000,6 +4026,28 @@ export type TagRead = {
    * Hex color code
    */
   color?: string | null
+}
+
+/**
+ * Event for when a tag is removed from a case.
+ */
+export type TagRemovedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_removed"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**

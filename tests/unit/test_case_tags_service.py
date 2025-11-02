@@ -12,6 +12,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.schemas import Case
 from tracecat.tags.models import TagCreate
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -311,8 +312,6 @@ class TestCaseTagsService:  # noqa: D101
         tag = await case_tags_service.create_tag(tag_params)
         non_existent_case_id = uuid.uuid4()
 
-        # This should fail due to foreign key constraint
-        from sqlalchemy.exc import IntegrityError
-
-        with pytest.raises(IntegrityError):
+        # This should fail because the case does not exist in the workspace
+        with pytest.raises(TracecatNotFoundError):
             await case_tags_service.add_case_tag(non_existent_case_id, str(tag.id))
