@@ -1,7 +1,7 @@
 """Create approval table
 
 Revision ID: b376e6d16619
-Revises: 776663cf67e3
+Revises: dab623699009
 Create Date: 2025-10-17 13:37:04.811962
 
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b376e6d16619"
-down_revision: str | None = "776663cf67e3"
+down_revision: str | None = "dab623699009"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
