@@ -4,16 +4,13 @@ from __future__ import annotations as _annotations
 
 import uuid
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
     NotRequired,
-    Protocol,
     TypedDict,
-    runtime_checkable,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
@@ -22,31 +19,11 @@ from pydantic_ai.settings import ModelSettings
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
-if TYPE_CHECKING:
-    from tracecat.agent.stream.writers import StreamWriter
-
-ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
-ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
-
 
 class ModelInfo(BaseModel):
     name: str
     provider: str
     base_url: str | None
-
-
-@runtime_checkable
-class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
-    async def store(
-        self, session_id: uuid.UUID, messages: list[ModelMessage]
-    ) -> None: ...
-
-
-@runtime_checkable
-class StreamingAgentDeps(Protocol):
-    stream_writer: StreamWriter
-    message_store: MessageStore | None = None
 
 
 class RunAgentArgs(BaseModel):
@@ -60,10 +37,6 @@ class RunAgentArgs(BaseModel):
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
-
-
-class RunAgentResult(BaseModel):
-    messages: list[ModelMessage]
 
 
 class ModelConfig(BaseModel):
@@ -168,21 +141,6 @@ class AgentOutput(BaseModel):
     usage: RunUsage
     session_id: uuid.UUID
     trace_id: str | None = None
-
-
-type OutputType = (
-    Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-)
 
 
 class ExecuteToolCallArgs(BaseModel):

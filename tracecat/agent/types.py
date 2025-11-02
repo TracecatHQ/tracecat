@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import pydantic
 from pydantic import TypeAdapter
+from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
 
 if TYPE_CHECKING:
@@ -26,8 +27,10 @@ class StreamKey(str):
 
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
+ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
 
 
+@runtime_checkable
 class MessageStore(Protocol):
     async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
 
@@ -36,6 +39,7 @@ class MessageStore(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
     message_store: MessageStore | None = None
