@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
-  AlertTriangleIcon,
   BanIcon,
   CalendarClockIcon,
   KeyRoundIcon,
@@ -41,7 +40,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -954,8 +952,8 @@ export function WebhookControls({
             <AlertDialogHeader>
               <AlertDialogTitle>Delete API key?</AlertDialogTitle>
               <AlertDialogDescription>
-                This permanently removes the API key.
-                The webhook will no longer require authenticated requests until a new API key is generated.
+                This permanently removes the API key. The webhook will no longer
+                require authenticated requests until a new API key is generated.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
