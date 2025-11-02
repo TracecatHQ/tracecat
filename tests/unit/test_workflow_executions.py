@@ -17,9 +17,9 @@ import pytest
 from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.client import Client, WorkflowHandle
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Workspace
 from tracecat.identifiers.workflow import WorkflowExecutionID
-from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,

@@ -7,8 +7,8 @@ from pydantic import TypeAdapter
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.db.models import Workspace
-from tracecat.types.auth import Role
 from tracecat.workspaces.schemas import WorkspaceSettings, WorkspaceSettingsUpdate
 from tracecat.workspaces.service import WorkspaceService
 

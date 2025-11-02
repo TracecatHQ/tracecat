@@ -5,10 +5,10 @@ from temporalio import activity
 
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
 
 

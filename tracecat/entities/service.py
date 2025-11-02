@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Entity, EntityField, EntityFieldOption
 from tracecat.entities.schemas import (
     EntityCreate,
@@ -12,9 +13,8 @@ from tracecat.entities.schemas import (
     EntityFieldUpdate,
     EntityUpdate,
 )
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class EntityService(BaseWorkspaceService):

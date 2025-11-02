@@ -31,7 +31,7 @@ from tracecat.config import (
     TRACECAT__MAX_UPLOAD_FILES_COUNT,
 )
 
-from tracecat.types.exceptions import TracecatException
+from tracecat.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]

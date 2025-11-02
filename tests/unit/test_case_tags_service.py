@@ -6,13 +6,13 @@ from slugify import slugify
 from sqlalchemy.exc import DatabaseError, IntegrityError, NoResultFound
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tags.schemas import TagCreate
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 

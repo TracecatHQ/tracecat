@@ -13,7 +13,9 @@ from tracecat.agent.schemas import (
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
+from tracecat.auth.types import Role
 from tracecat.db.models import OrganizationSecret
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.enums import SecretType
@@ -22,8 +24,6 @@ from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class AgentManagementService(BaseService):

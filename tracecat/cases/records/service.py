@@ -10,6 +10,7 @@ from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordLink,
@@ -17,15 +18,14 @@ from tracecat.cases.records.schemas import (
 )
 from tracecat.db.models import Case, CaseRecord, Entity, EntityRecord
 from tracecat.entities.service import EntityService
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.records.model import RecordUpdate
 from tracecat.records.service import RecordService
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
-    TracecatNotFoundError,
-    TracecatValidationError,
-)
 
 
 class CaseRecordService(BaseWorkspaceService):

@@ -21,10 +21,17 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.service import BaseService
 from tracecat.tables.common import (
     coerce_to_utc_datetime,
@@ -39,13 +46,6 @@ from tracecat.tables.schemas import (
     TableCreate,
     TableRowInsert,
     TableUpdate,
-)
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
-from tracecat.types.pagination import (
-    BaseCursorPaginator,
-    CursorPaginatedResponse,
-    CursorPaginationParams,
 )
 
 _RETRYABLE_DB_EXCEPTIONS = (

@@ -6,7 +6,9 @@ import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Table
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
@@ -18,8 +20,6 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 

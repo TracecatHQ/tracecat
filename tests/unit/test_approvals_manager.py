@@ -20,8 +20,8 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.auth.types import Role
 from tracecat.db.models import User
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

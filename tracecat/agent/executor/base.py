@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from tracecat.agent.schemas import RunAgentArgs
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError
 
 
 class BaseAgentRunHandle[T](ABC):

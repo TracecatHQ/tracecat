@@ -23,10 +23,10 @@ from tracecat.chat.schemas import (
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.models import Case, Chat
 from tracecat.db.models import ChatMessage as DBChatMessage
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class ChatService(BaseWorkspaceService):

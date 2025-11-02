@@ -6,11 +6,13 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
 from tracecat.cases.attachments.service import CaseAttachmentService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CaseEventsService, CasesService
+from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.storage.exceptions import (
     FileExtensionError,
@@ -18,8 +20,6 @@ from tracecat.storage.exceptions import (
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
 )
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 
 pytestmark = pytest.mark.usefixtures("db")
 

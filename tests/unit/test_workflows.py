@@ -29,6 +29,7 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -69,7 +70,6 @@ from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import WorkflowEventType
@@ -258,8 +258,7 @@ async def test_workflow_completes_and_correct(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2185,8 +2184,7 @@ async def test_workflow_error_path(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2262,7 +2260,7 @@ async def test_workflow_join_unreachable(
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "tracecat.exceptions.TracecatExpressionError",
                         "TracecatValidationError",
                     ],
                 ),
@@ -2341,7 +2339,7 @@ async def test_workflow_multiple_entrypoints(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2459,7 +2457,7 @@ async def test_workflow_runs_template_for_each(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),

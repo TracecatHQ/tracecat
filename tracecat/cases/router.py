@@ -15,6 +15,7 @@ from starlette.status import (
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -47,11 +48,10 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )

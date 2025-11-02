@@ -28,8 +28,10 @@ from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import RegistryError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
@@ -55,8 +57,6 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import SshEnv, ssh_context
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]

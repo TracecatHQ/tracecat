@@ -4,13 +4,13 @@ from collections.abc import AsyncGenerator
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CasesService, CaseTasksService
 from tracecat.db.models import Case, Workflow, Workspace
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import WorkflowUUID
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 

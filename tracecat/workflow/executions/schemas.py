@@ -19,6 +19,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import (
     AgentActionMemo,
     ChildWorkflowMemo,
@@ -42,7 +43,6 @@ from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.sessions import Session
-from tracecat.types.auth import Role
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     UTILITY_ACTIONS,

@@ -16,12 +16,12 @@ from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.schemas import UserReadMinimal
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
-from tracecat.types.auth import AccessLevel, Role
 from tracecat_ee.agent.approvals.models import ApprovalRead
 from tracecat_ee.agent.approvals.service import (
     ApprovalMap,

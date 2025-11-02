@@ -44,9 +44,9 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.tools import SimpleToolExecutor
 from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
 from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

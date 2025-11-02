@@ -1,7 +1,7 @@
 import pytest
 
+from tracecat.exceptions import TracecatValidationError
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
-from tracecat.types.exceptions import TracecatValidationError
 
 
 @pytest.mark.parametrize(

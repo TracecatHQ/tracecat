@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadResponse,
@@ -26,7 +27,6 @@ from tracecat.storage.exceptions import (
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
 )
-from tracecat.types.auth import Role
 
 router = APIRouter(tags=["case-attachments"], prefix="/cases/{case_id}/attachments")
 

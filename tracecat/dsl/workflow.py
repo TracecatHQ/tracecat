@@ -85,6 +85,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.decorators import maybe_interactive
     from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
+    from tracecat.exceptions import (
+        TracecatException,
+        TracecatExpressionError,
+        TracecatNotFoundError,
+        TracecatValidationError,
+    )
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
@@ -92,12 +98,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
-    from tracecat.types.exceptions import (
-        TracecatException,
-        TracecatExpressionError,
-        TracecatNotFoundError,
-        TracecatValidationError,
-    )
     from tracecat.validation.schemas import DSLValidationResult
     from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput

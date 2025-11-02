@@ -18,8 +18,8 @@ from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import StreamingAgentDeps
+from tracecat.auth.types import Role
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 
 
 class AioAgentRunHandle[T](BaseAgentRunHandle[T]):

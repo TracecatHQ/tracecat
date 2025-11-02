@@ -20,6 +20,7 @@ from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -36,7 +37,6 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
     ActionValidationResult,

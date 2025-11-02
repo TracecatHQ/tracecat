@@ -24,8 +24,8 @@ from tracecat.agent.schemas import (
     ModelRequestArgs,
     ModelResponseTA,
 )
+from tracecat.auth.types import Role
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 from tracecat_ee.agent.activities import (
     AgentActivities,
     RequestStreamArgs,

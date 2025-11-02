@@ -3,10 +3,10 @@ from collections.abc import AsyncGenerator
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 

@@ -3,6 +3,7 @@ import uuid
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.entities.enums import FieldType
 from tracecat.entities.schemas import (
     EntityCreate,
@@ -10,11 +11,10 @@ from tracecat.entities.schemas import (
     EntityFieldOptionCreate,
 )
 from tracecat.entities.service import EntityService
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.records.model import RecordCreate, RecordUpdate
 from tracecat.records.service import RecordService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError
-from tracecat.types.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
 

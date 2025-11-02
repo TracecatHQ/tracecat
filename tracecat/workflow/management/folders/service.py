@@ -8,17 +8,17 @@ import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, func, or_, select
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, WorkflowDefinition, WorkflowFolder
-from tracecat.identifiers import WorkflowID
-from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.service import BaseService
-from tracecat.tags.schemas import TagRead
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.service import BaseService
+from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
     DirectoryItem,
     FolderDirectoryItem,

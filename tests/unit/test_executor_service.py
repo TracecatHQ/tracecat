@@ -10,7 +10,9 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
+from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor.service import (
     DispatchActionContext,
     _dispatch_action,
@@ -24,8 +26,6 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatCredentialsError
 
 
 @pytest.fixture

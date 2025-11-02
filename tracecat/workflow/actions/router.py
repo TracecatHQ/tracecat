@@ -6,12 +6,12 @@ from sqlmodel import select
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Action
+from tracecat.exceptions import RegistryError
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.types.exceptions import RegistryError
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,

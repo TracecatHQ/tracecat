@@ -4,10 +4,10 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
+from tracecat.auth.types import Role
 from tracecat.clients import AuthenticatedAPIClient, AuthenticatedServiceClient
 from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_role
-from tracecat.types.auth import Role
 
 pytest.mark.disable_fixture("test_user")
 

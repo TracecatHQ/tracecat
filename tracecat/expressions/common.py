@@ -9,8 +9,8 @@ from typing import Any, TypeVar
 import jsonpath_ng.ext
 from jsonpath_ng.exceptions import JsonPathParserError
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
 
 # Maximum number of key segments allowed after the variable name in VARS expressions.
 # This is currently limited to support `VARS.<name>.<key>` paths, and can be increased

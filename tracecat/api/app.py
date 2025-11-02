@@ -27,6 +27,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidEmailException,
@@ -48,6 +49,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.entities.router import router as entities_router
+from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
@@ -69,8 +71,6 @@ from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router

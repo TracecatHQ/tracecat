@@ -13,10 +13,16 @@ from sqlmodel import cast, col, desc, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
 from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseAttachment, File, Workspace
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatException,
+    TracecatNotFoundError,
+)
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
@@ -26,12 +32,6 @@ from tracecat.storage.exceptions import (
     StorageLimitExceededError,
 )
 from tracecat.storage.validation import FileSecurityValidator
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
-    TracecatAuthorizationError,
-    TracecatException,
-    TracecatNotFoundError,
-)
 
 
 class CaseAttachmentService(BaseWorkspaceService):

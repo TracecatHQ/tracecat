@@ -53,7 +53,7 @@ async def list_records(
 ) -> dict[str, Any]:
     entity_uuid: UUID | None = UUID(entity_id) if entity_id else None
     async with RecordService.with_session() as service:
-        from tracecat.types.pagination import CursorPaginationParams
+        from tracecat.pagination import CursorPaginationParams
 
         cpp = CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
         resp = await service.list_records(cpp, entity_id=entity_uuid)
@@ -91,7 +91,7 @@ async def list_entity_records(
         Doc("Reverse pagination direction (use with cursor for previous page)."),
     ] = False,
 ) -> dict[str, Any]:
-    from tracecat.types.pagination import CursorPaginationParams
+    from tracecat.pagination import CursorPaginationParams
 
     entity_uuid = UUID(entity_id)
     async with EntityService.with_session() as entities:

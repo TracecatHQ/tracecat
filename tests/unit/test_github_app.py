@@ -11,11 +11,11 @@ from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Secret
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.types.auth import Role
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
@@ -344,7 +344,7 @@ class TestGitHubAppService:
         self, github_service, mock_credentials
     ):
         """Test that non-admin role cannot register app."""
-        from tracecat.types.exceptions import TracecatAuthorizationError
+        from tracecat.exceptions import TracecatAuthorizationError
 
         with pytest.raises(
             TracecatAuthorizationError,
@@ -362,7 +362,7 @@ class TestGitHubAppService:
         self, github_service
     ):
         """Test that non-admin role cannot update credentials."""
-        from tracecat.types.exceptions import TracecatAuthorizationError
+        from tracecat.exceptions import TracecatAuthorizationError
 
         with pytest.raises(
             TracecatAuthorizationError,

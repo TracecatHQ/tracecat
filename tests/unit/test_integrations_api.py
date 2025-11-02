@@ -4,10 +4,10 @@ import pytest
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 
