@@ -3,13 +3,14 @@
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import {
+  ChevronLeftIcon,
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
   MessageCircle,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
 import {
   Conversation,
@@ -24,6 +25,13 @@ import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Carousel,
+  type CarouselApi,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel"
 import {
   Select,
   SelectContent,
@@ -65,9 +73,11 @@ export function ActionEventPane({
   if (type === "interaction") {
     // Filter events to only include interaction events
     const interactionEvents = new Set(
-      execution.interactions?.map((s) => s.action_ref) ?? []
+      execution.interactions?.map((s: InteractionRead) => s.action_ref) ?? []
     )
-    events = events.filter((e) => interactionEvents.has(e.action_ref))
+    events = events.filter((e: WorkflowExecutionEventCompact) =>
+      interactionEvents.has(e.action_ref)
+    )
   }
   const groupedEvents = groupEventsByActionRef(events)
   return (
@@ -81,7 +91,12 @@ export function ActionEventPane({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {Object.entries(groupedEvents).map(([actionRef, relatedEvents]) => (
+            {(
+              Object.entries(groupedEvents) as [
+                string,
+                WorkflowExecutionEventCompact[],
+              ][]
+            ).map(([actionRef, relatedEvents]) => (
               <SelectItem
                 key={actionRef}
                 value={actionRef}
@@ -124,7 +139,7 @@ function ActionEventView({
   }
   if (type === "interaction") {
     const interaction = execution.interactions?.find(
-      (s) => s.action_ref === selectedRef
+      (s: InteractionRead) => s.action_ref === selectedRef
     )
     if (!interaction) {
       // We reach this if we switch tabs or select an event that has no interaction state
@@ -404,8 +419,48 @@ export function ActionEventDetails({
       />
     )
   }
+  const eventsWithSessions =
+    type === "result" ? actionEventsForRef.filter((event) => event.session) : []
+
+  if (type === "result" && eventsWithSessions.length > 1) {
+    const firstSessionIndex = actionEventsForRef.findIndex(
+      (event) => event.session
+    )
+    const nodes: ReactNode[] = []
+
+    actionEventsForRef.forEach((actionEvent, index) => {
+      const key = actionEvent.stream_id ?? actionEvent.source_event_id
+      if (actionEvent.session) {
+        if (index === firstSessionIndex) {
+          nodes.push(
+            <div key="session-streams">
+              <ActionSessionCarousel
+                events={eventsWithSessions}
+                type={type}
+                eventRef={eventRef}
+              />
+            </div>
+          )
+        }
+        return
+      }
+
+      nodes.push(
+        <div key={key}>
+          <ActionEventContent
+            actionEvent={actionEvent}
+            type={type}
+            eventRef={eventRef}
+          />
+        </div>
+      )
+    })
+
+    return nodes
+  }
+
   return actionEventsForRef.map((actionEvent) => (
-    <div key={actionEvent.stream_id}>
+    <div key={actionEvent.stream_id ?? actionEvent.source_event_id}>
       <ActionEventContent
         actionEvent={actionEvent}
         type={type}
@@ -413,6 +468,97 @@ export function ActionEventDetails({
       />
     </div>
   ))
+}
+
+function ActionSessionCarousel({
+  events,
+  type,
+  eventRef,
+}: {
+  events: WorkflowExecutionEventCompact[]
+  type: Omit<TabType, "interaction">
+  eventRef: string
+}) {
+  const [api, setApi] = useState<CarouselApi>()
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [canScrollPrev, setCanScrollPrev] = useState(false)
+  const [canScrollNext, setCanScrollNext] = useState(events.length > 1)
+
+  useEffect(() => {
+    if (!api) {
+      return
+    }
+
+    const update = () => {
+      setCurrentIndex(api.selectedScrollSnap())
+      setCanScrollPrev(api.canScrollPrev())
+      setCanScrollNext(api.canScrollNext())
+    }
+
+    update()
+    api.on("select", update)
+    api.on("reInit", update)
+
+    return () => {
+      api.off("select", update)
+      api.off("reInit", update)
+    }
+  }, [api])
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground">
+          Stream {currentIndex + 1} of {events.length}
+        </span>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollPrev()}
+          disabled={!canScrollPrev}
+        >
+          <ChevronLeftIcon className="size-4" />
+          <span className="sr-only">Previous stream</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollNext()}
+          disabled={!canScrollNext}
+        >
+          <ChevronRightIcon className="size-4" />
+          <span className="sr-only">Next stream</span>
+        </Button>
+      </div>
+      <Carousel
+        setApi={setApi}
+        opts={{
+          align: "start",
+          duration: 0, // Set to 0 to disable animation
+          dragFree: false,
+          containScroll: false,
+          watchDrag: false, // This is the correct way to disable dragging in Embla Carousel
+          loop: true, // Enable looping
+        }}
+      >
+        <CarouselContent>
+          {events.map((actionEvent, index) => (
+            <CarouselItem
+              key={`session-${actionEvent.stream_id ?? actionEvent.source_event_id ?? index}`}
+            >
+              <ActionEventContent
+                actionEvent={actionEvent}
+                type={type}
+                eventRef={eventRef}
+              />
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </Carousel>
+    </div>
+  )
 }
 
 function ActionSessionStream({ session }: { session: Session_Any_ }) {
@@ -427,6 +573,7 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
               <div key={id}>
                 {parts?.map((part, partIdx) => (
                   <MessagePart
+                    key={`${id}-${partIdx}`}
                     part={part}
                     partIdx={partIdx}
                     id={id}

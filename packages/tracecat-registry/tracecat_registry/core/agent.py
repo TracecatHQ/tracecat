@@ -1,12 +1,12 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
 from typing import Annotated, Any
-from tracecat_registry import registry, RegistrySecret, RegistrySecretType
+
+from tracecat_registry import RegistrySecret, RegistrySecretType, registry
+
 from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.runtime import run_agent, run_agent_sync
 from tracecat.agent.factory import build_agent
-
-
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc
 

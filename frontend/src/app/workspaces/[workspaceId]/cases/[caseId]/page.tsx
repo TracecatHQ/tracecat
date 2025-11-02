@@ -11,10 +11,15 @@ export default function CaseDetailPage() {
   const caseId = params?.caseId
   const workspaceId = useWorkspaceId()
 
-  const { caseData } = useGetCase({
-    caseId: caseId || "",
-    workspaceId,
-  })
+  const { caseData } = useGetCase(
+    {
+      caseId: caseId || "",
+      workspaceId,
+    },
+    {
+      enabled: Boolean(caseId && workspaceId),
+    }
+  )
 
   useEffect(() => {
     if (caseData?.short_id && caseData?.summary) {

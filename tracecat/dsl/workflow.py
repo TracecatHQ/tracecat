@@ -25,8 +25,15 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from tracecat_ee.agent.actions import ApprovalsAgentActionArgs
+    from tracecat_ee.agent.types import AgentWorkflowID
+    from tracecat_ee.agent.workflows.durable import (
+        AgentWorkflowArgs,
+        DurableAgentWorkflow,
+    )
 
     from tracecat import config, identifiers
+    from tracecat.agent.models import AgentConfig, RunAgentArgs
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
         ctx_interaction,
@@ -41,6 +48,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
+        AgentActionMemo,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
@@ -55,6 +63,7 @@ with workflow.unsafe.imports_passed_through():
         WaitStrategy,
     )
     from tracecat.dsl.models import (
+        ROOT_STREAM,
         ActionErrorInfo,
         ActionErrorInfoAdapter,
         ActionStatement,
@@ -80,6 +89,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
     from tracecat.types.exceptions import (
@@ -522,6 +532,57 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
+                case PlatformAction.AI_APPROVALS_AGENT:
+                    logger.info("Executing approvals agent", task=task)
+                    if not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+                        raise ApplicationError(
+                            "Approvals AI agent feature is not enabled.",
+                            non_retryable=True,
+                            type="FeatureDisabledError",
+                        )
+                    # Evaluate templated arguments before invoking the agent workflow.
+                    agent_operand = self._build_action_context(task, stream_id)
+                    evaluated_args = eval_templated_object(
+                        task.args, operand=agent_operand
+                    )
+                    action_args = ApprovalsAgentActionArgs(**evaluated_args)
+                    wf_info = workflow.info()
+                    session_id = workflow.uuid4()
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
+                            user_prompt=action_args.user_prompt,
+                            session_id=session_id,
+                            config=AgentConfig(
+                                model_name=action_args.model_name,
+                                model_provider=action_args.model_provider,
+                                instructions=action_args.instructions,
+                                output_type=action_args.output_type,
+                                model_settings=action_args.model_settings,
+                                retries=action_args.retries,
+                                base_url=action_args.base_url,
+                                actions=action_args.actions,
+                                tool_approvals=action_args.tool_approvals,
+                            ),
+                        ),
+                    )
+                    action_result: Any = await workflow.execute_child_workflow(
+                        DurableAgentWorkflow.run,
+                        arg=arg,
+                        id=AgentWorkflowID(session_id),
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        # Propagate the parent workflow attributes to the child workflow
+                        task_queue=wf_info.task_queue,
+                        execution_timeout=wf_info.execution_timeout,
+                        task_timeout=wf_info.task_timeout,
+                        search_attributes=wf_info.typed_search_attributes,
+                        memo=AgentActionMemo(
+                            action_ref=task.ref,
+                            action_title=task.title,
+                            loop_index=None,
+                            stream_id=stream_id or ROOT_STREAM,
+                        ).model_dump(),
+                    )
                 case _:
                     # Below this point, we're executing the task
                     logger.trace(
@@ -899,15 +960,10 @@ class DSLWorkflow:
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
         # Parent stream
         stream_id = ctx_stream_id.get()
-        new_action_context: dict[str, Any] = {}
-        action_ref = task.ref
         self.logger.debug(
-            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+            "Noop gather action", action_ref=task.ref, stream_id=stream_id
         )
-        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-        new_action_context[action_ref] = res
-
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        new_context = self._build_action_context(task, stream_id)
 
         arg = RunActionInput(
             task=task,
@@ -928,17 +984,24 @@ class DSLWorkflow:
             ),
         )
 
+    def _build_action_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Construct the execution context for an action with resolved dependencies."""
+        expr_ctxs = extract_expressions(task.model_dump())
+        resolved_actions: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            resolved_actions[action_ref] = (
+                self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+            )
+
+        return {**self.context, ExprContext.ACTIONS: resolved_actions}
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
-        expr_ctxs = extract_expressions(task.model_dump())
-        new_action_context: dict[str, Any] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
-            res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-            new_action_context[action_ref] = res
-
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        new_context = self._build_action_context(task, stream_id)
 
         # Check if action has environment override
         run_context = self.run_context

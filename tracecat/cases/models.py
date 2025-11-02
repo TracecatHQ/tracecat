@@ -249,6 +249,10 @@ class ReopenedEvent(CaseEventBase):
     new: CaseStatus
 
 
+class CaseViewedEvent(CaseEventBase):
+    type: Literal[CaseEventType.CASE_VIEWED] = CaseEventType.CASE_VIEWED
+
+
 class UpdatedEvent(CaseEventBase):
     type: Literal[CaseEventType.CASE_UPDATED] = CaseEventType.CASE_UPDATED
     field: Literal["summary"]
@@ -288,6 +292,10 @@ class ClosedEventRead(CaseEventReadBase, ClosedEvent):
 
 class ReopenedEventRead(CaseEventReadBase, ReopenedEvent):
     """Event for when a case is reopened."""
+
+
+class CaseViewedEventRead(CaseEventReadBase, CaseViewedEvent):
+    """Event for when a case is viewed."""
 
 
 class UpdatedEventRead(CaseEventReadBase, UpdatedEvent):
@@ -338,6 +346,28 @@ class AttachmentCreatedEventRead(CaseEventReadBase, AttachmentCreatedEvent):
 
 class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
+
+
+class TagAddedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TAG_ADDED] = CaseEventType.TAG_ADDED
+    tag_id: uuid.UUID
+    tag_ref: str
+    tag_name: str
+
+
+class TagRemovedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TAG_REMOVED] = CaseEventType.TAG_REMOVED
+    tag_id: uuid.UUID
+    tag_ref: str
+    tag_name: str
+
+
+class TagAddedEventRead(CaseEventReadBase, TagAddedEvent):
+    """Event for when a tag is added to a case."""
+
+
+class TagRemovedEventRead(CaseEventReadBase, TagRemovedEvent):
+    """Event for when a tag is removed from a case."""
 
 
 # Task Events
@@ -422,6 +452,7 @@ type CaseEventVariant = Annotated[
     CreatedEvent
     | ClosedEvent
     | ReopenedEvent
+    | CaseViewedEvent
     | UpdatedEvent
     | StatusChangedEvent
     | PriorityChangedEvent
@@ -430,6 +461,8 @@ type CaseEventVariant = Annotated[
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
     | AttachmentDeletedEvent
+    | TagAddedEvent
+    | TagRemovedEvent
     | PayloadChangedEvent
     | TaskCreatedEvent
     | TaskStatusChangedEvent
@@ -448,6 +481,7 @@ class CaseEventRead(RootModel):
         CreatedEventRead
         | ClosedEventRead
         | ReopenedEventRead
+        | CaseViewedEventRead
         | UpdatedEventRead
         | StatusChangedEventRead
         | PriorityChangedEventRead
@@ -456,6 +490,8 @@ class CaseEventRead(RootModel):
         | AssigneeChangedEventRead
         | AttachmentCreatedEventRead
         | AttachmentDeletedEventRead
+        | TagAddedEventRead
+        | TagRemovedEventRead
         | PayloadChangedEventRead
         | TaskCreatedEventRead
         | TaskStatusChangedEventRead

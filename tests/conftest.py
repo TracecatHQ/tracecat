@@ -661,10 +661,12 @@ async def test_worker_factory(
         task_queue: str | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
+
+        activities = activities or get_activities()
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=activities or get_activities(),
+            activities=activities,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
             activity_executor=threadpool,

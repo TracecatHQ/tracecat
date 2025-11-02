@@ -3,19 +3,39 @@
 from __future__ import annotations as _annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
-from pydantic import BaseModel, Field, TypeAdapter
+import pydantic
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_ai import RunUsage
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.settings import ModelSettings
+
+from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
     from tracecat.agent.stream.writers import StreamWriter
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
+ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
 
 
+class ModelInfo(BaseModel):
+    name: str
+    provider: str
+    base_url: str | None
+
+
+@runtime_checkable
 class MessageStore(Protocol):
     async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
     async def store(
@@ -23,12 +43,13 @@ class MessageStore(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
     message_store: MessageStore | None = None
 
 
-@dataclass(kw_only=True, slots=True)
+@pydantic.dataclasses.dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
 
@@ -43,12 +64,13 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     fixed_arguments: dict[str, dict[str, Any]] | None = None
+    tool_approvals: dict[str, bool] | None = None
     # MCP
     mcp_server_url: str | None = None
     mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
     retries: int = 3
-    deps_type: type[StreamingAgentDeps] | type[None] | None = None
+    deps_type: type[Any] | None = None
 
 
 class RunAgentArgs(BaseModel):
@@ -165,7 +187,7 @@ class ModelCredentialUpdate(BaseModel):
 
 class AgentOutput(BaseModel):
     output: Any
-    message_history: list[ModelMessage]
+    message_history: list[ModelMessage] | None = None
     duration: float
     usage: RunUsage
     session_id: uuid.UUID
@@ -185,3 +207,38 @@ type OutputType = (
     ]
     | dict[str, Any]
 )
+
+
+class ExecuteToolCallArgs(BaseModel):
+    tool_name: str = Field(..., description="Name of the tool to execute")
+    tool_args: dict[str, Any] = Field(..., description="Arguments for the tool")
+    tool_call_id: str = Field(..., description="ID of the tool call")
+
+
+class ExecuteToolCallResult(BaseModel):
+    type: Literal["result", "error", "retry"] = Field(..., description="Type of result")
+    result: Any = Field(default=None, description="Tool return part")
+    error: str | None = Field(
+        default=None, description="Error message if execution failed"
+    )
+    retry_message: str | None = Field(
+        default=None, description="Retry message if ModelRetry was raised"
+    )
+
+
+class ModelRequestArgs(BaseModel):
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    role: Role
+    messages: list[ModelMessage]
+    model_settings: ModelSettings | None
+    model_request_parameters: ModelRequestParameters
+    model_info: ModelInfo
+
+
+class ModelRequestResult(BaseModel):
+    model_response: ModelResponse = Field(..., description="Model response")
+
+
+class ToolFilters(BaseModel):
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None

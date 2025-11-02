@@ -487,13 +487,28 @@ class CaseDurationService(BaseWorkspaceService):
     def _matches_filters(self, event: CaseEvent, filters: dict[str, Any]) -> bool:
         for path, expected in filters.items():
             actual = self._resolve_field(event, path)
-            if isinstance(actual, Enum):
-                actual = actual.value
-            if isinstance(expected, Enum):
-                expected = expected.value
-            if actual != expected:
+            actual_normalized = self._normalize_filter_value(actual)
+            expected_normalized = self._normalize_filter_value(expected)
+            if isinstance(expected_normalized, list):
+                if actual_normalized is None:
+                    return False
+                if isinstance(actual_normalized, list):
+                    if not any(
+                        item in expected_normalized for item in actual_normalized
+                    ):
+                        return False
+                elif actual_normalized not in expected_normalized:
+                    return False
+            elif actual_normalized != expected_normalized:
                 return False
         return True
+
+    def _normalize_filter_value(self, value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, (list, tuple, set)):
+            return [self._normalize_filter_value(item) for item in value]
+        return value
 
     def _extract_timestamp(
         self, event: CaseEvent, anchor: CaseDurationEventAnchor

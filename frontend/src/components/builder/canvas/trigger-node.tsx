@@ -99,9 +99,9 @@ export default React.memo(function TriggerNode({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     {workflow.webhook.api_key?.is_active ? (
-                      <Shield className="size-4 text-emerald-400 fill-current" />
+                      <Shield className="size-4 text-emerald-400" />
                     ) : workflow.webhook.api_key ? (
-                      <Shield className="size-4 text-amber-400 fill-current" />
+                      <Shield className="size-4 text-amber-400" />
                     ) : (
                       <ShieldOff className="size-4 text-muted-foreground/70" />
                     )}

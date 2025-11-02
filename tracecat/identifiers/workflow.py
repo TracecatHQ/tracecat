@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, cast
+import re
+from typing import Annotated
 
 from fastapi import Depends, Query
 from pydantic import UUID4, StringConstraints
@@ -148,8 +149,11 @@ def exec_id_to_parts(
     wf_exec_id: WorkflowExecutionID,
 ) -> tuple[WorkflowID, WorkflowExecutionSuffixID]:
     """The components of a workflow execution ID."""
-    wf_id, exec_suffix_id = wf_exec_id.split(":", 1)
-    return cast(WorkflowID, wf_id), cast(WorkflowExecutionSuffixID, exec_suffix_id)
+    if match := re.match(WF_EXEC_ID_PATTERN, wf_exec_id):
+        wf_id = WorkflowUUID.new(match.group("workflow_id"))
+        exec_id = match.group("execution_id")
+        return wf_id, exec_id
+    raise ValueError(f"Invalid workflow execution ID: {wf_exec_id}")
 
 
 def exec_id_from_parts(

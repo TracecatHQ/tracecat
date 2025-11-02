@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
 from tracecat.cases.durations.models import CaseDurationAnchorSelection
@@ -1297,6 +1298,71 @@ class Interaction(Resource, table=True):
         default=None,
         nullable=True,
         description="ID of the user/actor who responded",
+    )
+
+
+class Approval(Resource, table=True):
+    """Database model for storing agent tool approval state."""
+
+    __tablename__: str = "approval"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "session_id",
+            "tool_call_id",
+            name="uq_approval_owner_session_tool",
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        description="Unique approval identifier",
+    )
+    session_id: uuid.UUID = Field(
+        nullable=False,
+        index=True,
+        description="Agent session identifier",
+    )
+    tool_call_id: str = Field(
+        nullable=False,
+        index=True,
+        description="Identifier of the deferred tool call",
+    )
+    tool_name: str = Field(
+        nullable=False,
+        description="Name of the tool requiring approval",
+    )
+    tool_call_args: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool call arguments captured at approval request time",
+    )
+    status: ApprovalStatus = Field(
+        default=ApprovalStatus.PENDING,
+        index=True,
+        description="Current approval status",
+    )
+    reason: str | None = Field(
+        default=None,
+        nullable=True,
+        description="Optional reason for approval decision",
+    )
+    decision: bool | dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Deferred tool result decision (approved/denied with override args or rejection reason)",
+    )
+    approved_by: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        description="User who approved this request",
+    )
+    approved_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
     )
 
 
