@@ -15,7 +15,6 @@ from tracecat.executor.models import DispatchActionContext
 from tracecat.executor.service import (
     _dispatch_action,
     dispatch_action_on_cluster,
-    get_action_secrets,
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
@@ -24,6 +23,7 @@ from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets import secrets_manager
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
 
@@ -236,7 +236,9 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     )
 
     # Mock get_runtime_env
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     # Mock the AuthSandbox
     mock_sandbox = mocker.MagicMock()
@@ -244,7 +246,7 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     mock_sandbox.__aenter__.return_value = mock_sandbox
     mock_sandbox.__aexit__.return_value = None
 
-    auth_sandbox_mock = mocker.patch("tracecat.executor.service.AuthSandbox")
+    auth_sandbox_mock = mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox")
     auth_sandbox_mock.return_value = mock_sandbox
 
     # Mock run_single_action to avoid actually running the action
@@ -254,10 +256,10 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     mocker.patch("tracecat.executor.service.evaluate_templated_args", return_value={})
 
     # Mock env_sandbox
-    mocker.patch("tracecat.executor.service.env_sandbox")
+    mocker.patch("tracecat.secrets.secrets_manager.env_sandbox")
 
     # Mock flatten_secrets
-    mocker.patch("tracecat.executor.service.flatten_secrets", return_value={})
+    mocker.patch("tracecat.secrets.secrets_manager.flatten_secrets", return_value={})
 
     # Run the function
     await run_action_from_input(input, test_role)
@@ -304,13 +306,15 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
@@ -326,11 +330,13 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets(set(), action_secrets)
+    secrets = await secrets_manager.get_action_secrets(
+        secret_exprs=set(), action_secrets=action_secrets
+    )
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -357,13 +363,15 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
@@ -394,11 +402,13 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 
-    secrets = await get_action_secrets(set(), action_secrets)
+    secrets = await secrets_manager.get_action_secrets(
+        secret_exprs=set(), action_secrets=action_secrets
+    )
     assert (
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
         == "user-token"
@@ -421,13 +431,15 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     }
 
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch("tracecat.executor.service.get_runtime_env", return_value="test_env")
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {}
     sandbox.__aenter__.return_value = sandbox
     sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.executor.service.AuthSandbox", return_value=sandbox)
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
     service = mocker.AsyncMock()
     service.list_integrations.return_value = []
@@ -437,12 +449,14 @@ async def test_get_action_secrets_missing_required_oauth_raises(mocker):
         yield service
 
     mocker.patch(
-        "tracecat.executor.service.IntegrationService.with_session",
+        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
 
     with pytest.raises(TracecatCredentialsError):
-        await get_action_secrets(set(), action_secrets)
+        await secrets_manager.get_action_secrets(
+            secret_exprs=set(), action_secrets=action_secrets
+        )
 
 
 @pytest.mark.anyio

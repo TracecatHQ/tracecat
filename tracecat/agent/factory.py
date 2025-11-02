@@ -54,6 +54,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
             fixed_arguments=config.fixed_arguments,
             namespaces=config.namespaces,
             actions=config.actions,
+            tool_approvals=config.tool_approvals,
         )
         agent_tools = tools.tools
     _output_type = _parse_output_type(config.output_type) if config.output_type else str

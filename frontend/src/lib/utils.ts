@@ -1,6 +1,5 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
-import YAML from "yaml"
 import type { IntegrationOAuthCallback } from "@/client"
 
 export function cn(...inputs: ClassValue[]) {
@@ -70,17 +69,6 @@ export function undoSlugify(value: string, delimiter: string = "_"): string {
 
 export function isServer() {
   return typeof window === "undefined"
-}
-
-export function isEmptyObjectOrNullish(value: unknown) {
-  return value === null || value === undefined || isEmptyObject(value)
-}
-export function isEmptyObject(obj: object) {
-  return typeof obj === "object" && Object.keys(obj).length === 0
-}
-
-export function itemOrEmptyString(item: unknown | undefined) {
-  return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
 }
 
 export function capitalizeFirst(str: string) {

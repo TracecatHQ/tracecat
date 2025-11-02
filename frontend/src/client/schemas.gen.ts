@@ -679,30 +679,48 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AgentApprovalSubmission = {
+  properties: {
+    approvals: {
+      $ref: "#/components/schemas/ApprovalMap",
+    },
+  },
+  type: "object",
+  required: ["approvals"],
+  title: "AgentApprovalSubmission",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
       title: "Output",
     },
     message_history: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/ModelRequest",
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/ModelRequest",
+              },
+              {
+                $ref: "#/components/schemas/ModelResponse",
+              },
+            ],
+            discriminator: {
+              propertyName: "kind",
+              mapping: {
+                request: "#/components/schemas/ModelRequest",
+                response: "#/components/schemas/ModelResponse",
+              },
+            },
           },
-          {
-            $ref: "#/components/schemas/ModelResponse",
-          },
-        ],
-        discriminator: {
-          propertyName: "kind",
-          mapping: {
-            request: "#/components/schemas/ModelRequest",
-            response: "#/components/schemas/ModelResponse",
-          },
+          type: "array",
         },
-      },
-      type: "array",
+        {
+          type: "null",
+        },
+      ],
       title: "Message History",
     },
     duration: {
@@ -730,8 +748,129 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "message_history", "duration", "usage", "session_id"],
+  required: ["output", "duration", "usage", "session_id"],
   title: "AgentOutput",
+} as const
+
+export const $AgentSessionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    parent_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Run Id",
+    },
+    root_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Id",
+    },
+    root_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Run Id",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowExecutionStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approvals: {
+      items: {
+        $ref: "#/components/schemas/ApprovalRead",
+      },
+      type: "array",
+      title: "Approvals",
+    },
+    parent_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    root_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    action_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Ref",
+    },
+    action_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Title",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "parent_run_id"],
+  title: "AgentSessionRead",
 } as const
 
 export const $AgentSettingsRead = {
@@ -981,6 +1120,153 @@ export const $ApprovalInteraction = {
   required: ["type"],
   title: "ApprovalInteraction",
   description: "Configuration for an approval interaction.",
+} as const
+
+export const $ApprovalMap = {
+  additionalProperties: {
+    anyOf: [
+      {
+        type: "boolean",
+      },
+      {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/ToolApproved",
+          },
+          {
+            $ref: "#/components/schemas/ToolDenied",
+          },
+        ],
+        discriminator: {
+          propertyName: "kind",
+          mapping: {
+            "tool-approved": "#/components/schemas/ToolApproved",
+            "tool-denied": "#/components/schemas/ToolDenied",
+          },
+        },
+      },
+    ],
+  },
+  type: "object",
+} as const
+
+export const $ApprovalRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    status: {
+      $ref: "#/components/schemas/ApprovalStatus",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    tool_call_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Args",
+    },
+    decision: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Decision",
+    },
+    approved_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approved_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Approved At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "session_id",
+    "tool_call_id",
+    "tool_name",
+    "status",
+    "reason",
+    "tool_call_args",
+    "decision",
+    "approved_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ApprovalRead",
+  description: "Serialized approval record.",
+} as const
+
+export const $ApprovalStatus = {
+  type: "string",
+  enum: ["pending", "approved", "rejected"],
+  title: "ApprovalStatus",
+  description: "Possible states for a deferred tool approval.",
 } as const
 
 export const $AssigneeChangedEventRead = {
@@ -5722,6 +6008,10 @@ export const $EventGroup_TypeVar_ = {
             "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
+          type: "string",
+          pattern: "^agent/[0-9a-f]8-[0-9a-f]4-[0-9a-f]4-[0-9a-f]4-[0-9a-f]12$",
+        },
+        {
           type: "null",
         },
       ],
@@ -5916,7 +6206,13 @@ export const $ExpressionValidationResponse = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["git-sync", "agent-sandbox", "case-durations", "case-tasks"],
+  enum: [
+    "git-sync",
+    "agent-sandbox",
+    "agent-approvals",
+    "case-durations",
+    "case-tasks",
+  ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
 } as const
@@ -7693,6 +7989,28 @@ export const $OrgMemberRead = {
   title: "OrgMemberRead",
 } as const
 
+export const $OutputType = {
+  anyOf: [
+    {
+      type: "string",
+      enum: [
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+      ],
+    },
+    {
+      additionalProperties: true,
+      type: "object",
+    },
+  ],
+} as const
+
 export const $PartDeltaEvent = {
   properties: {
     index: {
@@ -8561,6 +8879,11 @@ export const $RegistryActionOptions = {
       type: "boolean",
       title: "Include In Schema",
       default: true,
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      default: false,
     },
   },
   type: "object",
@@ -12629,6 +12952,31 @@ export const $Toggle = {
   title: "Toggle",
 } as const
 
+export const $ToolApproved = {
+  properties: {
+    override_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Override Args",
+    },
+    kind: {
+      type: "string",
+      const: "tool-approved",
+      title: "Kind",
+      default: "tool-approved",
+    },
+  },
+  type: "object",
+  title: "ToolApproved",
+} as const
+
 export const $ToolCallPart = {
   properties: {
     tool_name: {
@@ -12726,6 +13074,26 @@ export const $ToolCallPartDelta = {
   },
   type: "object",
   title: "ToolCallPartDelta",
+} as const
+
+export const $ToolDenied = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+      default: "The tool call was denied.",
+    },
+    kind: {
+      type: "string",
+      const: "tool-denied",
+      title: "Kind",
+      default: "tool-denied",
+    },
+  },
+  type: "object",
+  title: "ToolDenied",
+  description:
+    "Indicates that a tool call has been denied and that a denial message should be returned to the model.",
 } as const
 
 export const $ToolReturnPart = {
@@ -13314,6 +13682,49 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
+} as const
+
+export const $UserReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role"],
+  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {
@@ -15581,6 +15992,34 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+  },
+  type: "object",
+  required: ["id", "title"],
+  title: "WorkflowSummary",
 } as const
 
 export const $WorkflowSyncPullRequest = {
