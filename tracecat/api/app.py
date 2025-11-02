@@ -24,9 +24,9 @@ from tracecat.api.common import (
 )
 from tracecat.auth.dependencies import require_auth_type_enabled
 from tracecat.auth.enums import AuthType
-from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
+from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidEmailException,

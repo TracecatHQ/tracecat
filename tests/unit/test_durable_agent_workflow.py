@@ -37,14 +37,14 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.models import (
-    AgentConfig,
+from tracecat.agent.schemas import (
     ModelRequestArgs,
     ModelRequestResult,
     RunAgentArgs,
 )
 from tracecat.agent.tools import SimpleToolExecutor
-from tracecat.db.schemas import User
+from tracecat.agent.types import AgentConfig
+from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.types.auth import Role
 

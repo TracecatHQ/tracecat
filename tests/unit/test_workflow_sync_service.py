@@ -7,12 +7,12 @@ import pytest
 from github.GithubException import GithubException
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.models import ActionStatement
-from tracecat.git.models import GitUrl
+from tracecat.dsl.schemas import ActionStatement
+from tracecat.git.types import GitUrl
 from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
-from tracecat.workflow.store.models import RemoteWorkflowDefinition
+from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workflow.store.sync import WorkflowSyncService
 
 

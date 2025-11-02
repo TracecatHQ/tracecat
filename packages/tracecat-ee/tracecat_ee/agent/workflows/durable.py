@@ -21,8 +21,8 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat.agent.models import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.parsers import try_parse_json
+    from tracecat.agent.schemas import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES

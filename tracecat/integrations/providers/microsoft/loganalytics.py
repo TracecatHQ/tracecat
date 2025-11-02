@@ -4,11 +4,6 @@ from typing import Any, ClassVar, Unpack
 
 from pydantic import BaseModel, Field
 
-from tracecat.integrations.models import (
-    OAuthProviderKwargs,
-    ProviderMetadata,
-    ProviderScopes,
-)
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
@@ -19,6 +14,11 @@ from tracecat.integrations.providers.microsoft.clouds import (
     get_log_analytics_scopes,
     get_token_endpoint,
     map_log_analytics_scopes,
+)
+from tracecat.integrations.schemas import (
+    OAuthProviderKwargs,
+    ProviderMetadata,
+    ProviderScopes,
 )
 
 SETUP_STEPS = [

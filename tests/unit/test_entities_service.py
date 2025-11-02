@@ -6,9 +6,9 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import EntityField, EntityFieldOption, Workspace
+from tracecat.db.models import EntityField, EntityFieldOption, Workspace
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import (
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldOptionCreate,

@@ -1,5 +1,5 @@
 # Shim to re-export core models for backward compatibility
-from tracecat.interactions.models import *  # noqa: F401,F403
+from tracecat.interactions.schemas import *  # noqa: F401,F403
 
 # EE-specific models are re-exported from tracecat_ee when available
 try:

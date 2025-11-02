@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.db.models import Table, TableColumn
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import ColumnInfo, CSVImporter
 from tracecat.tables.service import TablesService

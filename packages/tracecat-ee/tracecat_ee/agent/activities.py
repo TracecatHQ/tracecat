@@ -17,13 +17,13 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import ModelRequestParameters
 from temporalio import activity
 
-from tracecat.agent.models import (
+from tracecat.agent.providers import get_model
+from tracecat.agent.schemas import (
     ModelInfo,
     ModelRequestArgs,
     ModelRequestResult,
     ToolFilters,
 )
-from tracecat.agent.providers import get_model
 from tracecat.agent.stream.common import (
     PersistableStreamingAgentDeps,
     PersistableStreamingAgentDepsSpec,

@@ -24,7 +24,7 @@ os.environ["TRACECAT__FEATURE_FLAGS"] = ",".join(_flags)
 import pytest  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
-from tracecat.registry.actions.models import RegistryValidationError  # noqa: E402
+from tracecat.registry.actions.schemas import RegistryValidationError  # noqa: E402
 
 
 @pytest.fixture(scope="module")

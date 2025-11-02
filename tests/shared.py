@@ -11,7 +11,7 @@ import yaml
 
 from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
-from tracecat.registry.actions.models import TemplateAction
+from tracecat.registry.actions.schemas import TemplateAction
 
 
 def user_client() -> httpx.AsyncClient:

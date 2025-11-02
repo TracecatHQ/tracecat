@@ -3,11 +3,11 @@ import yaml
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.dsl.models import ActionRetryPolicy
+from tracecat.dsl.schemas import ActionRetryPolicy
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
-from tracecat.interactions.models import ActionInteraction
+from tracecat.interactions.schemas import ActionInteraction
 
 
 class ActionControlFlow(BaseModel):

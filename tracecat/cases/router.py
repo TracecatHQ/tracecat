@@ -14,11 +14,11 @@ from starlette.status import (
 )
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
-from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
@@ -44,7 +44,7 @@ from tracecat.cases.service import (
     CasesService,
     CaseTasksService,
 )
-from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import WorkflowUUID

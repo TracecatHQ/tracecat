@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, overload
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_env, ctx_run, get_env
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT

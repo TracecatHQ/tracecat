@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Schedule, Workflow
+from tracecat.db.models import Schedule, Workflow
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role

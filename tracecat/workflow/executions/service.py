@@ -23,13 +23,14 @@ from temporalio.service import RPCError
 
 from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Interaction
+from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
-from tracecat.dsl.models import Task, TriggerInputs
+from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.types import Task
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
@@ -58,7 +59,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
     WorkflowDispatchResponse,

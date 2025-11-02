@@ -24,36 +24,35 @@ from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Webhook, WebhookApiKey, Workflow, WorkflowDefinition
-from tracecat.dsl.models import DSLConfig
+from tracecat.db.models import Webhook, WebhookApiKey, Workflow, WorkflowDefinition
+from tracecat.dsl.schemas import DSLConfig
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.tags.models import TagRead
+from tracecat.tags.schemas import TagRead
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
-from tracecat.validation.models import (
+from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
     ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
 from tracecat.webhooks import service as webhook_service
-from tracecat.webhooks.models import (
+from tracecat.webhooks.schemas import (
     WebhookApiKeyGenerateResponse,
     WebhookCreate,
     WebhookRead,
     WebhookUpdate,
 )
-from tracecat.workflow.actions.models import ActionRead
+from tracecat.workflow.actions.schemas import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.models import (
+from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     WorkflowCommitResponse,
     WorkflowCreate,
-    WorkflowDefinitionMinimal,
     WorkflowDefinitionReadMinimal,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
@@ -62,7 +61,8 @@ from tracecat.workflow.management.models import (
     WorkflowReadMinimal,
     WorkflowUpdate,
 )
-from tracecat.workflow.management.schemas import build_trigger_inputs_schema
+from tracecat.workflow.management.types import WorkflowDefinitionMinimal
+from tracecat.workflow.management.utils import build_trigger_inputs_schema
 
 router = APIRouter(prefix="/workflows")
 

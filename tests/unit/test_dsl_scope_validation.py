@@ -3,7 +3,7 @@
 import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.types.exceptions import TracecatDSLError
 
 

@@ -33,7 +33,8 @@ with workflow.unsafe.imports_passed_through():
     )
 
     from tracecat import config, identifiers
-    from tracecat.agent.models import AgentConfig, RunAgentArgs
+    from tracecat.agent.schemas import RunAgentArgs
+    from tracecat.agent.types import AgentConfig
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
         ctx_interaction,
@@ -62,10 +63,9 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
-    from tracecat.dsl.models import (
+    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.schemas import (
         ROOT_STREAM,
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
@@ -77,13 +77,13 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
         TriggerInputs,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.models import InteractionInput, InteractionResult
+    from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
@@ -98,19 +98,19 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.validation.models import DSLValidationResult
+    from tracecat.validation.schemas import DSLValidationResult
     from tracecat.workflow.executions.enums import TriggerType
-    from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
+    from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
     from tracecat.workflow.management.management import WorkflowsManagementService
-    from tracecat.workflow.management.models import (
+    from tracecat.workflow.management.schemas import (
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveWorkflowAliasActivityInputs,
     )
-    from tracecat.workflow.schedules.models import GetScheduleActivityInputs
+    from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 

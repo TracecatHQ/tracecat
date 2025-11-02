@@ -9,7 +9,7 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from alembic import context
-from tracecat.db import schemas  # noqa: F401
+from tracecat.db import models  # noqa: F401
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(

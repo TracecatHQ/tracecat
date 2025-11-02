@@ -1,6 +1,6 @@
 """Workspace variables management."""
 
-from .models import (
+from .schemas import (
     VariableCreate,
     VariableKeyValue,
     VariableRead,

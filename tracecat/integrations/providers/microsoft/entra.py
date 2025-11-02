@@ -2,13 +2,13 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
     get_ac_setup_steps,
     get_cc_setup_steps,
 )
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 # Microsoft Entra delegated operations require directory and group write scopes.
 ENTRA_AC_SCOPES = ProviderScopes(

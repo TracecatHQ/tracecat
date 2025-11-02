@@ -1,132 +1,207 @@
-"""Utilities for working with workflow trigger input schemas."""
-
 from __future__ import annotations
 
-from collections.abc import Mapping
-from copy import deepcopy
-from typing import Any
+import uuid
+from datetime import datetime
+from typing import Any, Literal
 
-from tracecat.expressions.expectations import (
-    ExpectedField,
-    create_expectation_model,
-)
+from fastapi.responses import ORJSONResponse
+from pydantic import BaseModel, Field, field_validator
 
-
-def _inline_schema_refs(node: Any, defs: dict[str, Any] | None) -> bool:
-    """Inline ``$ref`` entries pointing to ``defs`` in-place.
-
-    Returns ``True`` if at least one replacement was made. This helper walks the
-    full JSON schema tree so nested definitions (e.g. inside ``items``) are also
-    inlined.
-    """
-
-    if not defs:
-        return False
-
-    replacement_made = False
-
-    def _walk(value: Any) -> None:
-        nonlocal replacement_made
-
-        if isinstance(value, dict):
-            ref = value.get("$ref")
-            if ref and ref.startswith("#/$defs/"):
-                def_name = ref.split("/")[-1]
-                if def_name in defs:
-                    # Merge the referenced definition into the current node.
-                    referenced = deepcopy(defs[def_name])
-                    value.pop("$ref")
-                    for key, ref_value in referenced.items():
-                        # Preserve explicit field-level overrides.
-                        value.setdefault(key, ref_value)
-                    replacement_made = True
-
-            for child in list(value.values()):
-                _walk(child)
-
-        elif isinstance(value, list):
-            for item in list(value):
-                _walk(item)
-
-    _walk(node)
-    return replacement_made
+from tracecat.db.models import Schedule, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.schemas import ActionStatement, DSLConfig
+from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers import OwnerID, WorkspaceID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.tags.schemas import TagRead
+from tracecat.types.auth import Role
+from tracecat.validation.schemas import ValidationResult
+from tracecat.webhooks.schemas import WebhookRead
+from tracecat.workflow.actions.schemas import ActionRead
 
 
-def _schema_contains_refs(node: Any, *, skip_defs: bool = True) -> bool:
-    """Detect remaining ``$ref`` entries.``skip_defs`` ignores ``$defs`` nodes."""
+class WorkflowRead(BaseModel):
+    id: WorkflowIDShort
+    title: str
+    description: str
+    status: str
+    actions: dict[str, ActionRead]
+    object: dict[str, Any] | None  # React Flow object
+    owner_id: OwnerID
+    version: int | None = None
+    webhook: WebhookRead
+    schedules: list[Schedule]
+    entrypoint: str | None
+    expects: dict[str, ExpectedField] | None = None
+    expects_schema: dict[str, Any] | None = None
+    returns: Any
+    config: DSLConfig | None
+    alias: str | None = None
+    error_handler: str | None = None
 
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key == "$ref":
-                return True
-            if skip_defs and key == "$defs":
-                continue
-            if _schema_contains_refs(value, skip_defs=skip_defs):
-                return True
-        return False
 
-    if isinstance(node, list):
-        return any(_schema_contains_refs(item, skip_defs=skip_defs) for item in node)
-
-    return False
+class WorkflowDefinitionReadMinimal(BaseModel):
+    id: str
+    version: int
+    created_at: datetime
 
 
-def build_trigger_inputs_schema(
-    expects: Mapping[str, ExpectedField | dict[str, Any]] | None,
-    *,
-    model_name: str = "WorkflowTriggerInputs",
-) -> dict[str, Any] | None:
-    """Generate a JSON schema for workflow trigger inputs.
+class WorkflowReadMinimal(BaseModel):
+    """Minimal version of WorkflowRead model for list endpoints."""
 
-    Parameters
-    ----------
-    expects:
-        Mapping of field names to :class:`ExpectedField` definitions. The mapping
-        can contain either ``ExpectedField`` instances or dictionaries that can
-        be validated into an ``ExpectedField``.
-    model_name:
-        Optional model name used when constructing the underlying Pydantic
-        model. This name surfaces as the ``title`` attribute in the generated
-        JSON schema.
+    id: WorkflowIDShort
+    title: str
+    description: str
+    status: str
+    icon_url: str | None
+    created_at: datetime
+    updated_at: datetime
+    version: int | None
+    tags: list[TagRead] | None = None
+    alias: str | None = None
+    error_handler: str | None = None
+    latest_definition: WorkflowDefinitionReadMinimal | None = None
+    folder_id: uuid.UUID | None = None
 
-    Returns
-    -------
-    dict[str, Any] | None
-        JSON schema describing the expected trigger inputs, or ``None`` if no
-        expectations were defined.
-    """
 
-    if not expects:
-        return None
-
-    # Ensure we are working with validated ``ExpectedField`` instances so we
-    # can safely generate the Pydantic model and downstream schema.
-    validated_fields = {
-        field_name: ExpectedField.model_validate(field_schema)
-        for field_name, field_schema in expects.items()
-    }
-
-    if not validated_fields:
-        return None
-
-    expectation_model = create_expectation_model(
-        validated_fields, model_name=model_name
+class WorkflowUpdate(BaseModel):
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
     )
-    schema = expectation_model.model_json_schema()
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
+    status: Literal["online", "offline"] | None = None
+    object: dict[str, Any] | None = None
+    version: int | None = None
+    entrypoint: str | None = None
+    icon_url: str | None = None
+    expects: dict[str, ExpectedField] | None = None
+    returns: Any | None = None
+    config: DSLConfig | None = None
+    alias: str | None = None
+    error_handler: str | None = None
 
-    # Inline enum definitions from $defs for simpler schema
-    if schema and "$defs" in schema and isinstance(schema["$defs"], dict):
-        schema_defs = schema["$defs"]
 
-        # Keep inlining until no more replacements are made. This handles nested
-        # references where a referenced definition itself contains another $ref.
-        while _inline_schema_refs(schema, schema_defs):
-            continue
+class WorkflowCreate(BaseModel):
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
 
-        # Clean up $defs only if there are no remaining $ref entries outside of
-        # the $defs block. Leaving $defs in place avoids breaking downstream
-        # consumers when nested references are still present.
-        if not _schema_contains_refs(schema):
-            schema.pop("$defs", None)
 
-    return schema
+class GetWorkflowDefinitionActivityInputs(BaseModel):
+    role: Role
+    workflow_id: WorkflowUUID
+    version: int | None = None
+    task: ActionStatement | None = None
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
+
+
+class ResolveWorkflowAliasActivityInputs(BaseModel):
+    workflow_alias: str
+    role: Role
+
+
+class GetErrorHandlerWorkflowIDActivityInputs(BaseModel):
+    role: Role
+    args: DSLRunArgs
+
+
+WorkflowExportFormat = Literal["json", "yaml"]
+
+
+class ExternalWorkflowDefinition(BaseModel):
+    """External interchange format for workflow definitions.
+
+    Lets you restore a workflow from a JSON or YAML file."""
+
+    workspace_id: WorkspaceID | None = Field(
+        default=None,
+        description=(
+            "If provided, can only be restored in the same workspace (TBD)."
+            "Otherwise, can be added to any workspace."
+            "This will be set to `owner_id`"
+        ),
+    )
+    workflow_id: WorkflowUUID | None = Field(
+        default=None,
+        description="Workflow ID. If not provided, a new workflow ID will be created.",
+    )
+    created_at: datetime | None = Field(
+        default=None,
+        description="Creation datetime of the workflow, will be set to current time if not provided.",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Last update datetime of the workflow, will be set to current time if not provided.",
+    )
+    version: int = Field(default=1, gt=0)
+    definition: DSLInput
+
+    @staticmethod
+    def from_database(defn: WorkflowDefinition) -> ExternalWorkflowDefinition:
+        return ExternalWorkflowDefinition(
+            workspace_id=defn.owner_id,
+            workflow_id=WorkflowUUID.new(defn.workflow_id),
+            created_at=defn.created_at,
+            updated_at=defn.updated_at,
+            version=defn.version,
+            definition=DSLInput(**defn.content),
+        )
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID | None) -> WorkflowUUID | None:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        if v is None:
+            return None
+        return WorkflowUUID.new(v)
+
+
+class WorkflowCommitResponse(BaseModel):
+    workflow_id: WorkflowIDShort
+    status: Literal["success", "failure"]
+    message: str
+    errors: list[ValidationResult] | None = None
+    metadata: dict[str, Any] | None = None
+
+    def to_orjson(self, status_code: int) -> ORJSONResponse:
+        return ORJSONResponse(
+            status_code=status_code, content=self.model_dump(exclude_none=True)
+        )
+
+
+class WorkflowDSLCreateResponse(BaseModel):
+    workflow: Workflow | None = None
+    errors: list[ValidationResult] | None = None
+
+
+class WorkflowEntrypointValidationRequest(BaseModel):
+    expects: dict[str, ExpectedField] | None = None
+
+
+class WorkflowEntrypointValidationResponse(BaseModel):
+    valid: bool
+    errors: list[ValidationResult] = Field(default_factory=list)
+
+
+class WorkflowMoveToFolder(BaseModel):
+    folder_path: str | None = None

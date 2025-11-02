@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
 
 from pydantic import (
     BaseModel,
     Field,
-    TypeAdapter,
     field_validator,
     model_validator,
 )
@@ -21,7 +19,7 @@ from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.models import ActionInteraction, InteractionContext
+from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatValidationError
 
@@ -337,24 +335,6 @@ class DSLExecutionError(TypedDict, total=False):
     """The message of the exception."""
 
 
-@dataclass(frozen=True)
-class TaskExceptionInfo:
-    exception: Exception
-    details: ActionErrorInfo
-
-
-@dataclass(frozen=True, slots=True)
-class Task:
-    """Stream-aware task instance"""
-
-    ref: str
-    """The task action reference"""
-    stream_id: StreamID
-    """The stream ID of the task"""
-    delay: float = field(default=0.0, compare=False)
-    """Delay in seconds before scheduling an action."""
-
-
 class ScatterArgs(BaseModel):
     collection: ExpressionStr | list[Any] = Field(
         ..., description="The collection to scatter"
@@ -374,36 +354,3 @@ class GatherArgs(BaseModel):
     error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
     )
-
-
-@dataclass(frozen=True, slots=True)
-class ActionErrorInfo:
-    """Contains information about an action error."""
-
-    ref: str
-    """The task reference."""
-
-    message: str
-    """The error message."""
-
-    type: str
-    """The error type."""
-
-    expr_context: ExprContext = ExprContext.ACTIONS
-    """The expression context where the error occurred."""
-
-    attempt: int = 1
-    """The attempt number."""
-
-    stream_id: StreamID = ROOT_STREAM
-    """Execution stream where the error occurred."""
-
-    children: list[ActionErrorInfo] | None = None
-    """Child errors."""
-
-    def format(self, loc: str = "run_action") -> str:
-        locator = f"{self.expr_context}.{self.ref} -> {loc}"
-        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
-
-
-ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)

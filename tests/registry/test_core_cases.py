@@ -21,9 +21,9 @@ from tracecat_registry.core.cases import (
 )
 
 # Import UserRead and UserRole for realistic user objects
-from tracecat.auth.models import UserRead, UserRole
+from tracecat.auth.schemas import UserRead, UserRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentUpdate,
     CaseCreate,

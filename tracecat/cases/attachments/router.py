@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.attachments.models import (
+from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadResponse,
     CaseAttachmentRead,

@@ -1,6 +1,6 @@
 """Case duration metric models and services."""
 
-from .models import (
+from .schemas import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
     CaseDurationCreate,

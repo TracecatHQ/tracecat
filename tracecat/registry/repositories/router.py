@@ -9,7 +9,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import (
@@ -17,7 +17,7 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_REPOS_PATH,
 )
-from tracecat.registry.repositories.models import (
+from tracecat.registry.repositories.schemas import (
     GitCommitInfo,
     RegistryRepositoryCreate,
     RegistryRepositoryErrorDetail,

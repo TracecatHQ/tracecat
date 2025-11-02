@@ -16,10 +16,10 @@ from tracecat_registry import (
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import RegistryAction
+from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -29,16 +29,16 @@ from tracecat.expressions.validator.validator import (
     ExprValidator,
 )
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.interactions.models import ResponseInteraction
+from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionInterface
+from tracecat.registry.actions.schemas import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.validation.common import json_schema_to_pydantic
-from tracecat.validation.models import (
+from tracecat.validation.schemas import (
     ActionValidationResult,
     DSLValidationResult,
     ExprValidationResult,

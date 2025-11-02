@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from tracecat import config
-from tracecat.registry.actions.models import RegistryActionValidationErrorInfo
+from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.actions.service import (
     RegistryActionsService,
     validate_action_template,

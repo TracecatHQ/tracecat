@@ -7,21 +7,21 @@ from lark import Token, Tree
 from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.models import TaskResult
+from tracecat.dsl.schemas import TaskResult
 from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretSearch
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.validation.models import (
+from tracecat.validation.schemas import (
     TemplateActionExprValidationResult,
     ValidationDetail,
 )
-from tracecat.variables.models import VariableSearch
+from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
 T = TypeVar("T")

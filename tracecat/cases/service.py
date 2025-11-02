@@ -10,7 +10,7 @@ from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
@@ -20,7 +20,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCommentCreate,
     CaseCommentUpdate,
@@ -50,10 +50,10 @@ from tracecat.cases.models import (
     TaskWorkflowChangedEvent,
     UpdatedEvent,
 )
-from tracecat.cases.tags.models import CaseTagRead
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
-from tracecat.db.schemas import (
+from tracecat.db.models import (
     Case,
     CaseComment,
     CaseEvent,

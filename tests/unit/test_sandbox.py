@@ -9,10 +9,10 @@ from pydantic import SecretStr
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role, get_env
-from tracecat.db.schemas import BaseSecret
+from tracecat.db.models import BaseSecret
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretKeyValue,
     SecretSearch,

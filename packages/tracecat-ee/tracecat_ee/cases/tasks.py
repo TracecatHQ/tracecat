@@ -5,7 +5,7 @@ from tracecat_registry import registry
 from typing_extensions import Doc
 
 from tracecat.cases.enums import CasePriority, CaseTaskStatus
-from tracecat.cases.models import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
+from tracecat.cases.schemas import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
 from tracecat.cases.service import CaseTasksService
 
 

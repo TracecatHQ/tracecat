@@ -16,12 +16,13 @@ from tenacity import (
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
+from tracecat.dsl.schemas import ActionStatement, RunActionInput
+from tracecat.dsl.types import ActionErrorInfo
 from tracecat.executor.client import ExecutorClient
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.registry.actions.schemas import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutorClientError,

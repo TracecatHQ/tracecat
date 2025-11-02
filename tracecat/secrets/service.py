@@ -9,7 +9,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import BaseSecret, OrganizationSecret, Secret
+from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
 from tracecat.registry.constants import (
@@ -19,7 +19,7 @@ from tracecat.registry.constants import (
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretKeyValue,
     SecretSearch,

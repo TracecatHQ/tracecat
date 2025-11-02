@@ -25,12 +25,12 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.schemas import Workspace
+from tracecat.db.models import Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
 from tracecat.types.auth import AccessLevel, Role, system_role

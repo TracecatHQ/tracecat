@@ -14,7 +14,7 @@ from uuid import UUID
 
 from typing_extensions import Doc
 
-from tracecat.entities.models import (
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldOptionCreate,

@@ -7,7 +7,7 @@ from fastapi import Request
 from fastapi.datastructures import FormData
 
 from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
-from tracecat.webhooks.models import WebhookApiKeyRead, _normalize_cidrs
+from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
 
 
 class TestParseWebhookPayload:

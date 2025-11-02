@@ -18,7 +18,7 @@ from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.models import ActionRetryPolicy, ActionStatement, RunActionInput
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
 from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger

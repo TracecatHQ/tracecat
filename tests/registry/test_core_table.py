@@ -22,7 +22,7 @@ from tracecat_registry.core.table import (
 )
 
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Workspace
+from tracecat.db.models import Workspace
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role

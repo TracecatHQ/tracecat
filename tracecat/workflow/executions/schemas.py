@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import (
     Annotated,
@@ -27,15 +26,14 @@ from tracecat.dsl.common import (
     get_trigger_type_from_search_attr,
 )
 from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ROOT_STREAM,
-    ActionErrorInfo,
     ActionRetryPolicy,
     RunActionInput,
     StreamID,
     TriggerInputs,
 )
-from tracecat.ee.interactions.models import (
+from tracecat.ee.interactions.schemas import (
     InteractionInput,
     InteractionRead,
     InteractionResult,
@@ -56,7 +54,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",
@@ -576,18 +574,6 @@ class WorkflowDispatchResponse(TypedDict):
 
 class WorkflowExecutionTerminate(BaseModel):
     reason: str | None = None
-
-
-@dataclass(frozen=True)
-class ErrorHandlerWorkflowInput:
-    message: str
-    handler_wf_id: WorkflowID
-    orig_wf_id: WorkflowID
-    orig_wf_exec_id: WorkflowExecutionID
-    orig_wf_title: str
-    trigger_type: TriggerType
-    errors: list[ActionErrorInfo] | None = None
-    orig_wf_exec_url: str | None = None
 
 
 class ReceiveInteractionResponse(BaseModel):

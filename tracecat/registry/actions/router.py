@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionRead,
     RegistryActionReadMinimal,

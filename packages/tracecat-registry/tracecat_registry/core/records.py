@@ -12,7 +12,7 @@ from uuid import UUID
 
 from typing_extensions import Doc
 
-from tracecat.cases.records.models import (
+from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordDeleteResponse,
     CaseRecordLink,

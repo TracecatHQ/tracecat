@@ -1,4 +1,4 @@
-from tracecat.workflow.management.schemas import build_trigger_inputs_schema
+from tracecat.workflow.management.utils import build_trigger_inputs_schema
 
 
 def test_build_trigger_inputs_schema_generates_json_schema():

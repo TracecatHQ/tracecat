@@ -7,8 +7,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from tracecat import config
-from tracecat.db.schemas import RegistryRepository
-from tracecat.registry.repositories.models import (
+from tracecat.db.models import RegistryRepository
+from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
     RegistryRepositoryUpdate,
 )

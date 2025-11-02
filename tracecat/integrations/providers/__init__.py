@@ -1,6 +1,5 @@
 from typing import Final
 
-from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
@@ -36,6 +35,7 @@ from tracecat.integrations.providers.microsoft.teams import (
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
+from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     AzureLogAnalyticsACProvider,

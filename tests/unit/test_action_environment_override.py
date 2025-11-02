@@ -23,11 +23,11 @@ from tracecat.dsl.common import (
     DSLInput,
     create_default_execution_context,
 )
-from tracecat.dsl.models import ActionStatement, DSLConfig, RunContext
+from tracecat.dsl.schemas import ActionStatement, DSLConfig, RunContext
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 

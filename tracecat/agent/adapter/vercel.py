@@ -66,7 +66,7 @@ from tracecat.agent.stream.events import (
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
-    from tracecat.chat.models import ChatMessage
+    from tracecat.chat.schemas import ChatMessage
 
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]

@@ -19,7 +19,7 @@ from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
-from tracecat.agent.models import (
+from tracecat.agent.schemas import (
     ModelInfo,
     ModelRequestArgs,
     ModelResponseTA,

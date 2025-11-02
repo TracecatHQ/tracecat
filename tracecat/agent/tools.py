@@ -19,7 +19,7 @@ from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
 
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
-from tracecat.db.schemas import RegistryAction
+from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
@@ -30,7 +30,7 @@ from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import collect_expressions
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
-from tracecat.registry.actions.models import BoundRegistryAction, RegistryActionOptions
+from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 

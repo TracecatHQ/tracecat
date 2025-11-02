@@ -11,13 +11,13 @@ from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Secret
-from tracecat.git.models import GitUrl
+from tracecat.db.models import Secret
+from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import SecretKeyValue
+from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.types.auth import Role
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
-from tracecat.vcs.github.models import (
+from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
     GitHubInstallation,

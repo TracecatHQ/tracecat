@@ -9,8 +9,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.schemas import Case
-from tracecat.tags.models import TagCreate
+from tracecat.db.models import Case
+from tracecat.tags.schemas import TagCreate
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 

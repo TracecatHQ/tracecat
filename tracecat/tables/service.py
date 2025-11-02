@@ -22,7 +22,7 @@ from tenacity import (
 )
 
 from tracecat.authz.controls import require_access_level
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.db.models import Table, TableColumn
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseService
@@ -33,7 +33,7 @@ from tracecat.tables.common import (
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,

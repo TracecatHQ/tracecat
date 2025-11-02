@@ -5,8 +5,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Entity, EntityField, EntityFieldOption
-from tracecat.entities.models import (
+from tracecat.db.models import Entity, EntityField, EntityFieldOption
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldUpdate,
@@ -235,7 +235,7 @@ class EntityFieldsService(BaseWorkspaceService):
             field.description = set_fields["description"]
         if "default_value" in set_fields:
             # Coerce and validate default value according to field type
-            from tracecat.entities.models import coerce_default_value
+            from tracecat.entities.schemas import coerce_default_value
 
             field.default_value = coerce_default_value(
                 field.type, set_fields["default_value"]

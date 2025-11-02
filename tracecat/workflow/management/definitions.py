@@ -3,13 +3,13 @@ from __future__ import annotations
 from sqlmodel import col, select
 from temporalio import activity
 
-from tracecat.db.schemas import WorkflowDefinition
+from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
-from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
 
 
 class WorkflowDefinitionsService(BaseService):

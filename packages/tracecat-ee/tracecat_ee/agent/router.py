@@ -15,7 +15,7 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
-from tracecat.auth.models import UserReadMinimal
+from tracecat.auth.schemas import UserReadMinimal
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo

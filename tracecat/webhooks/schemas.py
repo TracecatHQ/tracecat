@@ -6,7 +6,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat.db.schemas import Resource
+from tracecat.db.models import Resource
 from tracecat.identifiers.workflow import WorkflowID
 
 # API Models

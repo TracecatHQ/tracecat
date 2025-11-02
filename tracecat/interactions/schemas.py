@@ -1,12 +1,11 @@
 import uuid
-from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 from tracecat.expressions.validation import ExpressionStr
 from tracecat.identifiers.workflow import WorkflowExecutionID
-from tracecat.interactions.enums import InteractionStatus, InteractionType
+from tracecat.interactions.enums import InteractionType
 
 
 class InteractionContext(BaseModel):
@@ -38,26 +37,6 @@ class InteractionResult(BaseModel):
 
     detail: Any | None = None
     """The detail of the interaction handler."""
-
-
-@dataclass
-class InteractionState:
-    """An interaction state."""
-
-    type: InteractionType
-    """The interaction type. Response, approval, etc."""
-
-    action_ref: str
-    """The action reference of the interaction sender."""
-
-    status: InteractionStatus
-    """The status of the interaction."""
-
-    data: dict[str, Any] = field(default_factory=dict)
-    """The data passed to the interaction handler."""
-
-    def is_activated(self) -> bool:
-        return self.status == InteractionStatus.COMPLETED
 
 
 class ResponseInteraction(BaseModel):

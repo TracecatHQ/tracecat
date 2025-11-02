@@ -4,7 +4,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.entities.enums import FieldType
-from tracecat.entities.models import (
+from tracecat.entities.schemas import (
     EntityCreate,
     EntityFieldCreate,
     EntityFieldOptionCreate,
