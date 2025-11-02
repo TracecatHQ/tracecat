@@ -173,6 +173,7 @@ async def test_duration_filters_support_multiple_values(
         )
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     initial_value = values[0]
@@ -223,6 +224,7 @@ async def test_duration_supports_tag_events(session: AsyncSession, svc_role) -> 
         )
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case.id)
     assert len(values) == 1
     assert values[0].start_event_id is None
