@@ -2,7 +2,6 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.microsoft.graph import (
     AC_DESCRIPTION,
     CC_DESCRIPTION,
@@ -11,6 +10,7 @@ from tracecat.integrations.providers.microsoft.graph import (
     get_ac_setup_steps,
     get_cc_setup_steps,
 )
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
 def get_teams_ac_setup_steps() -> list[str]:

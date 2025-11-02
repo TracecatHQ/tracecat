@@ -2,7 +2,6 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.microsoft.azure import (
     AC_SCOPES,
     CC_SCOPES,
@@ -10,6 +9,7 @@ from tracecat.integrations.providers.microsoft.azure import (
     AzureManagementCCProvider,
     get_azure_setup_steps,
 )
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
 def get_sentinel_setup_steps() -> list[str]:

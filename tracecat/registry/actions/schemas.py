@@ -71,6 +71,7 @@ class BoundRegistryAction(BaseModel):
     deprecated: str | None
     # Options
     include_in_schema: bool = True
+    requires_approval: bool = False
 
     @property
     def is_async(self) -> bool:
@@ -410,7 +411,10 @@ class RegistryActionCreate(RegistryActionBase):
             deprecated=action.deprecated,
             origin=action.origin,
             secrets=action.secrets,
-            options=RegistryActionOptions(include_in_schema=action.include_in_schema),
+            options=RegistryActionOptions(
+                include_in_schema=action.include_in_schema,
+                requires_approval=action.requires_approval,
+            ),
         )
 
 
@@ -487,7 +491,10 @@ class RegistryActionUpdate(BaseModel):
             doc_url=action.doc_url,
             author=action.author,
             deprecated=action.deprecated,
-            options=RegistryActionOptions(include_in_schema=action.include_in_schema),
+            options=RegistryActionOptions(
+                include_in_schema=action.include_in_schema,
+                requires_approval=action.requires_approval,
+            ),
             secrets=action.secrets,
         )
 
@@ -532,6 +539,7 @@ class RegistryActionValidateResponse(BaseModel):
 
 class RegistryActionOptions(BaseModel):
     include_in_schema: bool = True
+    requires_approval: bool = False
 
 
 class RegistryActionInterface(TypedDict):

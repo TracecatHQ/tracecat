@@ -9,7 +9,11 @@ from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.editor.schemas import EditorActionRead, EditorFunctionRead, EditorParamRead
+from tracecat.editor.schemas import (
+    EditorActionRead,
+    EditorFunctionRead,
+    EditorParamRead,
+)
 from tracecat.expressions.functions import FUNCTION_MAPPING
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.identifiers.workflow import AnyWorkflowIDQuery

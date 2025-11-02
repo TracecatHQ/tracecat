@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tracecat.workflow.schedules import models
+from tracecat.workflow.schedules import schemas
 
 
 def test_schedule_create_valid_cron():
@@ -17,7 +17,7 @@ def test_schedule_create_valid_cron():
     ]
 
     for cron in valid_crons:
-        instance = models.ScheduleCreate(workflow_id="wf_test123", cron=cron)
+        instance = schemas.ScheduleCreate(workflow_id="wf_test123", cron=cron)
         assert instance.cron == cron
 
 
@@ -34,18 +34,18 @@ def test_schedule_create_invalid_cron():
 
     for cron in invalid_crons:
         with pytest.raises(ValidationError) as exc:
-            models.ScheduleCreate(workflow_id="wf_test123", cron=cron)
+            schemas.ScheduleCreate(workflow_id="wf_test123", cron=cron)
         assert "Invalid cron expression" in str(exc.value)
 
 
 def test_schedule_update_valid_cron():
     """Test that valid cron expressions are accepted in updates."""
-    instance = models.ScheduleUpdate(cron="0 0 * * *")
+    instance = schemas.ScheduleUpdate(cron="0 0 * * *")
     assert instance.cron == "0 0 * * *"
 
 
 def test_schedule_update_invalid_cron():
     """Test that invalid cron expressions are rejected in updates."""
     with pytest.raises(ValidationError) as exc:
-        models.ScheduleUpdate(cron="invalid")
+        schemas.ScheduleUpdate(cron="invalid")
     assert "Invalid cron expression" in str(exc.value)

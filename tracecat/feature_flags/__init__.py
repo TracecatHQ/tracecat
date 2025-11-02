@@ -6,7 +6,7 @@ from tracecat import config
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 
-type FlagLike = str | FeatureFlag
+type FlagLike = FeatureFlag | str
 
 
 def is_feature_enabled(flag: FlagLike) -> bool:

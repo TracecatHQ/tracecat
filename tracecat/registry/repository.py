@@ -159,7 +159,9 @@ class RegisterKwargs(BaseModel):
     author: str | None = None
     deprecated: str | None = None
     secrets: list[RegistrySecretType] | None = None
+    # Options
     include_in_schema: bool = True
+    requires_approval: bool = False
 
 
 class Repository:
@@ -250,6 +252,7 @@ class Repository:
         author: str | None,
         deprecated: str | None,
         include_in_schema: bool,
+        requires_approval: bool = False,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
@@ -272,6 +275,7 @@ class Repository:
             origin=origin,
             template_action=template_action,
             include_in_schema=include_in_schema,
+            requires_approval=requires_approval,
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -584,6 +588,7 @@ class Repository:
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,
             include_in_schema=validated_kwargs.include_in_schema,
+            requires_approval=validated_kwargs.requires_approval,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype=rtype,

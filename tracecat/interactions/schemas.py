@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, TypeAdapter
 from tracecat.expressions.validation import ExpressionStr
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.interactions.enums import InteractionType
-from tracecat.interactions.types import InteractionState
 
 
 class InteractionContext(BaseModel):

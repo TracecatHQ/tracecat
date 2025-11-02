@@ -156,13 +156,16 @@ async def get_workflow_execution_compact(
             try:
                 # Successful validation asserts this is an AgentOutput
                 output = AgentOutput.model_validate(event.action_result)
-                messages = [
-                    ChatMessage(id=f"{output.session_id}-msg-{i}", message=msg)
-                    for i, msg in enumerate(output.message_history)
-                ]
-                event.session.events = (
-                    tracecat.agent.adapter.vercel.convert_model_messages_to_ui(messages)
-                )
+                if output.message_history:
+                    messages = [
+                        ChatMessage(id=f"{output.session_id}-msg-{i}", message=msg)
+                        for i, msg in enumerate(output.message_history)
+                    ]
+                    event.session.events = (
+                        tracecat.agent.adapter.vercel.convert_model_messages_to_ui(
+                            messages
+                        )
+                    )
             except Exception as e:
                 logger.error("Error transforming AgentOutput to UIMessages", error=e)
 

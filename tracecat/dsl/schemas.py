@@ -354,6 +354,3 @@ class GatherArgs(BaseModel):
     error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
     )
-
-
-class GatherArgs(BaseModel):

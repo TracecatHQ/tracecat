@@ -19,6 +19,10 @@ from tracecat.integrations.dependencies import (
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.providers import all_providers, get_provider_class
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+)
 from tracecat.integrations.schemas import (
     IntegrationOAuthCallback,
     IntegrationOAuthConnect,
@@ -30,10 +34,6 @@ from tracecat.integrations.schemas import (
     ProviderRead,
     ProviderReadMinimal,
     ProviderSchema,
-)
-from tracecat.integrations.providers import all_providers, get_provider_class
-from tracecat.integrations.providers.base import (
-    AuthorizationCodeOAuthProvider,
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger

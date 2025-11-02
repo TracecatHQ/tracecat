@@ -2,8 +2,8 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.base import MCPAuthProvider
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
 class NotionMCPProvider(MCPAuthProvider):

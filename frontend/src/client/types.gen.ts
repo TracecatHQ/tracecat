@@ -170,13 +170,32 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentApprovalSubmission = {
+  approvals: ApprovalMap
+}
+
 export type AgentOutput = {
   output: unknown
-  message_history: Array<ModelRequest | ModelResponse>
+  message_history?: Array<ModelRequest | ModelResponse> | null
   duration: number
   usage: RunUsage
   session_id: string
   trace_id?: string | null
+}
+
+export type AgentSessionRead = {
+  id: string
+  created_at: string
+  parent_id?: string | null
+  parent_run_id: string | null
+  root_id?: string | null
+  root_run_id?: string | null
+  status?: WorkflowExecutionStatus | null
+  approvals?: Array<ApprovalRead>
+  parent_workflow?: WorkflowSummary | null
+  root_workflow?: WorkflowSummary | null
+  action_ref?: string | null
+  action_title?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -278,6 +297,40 @@ export type ApprovalInteraction = {
    */
   approve_if?: string | null
 }
+
+export type ApprovalMap = {
+  [key: string]: boolean | ToolApproved | ToolDenied
+}
+
+/**
+ * Serialized approval record.
+ */
+export type ApprovalRead = {
+  id: string
+  session_id: string
+  tool_call_id: string
+  tool_name: string
+  status: ApprovalStatus
+  reason: string | null
+  tool_call_args: {
+    [key: string]: unknown
+  } | null
+  decision:
+    | boolean
+    | {
+        [key: string]: unknown
+      }
+    | null
+  approved_by?: UserReadMinimal | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Possible states for a deferred tool approval.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected"
 
 /**
  * Event for when a case assignee is changed.
@@ -1994,6 +2047,7 @@ export type ExpressionValidationResponse = {
 export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
+  | "agent-approvals"
   | "case-durations"
   | "case-tasks"
 
@@ -2601,6 +2655,19 @@ export type OrgMemberRead = {
   last_login_at: string | null
 }
 
+export type OutputType =
+  | "bool"
+  | "float"
+  | "int"
+  | "str"
+  | "list[bool]"
+  | "list[float]"
+  | "list[int]"
+  | "list[str]"
+  | {
+      [key: string]: unknown
+    }
+
 export type PartDeltaEvent = {
   index: number
   delta: TextPartDelta | ThinkingPartDelta | ToolCallPartDelta
@@ -2959,6 +3026,7 @@ export type RegistryActionInterface = {
 
 export type RegistryActionOptions = {
   include_in_schema?: boolean
+  requires_approval?: boolean
 }
 
 /**
@@ -4338,6 +4406,13 @@ export type Toggle = {
   component_id?: "toggle"
 }
 
+export type ToolApproved = {
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  kind?: "tool-approved"
+}
+
 /**
  * A tool call from a model.
  */
@@ -4364,6 +4439,14 @@ export type ToolCallPartDelta = {
     | null
   tool_call_id?: string | null
   part_delta_kind?: "tool_call"
+}
+
+/**
+ * Indicates that a tool call has been denied and that a denial message should be returned to the model.
+ */
+export type ToolDenied = {
+  message?: string
+  kind?: "tool-denied"
 }
 
 /**
@@ -4539,6 +4622,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -5142,6 +5233,12 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+}
+
+export type WorkflowSummary = {
+  id: string
+  title: string
+  alias?: string | null
 }
 
 /**
@@ -6158,6 +6255,12 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentListAgentSessionsData = {
+  workspaceId: string
+}
+
+export type AgentListAgentSessionsResponse = Array<AgentSessionRead>
+
 export type AgentStreamAgentSessionData = {
   /**
    * Streaming format (e.g. 'vercel')
@@ -6169,6 +6272,14 @@ export type AgentStreamAgentSessionData = {
 }
 
 export type AgentStreamAgentSessionResponse = unknown
+
+export type AgentSubmitAgentApprovalsData = {
+  requestBody: AgentApprovalSubmission
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSubmitAgentApprovalsResponse = void
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -8818,6 +8929,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/sessions": {
+    get: {
+      req: AgentListAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentSessionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/sessions/{session_id}": {
     get: {
       req: AgentStreamAgentSessionData
@@ -8826,6 +8952,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/approvals": {
+    post: {
+      req: AgentSubmitAgentApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

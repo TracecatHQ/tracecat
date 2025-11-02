@@ -488,6 +488,61 @@ class ExecuteChildWorkflowArgs(BaseModel):
         return WorkflowUUID.new(v)
 
 
+class AgentActionMemo(BaseModel):
+    action_ref: str = Field(
+        ..., description="The action ref that initiated the child workflow."
+    )
+    action_title: str | None = Field(
+        default=None, description="The action title that initiated the child workflow."
+    )
+    loop_index: int | None = Field(
+        default=None,
+        description="The loop index of the child workflow, if any.",
+    )
+    stream_id: StreamID = Field(
+        default=ROOT_STREAM,
+        description="The execution stream ID where the agent workflow was spawned.",
+    )
+
+    @staticmethod
+    def from_temporal(memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
+        try:
+            action_ref = orjson.loads(memo.fields["action_ref"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo action ref", error=e)
+            action_ref = "unknown_agent_action"
+        try:
+            action_title = orjson.loads(memo.fields["action_title"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo action title", error=e)
+            action_title = "Unknown Agent Action"
+        loop_index = None
+        try:
+            if "loop_index" in memo.fields:
+                loop_index = orjson.loads(memo.fields["loop_index"].data)
+        except Exception as e:
+            logger.warning("Error parsing agent action memo loop index", error=e)
+
+        if "stream_id" in memo.fields:
+            try:
+                stream_id = StreamID(orjson.loads(memo.fields["stream_id"].data))
+            except Exception as e:
+                logger.warning(
+                    "Error parsing agent action memo stream id",
+                    error=e,
+                )
+                stream_id = ROOT_STREAM
+        else:
+            stream_id = ROOT_STREAM
+
+        return AgentActionMemo(
+            action_ref=action_ref,
+            action_title=action_title,
+            loop_index=loop_index,
+            stream_id=stream_id,
+        )
+
+
 class ChildWorkflowMemo(BaseModel):
     action_ref: str = Field(
         ..., description="The action ref that initiated the child workflow."

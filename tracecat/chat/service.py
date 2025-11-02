@@ -8,8 +8,8 @@ from sqlmodel import col, select
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.schemas import RunAgentArgs
-from tracecat.agent.types import AgentConfig, ModelMessageTA
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.types import AgentConfig, ModelMessageTA
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind

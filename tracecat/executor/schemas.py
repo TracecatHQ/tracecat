@@ -7,8 +7,6 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 
 from tracecat.config import TRACECAT__APP_ENV
-from tracecat.git.types import GitUrl
-from tracecat.types.auth import Role
 
 
 class ExecutorSyncInput(BaseModel):
@@ -75,5 +73,3 @@ class ExecutorActionErrorInfo(BaseModel):
             function=tb.name,
             lineno=tb.lineno,
         )
-
-

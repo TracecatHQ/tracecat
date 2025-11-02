@@ -5,13 +5,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.records.schemas import (
     CaseRecordCreate,
     CaseRecordLink,
     CaseRecordUpdate,
 )
 from tracecat.cases.records.service import CaseRecordService
+from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.entities.enums import FieldType
 from tracecat.entities.schemas import EntityCreate, EntityFieldCreate

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+import pydantic
 from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage
 
@@ -56,7 +56,7 @@ type OutputType = (
 )
 
 
-@dataclass(kw_only=True, slots=True)
+@pydantic.dataclasses.dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
 
@@ -71,9 +71,10 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     fixed_arguments: dict[str, dict[str, Any]] | None = None
+    tool_approvals: dict[str, bool] | None = None
     # MCP
     mcp_server_url: str | None = None
     mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
     retries: int = 3
-    deps_type: type[StreamingAgentDeps] | type[None] | None = None
+    deps_type: type[Any] | None = None

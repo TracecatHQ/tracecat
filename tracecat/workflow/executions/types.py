@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tracecat.dsl.types import ActionErrorInfo
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.identifiers import WorkflowExecutionID, WorkflowID
 
 
 @dataclass(frozen=True)

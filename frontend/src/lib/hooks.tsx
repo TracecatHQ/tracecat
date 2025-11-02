@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type Query,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -9,6 +14,8 @@ import {
   type ActionUpdate,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
+  type AgentListAgentSessionsData,
+  type AgentListAgentSessionsResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
   type AgentSettingsRead,
@@ -23,6 +30,7 @@ import {
   agentGetDefaultModel,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
+  agentListAgentSessions,
   agentListModels,
   agentListProviderCredentialConfigs,
   agentListProviders,
@@ -262,6 +270,7 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
 import {
   listCaseDurationDefinitions,
@@ -4460,6 +4469,102 @@ export function useIntegrationProvider({
 }
 
 // Agent hooks
+interface UseAgentSessionsOptions {
+  enabled?: boolean
+  autoRefresh?: boolean
+}
+
+export function useAgentSessions(
+  { workspaceId }: AgentListAgentSessionsData,
+  options?: UseAgentSessionsOptions
+) {
+  const autoRefreshEnabled = options?.autoRefresh ?? true
+  /**
+   * Computes the refetch interval for agent sessions based on current state.
+   *
+   * Returns `false` to disable polling when:
+   * - Auto-refresh is disabled
+   * - The browser tab is hidden
+   *
+   * Returns dynamic intervals based on session state:
+   * - 3000ms (3s): When there are pending approvals or active sessions (RUNNING/CONTINUED_AS_NEW)
+   * - 10000ms (10s): Default interval when sessions exist but are idle
+   * - 10000ms (10s): When no sessions exist
+   *
+   * This adaptive polling reduces server load while ensuring timely updates for active workflows.
+   */
+  const computeRefetchInterval = useCallback(
+    (
+      query: Query<
+        AgentListAgentSessionsResponse,
+        TracecatApiError,
+        AgentListAgentSessionsResponse,
+        readonly unknown[]
+      >
+    ) => {
+      if (!autoRefreshEnabled) {
+        return false
+      }
+
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return false
+      }
+
+      const data = query.state.data
+
+      if (!data || data.length === 0) {
+        return 10000
+      }
+
+      const enrichedSessions = data.map(enrichAgentSession)
+
+      const hasPendingApproval = enrichedSessions.some(
+        (session) => session.pendingApprovalCount > 0
+      )
+      if (hasPendingApproval) {
+        return 3000
+      }
+
+      const hasActiveSession = enrichedSessions.some((session) =>
+        ["RUNNING", "CONTINUED_AS_NEW"].includes(session.derivedStatus)
+      )
+      if (hasActiveSession) {
+        return 3000
+      }
+
+      return 10000
+    },
+    [autoRefreshEnabled]
+  )
+  const {
+    data: sessions,
+    isLoading: sessionsIsLoading,
+    error: sessionsError,
+    refetch: refetchSessions,
+  } = useQuery<
+    AgentListAgentSessionsResponse,
+    TracecatApiError,
+    AgentSessionWithStatus[]
+  >({
+    queryKey: ["agent-sessions", workspaceId],
+    queryFn: async () => await agentListAgentSessions({ workspaceId }),
+    select: (data) => data.map(enrichAgentSession),
+    enabled: options?.enabled ?? Boolean(workspaceId),
+    retry: retryHandler,
+    refetchInterval: computeRefetchInterval,
+  })
+
+  return {
+    sessions,
+    sessionsIsLoading,
+    sessionsError,
+    refetchSessions,
+  }
+}
+
 export function useAgentModels() {
   const {
     data: models,

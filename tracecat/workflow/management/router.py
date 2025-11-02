@@ -62,7 +62,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowUpdate,
 )
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
-from tracecat.workflow.management.schemas import build_trigger_inputs_schema
+from tracecat.workflow.management.utils import build_trigger_inputs_schema
 
 router = APIRouter(prefix="/workflows")
 

@@ -13,8 +13,8 @@ from typing import Any, TypedDict
 from pydantic_ai import Agent
 
 from tracecat.agent.factory import build_agent
-from tracecat.agent.types import AgentConfig
 from tracecat.agent.runtime import AgentOutput, run_agent_sync
+from tracecat.agent.types import AgentConfig
 from tracecat.logger import logger
 
 # Global constraint to defend against resource consumption attacks

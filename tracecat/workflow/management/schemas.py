@@ -18,7 +18,6 @@ from tracecat.types.auth import Role
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.actions.schemas import ActionRead
-from tracecat.workflow.management.types import WorkflowDefinitionMinimal
 
 
 class WorkflowRead(BaseModel):

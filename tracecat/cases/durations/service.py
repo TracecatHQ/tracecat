@@ -506,7 +506,7 @@ class CaseDurationService(BaseWorkspaceService):
     def _normalize_filter_value(self, value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
-        if isinstance(value, (list, tuple, set)):
+        if isinstance(value, list | tuple | set):
             return [self._normalize_filter_value(item) for item in value]
         return value
 
