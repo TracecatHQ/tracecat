@@ -258,8 +258,7 @@ async def test_workflow_completes_and_correct(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2185,8 +2184,7 @@ async def test_workflow_error_path(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2262,7 +2260,7 @@ async def test_workflow_join_unreachable(
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "tracecat.exceptions.TracecatExpressionError",
                         "TracecatValidationError",
                     ],
                 ),
@@ -2341,7 +2339,7 @@ async def test_workflow_multiple_entrypoints(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2459,7 +2457,7 @@ async def test_workflow_runs_template_for_each(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
