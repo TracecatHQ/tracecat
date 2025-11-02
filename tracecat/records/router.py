@@ -7,9 +7,9 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.records.model import RecordRead
 from tracecat.records.service import RecordService
-from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/records", tags=["records"])
 

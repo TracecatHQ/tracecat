@@ -51,7 +51,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )

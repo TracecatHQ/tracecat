@@ -23,6 +23,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.schemas import (
@@ -39,7 +40,6 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
-from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 

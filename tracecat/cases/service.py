@@ -69,13 +69,13 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.service import TableEditorService, TablesService
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:

@@ -32,12 +32,12 @@ from tracecat.identifiers.workflow import (
     WF_ID_SHORT_PATTERN,
     WorkflowUUID,
 )
-from tracecat.service import BaseService
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.service import BaseService
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,

@@ -21,12 +21,12 @@ from tracecat.entities.schemas import (
 )
 from tracecat.entities.service import EntityService
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
-from tracecat.records.service import RecordService
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
+from tracecat.records.service import RecordService
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 

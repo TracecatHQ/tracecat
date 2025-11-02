@@ -29,9 +29,9 @@ from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
-from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
