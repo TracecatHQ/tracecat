@@ -8,11 +8,12 @@ from sqlmodel import select
 
 from tracecat import config
 from tracecat.authz.controls import require_access_level
-from tracecat.authz.models import OwnerType
+from tracecat.authz.models import OwnerType, WorkspaceRole
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db.schemas import Membership, Ownership, User, Workspace
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException, TracecatManagementError
 from tracecat.workspaces.models import WorkspaceSearch, WorkspaceUpdate
 
@@ -93,6 +94,19 @@ class WorkspaceService(BaseService):
 
         await self.session.commit()
         await self.session.refresh(workspace)
+
+        bootstrap_role = Role(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=workspace.id,
+            workspace_role=WorkspaceRole.ADMIN,
+            access_level=AccessLevel.ADMIN,
+        )
+        case_fields_service = CaseFieldsService(
+            session=self.session, role=bootstrap_role
+        )
+        await case_fields_service.initialize_workspace_schema()
+
         return workspace
 
     async def get_workspace(self, workspace_id: WorkspaceID) -> Workspace | None:
@@ -126,6 +140,17 @@ class WorkspaceService(BaseService):
         statement = select(Workspace).where(Workspace.id == workspace_id)
         result = await self.session.exec(statement)
         workspace = result.one()
+        bootstrap_role = Role(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=workspace.id,
+            workspace_role=WorkspaceRole.ADMIN,
+            access_level=AccessLevel.ADMIN,
+        )
+        case_fields_service = CaseFieldsService(
+            session=self.session, role=bootstrap_role
+        )
+        await case_fields_service.drop_workspace_schema()
         await self.session.delete(workspace)
         await self.session.commit()
 

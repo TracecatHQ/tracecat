@@ -201,7 +201,7 @@ class TestCaseFieldsService:
     ) -> None:
         """Test getting fields for a case with fields."""
         # Create a CaseFields object for the test case
-        case_fields = CaseFields(case_id=test_case.id)
+        case_fields = CaseFields(case_id=test_case.id, owner_id=test_case.owner_id)
         session.add(case_fields)
         await session.commit()
 
