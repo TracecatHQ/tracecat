@@ -27,6 +27,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidEmailException,
@@ -69,7 +70,6 @@ from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router

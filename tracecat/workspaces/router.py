@@ -9,12 +9,12 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatManagementError,

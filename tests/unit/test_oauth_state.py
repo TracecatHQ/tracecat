@@ -13,6 +13,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
@@ -22,7 +23,6 @@ from tracecat.integrations.schemas import (
     ProviderScopes,
 )
 from tracecat.integrations.service import IntegrationService
-from tracecat.types.auth import AccessLevel, Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

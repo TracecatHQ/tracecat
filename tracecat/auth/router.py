@@ -5,10 +5,10 @@ from sqlmodel import select
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
-from tracecat.types.auth import AccessLevel, Role
 
 router = APIRouter(prefix="/users")
 

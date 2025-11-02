@@ -5,6 +5,7 @@ import pytest
 import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
@@ -21,7 +22,6 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import CaseEvent
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")

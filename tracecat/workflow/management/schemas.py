@@ -7,6 +7,7 @@ from typing import Any, Literal
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
@@ -14,7 +15,6 @@ from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.tags.schemas import TagRead
-from tracecat.types.auth import Role
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.actions.schemas import ActionRead

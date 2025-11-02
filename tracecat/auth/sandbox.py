@@ -8,6 +8,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
 from tracecat.logger import logger
@@ -15,7 +16,6 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
 
 

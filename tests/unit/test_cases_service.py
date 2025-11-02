@@ -9,7 +9,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")

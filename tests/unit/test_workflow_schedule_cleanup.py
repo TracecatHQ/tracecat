@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
+from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Schedule, Workflow
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 

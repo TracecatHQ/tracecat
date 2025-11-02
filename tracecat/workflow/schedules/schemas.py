@@ -4,9 +4,9 @@ from typing import Any, Literal
 from croniter import croniter
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from tracecat.auth.types import Role
 from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID
-from tracecat.types.auth import Role
 
 
 class ScheduleRead(BaseModel):

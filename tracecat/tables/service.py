@@ -21,6 +21,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.db.models import Table, TableColumn
 from tracecat.identifiers import TableColumnID, TableID
@@ -40,7 +41,6 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.types.pagination import (
     BaseCursorPaginator,

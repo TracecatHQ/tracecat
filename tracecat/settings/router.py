@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
+from tracecat.auth.types import AccessLevel
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
@@ -23,7 +24,6 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
 )
 from tracecat.settings.service import SettingsService
-from tracecat.types.auth import AccessLevel
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 

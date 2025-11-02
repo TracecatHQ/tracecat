@@ -18,6 +18,7 @@ import uuid
 import pytest
 from pydantic import SecretStr
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
@@ -29,7 +30,6 @@ from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 
 
 @pytest.fixture

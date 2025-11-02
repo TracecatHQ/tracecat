@@ -21,11 +21,11 @@ from tracecat_registry.core.table import (
     update_row,
 )
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
 
 
 @pytest.fixture

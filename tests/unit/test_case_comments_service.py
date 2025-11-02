@@ -3,10 +3,10 @@ import uuid
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
 from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import Case
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")

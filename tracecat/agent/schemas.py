@@ -20,7 +20,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 
 from tracecat.agent.types import AgentConfig
-from tracecat.types.auth import Role
+from tracecat.auth.types import Role
 
 if TYPE_CHECKING:
     from tracecat.agent.stream.writers import StreamWriter

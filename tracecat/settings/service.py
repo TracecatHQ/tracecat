@@ -10,6 +10,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
@@ -29,7 +30,6 @@ from tracecat.settings.schemas import (
     SettingCreate,
     SettingUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
 
 
 class SettingsService(BaseService):

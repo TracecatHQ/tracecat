@@ -8,6 +8,7 @@ import pytest
 from pydantic import SecretStr
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.schemas import ExecutorActionErrorInfo
@@ -34,7 +35,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import ExecutionError, LoopExecutionError
 
 

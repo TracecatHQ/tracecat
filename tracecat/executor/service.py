@@ -16,6 +16,7 @@ from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
@@ -49,7 +50,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
 from tracecat.ssh import get_ssh_command
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
     LoopExecutionError,

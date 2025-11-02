@@ -1,6 +1,7 @@
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -10,7 +11,6 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
-from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
 

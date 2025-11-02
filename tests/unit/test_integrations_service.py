@@ -9,6 +9,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -22,7 +23,6 @@ from tracecat.integrations.schemas import (
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.integrations.types import TokenResponse
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")

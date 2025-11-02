@@ -5,6 +5,7 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.git.utils import list_git_commits, parse_git_url
@@ -29,7 +30,6 @@ from tracecat.registry.repositories.schemas import (
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     RegistryActionValidationError,
     RegistryError,

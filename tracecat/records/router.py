@@ -4,10 +4,10 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.records.model import RecordRead
 from tracecat.records.service import RecordService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 

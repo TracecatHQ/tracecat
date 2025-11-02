@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
@@ -22,7 +23,6 @@ from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionIn
 from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 
 
 @pytest.fixture

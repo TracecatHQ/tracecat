@@ -11,6 +11,7 @@ from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
@@ -65,7 +66,6 @@ from tracecat.db.models import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatException,

@@ -14,6 +14,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
@@ -23,7 +24,6 @@ from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionValidateResponse
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutorClientError,
     RateLimitExceeded,

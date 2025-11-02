@@ -11,10 +11,10 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Membership, User
 from tracecat.middleware import AuthorizationCacheMiddleware
-from tracecat.types.auth import AccessLevel, Role
 
 
 @pytest.fixture

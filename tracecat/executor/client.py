@@ -10,6 +10,7 @@ import orjson
 from fastapi import status
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.schemas import RunActionInput
@@ -18,7 +19,6 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import (
     RegistryActionValidateResponse,
 )
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutorClientError,
     RateLimitExceeded,

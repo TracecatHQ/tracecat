@@ -4,6 +4,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.records.schemas import (
     CaseRecordCreate,
@@ -18,7 +19,6 @@ from tracecat.entities.schemas import EntityCreate, EntityFieldCreate
 from tracecat.entities.service import EntityService
 from tracecat.records.model import RecordCreate
 from tracecat.records.service import RecordService
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,

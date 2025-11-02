@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.logger import logger
 from tracecat.parse import safe_url
 from tracecat.registry.actions.service import RegistryActionsService
@@ -15,7 +16,6 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
-from tracecat.types.auth import Role
 
 
 async def reload_registry(session: AsyncSession, role: Role):

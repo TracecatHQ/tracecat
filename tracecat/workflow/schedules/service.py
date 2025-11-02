@@ -6,13 +6,13 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
 
+from tracecat.auth.types import AccessLevel
 from tracecat.db.models import Schedule
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,

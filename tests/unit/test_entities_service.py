@@ -6,6 +6,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import EntityField, EntityFieldOption, Workspace
 from tracecat.entities.enums import FieldType
 from tracecat.entities.schemas import (
@@ -16,7 +17,6 @@ from tracecat.entities.schemas import (
     EntityUpdate,
 )
 from tracecat.entities.service import EntityService
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")

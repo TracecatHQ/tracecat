@@ -7,12 +7,12 @@ from sqlalchemy.orm import load_only, noload
 from sqlmodel import select
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel
 from tracecat.authz.controls import require_access_level
 from tracecat.authz.enums import OwnerType
 from tracecat.db.models import Membership, Ownership, User, Workspace
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatException, TracecatManagementError
 from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 

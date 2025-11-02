@@ -24,6 +24,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError, ChildWorkflowError, FailureError
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Action
 from tracecat.dsl.enums import (
     EdgeType,
@@ -52,7 +53,6 @@ from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     TracecatCredentialsError,
     TracecatDSLError,
