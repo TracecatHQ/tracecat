@@ -111,7 +111,7 @@ services:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["python", "tracecat/dsl/worker.py"]
+    command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
       - api
       - temporal
