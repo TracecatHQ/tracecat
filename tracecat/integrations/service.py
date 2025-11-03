@@ -3,7 +3,6 @@
 import os
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any
 
 from pydantic import SecretStr
 from sqlmodel import and_, or_, select
@@ -16,6 +15,7 @@ from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
+    MCPAuthProvider,
 )
 from tracecat.integrations.schemas import ProviderConfig, ProviderKey
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
@@ -72,6 +72,29 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.all()
 
+    @staticmethod
+    def _determine_endpoints(
+        provider_impl: type[BaseOAuthProvider] | None,
+        *,
+        configured_authorization: str | None,
+        configured_token: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Determine effective OAuth endpoints from configured values or provider defaults."""
+
+        default_auth = (
+            getattr(provider_impl, "default_authorization_endpoint", None)
+            if provider_impl
+            else None
+        )
+        default_token = (
+            getattr(provider_impl, "default_token_endpoint", None)
+            if provider_impl
+            else None
+        )
+        authorization_endpoint = configured_authorization or default_auth
+        token_endpoint = configured_token or default_token
+        return authorization_endpoint, token_endpoint
+
     async def store_integration(
         self,
         *,
@@ -81,7 +104,8 @@ class IntegrationService(BaseWorkspaceService):
         refresh_token: SecretStr | None = None,
         expires_in: int | None = None,
         scope: str | None = None,
-        provider_config: dict[str, Any] | None = None,
+        authorization_endpoint: str | None = None,
+        token_endpoint: str | None = None,
     ) -> OAuthIntegration:
         """Store or update a user's integration."""
         # Calculate expiration time if expires_in is provided
@@ -89,7 +113,26 @@ class IntegrationService(BaseWorkspaceService):
         if expires_in is not None:
             expires_at = datetime.now() + timedelta(seconds=expires_in)
 
-        # Check if integration already exists
+        provider_impl = get_provider_class(provider_key)
+        default_authorization = (
+            getattr(provider_impl, "default_authorization_endpoint", None)
+            if provider_impl
+            else None
+        )
+        default_token = (
+            getattr(provider_impl, "default_token_endpoint", None)
+            if provider_impl
+            else None
+        )
+
+        def resolve_endpoint(
+            incoming: str | None, existing: str | None, default: str | None
+        ) -> str | None:
+            if incoming:
+                return incoming
+            if existing:
+                return existing
+            return default
 
         if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration
@@ -103,9 +146,16 @@ class IntegrationService(BaseWorkspaceService):
             )
             integration.expires_at = expires_at
             integration.scope = scope
-            if provider_config:
-                # Update the provider_config field
-                integration.provider_config = provider_config
+            integration.authorization_endpoint = resolve_endpoint(
+                authorization_endpoint,
+                integration.authorization_endpoint,
+                default_authorization,
+            )
+            integration.token_endpoint = resolve_endpoint(
+                token_endpoint,
+                integration.token_endpoint,
+                default_token,
+            )
 
             self.session.add(integration)
             await self.session.commit()
@@ -134,7 +184,10 @@ class IntegrationService(BaseWorkspaceService):
                 else None,
                 expires_at=expires_at,
                 scope=scope,
-                provider_config=provider_config or {},
+                authorization_endpoint=resolve_endpoint(
+                    authorization_endpoint, None, default_authorization
+                ),
+                token_endpoint=resolve_endpoint(token_endpoint, None, default_token),
             )
 
             self.session.add(integration)
@@ -229,14 +282,22 @@ class IntegrationService(BaseWorkspaceService):
                     user_id=integration.user_id,
                     provider=integration.provider_id,
                 )
-                return None
+                if not issubclass(provider_impl, MCPAuthProvider):
+                    return None
+
+            authorization_endpoint, token_endpoint = self._determine_endpoints(
+                provider_impl,
+                configured_authorization=integration.authorization_endpoint,
+                configured_token=integration.token_endpoint,
+            )
             # Create provider config
             provider_config = ProviderConfig(
                 client_id=client_id,
                 client_secret=SecretStr(client_secret)
                 if client_secret is not None
                 else None,
-                provider_config=integration.provider_config,
+                authorization_endpoint=authorization_endpoint,
+                token_endpoint=token_endpoint,
                 scopes=self.parse_scopes(integration.requested_scopes),
             )
             return await provider_impl.instantiate(config=provider_config)
@@ -420,11 +481,19 @@ class IntegrationService(BaseWorkspaceService):
         provider_key: ProviderKey,
         client_id: str | None = None,
         client_secret: SecretStr | None = None,
-        provider_config: dict[str, Any] | None = None,
+        authorization_endpoint: str | None = None,
+        token_endpoint: str | None = None,
         requested_scopes: list[str] | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
+
+        provider_impl = get_provider_class(provider_key)
+        resolved_authorization, resolved_token = self._determine_endpoints(
+            provider_impl,
+            configured_authorization=authorization_endpoint,
+            configured_token=token_endpoint,
+        )
 
         if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration with client credentials (patch operation)
@@ -432,7 +501,8 @@ class IntegrationService(BaseWorkspaceService):
                 (
                     client_id,
                     client_secret,
-                    provider_config,
+                    authorization_endpoint,
+                    token_endpoint,
                     requested_scopes,
                 )
             ):
@@ -448,8 +518,14 @@ class IntegrationService(BaseWorkspaceService):
                     client_secret.get_secret_value()
                 )
 
-            if provider_config is not None:
-                integration.provider_config = provider_config
+            integration.authorization_endpoint = (
+                authorization_endpoint
+                or integration.authorization_endpoint
+                or resolved_authorization
+            )
+            integration.token_endpoint = (
+                token_endpoint or integration.token_endpoint or resolved_token
+            )
 
             if requested_scopes is not None:
                 integration.requested_scopes = " ".join(requested_scopes)
@@ -483,7 +559,8 @@ class IntegrationService(BaseWorkspaceService):
                 use_workspace_credentials=True,
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
-                provider_config=provider_config or {},
+                authorization_endpoint=resolved_authorization,
+                token_endpoint=resolved_token,
                 requested_scopes=" ".join(requested_scopes)
                 if requested_scopes
                 else None,
@@ -504,6 +581,7 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         integration: OAuthIntegration,
+        provider_impl: type[BaseOAuthProvider] | None = None,
         default_scopes: list[str] | None = None,
     ) -> ProviderConfig | None:
         """Get decrypted client credentials for a provider."""
@@ -521,12 +599,18 @@ class IntegrationService(BaseWorkspaceService):
                 if integration.encrypted_client_secret
                 else None
             )
+            authorization_endpoint, token_endpoint = self._determine_endpoints(
+                provider_impl,
+                configured_authorization=integration.authorization_endpoint,
+                configured_token=integration.token_endpoint,
+            )
             return ProviderConfig(
                 client_id=client_id,
                 client_secret=SecretStr(client_secret)
                 if client_secret is not None
                 else None,
-                provider_config=integration.provider_config,
+                authorization_endpoint=authorization_endpoint,
+                token_endpoint=token_endpoint,
                 scopes=self.parse_scopes(integration.requested_scopes)
                 or default_scopes,
             )
