@@ -26,10 +26,8 @@ export default function TablePage() {
     )
 
   return (
-    <div className="size-full overflow-auto">
-      <div className="container h-full gap-8 py-8">
-        <DatabaseTable table={table} />
-      </div>
+    <div className="size-full overflow-auto px-3 py-6">
+      <DatabaseTable table={table} />
     </div>
   )
 }
