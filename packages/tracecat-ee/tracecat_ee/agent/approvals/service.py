@@ -32,7 +32,7 @@ from tracecat_ee.agent.activities import (
     PersistApprovalsActivityInputs,
     ToolApprovalPayload,
 )
-from tracecat_ee.agent.approvals.models import (
+from tracecat_ee.agent.approvals.schemas import (
     ApprovalCreate,
     ApprovalUpdate,
 )
