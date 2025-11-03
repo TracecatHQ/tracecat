@@ -135,7 +135,9 @@ export function CommentSection({
                         onStopEditing={() => setEditingCommentId(null)}
                       />
                     ) : (
-                      <CaseCommentViewer content={comment.content} />
+                      <div className="overflow-x-auto">
+                        <CaseCommentViewer content={comment.content} />
+                      </div>
                     )}
                   </div>
                 </div>
