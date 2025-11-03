@@ -18,10 +18,7 @@ class GitHubMCPProvider(MCPAuthProvider):
     """
 
     id: ClassVar[str] = "github_mcp"
-    token_endpoint_auth_methods_supported: ClassVar[list[str]] = ["none"]
-
-    # MCP server endpoint
-    _mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
+    mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
 
     # Fallback OAuth endpoints (GitHub doesn't support discovery)
     _fallback_auth_endpoint: ClassVar[str] = "https://github.com/login/oauth/authorize"
@@ -31,7 +28,6 @@ class GitHubMCPProvider(MCPAuthProvider):
 
     # No default scopes - authorization server determines based on user permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
-
     # Provider metadata
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="github_mcp",
