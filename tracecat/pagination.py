@@ -161,7 +161,7 @@ class BaseCursorPaginator:
             explain_json = result.scalar()
             plan = explain_json[0] if isinstance(explain_json, list) else explain_json
 
-            estimated_rows = plan.get("Plan", {}).get("Plan Rows")
+            estimated_rows = (plan.get("Plan", {}).get("Plans") or [{}])[0].get("Plan Rows")
             if estimated_rows is not None:
                 return int(estimated_rows)
             return None
