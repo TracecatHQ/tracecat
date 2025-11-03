@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     Interval,
     String,
+    Text,
     func,
     text,
 )
@@ -144,6 +145,10 @@ class Workspace(Resource, table=True):
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
     case_tags: list["CaseTag"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    agent_profiles: list["AgentProfile"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -1364,6 +1369,98 @@ class Approval(Resource, table=True):
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True)),
     )
+
+
+class AgentProfile(Resource, table=True):
+    """Database model for storing reusable agent configurations."""
+
+    __tablename__ = "agent_profile"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "slug", name="uq_agent_profile_owner_slug"),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        description="Unique agent profile identifier",
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    owner: Workspace | None = Relationship(back_populates="agent_profiles")
+    name: str = Field(
+        ..., max_length=120, description="Human readable profile name"
+    )
+    slug: str = Field(
+        ...,
+        max_length=160,
+        index=True,
+        description="Stable slug identifier used for lookups",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional description for the profile",
+    )
+    instructions: str | None = Field(
+        default=None,
+        sa_column=Column(Text),
+        description="System instructions for the agent",
+    )
+    model_name: str = Field(
+        ..., max_length=120, description="Model name used for execution"
+    )
+    model_provider: str = Field(
+        ..., max_length=120, description="LLM provider identifier"
+    )
+    base_url: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional model base URL override",
+    )
+    output_type: dict[str, Any] | str | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Optional structured output type definition",
+    )
+    actions: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool identifiers available to the agent",
+    )
+    namespaces: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool namespaces available to the agent",
+    )
+    fixed_arguments: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Preconfigured tool arguments",
+    )
+    tool_approvals: dict[str, bool] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool approval requirements by tool name",
+    )
+    mcp_server_url: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional MCP server URL",
+    )
+    mcp_server_headers: dict[str, str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Headers to include when connecting to the MCP server",
+    )
+    model_settings: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Provider specific model settings",
+    )
+    retries: int = Field(default=3, description="Maximum retry attempts per run")
 
 
 class File(Resource, table=True):
