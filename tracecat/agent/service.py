@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator
 import uuid
+from collections.abc import AsyncIterator
 
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -22,7 +22,8 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentProfile as AgentProfileModel, OrganizationSecret
+from tracecat.db.models import AgentProfile as AgentProfileModel
+from tracecat.db.models import OrganizationSecret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager

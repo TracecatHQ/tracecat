@@ -183,6 +183,106 @@ export type AgentOutput = {
   trace_id?: string | null
 }
 
+/**
+ * Payload for creating a new agent profile.
+ */
+export type AgentProfileCreate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  fixed_arguments?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  } | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name: string
+  slug?: string | null
+}
+
+/**
+ * API model for reading agent profiles.
+ */
+export type AgentProfileRead = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  fixed_arguments?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  } | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Payload for updating an existing agent profile.
+ */
+export type AgentProfileUpdate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  fixed_arguments?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  } | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name?: string | null
+  slug?: string | null
+}
+
 export type AgentSessionRead = {
   id: string
   created_at: string
@@ -6255,6 +6355,48 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentListAgentProfilesData = {
+  workspaceId: string
+}
+
+export type AgentListAgentProfilesResponse = Array<AgentProfileRead>
+
+export type AgentCreateAgentProfileData = {
+  requestBody: AgentProfileCreate
+  workspaceId: string
+}
+
+export type AgentCreateAgentProfileResponse = AgentProfileRead
+
+export type AgentGetAgentProfileData = {
+  profileId: string
+  workspaceId: string
+}
+
+export type AgentGetAgentProfileResponse = AgentProfileRead
+
+export type AgentUpdateAgentProfileData = {
+  profileId: string
+  requestBody: AgentProfileUpdate
+  workspaceId: string
+}
+
+export type AgentUpdateAgentProfileResponse = AgentProfileRead
+
+export type AgentDeleteAgentProfileData = {
+  profileId: string
+  workspaceId: string
+}
+
+export type AgentDeleteAgentProfileResponse = void
+
+export type AgentGetAgentProfileBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentGetAgentProfileBySlugResponse = AgentProfileRead
+
 export type AgentListAgentSessionsData = {
   workspaceId: string
 }
@@ -8922,6 +9064,90 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/profiles": {
+    get: {
+      req: AgentListAgentProfilesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentProfileRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentCreateAgentProfileData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentProfileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/profiles/{profile_id}": {
+    get: {
+      req: AgentGetAgentProfileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentProfileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentUpdateAgentProfileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentProfileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteAgentProfileData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/profiles/by-slug/{slug}": {
+    get: {
+      req: AgentGetAgentProfileBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentProfileRead
         /**
          * Validation Error
          */

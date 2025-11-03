@@ -14,14 +14,24 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AgentCreateAgentProfileData,
+  AgentCreateAgentProfileResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
+  AgentDeleteAgentProfileData,
+  AgentDeleteAgentProfileResponse,
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
+  AgentGetAgentProfileBySlugData,
+  AgentGetAgentProfileBySlugResponse,
+  AgentGetAgentProfileData,
+  AgentGetAgentProfileResponse,
   AgentGetDefaultModelResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
+  AgentListAgentProfilesData,
+  AgentListAgentProfilesResponse,
   AgentListAgentSessionsData,
   AgentListAgentSessionsResponse,
   AgentListModelsResponse,
@@ -33,6 +43,8 @@ import type {
   AgentStreamAgentSessionResponse,
   AgentSubmitAgentApprovalsData,
   AgentSubmitAgentApprovalsResponse,
+  AgentUpdateAgentProfileData,
+  AgentUpdateAgentProfileResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
@@ -3438,6 +3450,166 @@ export const agentSetDefaultModel = (
     url: "/agent/default-model",
     query: {
       model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Profiles
+ * List all agent profiles for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentProfileRead Successful Response
+ * @throws ApiError
+ */
+export const agentListAgentProfiles = (
+  data: AgentListAgentProfilesData
+): CancelablePromise<AgentListAgentProfilesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/profiles",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Agent Profile
+ * Create a new agent profile.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentProfileRead Successful Response
+ * @throws ApiError
+ */
+export const agentCreateAgentProfile = (
+  data: AgentCreateAgentProfileData
+): CancelablePromise<AgentCreateAgentProfileResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/profiles",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Profile
+ * Retrieve an agent profile by ID.
+ * @param data The data for the request.
+ * @param data.profileId
+ * @param data.workspaceId
+ * @returns AgentProfileRead Successful Response
+ * @throws ApiError
+ */
+export const agentGetAgentProfile = (
+  data: AgentGetAgentProfileData
+): CancelablePromise<AgentGetAgentProfileResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/profiles/{profile_id}",
+    path: {
+      profile_id: data.profileId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Agent Profile
+ * Update an existing agent profile.
+ * @param data The data for the request.
+ * @param data.profileId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentProfileRead Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateAgentProfile = (
+  data: AgentUpdateAgentProfileData
+): CancelablePromise<AgentUpdateAgentProfileResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/profiles/{profile_id}",
+    path: {
+      profile_id: data.profileId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Agent Profile
+ * Delete an agent profile.
+ * @param data The data for the request.
+ * @param data.profileId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteAgentProfile = (
+  data: AgentDeleteAgentProfileData
+): CancelablePromise<AgentDeleteAgentProfileResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/profiles/{profile_id}",
+    path: {
+      profile_id: data.profileId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Profile By Slug
+ * Retrieve an agent profile by slug.
+ * @param data The data for the request.
+ * @param data.slug
+ * @param data.workspaceId
+ * @returns AgentProfileRead Successful Response
+ * @throws ApiError
+ */
+export const agentGetAgentProfileBySlug = (
+  data: AgentGetAgentProfileBySlugData
+): CancelablePromise<AgentGetAgentProfileBySlugResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/profiles/by-slug/{slug}",
+    path: {
+      slug: data.slug,
+    },
+    query: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

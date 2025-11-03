@@ -93,7 +93,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("owner_id", "slug", name="uq_agent_profile_owner_slug"),
     )
     op.create_index(op.f("ix_agent_profile_id"), "agent_profile", ["id"], unique=True)
-    op.create_index(op.f("ix_agent_profile_slug"), "agent_profile", ["slug"], unique=False)
+    op.create_index(
+        op.f("ix_agent_profile_slug"), "agent_profile", ["slug"], unique=False
+    )
 
 
 def downgrade() -> None:

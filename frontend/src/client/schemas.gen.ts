@@ -752,6 +752,589 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentProfileCreate = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    fixed_arguments: {
+      anyOf: [
+        {
+          additionalProperties: {
+            additionalProperties: true,
+            type: "object",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Arguments",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider", "name"],
+  title: "AgentProfileCreate",
+  description: "Payload for creating a new agent profile.",
+} as const
+
+export const $AgentProfileRead = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    fixed_arguments: {
+      anyOf: [
+        {
+          additionalProperties: {
+            additionalProperties: true,
+            type: "object",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Arguments",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentProfileRead",
+  description: "API model for reading agent profiles.",
+} as const
+
+export const $AgentProfileUpdate = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    fixed_arguments: {
+      anyOf: [
+        {
+          additionalProperties: {
+            additionalProperties: true,
+            type: "object",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Arguments",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider"],
+  title: "AgentProfileUpdate",
+  description: "Payload for updating an existing agent profile.",
+} as const
+
 export const $AgentSessionRead = {
   properties: {
     id: {

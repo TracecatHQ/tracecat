@@ -1390,9 +1390,7 @@ class AgentProfile(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     owner: Workspace | None = Relationship(back_populates="agent_profiles")
-    name: str = Field(
-        ..., max_length=120, description="Human readable profile name"
-    )
+    name: str = Field(..., max_length=120, description="Human readable profile name")
     slug: str = Field(
         ...,
         max_length=160,
