@@ -1374,7 +1374,7 @@ class Approval(Resource, table=True):
 class AgentProfile(Resource, table=True):
     """Database model for storing reusable agent configurations."""
 
-    __tablename__ = "agent_profile"
+    __tablename__: str = "agent_profile"
     __table_args__ = (
         UniqueConstraint("owner_id", "slug", name="uq_agent_profile_owner_slug"),
     )
