@@ -159,6 +159,42 @@ class TestGenerateZeroDefaults:
         result = generate_zero_defaults(Model)
         assert result == {"price": 10.0}
 
+    def test_int_with_lt_constraint(self):
+        """Test int with lt (less than) constraint."""
+
+        class Model(BaseModel):
+            score: Annotated[int, Field(lt=0)]
+
+        result = generate_zero_defaults(Model)
+        assert result == {"score": -1}
+
+    def test_int_with_le_constraint(self):
+        """Test int with le (less than or equal) constraint."""
+
+        class Model(BaseModel):
+            balance: Annotated[int, Field(le=-5)]
+
+        result = generate_zero_defaults(Model)
+        assert result == {"balance": -5}
+
+    def test_float_with_lt_constraint(self):
+        """Test float with lt constraint."""
+
+        class Model(BaseModel):
+            amount: Annotated[float, Field(lt=0.0)]
+
+        result = generate_zero_defaults(Model)
+        assert result["amount"] < 0.0
+
+    def test_float_with_both_bounds(self):
+        """Test float with both lower and upper bounds."""
+
+        class Model(BaseModel):
+            ratio: Annotated[float, Field(gt=1.0, lt=2.0)]
+
+        result = generate_zero_defaults(Model)
+        assert 1.0 < result["ratio"] < 2.0
+
     def test_string_with_min_length(self):
         """Test string with min_length constraint."""
 
@@ -304,7 +340,10 @@ class TestGenerateZeroDefaults:
             tags: Annotated[set[str], Field(min_length=2)]
 
         result = generate_zero_defaults(Model)
-        assert result == {"tags": ["", ""]}
+        assert set(result) == {"tags"}
+        assert len(result["tags"]) == 2
+        assert result["tags"][0] == ""
+        assert len(set(result["tags"])) == 2
 
     def test_fields_with_defaults_excluded(self):
         """Test that fields with defaults are not included."""

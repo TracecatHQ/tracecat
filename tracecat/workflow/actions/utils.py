@@ -33,32 +33,127 @@ def _metadata_lookup(field_info, attr: str):
 
 
 def _zero_value_for_numeric(field_info, *, is_float: bool) -> int | float:
-    """Generate a zero value for numeric types respecting constraints.
+    """Generate a zero-ish value for numeric types respecting constraints.
 
     Args:
         field_info: Pydantic field info containing metadata
         is_float: Whether the type is float (True) or int (False)
 
     Returns:
-        A valid zero value respecting gt/ge constraints
+        A value that stays within the gt/ge/lt/le window when possible.
     """
-    base: float = 0.0
+
     gt = _metadata_lookup(field_info, "gt")
     ge = _metadata_lookup(field_info, "ge")
+    lt = _metadata_lookup(field_info, "lt")
+    le = _metadata_lookup(field_info, "le")
 
+    if is_float:
+        def _nudge(value: float, *, direction: Literal["up", "down"]) -> float:
+            """Move one representable float away from a boundary."""
+            if math.isinf(value) or math.isnan(value):
+                return value
+            target = math.inf if direction == "up" else -math.inf
+            stepped = math.nextafter(float(value), target)
+            if stepped == value:
+                delta = max(abs(value) * 1e-6, 1e-6)
+                return value + delta if direction == "up" else value - delta
+            return stepped
+
+        lower_value: float | None = None
+        lower_strict = False
+
+        def _apply_lower(value: float, *, strict: bool) -> None:
+            nonlocal lower_value, lower_strict
+            if lower_value is None:
+                lower_value = value
+                lower_strict = strict
+                return
+            if value > lower_value:
+                lower_value = value
+                lower_strict = strict
+                return
+            if value == lower_value and strict and not lower_strict:
+                lower_strict = True
+
+        if ge is not None:
+            _apply_lower(float(ge), strict=False)
+        if gt is not None:
+            _apply_lower(float(gt), strict=True)
+
+        upper_value: float | None = None
+        upper_strict = False
+
+        def _apply_upper(value: float, *, strict: bool) -> None:
+            nonlocal upper_value, upper_strict
+            if upper_value is None:
+                upper_value = value
+                upper_strict = strict
+                return
+            if value < upper_value:
+                upper_value = value
+                upper_strict = strict
+                return
+            if value == upper_value and strict and not upper_strict:
+                upper_strict = True
+
+        if le is not None:
+            _apply_upper(float(le), strict=False)
+        if lt is not None:
+            _apply_upper(float(lt), strict=True)
+
+        lower_bound = (
+            -math.inf
+            if lower_value is None
+            else lower_value if not lower_strict else _nudge(lower_value, direction="up")
+        )
+        upper_bound = (
+            math.inf
+            if upper_value is None
+            else upper_value if not upper_strict else _nudge(upper_value, direction="down")
+        )
+
+        if lower_bound > upper_bound:
+            # Constraints are incompatible; fall back to the tightest lower bound.
+            return float(lower_bound)
+
+        candidate = 0.0
+        if candidate < lower_bound:
+            candidate = lower_bound
+        if candidate > upper_bound:
+            candidate = upper_bound
+        return float(candidate)
+
+    lower_bound: int | None = None
+    if ge is not None:
+        bound = math.ceil(float(ge))
+        lower_bound = bound if lower_bound is None else max(lower_bound, bound)
     if gt is not None:
-        base = float(gt)
-        if is_float:
-            increment = max(abs(base) * 1e-3, 1e-3)
-            base += increment
-        else:
-            base = math.floor(base) + 1
-    elif ge is not None:
-        base = float(ge)
+        bound = math.floor(float(gt)) + 1
+        lower_bound = bound if lower_bound is None else max(lower_bound, bound)
 
-    if not is_float:
-        return int(math.ceil(base))
-    return float(base)
+    upper_bound: int | None = None
+    if le is not None:
+        bound = math.floor(float(le))
+        upper_bound = bound if upper_bound is None else min(upper_bound, bound)
+    if lt is not None:
+        bound = math.ceil(float(lt)) - 1
+        upper_bound = bound if upper_bound is None else min(upper_bound, bound)
+
+    if (
+        lower_bound is not None
+        and upper_bound is not None
+        and lower_bound > upper_bound
+    ):
+        return lower_bound
+
+    candidate = 0
+    if lower_bound is not None and candidate < lower_bound:
+        candidate = lower_bound
+    if upper_bound is not None and candidate > upper_bound:
+        candidate = upper_bound
+
+    return int(candidate)
 
 
 def _strip_annotated(annotation: Any) -> Any:
@@ -66,6 +161,178 @@ def _strip_annotated(annotation: Any) -> Any:
     while get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
     return annotation
+
+
+def _generate_unique_set_placeholders(
+    item_annotation: Any,
+    base_value: Any,
+    length: int,
+    *,
+    seen: set[type],
+) -> list[Any] | None:
+    """Generate distinct placeholder values for set-like annotations.
+
+    Tries to respect the element type so that Pydantic coercion keeps the
+    resulting set at the required minimum length.
+    """
+
+    if length <= 0:
+        return []
+
+    annotation = _strip_annotated(item_annotation)
+    origin = get_origin(annotation)
+
+    if origin in {Union, types.UnionType}:
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if not args:
+            return [None] * length
+        for arg in args:
+            candidate_base = base_value
+            if candidate_base in {None, _ZERO_SENTINEL}:
+                candidate_base = _zero_value_for_annotation(arg, None, seen=seen)
+                if candidate_base is _ZERO_SENTINEL:
+                    candidate_base = ""
+            placeholders = _generate_unique_set_placeholders(
+                arg, candidate_base, length, seen=seen
+            )
+            if placeholders is not None:
+                return placeholders
+        return None
+
+    if origin is Literal:
+        literal_values: list[Any] = []
+        for value in get_args(annotation):
+            if value is None:
+                continue
+            if value not in literal_values:
+                literal_values.append(value)
+            if len(literal_values) == length:
+                return literal_values
+        return None
+
+    if inspect.isclass(annotation) and issubclass(annotation, Enum):
+        enum_values: list[Any] = []
+        for member in annotation:
+            enum_value = getattr(member, "value", member.name)
+            if enum_value not in enum_values:
+                enum_values.append(enum_value)
+            if len(enum_values) == length:
+                return enum_values
+        return None
+
+    if annotation is bool:
+        if length <= 2:
+            return [False, True][:length]
+        return None
+
+    if annotation is int:
+        start = int(base_value) if isinstance(base_value, int) else 0
+        return [start + idx for idx in range(length)]
+
+    if annotation is float:
+        start = float(base_value) if isinstance(base_value, (int, float)) else 0.0
+        increment = 1.0 if start == 0.0 else max(abs(start) * 0.1, 1.0)
+        return [start + idx * increment for idx in range(length)]
+
+    if annotation is uuid.UUID:
+        return [str(uuid.UUID(int=idx)) for idx in range(length)]
+
+    if annotation is dt.date:
+        base_date = (
+            dt.date.fromisoformat(base_value)
+            if isinstance(base_value, str) and base_value
+            else dt.date(1970, 1, 1)
+        )
+        return [
+            (base_date + dt.timedelta(days=idx)).isoformat() for idx in range(length)
+        ]
+
+    if annotation is dt.datetime:
+        base_dt = (
+            dt.datetime.fromisoformat(base_value)
+            if isinstance(base_value, str) and base_value
+            else dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+        )
+        return [
+            (base_dt + dt.timedelta(seconds=idx)).isoformat()
+            for idx in range(length)
+        ]
+
+    if annotation is dt.time:
+        base_time = (
+            dt.time.fromisoformat(base_value)
+            if isinstance(base_value, str) and base_value
+            else dt.time(0, 0, 0)
+        )
+        base_dt = dt.datetime.combine(dt.date(1970, 1, 1), base_time)
+        return [
+            (base_dt + dt.timedelta(seconds=idx)).time().isoformat()
+            for idx in range(length)
+        ]
+
+    if annotation is dt.timedelta:
+        start = int(base_value) if isinstance(base_value, (int, float)) else 0
+        return [start + idx for idx in range(length)]
+
+    if annotation is bytes:
+        seed = base_value if isinstance(base_value, bytes) else b""
+        token = seed or b"value"
+        values: list[bytes] = []
+        for idx in range(length):
+            if idx == 0:
+                values.append(seed or token + b"_0")
+            else:
+                values.append(token + f"_{idx}".encode())
+        return values
+
+    if annotation in {Any, object}:
+        return [f"value_{idx}" for idx in range(length)]
+
+    if isinstance(base_value, str):
+        seed = base_value or "value"
+        values: list[str] = []
+        for idx in range(length):
+            if idx == 0:
+                values.append(base_value)
+            else:
+                values.append(f"{seed}_{idx}")
+        return values
+
+    if isinstance(base_value, (int, float)):
+        start = float(base_value)
+        return [start + idx for idx in range(length)]
+
+    if isinstance(base_value, bytes):
+        seed = base_value or b"value"
+        return [seed + f"_{idx}".encode() for idx in range(length)]
+
+    return None
+
+
+def _fallback_set_variant(base_value: Any, index: int) -> Any:
+    """Generate a best-effort variant when unique placeholders cannot be derived."""
+
+    if index == 0:
+        return base_value
+
+    if isinstance(base_value, str):
+        seed = base_value or "value"
+        return f"{seed}_{index}"
+
+    if isinstance(base_value, bytes):
+        seed = base_value or b"value"
+        return seed + f"_{index}".encode()
+
+    if isinstance(base_value, bool):
+        return bool(index % 2)
+
+    if isinstance(base_value, int):
+        return base_value + index
+
+    if isinstance(base_value, float):
+        return base_value + index
+
+    return (base_value, index)
 
 
 def _zero_value_for_annotation(annotation: Any, field_info, *, seen: set[type]) -> Any:
@@ -123,7 +390,33 @@ def _zero_value_for_annotation(annotation: Any, field_info, *, seen: set[type]) 
         item_zero = _zero_value_for_annotation(item_type, None, seen=seen)
         if item_zero is _ZERO_SENTINEL:
             item_zero = ""
-        return [item_zero for _ in range(length)]
+        placeholders = _generate_unique_set_placeholders(
+            item_type, item_zero, length, seen=seen
+        )
+        if placeholders is None:
+            stripped_item = _strip_annotated(item_type)
+            item_origin = get_origin(stripped_item)
+            if item_origin is Literal:
+                literal_values = [
+                    value
+                    for value in get_args(stripped_item)
+                    if value is not None
+                ]
+                if literal_values:
+                    multiplied = (
+                        literal_values * (length // len(literal_values) + 1)
+                    )[:length]
+                    return multiplied
+            if stripped_item is bool:
+                placeholders = [False, True][:length]
+                if len(placeholders) < length:
+                    placeholders.extend([True] * (length - len(placeholders)))
+                return placeholders
+            placeholders = [
+                _fallback_set_variant(item_zero, idx) for idx in range(length)
+            ]
+            return placeholders
+        return placeholders
 
     if origin is tuple:
         args = get_args(annotation)
