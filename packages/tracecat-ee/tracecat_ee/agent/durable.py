@@ -22,8 +22,8 @@ from temporalio.exceptions import ActivityError
 from tracecat.agent.schemas import (
     ModelInfo,
     ModelRequestArgs,
-    ModelResponseTA,
 )
+from tracecat.agent.types import ModelResponseTA
 from tracecat.auth.types import Role
 from tracecat.logger import logger
 from tracecat_ee.agent.activities import (
