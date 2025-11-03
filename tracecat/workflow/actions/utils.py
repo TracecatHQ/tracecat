@@ -49,6 +49,7 @@ def _zero_value_for_numeric(field_info, *, is_float: bool) -> int | float:
     le = _metadata_lookup(field_info, "le")
 
     if is_float:
+
         def _nudge(value: float, *, direction: Literal["up", "down"]) -> float:
             """Move one representable float away from a boundary."""
             if math.isinf(value) or math.isnan(value):
@@ -105,12 +106,16 @@ def _zero_value_for_numeric(field_info, *, is_float: bool) -> int | float:
         lower_bound = (
             -math.inf
             if lower_value is None
-            else lower_value if not lower_strict else _nudge(lower_value, direction="up")
+            else lower_value
+            if not lower_strict
+            else _nudge(lower_value, direction="up")
         )
         upper_bound = (
             math.inf
             if upper_value is None
-            else upper_value if not upper_strict else _nudge(upper_value, direction="down")
+            else upper_value
+            if not upper_strict
+            else _nudge(upper_value, direction="down")
         )
 
         if lower_bound > upper_bound:
@@ -254,8 +259,7 @@ def _generate_unique_set_placeholders(
             else dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
         )
         return [
-            (base_dt + dt.timedelta(seconds=idx)).isoformat()
-            for idx in range(length)
+            (base_dt + dt.timedelta(seconds=idx)).isoformat() for idx in range(length)
         ]
 
     if annotation is dt.time:
@@ -398,14 +402,12 @@ def _zero_value_for_annotation(annotation: Any, field_info, *, seen: set[type]) 
             item_origin = get_origin(stripped_item)
             if item_origin is Literal:
                 literal_values = [
-                    value
-                    for value in get_args(stripped_item)
-                    if value is not None
+                    value for value in get_args(stripped_item) if value is not None
                 ]
                 if literal_values:
-                    multiplied = (
-                        literal_values * (length // len(literal_values) + 1)
-                    )[:length]
+                    multiplied = (literal_values * (length // len(literal_values) + 1))[
+                        :length
+                    ]
                     return multiplied
             if stripped_item is bool:
                 placeholders = [False, True][:length]
