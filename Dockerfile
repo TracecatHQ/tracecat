@@ -1,125 +1,151 @@
-FROM ghcr.io/astral-sh/uv:0.8.6-python3.12-bookworm-slim
+# syntax=docker/dockerfile:1.7
 
-ENV HOST=0.0.0.0
-ENV PORT=8000
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
-# Copy from the cache instead of linking since it's a mounted volume
-ENV UV_LINK_MODE=copy
+#########################
+# Builder (has compilers, pip/uv tooling, etc.)
+#########################
+FROM cgr.dev/tracecat.com/python:3.12-dev AS builder
 
-# Install required apt packages (this now creates ALL cache directories)
-COPY scripts/install-packages.sh .
-RUN chmod +x install-packages.sh && \
-    ./install-packages.sh && \
-    rm install-packages.sh
+# We’ll work as root for installs, then return to nonroot for runtime.
+USER root
 
-COPY scripts/auto-update.sh ./auto-update.sh
-RUN chmod +x auto-update.sh && \
-    ./auto-update.sh && \
-    rm auto-update.sh
+ENV HOST=0.0.0.0 \
+    PORT=8000 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUSERBASE="/home/nonroot/.local" \
+    UV_CACHE_DIR="/home/nonroot/.cache/uv" \
+    PYTHONPATH=/home/nonroot/.local:$PYTHONPATH \
+    PATH=/home/nonroot/.local/bin:$PATH \
+    DENO_DIR="/home/nonroot/.cache/deno" \
+    NODE_MODULES_DIR="/home/nonroot/.local/lib/node_modules" \
+    TMPDIR="/home/nonroot/.cache/tmp" \
+    TEMP="/home/nonroot/.cache/tmp" \
+    TMP="/home/nonroot/.cache/tmp" \
+    UV_PYTHON=/usr/bin/python UV_PYTHON_DOWNLOADS=never
 
-# Create the apiuser with specific UID/GID
-RUN groupadd -g 1001 apiuser && \
-    useradd -m -u 1001 -g apiuser apiuser
-
-# Ensure all required directories exist and copy pre-cached files
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/deno /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp && \
-    mkdir -p /home/apiuser/.local/lib/node_modules && \
-    cp -r /opt/deno-cache/* /home/apiuser/.cache/deno/ 2>/dev/null || true && \
-    cp -r /opt/node_modules/* /home/apiuser/.local/lib/node_modules/ 2>/dev/null || true && \
-    rm -rf /opt/deno-cache /opt/node_modules
-
-# Set environment variables for Python and package managers
-ENV PYTHONUSERBASE="/home/apiuser/.local"
-ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
-ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
-ENV PATH=/home/apiuser/.local/bin:$PATH
-
-# Set deno environment variables to use user-owned directories
-ENV DENO_DIR="/home/apiuser/.cache/deno"
-ENV NODE_MODULES_DIR="/home/apiuser/.local/lib/node_modules"
-
-# Set temporary directory environment variables for apiuser
-ENV TMPDIR="/home/apiuser/.cache/tmp"
-ENV TEMP="/home/apiuser/.cache/tmp"
-ENV TMP="/home/apiuser/.cache/tmp"
-
-# Temp directory is now created above with other cache directories
-
-# Set the working directory inside the container
 WORKDIR /app
 
-# Install the project's dependencies using the lockfile and settings
-# WIHTOUT installing the project for better caching
+# (Optional) System packages, Deno, Node caches, etc.
+# Keep your script idempotent and non-interactive.
+COPY scripts/install-packages.sh /tmp/install-packages.sh
+RUN chmod +x /tmp/install-packages.sh && \
+    /tmp/install-packages.sh && \
+    rm -f /tmp/install-packages.sh
+
+# Prepare user-owned dirs and copy any pre-cached bits
+RUN mkdir -p /home/nonroot/.cache/uv \
+             /home/nonroot/.cache/deno \
+             /home/nonroot/.cache/s3 \
+             /home/nonroot/.cache/tmp \
+             /home/nonroot/.local/lib/node_modules
+# If your script staged caches under /opt, move them into the user-owned locations
+# (These globs are best-effort; ignore if missing)
+RUN cp -r /opt/deno-cache/* /home/nonroot/.cache/deno/ 2>/dev/null || true && \
+    cp -r /opt/node_modules/* /home/nonroot/.local/lib/node_modules/ 2>/dev/null || true && \
+    rm -rf /opt/deno-cache /opt/node_modules
+
+# ---------- Dependency layer (best cacheability) ----------
+# Bind-mount the lockfile and pyproject for uv to resolve deps without copying the whole tree.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev --no-editable
+    --mount=type=bind,source=uv.lock,target=uv.lock,readonly \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml,readonly \
+    --mount=type=bind,source=packages,target=packages,readonly \
+    uv sync --locked --no-install-project --no-dev --no-editable --python /usr/bin/python
 
-# Then, add the rest of the project source code and install it
-# Installing separately from its dependencies allows optimal layer caching
-# Copy the application files into the container and set ownership
-COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
-COPY --chown=apiuser:apiuser ./packages/tracecat-registry /app/packages/tracecat-registry
-COPY --chown=apiuser:apiuser ./packages/tracecat-ee /app/packages/tracecat-ee
-COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
-COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
-COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
-COPY --chown=apiuser:apiuser ./README.md /app/README.md
-COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
-COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
-COPY --chown=apiuser:apiuser ./alembic /app/alembic
+# ---------- App source & installation ----------
+# Copy only what you need for installation; keep ownership consistent
+COPY --chown=nonroot:nonroot ./tracecat /app/tracecat
+COPY --chown=nonroot:nonroot ./packages/tracecat-registry /app/packages/tracecat-registry
+COPY --chown=nonroot:nonroot ./packages/tracecat-ee /app/packages/tracecat-ee
+COPY --chown=nonroot:nonroot ./pyproject.toml ./uv.lock ./.python-version /app/
+COPY --chown=nonroot:nonroot ./README.md ./LICENSE ./alembic.ini /app/
+COPY --chown=nonroot:nonroot ./alembic /app/alembic
 
-# Copy the entrypoint script and health check script
-COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
-RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
+# Entrypoints & helpers
+COPY --chown=nonroot:nonroot scripts/entrypoint.py /app/entrypoint.py
+COPY --chown=root:root scripts/check_tmp.py /usr/local/bin/check_tmp.py
+RUN chmod +x /usr/local/bin/check_tmp.py
 
-# Install the project with EE features
+# Install the project (prod extras but no dev)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
-# Place executables in the environment at the front of the path
+# Ensure the venv is first on PATH and provide a uv shim for tools that expect it in PATH
 ENV PATH="/app/.venv/bin:$PATH"
+RUN mkdir -p /home/nonroot/.local/bin && \
+    ln -sf "$(command -v uv)" /home/nonroot/.local/bin/uv && \
+    chown -R nonroot:nonroot /home/nonroot /app
 
-# Ensure uv binary is available where Ray expects it
-RUN mkdir -p /home/apiuser/.local/bin && \
-    ln -s $(which uv) /home/apiuser/.local/bin/uv && \
-    chown -R apiuser:apiuser /home/apiuser/.local/bin
+# Quick sanity checks (optional; stays in builder layer)
+RUN python -V && uv --version
 
-# Fix ownership of all apiuser directories after root operations
-# This ensures apiuser can access all necessary files and directories
-RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
+#########################
+# Final (minimal runtime)
+#########################
+FROM cgr.dev/tracecat.com/python:3.12 AS final
 
-# Ensure apiuser owns everything in /app
-RUN chown -R apiuser:apiuser /app/.venv
+# Re-declare runtime ENV (metadata doesn’t come from COPY)
+ENV HOST=0.0.0.0 \
+    PORT=8000 \
+    PYTHONUSERBASE="/home/nonroot/.local" \
+    PYTHONPATH=/home/nonroot/.local:$PYTHONPATH \
+    PATH="/app/.venv/bin:/home/nonroot/.local/bin:$PATH" \
+    DENO_DIR="/home/nonroot/.cache/deno" \
+    NODE_MODULES_DIR="/home/nonroot/.local/lib/node_modules" \
+    VIRTUAL_ENV=/app/.venv
 
-# Verify permissions are correctly set before switching users
-RUN ls -la /home/apiuser/ && \
-    ls -la /home/apiuser/.cache/ && \
-    ls -ld /home/apiuser/.cache/uv && \
-    echo "UV cache directory permissions: $(stat -c '%a %U:%G' /home/apiuser/.cache/uv)" && \
-    echo "Permission verification complete"
+WORKDIR /app
 
-# Change to the non-root user
-USER apiuser
+# Copy only what’s needed to run:
+# - the virtualenv
+# - your app code
+# - entrypoint
+# - user caches/locals that runtime expects
+COPY --chown=nonroot:nonroot --from=builder /app /app
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.local /home/nonroot/.local
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/deno /home/nonroot/.cache/deno
+COPY --chown=nonroot:nonroot --from=builder /home/nonroot/.cache/s3   /home/nonroot/.cache/s3
+COPY --from=builder /usr/local/bin/deno /usr/local/bin/deno
+COPY --from=builder /usr/local/bin/check_tmp.py /usr/local/bin/check_tmp.py
 
-# Verify apiuser can access required directories and binaries
-RUN deno --version && \
-    python3 -c "import os; print(f'DENO_DIR accessible: {os.access(os.environ[\"DENO_DIR\"], os.R_OK | os.W_OK)}')" && \
-    python3 -c "import os; print(f'UV_CACHE_DIR accessible: {os.access(os.environ[\"UV_CACHE_DIR\"], os.R_OK | os.W_OK)}')" && \
-    python3 -c "import os, tempfile; f=tempfile.NamedTemporaryFile(dir=os.environ['UV_CACHE_DIR'], delete=True); print(f'UV_CACHE_DIR write test: SUCCESS - {f.name}')" && \
-    python3 -c "import os; print(f'NODE_MODULES_DIR accessible: {os.access(os.environ[\"NODE_MODULES_DIR\"], os.R_OK | os.W_OK)}')" && \
-    python3 -c "import os; print(f'/app/.scripts accessible: {os.access(\"/app/.scripts\", os.R_OK | os.W_OK)}')" && \
-    python3 -c "import os; print(f'S3 cache accessible: {os.access(\"/home/apiuser/.cache/s3\", os.R_OK | os.W_OK)}')" && \
-    python3 -c "import tempfile; print(f'Temp dir: {tempfile.gettempdir()}')" && \
-    python3 -c "import os; print(f'Entrypoint executable: {os.access(\"/app/entrypoint.sh\", os.R_OK | os.X_OK)}')" && \
-    ls -la /app/entrypoint.sh && \
-    echo "User access verification complete"
+# Remove unused aiohttp
+RUN ["/app/.venv/bin/python", "-c", "\
+import pathlib, shutil; \
+base = pathlib.Path('/app/.venv/lib/python3.12/site-packages/ray/_private/runtime_env/agent/thirdparty_files'); \
+paths = list(base.glob('aiohttp-*')); \
+[ (print('Removing', p), (shutil.rmtree(p) if p.is_dir() else p.unlink())) for p in paths ] \
+"]
+
+# Deno exists and is runnable
+RUN ["/usr/local/bin/deno", "--version"]
+
+# Python-only verification (permissions + write test)
+RUN ["/usr/bin/python", "-c", "\
+import os, tempfile, sys\n\
+\n\
+def check_path(p, want_exec=False):\n\
+    ok_r = os.access(p, os.R_OK)\n\
+    ok_w = os.access(p, os.W_OK)\n\
+    ok_x = os.access(p, os.X_OK)\n\
+    print(f'{p}: R={ok_r} W={ok_w}' + (f' X={ok_x}' if want_exec else ''))\n\
+    return ok_r and (ok_w or not want_exec) and (ok_x if want_exec else True)\n\
+\n\
+d = os.environ.get('DENO_DIR','/home/nonroot/.cache/deno')\n\
+n = os.environ.get('NODE_MODULES_DIR','/home/nonroot/.local/lib/node_modules')\n\
+ok = True\n\
+print('Checking cache dirs and entrypoint…')\n\
+ok &= check_path(d)\n\
+ok &= check_path(n)\n\
+ok &= check_path('/app/.scripts')\n\
+ok &= check_path('/home/nonroot/.cache/s3')\n\
+# entrypoint is launched via python, so it doesn't need the +x bit; we just need R\n\
+ok &= check_path('/app/entrypoint.py', want_exec=False)\n\
+sys.exit(0 if ok else 1)\n\
+"]
+
+# Chainguard images default to nonroot; be explicit:
+USER nonroot
 
 EXPOSE $PORT
-
-ENTRYPOINT ["/app/entrypoint.sh"]
-
-CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]
+ENTRYPOINT ["/app/.venv/bin/python", "/app/entrypoint.py"]
+CMD []
