@@ -14,6 +14,7 @@ from tracecat_ee.agent.router import router as ee_agent_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.profiles.router import router as agent_profiles_router
 from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
@@ -222,6 +223,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(agent_router)
+    app.include_router(
+        agent_profiles_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PROFILES))],
+    )
     app.include_router(
         ee_agent_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_APPROVALS))],

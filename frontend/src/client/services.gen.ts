@@ -14,37 +14,37 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
-  AgentCreateAgentProfileData,
-  AgentCreateAgentProfileResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
-  AgentDeleteAgentProfileData,
-  AgentDeleteAgentProfileResponse,
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
-  AgentGetAgentProfileBySlugData,
-  AgentGetAgentProfileBySlugResponse,
-  AgentGetAgentProfileData,
-  AgentGetAgentProfileResponse,
   AgentGetDefaultModelResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
-  AgentListAgentProfilesData,
-  AgentListAgentProfilesResponse,
   AgentListAgentSessionsData,
   AgentListAgentSessionsResponse,
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentProfilesCreateAgentProfileData,
+  AgentProfilesCreateAgentProfileResponse,
+  AgentProfilesDeleteAgentProfileData,
+  AgentProfilesDeleteAgentProfileResponse,
+  AgentProfilesGetAgentProfileBySlugData,
+  AgentProfilesGetAgentProfileBySlugResponse,
+  AgentProfilesGetAgentProfileData,
+  AgentProfilesGetAgentProfileResponse,
+  AgentProfilesListAgentProfilesData,
+  AgentProfilesListAgentProfilesResponse,
+  AgentProfilesUpdateAgentProfileData,
+  AgentProfilesUpdateAgentProfileResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
   AgentStreamAgentSessionData,
   AgentStreamAgentSessionResponse,
   AgentSubmitAgentApprovalsData,
   AgentSubmitAgentApprovalsResponse,
-  AgentUpdateAgentProfileData,
-  AgentUpdateAgentProfileResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
@@ -3465,9 +3465,9 @@ export const agentSetDefaultModel = (
  * @returns AgentProfileRead Successful Response
  * @throws ApiError
  */
-export const agentListAgentProfiles = (
-  data: AgentListAgentProfilesData
-): CancelablePromise<AgentListAgentProfilesResponse> => {
+export const agentProfilesListAgentProfiles = (
+  data: AgentProfilesListAgentProfilesData
+): CancelablePromise<AgentProfilesListAgentProfilesResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/profiles",
@@ -3489,9 +3489,9 @@ export const agentListAgentProfiles = (
  * @returns AgentProfileRead Successful Response
  * @throws ApiError
  */
-export const agentCreateAgentProfile = (
-  data: AgentCreateAgentProfileData
-): CancelablePromise<AgentCreateAgentProfileResponse> => {
+export const agentProfilesCreateAgentProfile = (
+  data: AgentProfilesCreateAgentProfileData
+): CancelablePromise<AgentProfilesCreateAgentProfileResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/agent/profiles",
@@ -3515,9 +3515,9 @@ export const agentCreateAgentProfile = (
  * @returns AgentProfileRead Successful Response
  * @throws ApiError
  */
-export const agentGetAgentProfile = (
-  data: AgentGetAgentProfileData
-): CancelablePromise<AgentGetAgentProfileResponse> => {
+export const agentProfilesGetAgentProfile = (
+  data: AgentProfilesGetAgentProfileData
+): CancelablePromise<AgentProfilesGetAgentProfileResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/profiles/{profile_id}",
@@ -3543,9 +3543,9 @@ export const agentGetAgentProfile = (
  * @returns AgentProfileRead Successful Response
  * @throws ApiError
  */
-export const agentUpdateAgentProfile = (
-  data: AgentUpdateAgentProfileData
-): CancelablePromise<AgentUpdateAgentProfileResponse> => {
+export const agentProfilesUpdateAgentProfile = (
+  data: AgentProfilesUpdateAgentProfileData
+): CancelablePromise<AgentProfilesUpdateAgentProfileResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/agent/profiles/{profile_id}",
@@ -3572,9 +3572,9 @@ export const agentUpdateAgentProfile = (
  * @returns void Successful Response
  * @throws ApiError
  */
-export const agentDeleteAgentProfile = (
-  data: AgentDeleteAgentProfileData
-): CancelablePromise<AgentDeleteAgentProfileResponse> => {
+export const agentProfilesDeleteAgentProfile = (
+  data: AgentProfilesDeleteAgentProfileData
+): CancelablePromise<AgentProfilesDeleteAgentProfileResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/agent/profiles/{profile_id}",
@@ -3599,9 +3599,9 @@ export const agentDeleteAgentProfile = (
  * @returns AgentProfileRead Successful Response
  * @throws ApiError
  */
-export const agentGetAgentProfileBySlug = (
-  data: AgentGetAgentProfileBySlugData
-): CancelablePromise<AgentGetAgentProfileBySlugResponse> => {
+export const agentProfilesGetAgentProfileBySlug = (
+  data: AgentProfilesGetAgentProfileBySlugData
+): CancelablePromise<AgentProfilesGetAgentProfileBySlugResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/profiles/by-slug/{slug}",

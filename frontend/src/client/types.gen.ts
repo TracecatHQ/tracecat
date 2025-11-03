@@ -2148,6 +2148,7 @@ export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
   | "agent-approvals"
+  | "agent-profiles"
   | "case-durations"
   | "case-tasks"
 
@@ -6355,47 +6356,47 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
-export type AgentListAgentProfilesData = {
+export type AgentProfilesListAgentProfilesData = {
   workspaceId: string
 }
 
-export type AgentListAgentProfilesResponse = Array<AgentProfileRead>
+export type AgentProfilesListAgentProfilesResponse = Array<AgentProfileRead>
 
-export type AgentCreateAgentProfileData = {
+export type AgentProfilesCreateAgentProfileData = {
   requestBody: AgentProfileCreate
   workspaceId: string
 }
 
-export type AgentCreateAgentProfileResponse = AgentProfileRead
+export type AgentProfilesCreateAgentProfileResponse = AgentProfileRead
 
-export type AgentGetAgentProfileData = {
+export type AgentProfilesGetAgentProfileData = {
   profileId: string
   workspaceId: string
 }
 
-export type AgentGetAgentProfileResponse = AgentProfileRead
+export type AgentProfilesGetAgentProfileResponse = AgentProfileRead
 
-export type AgentUpdateAgentProfileData = {
+export type AgentProfilesUpdateAgentProfileData = {
   profileId: string
   requestBody: AgentProfileUpdate
   workspaceId: string
 }
 
-export type AgentUpdateAgentProfileResponse = AgentProfileRead
+export type AgentProfilesUpdateAgentProfileResponse = AgentProfileRead
 
-export type AgentDeleteAgentProfileData = {
+export type AgentProfilesDeleteAgentProfileData = {
   profileId: string
   workspaceId: string
 }
 
-export type AgentDeleteAgentProfileResponse = void
+export type AgentProfilesDeleteAgentProfileResponse = void
 
-export type AgentGetAgentProfileBySlugData = {
+export type AgentProfilesGetAgentProfileBySlugData = {
   slug: string
   workspaceId: string
 }
 
-export type AgentGetAgentProfileBySlugResponse = AgentProfileRead
+export type AgentProfilesGetAgentProfileBySlugResponse = AgentProfileRead
 
 export type AgentListAgentSessionsData = {
   workspaceId: string
@@ -9073,7 +9074,7 @@ export type $OpenApiTs = {
   }
   "/agent/profiles": {
     get: {
-      req: AgentListAgentProfilesData
+      req: AgentProfilesListAgentProfilesData
       res: {
         /**
          * Successful Response
@@ -9086,7 +9087,7 @@ export type $OpenApiTs = {
       }
     }
     post: {
-      req: AgentCreateAgentProfileData
+      req: AgentProfilesCreateAgentProfileData
       res: {
         /**
          * Successful Response
@@ -9101,7 +9102,7 @@ export type $OpenApiTs = {
   }
   "/agent/profiles/{profile_id}": {
     get: {
-      req: AgentGetAgentProfileData
+      req: AgentProfilesGetAgentProfileData
       res: {
         /**
          * Successful Response
@@ -9114,7 +9115,7 @@ export type $OpenApiTs = {
       }
     }
     patch: {
-      req: AgentUpdateAgentProfileData
+      req: AgentProfilesUpdateAgentProfileData
       res: {
         /**
          * Successful Response
@@ -9127,7 +9128,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: AgentDeleteAgentProfileData
+      req: AgentProfilesDeleteAgentProfileData
       res: {
         /**
          * Successful Response
@@ -9142,7 +9143,7 @@ export type $OpenApiTs = {
   }
   "/agent/profiles/by-slug/{slug}": {
     get: {
-      req: AgentGetAgentProfileBySlugData
+      req: AgentProfilesGetAgentProfileBySlugData
       res: {
         /**
          * Successful Response
