@@ -839,21 +839,6 @@ export const $AgentProfileCreate = {
       ],
       title: "Namespaces",
     },
-    fixed_arguments: {
-      anyOf: [
-        {
-          additionalProperties: {
-            additionalProperties: true,
-            type: "object",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fixed Arguments",
-    },
     tool_approvals: {
       anyOf: [
         {
@@ -1024,21 +1009,6 @@ export const $AgentProfileRead = {
         },
       ],
       title: "Namespaces",
-    },
-    fixed_arguments: {
-      anyOf: [
-        {
-          additionalProperties: {
-            additionalProperties: true,
-            type: "object",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fixed Arguments",
     },
     tool_approvals: {
       anyOf: [
@@ -1228,21 +1198,6 @@ export const $AgentProfileUpdate = {
         },
       ],
       title: "Namespaces",
-    },
-    fixed_arguments: {
-      anyOf: [
-        {
-          additionalProperties: {
-            additionalProperties: true,
-            type: "object",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fixed Arguments",
     },
     tool_approvals: {
       anyOf: [

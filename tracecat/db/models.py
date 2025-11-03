@@ -1433,11 +1433,6 @@ class AgentProfile(Resource, table=True):
         sa_column=Column(JSONB),
         description="Tool namespaces available to the agent",
     )
-    fixed_arguments: dict[str, dict[str, Any]] | None = Field(
-        default=None,
-        sa_column=Column(JSONB),
-        description="Preconfigured tool arguments",
-    )
     tool_approvals: dict[str, bool] | None = Field(
         default=None,
         sa_column=Column(JSONB),

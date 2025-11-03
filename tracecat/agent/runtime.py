@@ -84,8 +84,6 @@ async def run_agent(
         model_provider: Provider of the model (e.g., "openai", "anthropic").
         actions: List of action names to make available to the agent
                 (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
-        fixed_arguments: Optional pre-configured arguments for specific actions.
-                        Keys are action names, values are keyword argument dictionaries.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
         mcp_server_url: Optional URL of the MCP server to use.
@@ -121,9 +119,6 @@ async def run_agent(
             model_provider="openai",
             actions=["tools.slack.post_message"],
             instructions="You are a security analyst. Be thorough.",
-            fixed_arguments={
-                "tools.slack.post_message": {"channel_id": "C123456789"}
-            }
         )
         ```
     """

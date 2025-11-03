@@ -195,11 +195,6 @@ export type AgentProfileCreate = {
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
-  fixed_arguments?: {
-    [key: string]: {
-      [key: string]: unknown
-    }
-  } | null
   tool_approvals?: {
     [key: string]: boolean
   } | null
@@ -227,11 +222,6 @@ export type AgentProfileRead = {
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
-  fixed_arguments?: {
-    [key: string]: {
-      [key: string]: unknown
-    }
-  } | null
   tool_approvals?: {
     [key: string]: boolean
   } | null
@@ -263,11 +253,6 @@ export type AgentProfileUpdate = {
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
-  fixed_arguments?: {
-    [key: string]: {
-      [key: string]: unknown
-    }
-  } | null
   tool_approvals?: {
     [key: string]: boolean
   } | null

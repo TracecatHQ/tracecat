@@ -23,7 +23,6 @@ class AgentProfileBase(BaseModel):
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
-    fixed_arguments: dict[str, dict[str, Any]] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_server_url: str | None = Field(default=None, max_length=500)
     mcp_server_headers: dict[str, str] | None = Field(default=None)
@@ -68,7 +67,6 @@ class AgentProfileRead(AgentProfileBase):
             output_type=self.output_type,
             actions=self.actions,
             namespaces=self.namespaces,
-            fixed_arguments=self.fixed_arguments,
             tool_approvals=self.tool_approvals,
             mcp_server_url=self.mcp_server_url,
             mcp_server_headers=self.mcp_server_headers,
