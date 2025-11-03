@@ -21,7 +21,7 @@ from pydantic_core import PydanticUndefined
 _ZERO_SENTINEL = object()
 
 
-def _metadata_lookup(field_info, attr: str):
+def _metadata_lookup(field_info: Any, attr: str) -> Any:
     """Look up metadata attribute from field info."""
     if field_info is None:
         return None
@@ -32,7 +32,7 @@ def _metadata_lookup(field_info, attr: str):
     return None
 
 
-def _zero_value_for_numeric(field_info, *, is_float: bool) -> int | float:
+def _zero_value_for_numeric(field_info: Any, *, is_float: bool) -> int | float:
     """Generate a zero-ish value for numeric types respecting constraints.
 
     Args:
@@ -129,34 +129,42 @@ def _zero_value_for_numeric(field_info, *, is_float: bool) -> int | float:
             candidate = upper_bound
         return float(candidate)
 
-    lower_bound: int | None = None
+    int_lower_bound: int | None = None
     if ge is not None:
         bound = math.ceil(float(ge))
-        lower_bound = bound if lower_bound is None else max(lower_bound, bound)
+        int_lower_bound = (
+            bound if int_lower_bound is None else max(int_lower_bound, bound)
+        )
     if gt is not None:
         bound = math.floor(float(gt)) + 1
-        lower_bound = bound if lower_bound is None else max(lower_bound, bound)
+        int_lower_bound = (
+            bound if int_lower_bound is None else max(int_lower_bound, bound)
+        )
 
-    upper_bound: int | None = None
+    int_upper_bound: int | None = None
     if le is not None:
         bound = math.floor(float(le))
-        upper_bound = bound if upper_bound is None else min(upper_bound, bound)
+        int_upper_bound = (
+            bound if int_upper_bound is None else min(int_upper_bound, bound)
+        )
     if lt is not None:
         bound = math.ceil(float(lt)) - 1
-        upper_bound = bound if upper_bound is None else min(upper_bound, bound)
+        int_upper_bound = (
+            bound if int_upper_bound is None else min(int_upper_bound, bound)
+        )
 
     if (
-        lower_bound is not None
-        and upper_bound is not None
-        and lower_bound > upper_bound
+        int_lower_bound is not None
+        and int_upper_bound is not None
+        and int_lower_bound > int_upper_bound
     ):
-        return lower_bound
+        return int_lower_bound
 
     candidate = 0
-    if lower_bound is not None and candidate < lower_bound:
-        candidate = lower_bound
-    if upper_bound is not None and candidate > upper_bound:
-        candidate = upper_bound
+    if int_lower_bound is not None and candidate < int_lower_bound:
+        candidate = int_lower_bound
+    if int_upper_bound is not None and candidate > int_upper_bound:
+        candidate = int_upper_bound
 
     return int(candidate)
 
@@ -231,13 +239,15 @@ def _generate_unique_set_placeholders(
         return None
 
     if annotation is int:
-        start = int(base_value) if isinstance(base_value, int) else 0
+        start: int = int(base_value) if isinstance(base_value, int) else 0
         return [start + idx for idx in range(length)]
 
     if annotation is float:
-        start = float(base_value) if isinstance(base_value, (int, float)) else 0.0
-        increment = 1.0 if start == 0.0 else max(abs(start) * 0.1, 1.0)
-        return [start + idx * increment for idx in range(length)]
+        start_float: float = (
+            float(base_value) if isinstance(base_value, (int, float)) else 0.0
+        )
+        increment = 1.0 if start_float == 0.0 else max(abs(start_float) * 0.1, 1.0)
+        return [start_float + idx * increment for idx in range(length)]
 
     if annotation is uuid.UUID:
         return [str(uuid.UUID(int=idx)) for idx in range(length)]
@@ -279,12 +289,12 @@ def _generate_unique_set_placeholders(
         return [start + idx for idx in range(length)]
 
     if annotation is bytes:
-        seed = base_value if isinstance(base_value, bytes) else b""
-        token = seed or b"value"
+        bytes_seed = base_value if isinstance(base_value, bytes) else b""
+        token = bytes_seed or b"value"
         values: list[bytes] = []
         for idx in range(length):
             if idx == 0:
-                values.append(seed or token + b"_0")
+                values.append(bytes_seed or token + b"_0")
             else:
                 values.append(token + f"_{idx}".encode())
         return values
@@ -293,22 +303,22 @@ def _generate_unique_set_placeholders(
         return [f"value_{idx}" for idx in range(length)]
 
     if isinstance(base_value, str):
-        seed = base_value or "value"
-        values: list[str] = []
+        str_seed = base_value or "value"
+        str_values: list[str] = []
         for idx in range(length):
             if idx == 0:
-                values.append(base_value)
+                str_values.append(base_value)
             else:
-                values.append(f"{seed}_{idx}")
-        return values
+                str_values.append(f"{str_seed}_{idx}")
+        return str_values
 
     if isinstance(base_value, (int, float)):
-        start = float(base_value)
-        return [start + idx for idx in range(length)]
+        start_num: float = float(base_value)
+        return [start_num + idx for idx in range(length)]
 
     if isinstance(base_value, bytes):
-        seed = base_value or b"value"
-        return [seed + f"_{idx}".encode() for idx in range(length)]
+        bytes_seed_val = base_value or b"value"
+        return [bytes_seed_val + f"_{idx}".encode() for idx in range(length)]
 
     return None
 
@@ -320,12 +330,12 @@ def _fallback_set_variant(base_value: Any, index: int) -> Any:
         return base_value
 
     if isinstance(base_value, str):
-        seed = base_value or "value"
-        return f"{seed}_{index}"
+        str_seed = base_value or "value"
+        return f"{str_seed}_{index}"
 
     if isinstance(base_value, bytes):
-        seed = base_value or b"value"
-        return seed + f"_{index}".encode()
+        bytes_seed = base_value or b"value"
+        return bytes_seed + f"_{index}".encode()
 
     if isinstance(base_value, bool):
         return bool(index % 2)
@@ -339,7 +349,9 @@ def _fallback_set_variant(base_value: Any, index: int) -> Any:
     return (base_value, index)
 
 
-def _zero_value_for_annotation(annotation: Any, field_info, *, seen: set[type]) -> Any:
+def _zero_value_for_annotation(
+    annotation: Any, field_info: Any, *, seen: set[type]
+) -> Any:
     """Generate a zero/default value for a type annotation.
 
     This function recursively generates appropriate default values for various
