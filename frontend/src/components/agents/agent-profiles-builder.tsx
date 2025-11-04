@@ -499,15 +499,6 @@ function ProfilesSidebar({
       <div className="flex-1 min-h-0">
         <ScrollArea className="h-full">
           <div className="space-y-1 px-2 py-3">
-            {isCreating && (
-              <SidebarItem
-                key={NEW_PROFILE_ID}
-                active
-                onClick={() => onSelect(NEW_PROFILE_ID)}
-                title="New agent profile"
-                description="Draft configuration"
-              />
-            )}
             {list.length === 0 ? (
               <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
                 <Bot className="size-4 opacity-60" />
