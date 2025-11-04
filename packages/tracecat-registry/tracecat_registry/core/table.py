@@ -303,12 +303,10 @@ async def create_table(
             "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
         ),
     ] = None,
-    if_not_exists: Annotated[
+    raise_on_duplicate: Annotated[
         bool,
-        Doc(
-            "Return table metadata instead of raising an error if table already exists."
-        ),
-    ] = False,
+        Doc("If true, raise an error if the table already exists."),
+    ] = True,
 ) -> dict[str, Any]:
     column_objects = []
     if columns:
@@ -331,13 +329,13 @@ async def create_table(
             while (cause := e.__cause__) is not None:
                 e = cause
             if isinstance(e, DuplicateTableError):
-                if if_not_exists:
+                if raise_on_duplicate:
+                    raise ValueError("Table already exists") from e
+                else:
                     # Rollback the failed transaction before querying
                     await service.session.rollback()
                     # Return existing table instead of raising error
                     table = await service.get_table_by_name(name)
-                else:
-                    raise ValueError("Table already exists") from e
             else:
                 raise
     return table.model_dump()
