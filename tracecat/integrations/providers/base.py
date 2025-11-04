@@ -569,7 +569,10 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 registration_endpoint=registration_endpoint,
             )
 
-        discovered = self._discover_oauth_endpoints()
+        discovered = self._discover_oauth_endpoints(
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+        )
 
         return OAuthDiscoveryResult(
             authorization_endpoint=discovered.authorization_endpoint,
@@ -594,7 +597,12 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         return f"https://{parsed.netloc}"
 
-    def _discover_oauth_endpoints(self) -> OAuthDiscoveryResult:
+    def _discover_oauth_endpoints(
+        self,
+        *,
+        discovered_auth_endpoint: str | None = None,
+        discovered_token_endpoint: str | None = None,
+    ) -> OAuthDiscoveryResult:
         """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
@@ -651,6 +659,34 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     registration_endpoint=None,
                 )
 
+            # If _fallback_token_endpoint is None, check if configured endpoints are available
+            if self._fallback_token_endpoint is None:
+                # Check for configured endpoints from init params or class defaults
+                auth_endpoint = (
+                    discovered_auth_endpoint
+                    or self._fallback_auth_endpoint
+                    or getattr(self, "default_authorization_endpoint", None)
+                )
+                token_endpoint = discovered_token_endpoint or getattr(
+                    self, "default_token_endpoint", None
+                )
+
+                if auth_endpoint and token_endpoint:
+                    validate_oauth_endpoint(auth_endpoint)
+                    validate_oauth_endpoint(token_endpoint)
+                    self.logger.info(
+                        "Using configured OAuth endpoints",
+                        provider=self.id,
+                        authorization=auth_endpoint,
+                        token=token_endpoint,
+                    )
+                    return OAuthDiscoveryResult(
+                        authorization_endpoint=auth_endpoint,
+                        token_endpoint=token_endpoint,
+                        token_methods=[],
+                        registration_endpoint=None,
+                    )
+
             self.logger.error(
                 "Failed to discover OAuth endpoints",
                 provider=self.id,
@@ -664,7 +700,11 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
     @classmethod
     async def _discover_oauth_endpoints_async(
-        cls, logger_instance
+        cls,
+        logger_instance,
+        *,
+        discovered_auth_endpoint: str | None = None,
+        discovered_token_endpoint: str | None = None,
     ) -> OAuthDiscoveryResult:
         """Async discovery counterpart used in event-loop contexts."""
 
@@ -718,6 +758,34 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     token_methods=token_methods,
                     registration_endpoint=None,
                 )
+
+            # If _fallback_token_endpoint is None, check if configured endpoints are available
+            if cls._fallback_token_endpoint is None:
+                # Check for configured endpoints from init params or class defaults
+                auth_endpoint = (
+                    discovered_auth_endpoint
+                    or cls._fallback_auth_endpoint
+                    or getattr(cls, "default_authorization_endpoint", None)
+                )
+                token_endpoint = discovered_token_endpoint or getattr(
+                    cls, "default_token_endpoint", None
+                )
+
+                if auth_endpoint and token_endpoint:
+                    validate_oauth_endpoint(auth_endpoint)
+                    validate_oauth_endpoint(token_endpoint)
+                    logger_instance.info(
+                        "Using configured OAuth endpoints",
+                        provider=cls.id,
+                        authorization=auth_endpoint,
+                        token=token_endpoint,
+                    )
+                    return OAuthDiscoveryResult(
+                        authorization_endpoint=auth_endpoint,
+                        token_endpoint=token_endpoint,
+                        token_methods=[],
+                        registration_endpoint=None,
+                    )
 
             logger_instance.error(
                 "Failed to discover OAuth endpoints",
@@ -862,7 +930,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         logger_instance = logger.bind(service=f"{cls.__name__}")
 
-        discovery_result = await cls._discover_oauth_endpoints_async(logger_instance)
+        # Extract discovered endpoints from kwargs if provided
+        discovered_auth_endpoint = kwargs.get("authorization_endpoint")
+        discovered_token_endpoint = kwargs.get("token_endpoint")
+
+        discovery_result = await cls._discover_oauth_endpoints_async(
+            logger_instance,
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+        )
 
         scopes = (
             config.scopes
