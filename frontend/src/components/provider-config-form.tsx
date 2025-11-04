@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Info, Save } from "lucide-react"
 import { useCallback, useMemo } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
@@ -20,6 +20,12 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -36,40 +42,30 @@ const hasHelpContent = (help: EndpointHelp): boolean => {
   return help.trim().length > 0
 }
 
-const helpsAreEqual = (a: EndpointHelp, b: EndpointHelp): boolean => {
-  if (a === b) {
-    return true
-  }
-  if (a == null || b == null) {
-    return false
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) {
-      return false
-    }
-    return a.every((value, index) => value === b[index])
-  }
-  return false
-}
-
 const renderHelpContent = (help: EndpointHelp) => {
   if (help == null) {
     return null
   }
-  if (Array.isArray(help)) {
-    const items = help.filter((item) => item.trim().length > 0)
-    if (items.length === 0) {
-      return null
-    }
-    return (
-      <ul className="ml-5 list-disc space-y-1 text-xs text-muted-foreground">
-        {items.map((item, index) => (
-          <li key={`${index}-${item}`}>{item}</li>
-        ))}
-      </ul>
-    )
+  const raw = Array.isArray(help) ? help.join("\n") : help
+  const sanitized = raw
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim()
+
+  if (sanitized.length === 0) {
+    return null
   }
-  return <p className="text-xs text-muted-foreground">{help}</p>
+  const blocks = sanitized.split(/\n{2,}/)
+  return blocks.length > 1 ? (
+    <div className="space-y-2 text-left whitespace-pre-line">
+      {blocks.map((block, index) => (
+        <p key={`help-block-${index}`}>{block}</p>
+      ))}
+    </div>
+  ) : (
+    <p className="text-left whitespace-pre-line">{sanitized}</p>
+  )
 }
 
 const oauthSchema = z.object({
@@ -167,23 +163,55 @@ export function ProviderConfigForm({
 
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
   const hasTokenHelp = hasHelpContent(providerTokenHelp)
-  const helpValuesMatch = helpsAreEqual(providerAuthHelp, providerTokenHelp)
-  const scopedHelp =
-    !isMCP && (hasAuthHelp || hasTokenHelp) ? (
-      <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
-        <div className="flex items-start gap-2">
-          <Info className="mt-0.5 h-4 w-4" />
-          <div className="space-y-2">
-            {hasAuthHelp && renderHelpContent(providerAuthHelp)}
-            {hasTokenHelp &&
-              !helpValuesMatch &&
-              renderHelpContent(providerTokenHelp)}
-          </div>
-        </div>
-      </div>
-    ) : null
 
   const currentScopes = integration?.requested_scopes ?? []
+  const defaultScopesList = useMemo(
+    () => (defaultScopes ?? []).filter((scope) => scope.trim().length > 0),
+    [defaultScopes]
+  )
+  const watchedScopes = useWatch({
+    control: form.control,
+    name: "scopes",
+  })
+  const scopesValue = watchedScopes ?? []
+  const normalizedDefaultScopes = useMemo(
+    () => [...defaultScopesList].sort(),
+    [defaultScopesList]
+  )
+  const defaultScopeSuggestions = useMemo(
+    () =>
+      defaultScopesList.map((scope) => ({
+        id: scope,
+        label: scope,
+        value: scope,
+      })),
+    [defaultScopesList]
+  )
+  const normalizedScopesValue = useMemo(
+    () => [...scopesValue].sort(),
+    [scopesValue]
+  )
+  const isAtDefaultScopes = useMemo(() => {
+    if (normalizedDefaultScopes.length === 0) {
+      return normalizedScopesValue.length === 0
+    }
+    if (normalizedDefaultScopes.length !== normalizedScopesValue.length) {
+      return false
+    }
+    return normalizedDefaultScopes.every(
+      (scope, index) => scope === normalizedScopesValue[index]
+    )
+  }, [normalizedDefaultScopes, normalizedScopesValue])
+
+  const handleResetScopes = useCallback(() => {
+    const nextValue = defaultScopesList.length > 0 ? [...defaultScopesList] : []
+    form.setValue("scopes", nextValue, {
+      shouldDirty: !isAtDefaultScopes,
+      shouldTouch: true,
+    })
+    form.clearErrors("scopes")
+    void form.trigger("scopes")
+  }, [defaultScopesList, form, isAtDefaultScopes])
 
   return (
     <div className="flex flex-col gap-6">
@@ -220,7 +248,7 @@ export function ProviderConfigForm({
             </div>
             <div className="flex flex-col gap-2">
               <span className="font-medium text-muted-foreground">
-                OAuth scopes
+                Requested scopes
               </span>
               {currentScopes.length ? (
                 <div className="flex flex-wrap gap-1">
@@ -299,17 +327,29 @@ export function ProviderConfigForm({
 
           <Card>
             <CardHeader>
-              <CardTitle>OAuth endpoints</CardTitle>
+              <CardTitle>Endpoints</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              {scopedHelp}
-
               <FormField
                 control={form.control}
                 name="authorization_endpoint"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Authorization endpoint</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormLabel>Authorization endpoint</FormLabel>
+                      {!isMCP && hasAuthHelp && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs break-words text-left leading-5">
+                              {renderHelpContent(providerAuthHelp)}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
                     <FormControl>
                       <Input
                         {...field}
@@ -318,11 +358,6 @@ export function ProviderConfigForm({
                       />
                     </FormControl>
                     <FormMessage />
-                    {providerDefaultAuth && (
-                      <FormDescription className="text-xs">
-                        Default: {providerDefaultAuth}
-                      </FormDescription>
-                    )}
                   </FormItem>
                 )}
               />
@@ -332,7 +367,21 @@ export function ProviderConfigForm({
                 name="token_endpoint"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Token endpoint</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <FormLabel>Token endpoint</FormLabel>
+                      {!isMCP && hasTokenHelp && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs break-words text-left leading-5">
+                              {renderHelpContent(providerTokenHelp)}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
                     <FormControl>
                       <Input
                         {...field}
@@ -341,11 +390,6 @@ export function ProviderConfigForm({
                       />
                     </FormControl>
                     <FormMessage />
-                    {providerDefaultToken && (
-                      <FormDescription className="text-xs">
-                        Default: {providerDefaultToken}
-                      </FormDescription>
-                    )}
                   </FormItem>
                 )}
               />
@@ -357,24 +401,65 @@ export function ProviderConfigForm({
               <CardTitle>Scopes</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Default scopes
+                  </span>
+                </div>
+                {defaultScopesList.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {defaultScopesList.map((scope) => (
+                      <Badge
+                        key={scope}
+                        variant="secondary"
+                        className="text-xs"
+                      >
+                        {scope}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    No default scopes provided.
+                  </span>
+                )}
+              </div>
+
               <FormField
                 control={form.control}
                 name="scopes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Requested scopes</FormLabel>
+                    <div className="flex items-center justify-between gap-2">
+                      <FormLabel>OAuth scopes</FormLabel>
+                      {(defaultScopesList.length > 0 ||
+                        scopesValue.length > 0) && (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="px-0"
+                          onClick={handleResetScopes}
+                          disabled={isAtDefaultScopes}
+                        >
+                          Reset scopes
+                        </Button>
+                      )}
+                    </div>
                     <FormControl>
                       <MultiTagCommandInput
                         value={field.value ?? []}
                         onChange={field.onChange}
-                        availableOptions={new Set(defaultScopes ?? [])}
+                        suggestions={defaultScopeSuggestions}
+                        searchKeys={["label", "value"]}
+                        allowCustomTags
                         placeholder="Add scopes"
                       />
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      Customize the scopes requested during OAuth. Leave empty
-                      to use defaults.
+                      Configure the OAuth scopes for this integration.
                     </FormDescription>
                   </FormItem>
                 )}

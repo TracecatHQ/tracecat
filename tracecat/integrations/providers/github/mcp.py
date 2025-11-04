@@ -21,8 +21,10 @@ class GitHubMCPProvider(MCPAuthProvider):
     mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
 
     # Fallback OAuth endpoints (GitHub doesn't support discovery)
-    _fallback_auth_endpoint: ClassVar[str] = "https://github.com/login/oauth/authorize"
-    _fallback_token_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str] = (
+        "https://github.com/login/oauth/authorize"
+    )
+    default_token_endpoint: ClassVar[str] = (
         "https://github.com/login/oauth/access_token"
     )
 

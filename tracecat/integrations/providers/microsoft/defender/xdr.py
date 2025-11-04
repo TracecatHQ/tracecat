@@ -3,7 +3,7 @@
 from typing import ClassVar
 
 from tracecat.integrations.providers.microsoft.common import (
-    ENTRA_ID_SETUP_STEPS,
+    MICROSOFT_SETUP_STEPS,
     MicrosoftAuthorizationCodeOAuthProvider,
     MicrosoftClientCredentialsOAuthProvider,
     get_ac_description,
@@ -23,7 +23,7 @@ class MicrosoftDefenderXDRACProvider(MicrosoftAuthorizationCodeOAuthProvider):
         id="microsoft_defender_xdr",
         name="Microsoft Defender for XDR (Delegated)",
         description=get_ac_description("Microsoft Defender for XDR"),
-        setup_steps=ENTRA_ID_SETUP_STEPS,
+        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url="https://learn.microsoft.com/en-us/defender-xdr/api-access",
@@ -43,7 +43,7 @@ class MicrosoftDefenderXDRCCProvider(MicrosoftClientCredentialsOAuthProvider):
         id="microsoft_defender_xdr",
         name="Microsoft Defender for XDR (Service Principal)",
         description=get_cc_description("Microsoft Defender for XDR"),
-        setup_steps=ENTRA_ID_SETUP_STEPS,
+        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url="https://learn.microsoft.com/en-us/defender-xdr/api-access",

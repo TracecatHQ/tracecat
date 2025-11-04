@@ -32,12 +32,7 @@ MICROSOFT_SETUP_STEPS: list[str] = [
     "Configure required API permissions and scopes in the application registration",
     "Copy the application ID and client secret",
     "Configure the authorization and token endpoints for your tenant in Tracecat",
-    "Replace `{tenant}` in the authorization and token endpoints with your directory (tenant) ID",
-    "Learn about directory (tenant) IDs: https://learn.microsoft.com/en-us/azure/active-directory/fundamentals/active-directory-how-to-find-tenant",
 ]
-
-# Alias for backward compatibility
-ENTRA_ID_SETUP_STEPS = MICROSOFT_SETUP_STEPS
 
 
 def get_ac_description(service: str = "Microsoft Graph") -> str:
