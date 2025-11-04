@@ -10,7 +10,14 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react"
 import {
   type Control,
   type FieldPath,
@@ -31,6 +38,17 @@ import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Form,
   FormControl,
@@ -818,12 +836,28 @@ function AgentPresetForm({
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
 }) {
   const slugEditedRef = useRef(mode === "edit")
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
     mode: "onBlur",
     defaultValues: preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES,
   })
+
+  const handleConfirmDelete = async (
+    event: MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault()
+    if (!onDelete) {
+      return
+    }
+    try {
+      await onDelete()
+      setDeleteDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to delete agent preset", error)
+    }
+  }
 
   const {
     fields: toolApprovalFields,
@@ -919,22 +953,55 @@ function AgentPresetForm({
         </div>
         <div className="flex items-center gap-2">
           {mode === "edit" && onDelete ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                if (
-                  confirm("Delete this agent preset? This cannot be undone.")
-                ) {
-                  await onDelete()
+            <AlertDialog
+              open={deleteDialogOpen}
+              onOpenChange={(nextOpen) => {
+                if (isDeleting) {
+                  return
                 }
+                setDeleteDialogOpen(nextOpen)
               }}
-              disabled={isDeleting || isSaving}
             >
-              <Trash2 className="mr-2 size-4" />
-              Delete
-            </Button>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isDeleting || isSaving}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this agent preset?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action permanently removes the preset and cannot be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isDeleting}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={handleConfirmDelete}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <span className="flex items-center">
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                        Deleting...
+                      </span>
+                    ) : (
+                      "Delete"
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           ) : null}
           <Button
             type="button"
