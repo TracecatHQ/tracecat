@@ -8,8 +8,9 @@ Terminology:
 import uuid
 from datetime import datetime
 from typing import Any, Self, TypedDict
+from urllib.parse import urlparse
 
-from pydantic import UUID4, BaseModel, SecretStr
+from pydantic import UUID4, BaseModel, SecretStr, field_validator
 from sqlmodel import Field
 
 from tracecat.identifiers import UserID, WorkspaceID
@@ -105,6 +106,22 @@ class IntegrationUpdate(BaseModel):
         default=None,
         description="OAuth scopes to request for this integration",
     )
+
+    @field_validator("authorization_endpoint", "token_endpoint", mode="before")
+    @classmethod
+    def _validate_https_endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "https":
+            raise ValueError("OAuth endpoints must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("OAuth endpoints must include a hostname")
+        return value
 
 
 class IntegrationOAuthConnect(BaseModel):

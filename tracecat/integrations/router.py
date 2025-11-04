@@ -36,7 +36,10 @@ from tracecat.integrations.schemas import (
     ProviderReadMinimal,
     ProviderSchema,
 )
-from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.service import (
+    InsecureOAuthEndpointError,
+    IntegrationService,
+)
 from tracecat.logger import logger
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -157,6 +160,17 @@ async def oauth_callback(
                     token_endpoint=provider.token_endpoint,
                     requested_scopes=provider.requested_scopes,
                 )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint during OAuth callback",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
         # Log sanitized error details without exposing implementation
         error_msg = str(exc)
@@ -184,16 +198,29 @@ async def oauth_callback(
     token_result = await provider.exchange_code_for_token(code, str(state))
 
     # Store integration tokens for this user
-    await svc.store_integration(
-        user_id=role.user_id,
-        provider_key=key,
-        access_token=token_result.access_token,
-        refresh_token=token_result.refresh_token,
-        expires_in=token_result.expires_in,
-        scope=token_result.scope,
-        authorization_endpoint=provider.authorization_endpoint,
-        token_endpoint=provider.token_endpoint,
-    )
+    try:
+        await svc.store_integration(
+            user_id=role.user_id,
+            provider_key=key,
+            access_token=token_result.access_token,
+            refresh_token=token_result.refresh_token,
+            expires_in=token_result.expires_in,
+            scope=token_result.scope,
+            authorization_endpoint=provider.authorization_endpoint,
+            token_endpoint=provider.token_endpoint,
+        )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint when storing integration",
+            provider=key.id,
+            grant_type=key.grant_type,
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Provider returned insecure OAuth endpoints",
+        ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
 
     redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations/{key.id}?tab=overview&grant_type=authorization_code"
@@ -349,6 +376,17 @@ async def connect_provider(
                     if integration
                     else None
                 )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint while preparing authorization",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
         # Log sanitized error details without exposing implementation
         error_msg = str(exc)
@@ -544,14 +582,26 @@ async def update_integration(
 
     svc = IntegrationService(session, role=role)
     # Store the provider configuration
-    await svc.store_provider_config(
-        provider_key=provider_info.key,
-        client_id=params.client_id,
-        client_secret=params.client_secret,
-        authorization_endpoint=params.authorization_endpoint,
-        token_endpoint=params.token_endpoint,
-        requested_scopes=params.scopes,
-    )
+    try:
+        await svc.store_provider_config(
+            provider_key=provider_info.key,
+            client_id=params.client_id,
+            client_secret=params.client_secret,
+            authorization_endpoint=params.authorization_endpoint,
+            token_endpoint=params.token_endpoint,
+            requested_scopes=params.scopes,
+        )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint on provider update",
+            provider=provider_info.key,
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     logger.info(
         "Provider configuration updated",

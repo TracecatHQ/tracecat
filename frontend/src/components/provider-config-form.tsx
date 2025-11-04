@@ -78,8 +78,17 @@ const oauthSchema = z.object({
   authorization_endpoint: z
     .string()
     .trim()
-    .url({ message: "Enter a valid HTTPS URL" }),
-  token_endpoint: z.string().trim().url({ message: "Enter a valid HTTPS URL" }),
+    .url({ message: "Enter a valid HTTPS URL" })
+    .refine((value) => value.toLowerCase().startsWith("https://"), {
+      message: "Authorization endpoint must use HTTPS",
+    }),
+  token_endpoint: z
+    .string()
+    .trim()
+    .url({ message: "Enter a valid HTTPS URL" })
+    .refine((value) => value.toLowerCase().startsWith("https://"), {
+      message: "Token endpoint must use HTTPS",
+    }),
 })
 
 type OAuthSchema = z.infer<typeof oauthSchema>

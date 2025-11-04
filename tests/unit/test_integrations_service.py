@@ -6,10 +6,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, ValidationError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.db.models import OAuthIntegration
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import (
@@ -17,12 +18,16 @@ from tracecat.integrations.providers.base import (
     ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.schemas import (
+    IntegrationUpdate,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.service import (
+    InsecureOAuthEndpointError,
+    IntegrationService,
+)
 from tracecat.integrations.types import TokenResponse
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1045,6 +1050,112 @@ class TestIntegrationService:
         )
         assert config.authorization_endpoint == authorization_endpoint
         assert config.token_endpoint == token_endpoint
+
+    @pytest.mark.parametrize(
+        ("authorization_endpoint", "token_endpoint"),
+        [
+            (
+                "http://api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token",
+            ),
+            (
+                "https://api.example.com/oauth/authorize",
+                "http://api.example.com/oauth/token",
+            ),
+        ],
+    )
+    async def test_store_provider_config_rejects_insecure_endpoints(
+        self,
+        integration_service: IntegrationService,
+        authorization_endpoint: str,
+        token_endpoint: str,
+    ) -> None:
+        """Ensure insecure OAuth endpoints are rejected before persistence."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        with pytest.raises(InsecureOAuthEndpointError):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="client",
+                client_secret=SecretStr("secret"),
+                authorization_endpoint=authorization_endpoint,
+                token_endpoint=token_endpoint,
+            )
+
+    @pytest.mark.parametrize(
+        ("authorization_endpoint", "token_endpoint"),
+        [
+            (
+                "http://api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token",
+            ),
+            (
+                "https://api.example.com/oauth/authorize",
+                "http://api.example.com/oauth/token",
+            ),
+        ],
+    )
+    async def test_get_provider_config_rejects_insecure_stored_endpoints(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        authorization_endpoint: str,
+        token_endpoint: str,
+    ) -> None:
+        """Ensure provider config is not returned when stored endpoints are insecure."""
+        provider_key = ProviderKey(
+            id="test_provider_insecure",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        insecure_integration = OAuthIntegration(
+            owner_id=integration_service.workspace_id,
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            user_id=None,
+            encrypted_access_token=b"",
+            encrypted_refresh_token=None,
+            encrypted_client_id=integration_service.encrypt_client_credential("client"),
+            encrypted_client_secret=integration_service.encrypt_client_credential(
+                "secret"
+            ),
+            use_workspace_credentials=True,
+            authorization_endpoint=authorization_endpoint,
+            token_endpoint=token_endpoint,
+        )
+
+        session.add(insecure_integration)
+        await session.commit()
+        await session.refresh(insecure_integration)
+
+        config = integration_service.get_provider_config(
+            integration=insecure_integration,
+            default_scopes=["user.read"],
+        )
+
+        assert config is None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("authorization_endpoint", "http://api.example.com/oauth/authorize"),
+            ("token_endpoint", "http://api.example.com/oauth/token"),
+        ],
+    )
+    def test_integration_update_requires_https(
+        self,
+        field: str,
+        value: str,
+    ) -> None:
+        """Ensure request schema rejects insecure OAuth endpoints."""
+        with pytest.raises(ValidationError):
+            IntegrationUpdate(
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                **{field: value},
+            )
 
     async def test_store_provider_config_includes_default_endpoints(
         self,

@@ -678,11 +678,8 @@ export const providerIcons: Record<
     </div>
   ),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
-    <div className={className}>
-      <SlackIcon
-        {...rest}
-        className={cn("size-full !rounded-sm", iconClassName)}
-      />
+    <div className={cn("!rounded-sm", className)}>
+      <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
     </div>
   ),
   custom: ({ className, ...rest }) => (

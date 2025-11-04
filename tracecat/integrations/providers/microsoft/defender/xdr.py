@@ -17,7 +17,7 @@ class MicrosoftDefenderXDRACProvider(MicrosoftAuthorizationCodeOAuthProvider):
 
     id: ClassVar[str] = "microsoft_defender_xdr"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
-        default=["offline_access", "https://api.securitycenter.microsoft.com/.default"],
+        default=["offline_access", "https://api.security.microsoft.com/.default"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="microsoft_defender_xdr",
@@ -37,7 +37,7 @@ class MicrosoftDefenderXDRCCProvider(MicrosoftClientCredentialsOAuthProvider):
 
     id: ClassVar[str] = "microsoft_defender_xdr"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
-        default=["https://api.securitycenter.microsoft.com/.default"],
+        default=["https://api.security.microsoft.com/.default"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="microsoft_defender_xdr",

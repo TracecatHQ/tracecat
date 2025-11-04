@@ -862,11 +862,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             )
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    registration_endpoint, json=registration_payload, timeout=10.0
-                )
-            response.raise_for_status()
+            registration_response = await cls._submit_registration_request(
+                registration_endpoint, registration_payload
+            )
         except httpx.HTTPError as exc:
             logger_instance.error(
                 "Dynamic registration failed",
@@ -875,8 +873,14 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 registration_endpoint=registration_endpoint,
             )
             raise
-
-        registration_response = response.json()
+        except ValueError as exc:
+            logger_instance.error(
+                "Dynamic registration error",
+                provider=cls.id,
+                error=str(exc),
+                registration_endpoint=registration_endpoint,
+            )
+            raise
 
         client_id = registration_response.get("client_id")
         if not client_id:
