@@ -10,8 +10,8 @@ import {
   Flame,
   PanelRight,
   PenLine,
-  SlidersHorizontal,
   Plus,
+  SlidersHorizontal,
   Trash2,
   User,
   X,
@@ -563,12 +563,7 @@ function AgentsActions() {
   }
 
   return (
-    <Button
-      asChild
-      size="sm"
-      variant="outline"
-      className="h-7 bg-white"
-    >
+    <Button asChild size="sm" variant="outline" className="h-7 bg-white">
       <Link
         href={`/workspaces/${workspaceId}/agents/presets`}
         className="flex items-center gap-1.5"

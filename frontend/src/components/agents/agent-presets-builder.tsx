@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import Link from "next/link"
 import {
   AlertCircle,
   Bot,
@@ -11,13 +10,14 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
+import Link from "next/link"
 import {
+  type MouseEvent,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
 } from "react"
 import {
   type Control,
@@ -37,8 +37,6 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +48,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Form,
   FormControl,
