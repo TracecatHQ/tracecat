@@ -482,6 +482,7 @@ export function ProviderConfigForm({
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="submit"
+              variant={integration?.status === "configured" ? "outline" : "default"}
               className="gap-2"
               disabled={updateIntegrationIsPending}
             >
