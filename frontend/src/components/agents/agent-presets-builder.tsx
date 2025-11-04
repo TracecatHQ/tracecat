@@ -808,6 +808,7 @@ function AgentPresetChatPane({
         className="flex-1 min-h-0"
         placeholder={`Talk to ${preset.name}...`}
         modelInfo={modelInfo}
+        toolsEnabled={false}
       />
     )
   }
