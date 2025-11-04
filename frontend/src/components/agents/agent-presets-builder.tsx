@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import Link from "next/link"
 import {
   AlertCircle,
   Bot,
@@ -696,13 +697,23 @@ function AgentPresetChatPane({
 
     if (!providerReady) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
-          <AlertCircle className="size-5 text-amber-500" />
-          <p>
-            Configure credentials for{" "}
-            <span className="font-medium">{preset.model_provider}</span> to chat
-            with this agent.
-          </p>
+        <div className="flex h-full flex-col items-center justify-center px-4">
+          <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+            <AlertCircle className="size-5 text-amber-500" />
+            <p className="text-pretty">
+              This agent uses organization credentials for{" "}
+              <span className="font-medium">{preset.model_provider}</span>.
+              Configure them on the{" "}
+              <Link
+                href={`/organization/settings/agent`}
+                className="font-medium text-primary hover:underline"
+                target="_blank"
+              >
+                organization agent settings page
+              </Link>{" "}
+              to enable chat.
+            </p>
+          </div>
         </div>
       )
     }
@@ -844,9 +855,7 @@ function AgentPresetForm({
     defaultValues: preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES,
   })
 
-  const handleConfirmDelete = async (
-    event: MouseEvent<HTMLButtonElement>
-  ) => {
+  const handleConfirmDelete = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     if (!onDelete) {
       return
