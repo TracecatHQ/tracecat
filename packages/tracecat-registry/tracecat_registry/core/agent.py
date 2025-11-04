@@ -1,6 +1,5 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from dataclasses import replace
 from typing import Annotated, Any
 from typing_extensions import Doc
 
@@ -233,10 +232,8 @@ async def preset_agent(
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
 ) -> dict[str, Any]:
     async with AgentManagementService.with_session() as service:
-        async with service.with_preset_config(
-            slug=preset,
-        ) as preset_config:
-            config = replace(preset_config)
+        preset_config = await service.get_agent_preset_by_slug(preset)
+        config = preset_config.to_agent_config()
 
     if actions is not None:
         config.actions = actions

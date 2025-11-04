@@ -364,7 +364,9 @@ export function AgentPresetsBuilder() {
       <div className="flex h-full items-center justify-center px-6">
         <Alert variant="destructive" className="max-w-xl">
           <AlertTitle>Feature not available</AlertTitle>
-          <AlertDescription>Agent presets feature is not enabled for this workspace.</AlertDescription>
+          <AlertDescription>
+            Agent presets feature is not enabled for this workspace.
+          </AlertDescription>
         </Alert>
       </div>
     )
