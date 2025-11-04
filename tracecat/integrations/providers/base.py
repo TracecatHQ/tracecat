@@ -534,6 +534,13 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         # Initialize logger early for discovery
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
 
+        # Extract endpoint overrides from kwargs if not explicitly provided
+        # This allows users to override defaults via authorization_endpoint/token_endpoint
+        if not discovered_auth_endpoint:
+            discovered_auth_endpoint = kwargs.pop("authorization_endpoint", None)
+        if not discovered_token_endpoint:
+            discovered_token_endpoint = kwargs.pop("token_endpoint", None)
+
         discovery_result = self._resolve_discovery_result(
             discovered_auth_endpoint=discovered_auth_endpoint,
             discovered_token_endpoint=discovered_token_endpoint,
@@ -931,8 +938,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         logger_instance = logger.bind(service=f"{cls.__name__}")
 
         # Extract discovered endpoints from kwargs if provided
-        discovered_auth_endpoint = kwargs.get("authorization_endpoint")
-        discovered_token_endpoint = kwargs.get("token_endpoint")
+        # These will be used as fallbacks if discovery fails
+        discovered_auth_endpoint = kwargs.pop("authorization_endpoint", None)
+        discovered_token_endpoint = kwargs.pop("token_endpoint", None)
 
         discovery_result = await cls._discover_oauth_endpoints_async(
             logger_instance,
