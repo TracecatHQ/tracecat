@@ -47,6 +47,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -202,6 +203,9 @@ export function AgentProfilesBuilder() {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
+  const [sidebarTab, setSidebarTab] = useState<"profiles" | "chat">(
+    "profiles"
+  )
   const { createAgentProfile, createAgentProfileIsPending } =
     useCreateAgentProfile(workspaceId)
   const { updateAgentProfile, updateAgentProfileIsPending } =
@@ -260,6 +264,14 @@ export function AgentProfilesBuilder() {
       ? null
       : (combinedProfiles.find((profile) => profile.id === selectedProfileId) ??
         null)
+
+  const chatTabDisabled = !selectedProfile
+
+  useEffect(() => {
+    if (chatTabDisabled && sidebarTab === "chat") {
+      setSidebarTab("profiles")
+    }
+  }, [chatTabDisabled, sidebarTab])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -347,25 +359,47 @@ export function AgentProfilesBuilder() {
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel defaultSize={26} minSize={18}>
           <div className="flex h-full flex-col border-r bg-muted/40">
-            <div className="flex-1 min-h-0">
-              <ResizablePanelGroup direction="vertical">
-                <ResizablePanel defaultSize={45} minSize={30}>
+            <Tabs
+              value={sidebarTab}
+              onValueChange={(value) => {
+                if (value === "chat" && chatTabDisabled) {
+                  return
+                }
+                setSidebarTab(value as "profiles" | "chat")
+              }}
+              className="flex h-full flex-col"
+            >
+              <div className="px-3 pt-3">
+                <TabsList className="grid h-9 w-full grid-cols-2">
+                  <TabsTrigger value="profiles">Profiles</TabsTrigger>
+                  <TabsTrigger value="chat" disabled={chatTabDisabled}>
+                    Live chat
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <div className="flex-1 min-h-0">
+                <TabsContent
+                  value="profiles"
+                  className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
+                >
                   <ProfilesSidebar
                     profiles={combinedProfiles}
                     selectedId={selectedProfileId}
                     onSelect={(id) => setSelectedProfileId(id)}
                     onCreate={() => setSelectedProfileId(NEW_PROFILE_ID)}
                   />
-                </ResizablePanel>
-                <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={55} minSize={35}>
+                </TabsContent>
+                <TabsContent
+                  value="chat"
+                  className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
+                >
                   <AgentProfileChatPane
                     profile={selectedProfile}
                     workspaceId={workspaceId}
                   />
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </div>
+                </TabsContent>
+              </div>
+            </Tabs>
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
