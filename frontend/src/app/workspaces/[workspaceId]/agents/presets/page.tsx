@@ -9,7 +9,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 export default function AgentPresetsPage() {
   const router = useRouter()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentPresetsEnabled = isFeatureEnabled("agent-approvals")
+  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
 
   useEffect(() => {
     document.title = "Agent Presets"
