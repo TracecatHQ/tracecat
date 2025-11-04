@@ -177,11 +177,11 @@ class CasesService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
+        filters: list[Any] = [col(Case.owner_id) == self.workspace_id]
 
-        # Base query with workspace filter - eagerly load tags and assignee
+        # Base query - eagerly load tags and assignee
         stmt = (
             select(Case)
-            .where(Case.owner_id == self.workspace_id)
             .options(selectinload(Case.tags))  # type: ignore
             .options(selectinload(Case.assignee))  # type: ignore
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
@@ -197,7 +197,7 @@ class CasesService(BaseWorkspaceService):
 
             # Use SQLAlchemy's concat function for proper parameter binding
             search_pattern = func.concat("%", search_term, "%")
-            stmt = stmt.where(
+            filters.append(
                 or_(
                     col(Case.summary).ilike(search_pattern),
                     col(Case.description).ilike(search_pattern),
@@ -206,17 +206,17 @@ class CasesService(BaseWorkspaceService):
 
         normalized_statuses = _normalize_filter_values(status)
         if normalized_statuses:
-            stmt = stmt.where(col(Case.status).in_(normalized_statuses))
+            filters.append(col(Case.status).in_(normalized_statuses))
 
         # Apply priority filter
         normalized_priorities = _normalize_filter_values(priority)
         if normalized_priorities:
-            stmt = stmt.where(col(Case.priority).in_(normalized_priorities))
+            filters.append(col(Case.priority).in_(normalized_priorities))
 
         # Apply severity filter
         normalized_severities = _normalize_filter_values(severity)
         if normalized_severities:
-            stmt = stmt.where(col(Case.severity).in_(normalized_severities))
+            filters.append(col(Case.severity).in_(normalized_severities))
 
         # Apply assignee filter
         if include_unassigned or assignee_ids:
@@ -230,37 +230,32 @@ class CasesService(BaseWorkspaceService):
                 assignee_conditions.append(col(Case.assignee_id).is_(None))
 
             if assignee_conditions:
-                if len(assignee_conditions) == 1:
-                    stmt = stmt.where(assignee_conditions[0])
-                else:
-                    stmt = stmt.where(or_(*assignee_conditions))
+                assignee_clause = (
+                    assignee_conditions[0]
+                    if len(assignee_conditions) == 1
+                    else or_(*assignee_conditions)
+                )
+                filters.append(assignee_clause)
 
         # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
         if tag_ids:
             for tag_id in tag_ids:
-                stmt = stmt.where(
+                filters.append(
                     col(Case.id).in_(
                         select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
                     )
                 )
 
-        has_filters = any(
-            [
-                search_term,
-                normalized_statuses,
-                normalized_priorities,
-                normalized_severities,
-                include_unassigned,
-                assignee_ids,
-                tag_ids,
-            ]
-        )
+        for clause in filters:
+            stmt = stmt.where(clause)
 
-        if has_filters:
-            total_estimate = await paginator.get_table_filtered_row_estimate(stmt)
-        else:
-            # Get estimated total count from table statistics
-            total_estimate = await paginator.get_table_row_estimate("cases")
+        # Compute total count with applied filters (workspace scoped)
+        count_stmt = select(func.count()).select_from(Case)
+        for clause in filters:
+            count_stmt = count_stmt.where(clause)
+
+        total_count = await self.session.scalar(count_stmt)
+        total_estimate = int(total_count or 0)
 
         # Apply cursor filtering
         if params.cursor:

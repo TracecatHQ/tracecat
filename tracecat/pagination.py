@@ -8,7 +8,6 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from pydantic import BaseModel, Field
-from sqlalchemy.sql import Select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 T = TypeVar("T")
@@ -143,27 +142,3 @@ class BaseCursorPaginator:
                 return row[0] if row and row[0] is not None else None
             except Exception:
                 return None
-
-    async def get_table_filtered_row_estimate(self, stmt: Select):
-        try:
-            count_stmt = sa.select(sa.func.count()).select_from(stmt.subquery())
-            compiled = count_stmt.compile(
-                dialect=self.session.bind.dialect,
-                compile_kwargs={"literal_binds": True},
-            )
-            sql_str = str(compiled)
-
-            explain_sql = sa.text(f"EXPLAIN (FORMAT JSON) {sql_str}")
-
-            conn = await self.session.connection()
-            result = await conn.execute(explain_sql)
-
-            explain_json = result.scalar()
-            plan = explain_json[0] if isinstance(explain_json, list) else explain_json
-
-            estimated_rows = (plan.get("Plan", {}).get("Plans") or [{}])[0].get("Plan Rows")
-            if estimated_rows is not None:
-                return int(estimated_rows)
-            return None
-        except Exception:
-            return None
