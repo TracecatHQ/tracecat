@@ -1,7 +1,16 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Bot, Info, Loader2, Plus, Sparkles, Trash2 } from "lucide-react"
+import {
+  AlertCircle,
+  Bot,
+  Info,
+  Loader2,
+  MessageCircle,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import {
   type Control,
@@ -14,7 +23,9 @@ import type {
   AgentProfileCreate,
   AgentProfileRead,
   AgentProfileUpdate,
+  ChatEntity,
 } from "@/client"
+import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -53,9 +64,12 @@ import {
   useDeleteAgentProfile,
   useUpdateAgentProfile,
 } from "@/hooks"
+import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
   useModelProviders,
+  useModelProvidersStatus,
   useRegistryActions,
 } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
@@ -331,13 +345,28 @@ export function AgentProfilesBuilder() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={20} minSize={16}>
-          <ProfilesSidebar
-            profiles={combinedProfiles}
-            selectedId={selectedProfileId}
-            onSelect={(id) => setSelectedProfileId(id)}
-            onCreate={() => setSelectedProfileId(NEW_PROFILE_ID)}
-          />
+        <ResizablePanel defaultSize={26} minSize={18}>
+          <div className="flex h-full flex-col border-r bg-muted/40">
+            <div className="flex-1 min-h-0">
+              <ResizablePanelGroup direction="vertical">
+                <ResizablePanel defaultSize={45} minSize={30}>
+                  <ProfilesSidebar
+                    profiles={combinedProfiles}
+                    selectedId={selectedProfileId}
+                    onSelect={(id) => setSelectedProfileId(id)}
+                    onCreate={() => setSelectedProfileId(NEW_PROFILE_ID)}
+                  />
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={55} minSize={35}>
+                  <AgentProfileChatPane
+                    profile={selectedProfile}
+                    workspaceId={workspaceId}
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={50} minSize={34}>
@@ -416,7 +445,7 @@ function ProfilesSidebar({
   const list = profiles ?? []
 
   return (
-    <div className="flex h-full flex-col border-r bg-muted/40">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <h2 className="text-sm font-semibold tracking-tight">
@@ -433,37 +462,41 @@ function ProfilesSidebar({
           New
         </Button>
       </div>
-      <ScrollArea className="flex-1">
-        <div className="space-y-1 px-2 py-3">
-          {isCreating && (
-            <SidebarItem
-              key={NEW_PROFILE_ID}
-              active
-              onClick={() => onSelect(NEW_PROFILE_ID)}
-              title="New agent profile"
-              description="Draft configuration"
-            />
-          )}
-          {list.length === 0 ? (
-            <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
-              <Bot className="size-4 opacity-60" />
-              <span>No saved profiles yet.</span>
-              <span>Create one to reuse agents across workflows and chat.</span>
-            </div>
-          ) : (
-            list.map((profile) => (
+      <div className="flex-1 min-h-0">
+        <ScrollArea className="h-full">
+          <div className="space-y-1 px-2 py-3">
+            {isCreating && (
               <SidebarItem
-                key={profile.id}
-                active={selectedId === profile.id}
-                onClick={() => onSelect(profile.id)}
-                title={profile.name}
-                description={profile.slug}
-                status={profile.model_name}
+                key={NEW_PROFILE_ID}
+                active
+                onClick={() => onSelect(NEW_PROFILE_ID)}
+                title="New agent profile"
+                description="Draft configuration"
               />
-            ))
-          )}
-        </div>
-      </ScrollArea>
+            )}
+            {list.length === 0 ? (
+              <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
+                <Bot className="size-4 opacity-60" />
+                <span>No saved profiles yet.</span>
+                <span>
+                  Create one to reuse agents across workflows and chat.
+                </span>
+              </div>
+            ) : (
+              list.map((profile) => (
+                <SidebarItem
+                  key={profile.id}
+                  active={selectedId === profile.id}
+                  onClick={() => onSelect(profile.id)}
+                  title={profile.name}
+                  description={profile.slug}
+                  status={profile.model_name}
+                />
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </div>
     </div>
   )
 }
@@ -517,6 +550,195 @@ function SidebarItem({
         </p>
       ) : null}
     </button>
+  )
+}
+
+function AgentProfileChatPane({
+  profile,
+  workspaceId,
+}: {
+  profile: AgentProfileRead | null
+  workspaceId: string
+}) {
+  const [createdChatId, setCreatedChatId] = useState<string | null>(null)
+
+  const { providersStatus, isLoading: providersStatusLoading } =
+    useModelProvidersStatus()
+
+  const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
+    {
+      workspaceId,
+      entityType: "agent_profile" as ChatEntity,
+      entityId: profile?.id,
+      limit: 1,
+    },
+    { enabled: Boolean(profile && workspaceId) }
+  )
+
+  useEffect(() => {
+    setCreatedChatId(null)
+  }, [profile?.id])
+
+  const existingChatId = chats?.[0]?.id
+  const activeChatId = createdChatId ?? existingChatId
+
+  const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { chat, chatLoading, chatError } = useGetChatVercel({
+    chatId: activeChatId,
+    workspaceId,
+  })
+
+  const modelInfo: ModelInfo | null = useMemo(() => {
+    if (!profile) {
+      return null
+    }
+    return {
+      name: profile.model_name,
+      provider: profile.model_provider,
+      baseUrl: profile.base_url ?? null,
+    }
+  }, [profile])
+
+  const providerReady = useMemo(() => {
+    if (!profile) {
+      return false
+    }
+    return providersStatus?.[profile.model_provider] ?? false
+  }, [providersStatus, profile])
+
+  const handleStartChat = async () => {
+    if (!profile || createChatPending) {
+      return
+    }
+    try {
+      const newChat = await createChat({
+        title: `${profile.name} chat`,
+        entity_type: "agent_profile" as ChatEntity,
+        entity_id: profile.id,
+        tools: profile.actions ?? undefined,
+      })
+      setCreatedChatId(newChat.id)
+      await refetchChats()
+    } catch (error) {
+      console.error("Failed to create agent profile chat", error)
+    }
+  }
+
+  const renderBody = () => {
+    if (!profile) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
+          <MessageCircle className="size-5" />
+          <p>Select a saved profile to start a conversation.</p>
+        </div>
+      )
+    }
+
+    if (providersStatusLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    if (!providerReady) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+          <AlertCircle className="size-5 text-amber-500" />
+          <p>
+            Configure credentials for{" "}
+            <span className="font-medium">{profile.model_provider}</span> to
+            chat with this agent.
+          </p>
+        </div>
+      )
+    }
+
+    if (chatsError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Unable to load chat sessions</AlertTitle>
+            <AlertDescription>
+              {typeof chatsError.message === "string"
+                ? chatsError.message
+                : "Something went wrong while fetching the chat session."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    if (!activeChatId) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
+          <Bot className="size-5 text-muted-foreground" />
+          <p>Create a chat session to test this agent live.</p>
+          <Button
+            size="sm"
+            onClick={handleStartChat}
+            disabled={createChatPending}
+          >
+            {createChatPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : null}
+            Start chat
+          </Button>
+        </div>
+      )
+    }
+
+    if (chatLoading || chatsLoading || !chat || !modelInfo) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    if (chatError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Chat unavailable</AlertTitle>
+            <AlertDescription>
+              {typeof chatError.message === "string"
+                ? chatError.message
+                : "We couldn't load the conversation for this agent."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    return (
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType={"agent_profile"}
+        entityId={profile.id}
+        className="flex-1 min-h-0"
+        placeholder={`Talk to ${profile.name}...`}
+        modelInfo={modelInfo}
+      />
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <div>
+          <h3 className="text-sm font-semibold">Interactive session</h3>
+          <p className="text-xs text-muted-foreground">
+            {profile
+              ? `Chat with ${profile.name}`
+              : "Select a profile to begin"}
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">{renderBody()}</div>
+    </div>
   )
 }
 

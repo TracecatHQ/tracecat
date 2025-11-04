@@ -296,3 +296,26 @@ class AgentManagementService(BaseService):
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
             yield model_config
+
+    @contextlib.asynccontextmanager
+    async def with_profile_config(
+        self,
+        *,
+        profile_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> AsyncIterator[AgentConfig]:
+        """Yield an agent profile configuration with provider credentials loaded."""
+
+        profile_config = await self.resolve_agent_profile_config(
+            profile_id=profile_id,
+            slug=slug,
+        )
+        credentials = await self.get_provider_credentials(profile_config.model_provider)
+        if not credentials:
+            raise TracecatNotFoundError(
+                f"No credentials found for provider '{profile_config.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
+
+        with secrets_manager.env_sandbox(credentials):
+            yield profile_config

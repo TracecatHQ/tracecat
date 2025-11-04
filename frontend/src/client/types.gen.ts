@@ -1390,7 +1390,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "agent_profile"
 
 /**
  * Model for chat metadata with a single message.

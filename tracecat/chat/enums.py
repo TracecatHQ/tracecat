@@ -5,6 +5,7 @@ class ChatEntity(StrEnum):
     """The type of entity associated with a chat."""
 
     CASE = "case"
+    AGENT_PROFILE = "agent_profile"
 
 
 class MessageKind(StrEnum):

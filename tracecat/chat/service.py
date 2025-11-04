@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from sqlalchemy.orm import selectinload
@@ -131,28 +132,44 @@ class ChatService(BaseWorkspaceService):
             case _:
                 raise ValueError(f"Unsupported chat request: {request}")
 
-        logger.info(
-            "Received user prompt",
-            prompt_length=len(user_prompt),
-        )
-        # Prepare agent execution arguments
-        instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
+        logger.info("Received user prompt", prompt_length=len(user_prompt))
 
-        # Start agent execution
         agent_svc = AgentManagementService(self.session, self.role)
-        # TODO: Allow model to change per turn
-        async with agent_svc.with_model_config() as model_config:
-            args = RunAgentArgs(
-                user_prompt=user_prompt,
-                session_id=chat_id,
-                config=AgentConfig(
+        chat_entity = ChatEntity(chat.entity_type)
+
+        if chat_entity is ChatEntity.CASE:
+            instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
+            async with agent_svc.with_model_config() as model_config:
+                config = AgentConfig(
                     instructions=instructions,
                     model_name=model_config.name,
                     model_provider=model_config.provider,
                     actions=chat.tools,
-                ),
+                )
+                args = RunAgentArgs(
+                    user_prompt=user_prompt,
+                    session_id=chat_id,
+                    config=config,
+                )
+                await executor.start(args)
+        elif chat_entity is ChatEntity.AGENT_PROFILE:
+            async with agent_svc.with_profile_config(
+                profile_id=chat.entity_id
+            ) as profile_config:
+                # Work on a copy so we don't mutate the cached config
+                config = replace(profile_config)
+                if not config.actions and chat.tools:
+                    config.actions = chat.tools
+                args = RunAgentArgs(
+                    user_prompt=user_prompt,
+                    session_id=chat_id,
+                    config=config,
+                )
+                await executor.start(args)
+        else:
+            raise ValueError(
+                f"Unsupported chat entity type: {chat.entity_type}. Expected one of: {list(ChatEntity)}"
             )
-            await executor.start(args)
 
         # Return response with stream URL
         stream_url = f"/api/chat/{chat_id}/stream"

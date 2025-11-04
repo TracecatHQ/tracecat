@@ -28,7 +28,7 @@ export function isModelMessage(value: unknown): value is ModelMessage {
 }
 
 export function isChatEntity(value: unknown): value is ChatEntity {
-  return value === "case"
+  return value === "case" || value === "agent_profile"
 }
 
 const streamEventKinds = [
@@ -180,11 +180,18 @@ export const ENTITY_TO_INVALIDATION: Record<
       })
     },
   },
+  agent_profile: {
+    predicate: () => false,
+    handler: () => {
+      // No related caches to invalidate for agent profile chats.
+    },
+  },
 }
 
 export type ModelInfo = {
   name: string
   provider: string
+  baseUrl?: string | null
 }
 
 /**

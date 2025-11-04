@@ -9,6 +9,7 @@ TOOL_DEFAULTS = {
         "core.cases.create_comment",
         "core.cases.list_comments",
     ],
+    ChatEntity.AGENT_PROFILE: [],
 }
 
 
