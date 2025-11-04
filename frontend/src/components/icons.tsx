@@ -27,7 +27,10 @@ import {
 import { cn } from "@/lib/utils"
 
 type IconProps = React.HTMLAttributes<SVGElement>
-type CustomIconProps = IconProps & { flairsize?: "sm" | "md" | "lg" }
+type CustomIconProps = IconProps & {
+  flairsize?: "sm" | "md" | "lg"
+  iconClassName?: string
+}
 
 export const Icons = {
   logo: (props: IconProps) => (
@@ -216,6 +219,25 @@ export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
 }
 export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center bg-stone-200/50"
+
+function createIconRenderer(
+  Icon: (props: IconProps) => JSX.Element,
+  options?: { wrapperClassName?: string; iconClassName?: string }
+) {
+  return ({
+    className,
+    iconClassName,
+    flairsize: _unusedFlairSize,
+    ...rest
+  }: CustomIconProps) => (
+    <div className={cn(basicIconsCommon, options?.wrapperClassName, className)}>
+      <Icon
+        {...rest}
+        className={cn("size-full", options?.iconClassName, iconClassName)}
+      />
+    </div>
+  )
+}
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Generic Group
@@ -376,7 +398,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         </g>
       </svg>
     ),
-    "tools.datadog": (props: IconProps) => <DatadogIcon {...props} />,
+    "tools.datadog": createIconRenderer(DatadogIcon),
     // Emailrep namespace
     emailrep: (props: IconProps) => (
       <svg
@@ -416,23 +438,30 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </svg>
     ),
     // URLScan namespace
-    "tools.urlscan": (props: IconProps) => <UrlscanIcon {...props} />,
-    "tools.virustotal": ({ className, ...rest }: IconProps) => (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="100%"
-        height="100%"
-        viewBox="0 0 1024 1024"
-        preserveAspectRatio="xMidYMid meet"
-        className={cn(basicIconsCommon, className)}
-        {...rest}
-      >
-        <circle cx="512" cy="512" r="512" style={{ fill: "#394eff" }} />
-        <path
-          d="M256.1 300.7 468 512.2 256.1 723.3h467.8V300.7H256.1zM678.7 678h-316l167.1-165.8L362.7 346h315.9c.1 0 .1 332 .1 332z"
-          style={{ fill: "#fff" }}
-        />
-      </svg>
+    "tools.urlscan": createIconRenderer(UrlscanIcon),
+    "tools.virustotal": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="100%"
+          height="100%"
+          viewBox="0 0 1024 1024"
+          preserveAspectRatio="xMidYMid meet"
+          className={cn("size-full", iconClassName)}
+          {...rest}
+        >
+          <circle cx="512" cy="512" r="512" style={{ fill: "#394eff" }} />
+          <path
+            d="M256.1 300.7 468 512.2 256.1 723.3h467.8V300.7H256.1zM678.7 678h-316l167.1-165.8L362.7 346h315.9c.1 0 .1 332 .1 332z"
+            style={{ fill: "#fff" }}
+          />
+        </svg>
+      </div>
     ),
     // Project Discovery namespace
     project_discovery: ({ className, ...rest }: IconProps) => (
@@ -448,97 +477,124 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <path d="M0 100v100h200V0H0v100zm126.5-53.1c3.9 1 9.1 2.7 11.8 3.9 3.8 1.7 4.7 2.6 4.7 4.6 0 1.4-1 3.5-2.2 4.6-2.6 2.4-3.6 2.4-16.8-1-17.3-4.4-32.9-1.4-41.4 8-5.7 6.3-7.9 11.6-8.4 20-.5 8.8 1.8 15.7 6.9 20.6 4.4 4.2 3.5 9.1-2.2 10.9-4.1 1.3-11.6-6.8-15.1-16.3-2.4-6.5-2.3-18.4.1-26.1 3.3-10.6 11.8-21.3 20.6-25.9 10.4-5.4 28.4-6.9 42-3.3zM59.9 59.6c2.6 1.9 2.6 2.4-.9 14.4-2.7 9.6-2.9 23.3-.5 30.5 7.5 21.6 34.6 29.7 48.9 14.6 3.6-3.8 7.8-4.1 10-.9 2.4 3.4 1.9 5.5-2.4 10.2-10.6 11.5-28.7 13.7-45.4 5.6-11.1-5.4-19-14.8-22.7-27.1-4.4-14.4-.5-44.3 6.1-47.6 3.3-1.7 4.1-1.6 6.9.3zm59.3 2.5c24.7 5.1 39.1 27.4 35.9 55.3-2.3 19.8-8.1 28.5-15.2 22.7l-2.3-1.8 2.6-8.9c3.4-11.2 4.2-19.2 2.9-27.3-1.9-11.8-8.5-21.1-18.4-25.6-11.5-5.4-22.2-4-31.5 4-3 2.5-5.8 4.5-6.3 4.5-1.8 0-5.9-4.9-5.9-6.9 0-2.8 5.3-8.6 10.8-11.8 8-4.7 17.7-6.2 27.4-4.2zm10 23.7c14.3 15.8 11.8 41.7-5.6 58-7.3 6.8-13.7 9.7-25 11.2-15.9 2.2-41.6-4.3-41.6-10.4 0-.7 1-2.6 2.1-4.1 2.5-3.1 4.1-3.1 15.4.4 8.8 2.7 23.8 3.1 30.4.7 21.2-7.7 28.8-35.3 13.7-49.5-4.6-4.3-2.3-10.1 3.9-10.1 2.5 0 4.1.9 6.7 3.8z" />
       </svg>
     ),
-    "tools.pagerduty": ({ className, ...rest }: IconProps) => (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
+    "tools.pagerduty": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div
         className={cn(
           basicIconsCommon,
           "rounded-xl bg-green-400/20",
           className
         )}
-        {...rest}
       >
-        <path
-          fill="#06AC38"
-          d="M16.965 1.18C15.085.164 13.769 0 10.683 0H3.73v14.55h6.926c2.743 0 4.8-.164 6.61-1.37 1.975-1.303 3.004-3.484 3.004-6.007 0-2.716-1.262-4.896-3.305-5.994zm-5.5 10.326h-4.21V3.113l3.977-.027c3.62-.028 5.43 1.234 5.43 4.128 0 3.113-2.248 4.292-5.197 4.292zM3.73 17.61h3.525V24H3.73Z"
-        />
-      </svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          className={cn("size-full", iconClassName)}
+          {...rest}
+        >
+          <path
+            fill="#06AC38"
+            d="M16.965 1.18C15.085.164 13.769 0 10.683 0H3.73v14.55h6.926c2.743 0 4.8-.164 6.61-1.37 1.975-1.303 3.004-3.484 3.004-6.007 0-2.716-1.262-4.896-3.305-5.994zm-5.5 10.326h-4.21V3.113l3.977-.027c3.62-.028 5.43 1.234 5.43 4.128 0 3.113-2.248 4.292-5.197 4.292zM3.73 17.61h3.525V24H3.73Z"
+          />
+        </svg>
+      </div>
     ),
-    "tools.gophish": ({ className, ...rest }: IconProps) => (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="186.667"
-        height="213.333"
-        viewBox="0 0 174.99999 199.99999"
+    "tools.gophish": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div
         className={cn(
           basicIconsCommon,
           "rounded-full bg-blue-400/20",
           className
         )}
-        {...rest}
       >
-        <g transform="translate(-286.786 -403.79)">
-          <path
-            d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z"
-            fill="#283F50"
-          />
-          <path
-            d="M472.126 134.444l6.911 3.808-6.753 4.081z"
-            transform="matrix(.33514 0 0 .78956 188.901 398.936)"
-            fill="#283F50"
-            stroke="#283F50"
-            stroke-width="4"
-            stroke-linecap="square"
-          />
-          <path
-            d="M348.42 508.015v17.441-17.441z"
-            fill="none"
-            stroke="#283F50"
-            stroke-width="4"
-          />
-          <circle
-            r="6.294"
-            cy="456.744"
-            cx="390.358"
-            fill="none"
-            stroke="#283F50"
-            stroke-width="4"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
-            fill="none"
-            stroke="#283F50"
-            stroke-width="4"
-            stroke-linecap="square"
-          />
-          <g stroke="#283F50">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="186.667"
+          height="213.333"
+          viewBox="0 0 174.99999 199.99999"
+          className={cn("size-full", iconClassName)}
+          {...rest}
+        >
+          <g transform="translate(-286.786 -403.79)">
             <path
-              d="M390.45 463.343v61.879-61.88z"
-              fill="none"
-              stroke-width="4"
-            />
-            <path
-              d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
+              d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z"
               fill="#283F50"
             />
+            <path
+              d="M472.126 134.444l6.911 3.808-6.753 4.081z"
+              transform="matrix(.33514 0 0 .78956 188.901 398.936)"
+              fill="#283F50"
+              stroke="#283F50"
+              stroke-width="4"
+              stroke-linecap="square"
+            />
+            <path
+              d="M348.42 508.015v17.441-17.441z"
+              fill="none"
+              stroke="#283F50"
+              stroke-width="4"
+            />
+            <circle
+              r="6.294"
+              cy="456.744"
+              cx="390.358"
+              fill="none"
+              stroke="#283F50"
+              stroke-width="4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
+              fill="none"
+              stroke="#283F50"
+              stroke-width="4"
+              stroke-linecap="square"
+            />
+            <g stroke="#283F50">
+              <path
+                d="M390.45 463.343v61.879-61.88z"
+                fill="none"
+                stroke-width="4"
+              />
+              <path
+                d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
+                fill="#283F50"
+              />
+            </g>
           </g>
-        </g>
-      </svg>
+        </svg>
+      </div>
     ),
-    "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
-    "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
-    "ai.openai": (props: IconProps) => <OpenAIIcon {...props} />,
-    "llm.ollama": (props: IconProps) => <OllamaIcon {...props} />,
-    openai: (props: IconProps) => <OpenAIIcon {...props} />,
-    ollama: (props: IconProps) => <OllamaIcon {...props} />,
-    "tools.jira": (props: IconProps) => <JiraIcon {...props} />,
-    "ai.anthropic": (props: IconProps) => <ClaudeIcon {...props} />,
-    "tools.github": ({ className, ...rest }: IconProps) => (
+    "tools.slack": createIconRenderer(SlackIcon),
+    "tools.slack_blocks": createIconRenderer(SlackIcon),
+    "ai.openai": createIconRenderer(OpenAIIcon),
+    "llm.ollama": createIconRenderer(OllamaIcon),
+    openai: createIconRenderer(OpenAIIcon),
+    ollama: createIconRenderer(OllamaIcon),
+    "tools.jira": createIconRenderer(JiraIcon),
+    "ai.anthropic": createIconRenderer(ClaudeIcon),
+    "tools.github": createIconRenderer(GitHubIcon),
+    "tools.microsoft_defender_endpoint": ({
+      className,
+      ...rest
+    }: IconProps) => (
       <div className={cn(basicIconsCommon, className)}>
-        <GitHubIcon {...rest} />
+        <MicrosoftDefenderIcon {...rest} />
+      </div>
+    ),
+    "tools.microsoft_defender_xdr": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <MicrosoftDefenderIcon {...rest} />
       </div>
     ),
     "tools.microsoft_sentinel": ({ className, ...rest }: IconProps) => (
@@ -551,7 +607,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <AzureLogAnalyticsIcon {...rest} />
       </div>
     ),
-    "ai.slackbot": (props: IconProps) => <SlackIcon {...props} />,
+    "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
 /**
@@ -572,6 +628,16 @@ export const providerIcons: Record<
     </div>
   ),
   microsoft_defender: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftDefenderIcon {...rest} />
+    </div>
+  ),
+  microsoft_defender_endpoint: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftDefenderIcon {...rest} />
+    </div>
+  ),
+  microsoft_defender_xdr: ({ className, ...rest }) => (
     <div className={className}>
       <MicrosoftDefenderIcon {...rest} />
     </div>
@@ -611,8 +677,13 @@ export const providerIcons: Record<
       <GitHubIcon {...rest} />
     </div>
   ),
-  slack: ({ className, ...rest }) => (
-    <SlackIcon {...rest} className={cn("!rounded-sm", className)} />
+  slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
+    <div className={className}>
+      <SlackIcon
+        {...rest}
+        className={cn("size-full !rounded-sm", iconClassName)}
+      />
+    </div>
   ),
   custom: ({ className, ...rest }) => (
     <div className={className}>
@@ -660,41 +731,37 @@ export function GenericWorkflowIcon({ className, ...rest }: IconProps) {
 
 export function ClaudeIcon({ className, ...rest }: IconProps) {
   return (
-    <div className={cn(basicIconsCommon, className)}>
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="256"
-        height="257"
-        preserveAspectRatio="xMidYMid"
-        viewBox="0 0 256 257"
-        className={cn(basicIconsCommon, className)}
-        {...rest}
-      >
-        <path
-          fill="#D97757"
-          d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
-        />
-      </svg>
-    </div>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="256"
+      height="257"
+      preserveAspectRatio="xMidYMid"
+      viewBox="0 0 256 257"
+      className={className}
+      {...rest}
+    >
+      <path
+        fill="#D97757"
+        d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
+      />
+    </svg>
   )
 }
 
 export function OpenAIIcon({ className, ...rest }: IconProps) {
   return (
-    <div className={cn(basicIconsCommon, className)}>
-      <svg
-        fill="#000000"
-        width="100%"
-        height="100%"
-        viewBox="0 0 24 24"
-        role="img"
-        xmlns="http://www.w3.org/2000/svg"
-        className="rounded-full"
-        {...rest}
-      >
-        <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
-      </svg>
-    </div>
+    <svg
+      fill="#000000"
+      width="100%"
+      height="100%"
+      viewBox="0 0 24 24"
+      role="img"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("rounded-full", className)}
+      {...rest}
+    >
+      <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
+    </svg>
   )
 }
 
@@ -704,7 +771,7 @@ export function SlackIcon({ className, ...rest }: IconProps) {
       enableBackground="new 0 0 2447.6 2452.5"
       viewBox="0 0 2447.6 2452.5"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn(basicIconsCommon, className)}
+      className={className}
       {...rest}
     >
       <g clipRule="evenodd" fillRule="evenodd">
@@ -742,11 +809,7 @@ export function DatadogIcon({ className, ...rest }: IconProps) {
         clipRule: "evenodd",
         fill: "#632ca6",
       }}
-      className={cn(
-        "rounded-full bg-purple-400/20",
-        basicIconsCommon,
-        className
-      )}
+      className={cn("rounded-full bg-purple-400/20", className)}
       {...rest}
     >
       <path d="m670.38 608.27-71.24-46.99-59.43 99.27-69.12-20.21-60.86 92.89 3.12 29.24 330.9-60.97-19.22-206.75-54.15 113.52zm-308.59-89.14 53.09-7.3c8.59 3.86 14.57 5.33 24.87 7.95 16.04 4.18 34.61 8.19 62.11-5.67 6.4-3.17 19.73-15.36 25.12-22.31l217.52-39.46 22.19 268.56-372.65 67.16-32.25-268.93zm404.06-96.77-21.47 4.09L703.13.27.27 81.77l86.59 702.68 82.27-11.94c-6.57-9.38-16.8-20.73-34.27-35.26-24.23-20.13-15.66-54.32-1.37-75.91 18.91-36.48 116.34-82.84 110.82-141.15-1.98-21.2-5.35-48.8-25.03-67.71-.74 7.85.59 15.41.59 15.41s-8.08-10.31-12.11-24.37c-4-5.39-7.14-7.11-11.39-14.31-3.03 8.33-2.63 17.99-2.63 17.99s-6.61-15.62-7.68-28.8c-3.92 5.9-4.91 17.11-4.91 17.11s-8.59-24.62-6.63-37.88c-3.92-11.54-15.54-34.44-12.25-86.49 21.45 15.03 68.67 11.46 87.07-15.66 6.11-8.98 10.29-33.5-3.05-81.81-8.57-30.98-29.79-77.11-38.06-94.61l-.99.71c4.36 14.1 13.35 43.66 16.8 57.99 10.44 43.47 13.24 58.6 8.34 78.64-4.17 17.42-14.17 28.82-39.52 41.56-25.35 12.78-58.99-18.32-61.12-20.04-24.63-19.62-43.68-51.63-45.81-67.18-2.21-17.02 9.81-27.24 15.87-41.16-8.67 2.48-18.34 6.88-18.34 6.88s11.54-11.94 25.77-22.27c5.89-3.9 9.35-6.38 15.56-11.54-8.99-.15-16.29.11-16.29.11s14.99-8.1 30.53-14c-11.37-.5-22.25-.08-22.25-.08s33.45-14.96 59.87-25.94c18.17-7.45 35.92-5.25 45.89 9.17 13.09 18.89 26.84 29.15 55.98 35.51 17.89-7.93 23.33-12.01 45.81-18.13 19.79-21.76 35.33-24.58 35.33-24.58s-7.71 7.07-9.77 18.18c11.22-8.84 23.52-16.22 23.52-16.22s-4.76 5.88-9.2 15.22l1.03 1.53c13.09-7.85 28.48-14.04 28.48-14.04s-4.4 5.56-9.56 12.76c9.87-.08 29.89.42 37.66 1.3 45.87 1.01 55.39-48.99 72.99-55.26 22.04-7.87 31.89-12.63 69.45 24.26 32.23 31.67 57.41 88.36 44.91 101.06-10.48 10.54-31.16-4.11-54.08-32.68-12.11-15.13-21.27-33.01-25.56-55.74-3.62-19.18-17.71-30.31-17.71-30.31S520 92.95 520 109.01c0 8.77 1.1 41.56 15.16 59.96-1.39 2.69-2.04 13.31-3.58 15.34-16.36-19.77-51.49-33.92-57.22-38.09 19.39 15.89 63.96 52.39 81.08 87.37 16.19 33.08 6.65 63.4 14.84 71.25 2.33 2.25 34.82 42.73 41.07 63.07 10.9 35.45.65 72.7-13.62 95.81l-39.85 6.21c-5.83-1.62-9.76-2.43-14.99-5.46 2.88-5.1 8.61-17.82 8.67-20.44l-2.25-3.95c-12.4 17.57-33.18 34.63-50.44 44.43-22.59 12.8-48.63 10.83-65.58 5.58-48.11-14.84-93.6-47.35-104.57-55.89 0 0-.34 6.82 1.73 8.35 12.13 13.68 39.92 38.43 66.78 55.68l-57.26 6.3 27.07 210.78c-12 1.72-13.87 2.56-27.01 4.43-11.58-40.91-33.73-67.62-57.94-83.18-21.35-13.72-50.8-16.81-78.99-11.23l-1.81 2.1c19.6-2.04 42.74.8 66.51 15.85 23.33 14.75 42.13 52.85 49.05 75.79 8.86 29.32 14.99 60.68-8.86 93.92-16.97 23.63-66.51 36.69-106.53 8.44 10.69 17.19 25.14 31.25 44.59 33.9 28.88 3.92 56.29-1.09 75.16-20.46 16.11-16.56 24.65-51.19 22.4-87.66l25.49-3.7 9.2 65.46 421.98-50.81-34.43-335.8zM509.12 244.59c-1.18 2.69-3.03 4.45-.25 13.2l.17.5.44 1.13 1.16 2.62c5.01 10.24 10.51 19.9 19.7 24.83 2.38-.4 4.84-.67 7.39-.8 8.63-.38 14.08.99 17.54 2.85.31-1.72.38-4.24.19-7.95-.67-12.97 2.57-35.03-22.36-46.64-9.41-4.37-22.61-3.02-27.01 2.43.8.1 1.52.27 2.08.46 6.65 2.33 2.14 4.62.95 7.37m69.87 121.02c-3.27-1.8-18.55-1.09-29.29.19-20.46 2.41-42.55 9.51-47.39 13.29-8.8 6.8-4.8 18.66 1.7 23.53 18.23 13.62 34.21 22.75 51.08 20.53 10.36-1.36 19.49-17.76 25.96-32.64 4.43-10.25 4.43-21.31-2.06-24.9M397.85 260.65c5.77-5.48-28.74-12.68-55.52 5.58-19.75 13.47-20.38 42.35-1.47 58.72 1.89 1.62 3.45 2.77 4.91 3.71 5.52-2.6 11.81-5.23 19.05-7.58 12.23-3.97 22.4-6.02 30.76-7.11 4-4.47 8.65-12.34 7.49-26.59-1.58-19.33-16.23-16.26-5.22-26.73" />
@@ -759,7 +822,7 @@ export function UrlscanIcon({ className, ...rest }: IconProps) {
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 950 950"
-      className={cn(basicIconsCommon, "bg-orange-400/20", className)}
+      className={cn("bg-orange-400/20", className)}
       {...rest}
     >
       <path
@@ -802,7 +865,7 @@ export function JiraIcon({ className, ...rest }: IconProps) {
       viewBox="0 0 32 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn("rounded-full bg-blue-400/20", basicIconsCommon, className)}
+      className={cn("rounded-full bg-blue-400/20", className)}
       {...rest}
     >
       <path
@@ -857,7 +920,7 @@ export function OllamaIcon({ className, ...rest }: IconProps) {
       viewBox="0 0 646 854"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn("rounded-full bg-sky-400/20", basicIconsCommon, className)}
+      className={cn("rounded-full bg-sky-400/20", className)}
       {...rest}
     >
       <path
@@ -947,8 +1010,8 @@ export function MicrosoftDefenderIcon({ className, ...rest }: IconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      width="240"
-      height="240"
+      width="48"
+      height="48"
       viewBox="0 0 48 48"
       {...rest}
     >
