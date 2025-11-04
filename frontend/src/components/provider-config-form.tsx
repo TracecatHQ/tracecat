@@ -7,6 +7,7 @@ import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,12 +21,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -157,10 +152,6 @@ export function ProviderConfigForm({
     [grantType, onSuccess, updateIntegration]
   )
 
-  if (integrationIsLoading) {
-    return <ProviderConfigFormSkeleton />
-  }
-
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
   const hasTokenHelp = hasHelpContent(providerTokenHelp)
 
@@ -203,6 +194,30 @@ export function ProviderConfigForm({
     )
   }, [normalizedDefaultScopes, normalizedScopesValue])
 
+  const watchedAuthEndpoint = useWatch({
+    control: form.control,
+    name: "authorization_endpoint",
+  })
+  const watchedTokenEndpoint = useWatch({
+    control: form.control,
+    name: "token_endpoint",
+  })
+  const authEndpointValue = watchedAuthEndpoint ?? ""
+  const tokenEndpointValue = watchedTokenEndpoint ?? ""
+  const defaultAuthEndpoint = providerDefaultAuth ?? ""
+  const defaultTokenEndpoint = providerDefaultToken ?? ""
+  const isAtDefaultEndpoints = useMemo(() => {
+    return (
+      authEndpointValue.trim() === defaultAuthEndpoint.trim() &&
+      tokenEndpointValue.trim() === defaultTokenEndpoint.trim()
+    )
+  }, [
+    authEndpointValue,
+    tokenEndpointValue,
+    defaultAuthEndpoint,
+    defaultTokenEndpoint,
+  ])
+
   const handleResetScopes = useCallback(() => {
     const nextValue = defaultScopesList.length > 0 ? [...defaultScopesList] : []
     form.setValue("scopes", nextValue, {
@@ -212,6 +227,25 @@ export function ProviderConfigForm({
     form.clearErrors("scopes")
     void form.trigger("scopes")
   }, [defaultScopesList, form, isAtDefaultScopes])
+
+  const handleResetEndpoints = useCallback(() => {
+    form.setValue("authorization_endpoint", defaultAuthEndpoint, {
+      shouldDirty: !isAtDefaultEndpoints,
+      shouldTouch: true,
+    })
+    form.setValue("token_endpoint", defaultTokenEndpoint, {
+      shouldDirty: !isAtDefaultEndpoints,
+      shouldTouch: true,
+    })
+    form.clearErrors("authorization_endpoint")
+    form.clearErrors("token_endpoint")
+    void form.trigger("authorization_endpoint")
+    void form.trigger("token_endpoint")
+  }, [defaultAuthEndpoint, defaultTokenEndpoint, form, isAtDefaultEndpoints])
+
+  if (integrationIsLoading) {
+    return <ProviderConfigFormSkeleton />
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -327,29 +361,54 @@ export function ProviderConfigForm({
 
           <Card>
             <CardHeader>
-              <CardTitle>Endpoints</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle>Endpoints</CardTitle>
+                {(defaultAuthEndpoint.length > 0 ||
+                  defaultTokenEndpoint.length > 0 ||
+                  authEndpointValue.length > 0 ||
+                  tokenEndpointValue.length > 0) && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="px-0"
+                    onClick={handleResetEndpoints}
+                    disabled={isAtDefaultEndpoints}
+                  >
+                    Reset endpoints
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {!isMCP && (hasAuthHelp || hasTokenHelp) && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    {hasAuthHelp && (
+                      <div>
+                        <div className="font-medium mb-1">
+                          Authorization endpoint:
+                        </div>
+                        {renderHelpContent(providerAuthHelp)}
+                      </div>
+                    )}
+                    {hasAuthHelp && hasTokenHelp && <div className="mt-3" />}
+                    {hasTokenHelp && (
+                      <div>
+                        <div className="font-medium mb-1">Token endpoint:</div>
+                        {renderHelpContent(providerTokenHelp)}
+                      </div>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
               <FormField
                 control={form.control}
                 name="authorization_endpoint"
                 render={({ field }) => (
                   <FormItem>
-                    <div className="flex items-center gap-2">
-                      <FormLabel>Authorization endpoint</FormLabel>
-                      {!isMCP && hasAuthHelp && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs break-words text-left leading-5">
-                              {renderHelpContent(providerAuthHelp)}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
+                    <FormLabel>Authorization endpoint</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -358,6 +417,10 @@ export function ProviderConfigForm({
                       />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription className="text-xs">
+                      Initiates the OAuth consent flow with the provider. Keep
+                      the default unless a custom authorization URL is required.
+                    </FormDescription>
                   </FormItem>
                 )}
               />
@@ -367,21 +430,7 @@ export function ProviderConfigForm({
                 name="token_endpoint"
                 render={({ field }) => (
                   <FormItem>
-                    <div className="flex items-center gap-2">
-                      <FormLabel>Token endpoint</FormLabel>
-                      {!isMCP && hasTokenHelp && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs break-words text-left leading-5">
-                              {renderHelpContent(providerTokenHelp)}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
+                    <FormLabel>Token endpoint</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -390,6 +439,10 @@ export function ProviderConfigForm({
                       />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription className="text-xs">
+                      Exchanges authorization codes for tokens at the provider.
+                      Keep the default unless a different token URL is required.
+                    </FormDescription>
                   </FormItem>
                 )}
               />
@@ -466,23 +519,12 @@ export function ProviderConfigForm({
               />
             </CardContent>
           </Card>
-
-          {isMCP && (
-            <Card className="border-warning">
-              <CardContent className="flex gap-2 py-4 text-sm text-warning">
-                <Info className="mt-0.5 h-4 w-4" />
-                <p>
-                  Hosted MCP providers support dynamic client registration.
-                  Leave the client credentials blank to register automatically.
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="submit"
-              variant={integration?.status === "configured" ? "outline" : "default"}
+              variant={
+                integration?.status === "configured" ? "outline" : "default"
+              }
               className="gap-2"
               disabled={updateIntegrationIsPending}
             >

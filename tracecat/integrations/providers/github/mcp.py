@@ -51,4 +51,6 @@ class GitHubMCPProvider(MCPAuthProvider):
             "Complete authorization to enable MCP integration",
         ],
         api_docs_url="https://docs.github.com/en/copilot",
+        setup_guide_url="https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/set-up-the-github-mcp-server",
+        troubleshooting_url="https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors",
     )

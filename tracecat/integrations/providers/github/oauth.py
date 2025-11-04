@@ -5,11 +5,6 @@ from typing import ClassVar
 from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
-GITHUB_ENDPOINT_HELP = (
-    "Default endpoints for GitHub.com. Replace the domain for GitHub Enterprise, e.g. "
-    "https://github.mycompany.com/login/oauth/authorize and /login/oauth/access_token"
-)
-
 
 class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
     """GitHub OAuth provider using authorization code flow for user access."""
@@ -32,7 +27,7 @@ class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
         enabled=True,
         api_docs_url="https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",
         setup_guide_url="https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app",
-        troubleshooting_url="https://docs.github.com/authentication/troubleshooting-oauth-app-access-token-request-errors",
+        troubleshooting_url="https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors",
     )
     default_authorization_endpoint: ClassVar[str] = (
         "https://github.com/login/oauth/authorize"
@@ -40,5 +35,3 @@ class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
     default_token_endpoint: ClassVar[str] = (
         "https://github.com/login/oauth/access_token"
     )
-    authorization_endpoint_help: ClassVar[str | None] = GITHUB_ENDPOINT_HELP
-    token_endpoint_help: ClassVar[str | None] = GITHUB_ENDPOINT_HELP

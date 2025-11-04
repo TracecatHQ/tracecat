@@ -8,16 +8,18 @@ from tracecat.integrations.providers.base import (
 )
 
 MICROSOFT_DEFAULT_AUTHORIZATION_ENDPOINT = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+    "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 )
 MICROSOFT_DEFAULT_TOKEN_ENDPOINT = (
-    "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 )
 
 MICROSOFT_SOVEREIGN_AUTH_HELP: list[str] = [
     "Cloud-specific authorize endpoints:",
     "- Commercial (Public): https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
     "- US Gov (GCC/GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/authorize",
+    "\n",
+    "Replace {tenant} in the authorization and token endpoints with your directory (tenant) ID, 'common' for multi-tenant applications, or 'consumers' for personal accounts.",
 ]
 
 MICROSOFT_SOVEREIGN_TOKEN_HELP: list[str] = [
