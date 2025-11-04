@@ -178,9 +178,6 @@ class CasesService(BaseWorkspaceService):
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
 
-        # Get estimated total count from table statistics
-        total_estimate = await paginator.get_table_row_estimate("cases")
-
         # Base query with workspace filter - eagerly load tags and assignee
         stmt = (
             select(Case)
@@ -246,6 +243,24 @@ class CasesService(BaseWorkspaceService):
                         select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
                     )
                 )
+
+        has_filters = any(
+            [
+                search_term,
+                normalized_statuses,
+                normalized_priorities,
+                normalized_severities,
+                include_unassigned,
+                assignee_ids,
+                tag_ids,
+            ]
+        )
+
+        if has_filters:
+            total_estimate = await paginator.get_table_filtered_row_estimate(stmt)
+        else:
+            # Get estimated total count from table statistics
+            total_estimate = await paginator.get_table_row_estimate("cases")
 
         # Apply cursor filtering
         if params.cursor:
