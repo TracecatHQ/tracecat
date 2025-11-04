@@ -4,12 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   Bot,
-  Info,
   Loader2,
   MessageCircle,
   Plus,
   RotateCcw,
-  Sparkles,
   Trash2,
 } from "lucide-react"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
@@ -48,7 +46,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -59,6 +56,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   useAgentProfiles,
@@ -204,9 +202,7 @@ export function AgentProfilesBuilder() {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
-  const [sidebarTab, setSidebarTab] = useState<"profiles" | "chat">(
-    "profiles"
-  )
+  const [sidebarTab, setSidebarTab] = useState<"profiles" | "chat">("profiles")
   const { createAgentProfile, createAgentProfileIsPending } =
     useCreateAgentProfile(workspaceId)
   const { updateAgentProfile, updateAgentProfileIsPending } =
@@ -458,7 +454,10 @@ export function AgentProfilesBuilder() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={30} minSize={20}>
-          <AgentBuilderAssistant selectedProfile={selectedProfile} />
+          <AgentProfileBuilderChatPane
+            profile={selectedProfile}
+            workspaceId={workspaceId}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -777,7 +776,7 @@ function AgentProfileChatPane({
           <Button
             size="sm"
             variant="ghost"
-            onClick={handleResetChat}
+            onClick={() => void handleResetChat()}
             disabled={createChatPending || !canStartChat}
           >
             {createChatPending ? (
@@ -1663,121 +1662,221 @@ function KeyValueFieldArray({
   )
 }
 
-function AgentBuilderAssistant({
-  selectedProfile,
+function AgentProfileBuilderChatPane({
+  profile,
+  workspaceId,
 }: {
-  selectedProfile: AgentProfileRead | null
+  profile: AgentProfileRead | null
+  workspaceId: string
 }) {
+  const profileId = profile?.id
+  const [createdChatId, setCreatedChatId] = useState<string | null>(null)
+
+  const { providersStatus, isLoading: providersStatusLoading } =
+    useModelProvidersStatus()
+
+  const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
+    {
+      workspaceId,
+      entityType: "agent_profile_builder" as ChatEntity,
+      entityId: profileId ?? undefined,
+      limit: 1,
+    },
+    { enabled: Boolean(profileId && workspaceId) }
+  )
+
+  useEffect(() => {
+    setCreatedChatId(null)
+  }, [profileId])
+
+  const existingChatId = chats?.[0]?.id
+  const activeChatId = createdChatId ?? existingChatId
+
+  const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { chat, chatLoading, chatError } = useGetChatVercel({
+    chatId: activeChatId,
+    workspaceId,
+  })
+
+  const modelInfo: ModelInfo | null = useMemo(() => {
+    if (!profile) {
+      return null
+    }
+    return {
+      name: profile.model_name,
+      provider: profile.model_provider,
+      baseUrl: profile.base_url ?? null,
+    }
+  }, [profile])
+
+  const providerReady = useMemo(() => {
+    if (!profileId) {
+      return false
+    }
+    const provider = profile?.model_provider ?? ""
+    return providersStatus?.[provider] ?? false
+  }, [providersStatus, profile?.model_provider, profileId])
+
+  const canStartChat = Boolean(profileId && providerReady)
+
+  const handleStartChat = async (forceNew = false) => {
+    if (!profile || !profileId || createChatPending || !providerReady) {
+      return
+    }
+
+    if (!forceNew && activeChatId) {
+      return
+    }
+
+    try {
+      const newChat = await createChat({
+        title: `${profile.name} builder assistant`,
+        entity_type: "agent_profile_builder" as ChatEntity,
+        entity_id: profileId,
+      })
+      setCreatedChatId(newChat.id)
+      await refetchChats()
+    } catch (error) {
+      console.error("Failed to create builder assistant chat", error)
+    }
+  }
+
+  const handleResetChat = async () => {
+    if (!canStartChat) {
+      return
+    }
+    await handleStartChat(true)
+  }
+
+  const renderBody = () => {
+    if (!profileId) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
+          <MessageCircle className="size-5" />
+          <p>Save this profile to chat with the builder assistant.</p>
+        </div>
+      )
+    }
+
+    if (providersStatusLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    if (!providerReady) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+          <AlertCircle className="size-5 text-amber-500" />
+          <p>
+            Configure credentials for{" "}
+            <span className="font-medium">
+              {profile?.model_provider ?? "this provider"}
+            </span>{" "}
+            to enable the builder assistant.
+          </p>
+        </div>
+      )
+    }
+
+    if (chatsError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Unable to load assistant chat</AlertTitle>
+            <AlertDescription>
+              {typeof chatsError.message === "string"
+                ? chatsError.message
+                : "Something went wrong while fetching the builder chat."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    if (!activeChatId) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
+          <MessageCircle className="size-5 text-muted-foreground" />
+          <p>Ask the assistant for prompt suggestions to get started.</p>
+          <Button
+            size="sm"
+            onClick={() => void handleStartChat()}
+            disabled={createChatPending || !canStartChat}
+          >
+            {createChatPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : null}
+            Start assistant
+          </Button>
+        </div>
+      )
+    }
+
+    if (chatLoading || chatsLoading || !chat || !modelInfo) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    if (chatError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Assistant unavailable</AlertTitle>
+            <AlertDescription>
+              {typeof chatError.message === "string"
+                ? chatError.message
+                : "We couldn't load the builder assistant."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    return (
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType={"agent_profile_builder"}
+        entityId={profileId}
+        className="flex-1 min-h-0"
+        placeholder={`Ask ${profile?.name ?? "the assistant"} to refine the system prompt...`}
+        modelInfo={modelInfo}
+      />
+    )
+  }
+
   return (
-    <div className="flex h-full flex-col bg-muted/30">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <Sparkles className="size-4 text-sky-500" />
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <h3 className="text-sm font-semibold">Builder assistant</h3>
           <p className="text-xs text-muted-foreground">
-            Tips for refining prompts, tools, and workflows.
+            Get help drafting or refining this agent&apos;s system prompt.
           </p>
         </div>
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="space-y-4 px-4 py-4 text-xs text-muted-foreground">
-          {selectedProfile ? (
-            <div className="rounded-md border bg-background px-3 py-3">
-              <h4 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-                <Bot className="size-4" />
-                {selectedProfile.name}
-              </h4>
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
-                <li>
-                  Model:{" "}
-                  <span className="font-medium text-foreground">
-                    {selectedProfile.model_provider}/
-                    {selectedProfile.model_name}
-                  </span>
-                </li>
-                {selectedProfile.actions?.length ? (
-                  <li>
-                    Tools ({selectedProfile.actions.length}):{" "}
-                    {selectedProfile.actions.join(", ")}
-                  </li>
-                ) : (
-                  <li>No tools attached yet.</li>
-                )}
-              </ul>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed px-3 py-3">
-              <p className="font-medium text-foreground">
-                Start by filling in profile details.
-              </p>
-              <p className="mt-1 leading-relaxed">
-                Once you save the profile you&apos;ll unlock workflow execution
-                via{" "}
-                <code className="font-mono text-[11px]">
-                  ai.execute_subagent
-                </code>
-                .
-              </p>
-            </div>
-          )}
-          <AssistantCard
-            title="Prompt recipe"
-            bullets={[
-              "Clarify the agent's mission in one sentence.",
-              "List required context (case data, workflow inputs).",
-              "Define output expectations and formatting.",
-              "Call out guardrails and escalation paths.",
-            ]}
-          />
-          <AssistantCard
-            title="Tooling checklist"
-            bullets={[
-              "Add only the minimal set of tools this agent needs.",
-              "Group related actions with namespaces for easier auditing.",
-              "Use approval rules for sensitive actions (e.g. Slack, HTTP).",
-            ]}
-          />
-          <AssistantCard
-            title="Workflow integration"
-            bullets={[
-              "Use ai.execute_subagent with profile slug or id.",
-              "Pass workflow context in the `data` argument (JSON).",
-              "Capture `session_id` to trace downstream activity.",
-            ]}
-          />
-          <div className="rounded-md border px-3 py-3 text-xs">
-            <h4 className="mb-1 font-semibold text-foreground">
-              Need inspiration?
-            </h4>
-            <p>
-              Try cloning a profile from another workspace or build alongside a
-              case chat session to iterate faster.
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void handleResetChat()}
+            disabled={createChatPending || !canStartChat}
+          >
+            {createChatPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-2 size-4" />
+            )}
+            Reset assistant
+          </Button>
         </div>
-      </ScrollArea>
-    </div>
-  )
-}
-
-function AssistantCard({
-  title,
-  bullets,
-}: {
-  title: string
-  bullets: string[]
-}) {
-  return (
-    <div className="rounded-md border bg-background px-3 py-3">
-      <div className="flex items-center gap-2">
-        <Info className="size-4 text-sky-500" />
-        <h4 className="text-[13px] font-semibold text-foreground">{title}</h4>
       </div>
-      <ul className="mt-2 list-disc space-y-1 pl-4">
-        {bullets.map((bullet) => (
-          <li key={bullet}>{bullet}</li>
-        ))}
-      </ul>
+      <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
   )
 }

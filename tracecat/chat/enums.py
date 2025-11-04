@@ -6,6 +6,7 @@ class ChatEntity(StrEnum):
 
     CASE = "case"
     AGENT_PROFILE = "agent_profile"
+    AGENT_PROFILE_BUILDER = "agent_profile_builder"
 
 
 class MessageKind(StrEnum):

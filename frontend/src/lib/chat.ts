@@ -28,7 +28,11 @@ export function isModelMessage(value: unknown): value is ModelMessage {
 }
 
 export function isChatEntity(value: unknown): value is ChatEntity {
-  return value === "case" || value === "agent_profile"
+  return (
+    value === "case" ||
+    value === "agent_profile" ||
+    value === "agent_profile_builder"
+  )
 }
 
 const streamEventKinds = [
@@ -184,6 +188,12 @@ export const ENTITY_TO_INVALIDATION: Record<
     predicate: () => false,
     handler: () => {
       // No related caches to invalidate for agent profile chats.
+    },
+  },
+  agent_profile_builder: {
+    predicate: () => false,
+    handler: () => {
+      // No cache invalidation required for builder assistant chats.
     },
   },
 }

@@ -8,6 +8,7 @@ from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
+from tracecat.agent.profiles.prompts import AgentProfileBuilderPrompt
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, ModelMessageTA
@@ -83,6 +84,11 @@ class ChatService(BaseWorkspaceService):
         if entity_type == ChatEntity.CASE:
             case = await self._get_case(chat.entity_id)
             return CaseCopilotPrompts(case=case).instructions
+        if entity_type == ChatEntity.AGENT_PROFILE_BUILDER:
+            agent_service = AgentManagementService(self.session, self.role)
+            profile = await agent_service.get_agent_profile(chat.entity_id)
+            prompt = AgentProfileBuilderPrompt(profile=profile)
+            return prompt.instructions
         else:
             raise ValueError(
                 f"Unsupported chat entity type: {entity_type}. Expected one of: {list(ChatEntity)}"
@@ -160,6 +166,21 @@ class ChatService(BaseWorkspaceService):
                 config = replace(profile_config)
                 if not config.actions and chat.tools:
                     config.actions = chat.tools
+                args = RunAgentArgs(
+                    user_prompt=user_prompt,
+                    session_id=chat_id,
+                    config=config,
+                )
+                await executor.start(args)
+        elif chat_entity is ChatEntity.AGENT_PROFILE_BUILDER:
+            instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
+            async with agent_svc.with_model_config() as model_config:
+                config = AgentConfig(
+                    instructions=instructions,
+                    model_name=model_config.name,
+                    model_provider=model_config.provider,
+                    actions=None,
+                )
                 args = RunAgentArgs(
                     user_prompt=user_prompt,
                     session_id=chat_id,
