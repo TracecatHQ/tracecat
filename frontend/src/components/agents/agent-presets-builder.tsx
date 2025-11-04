@@ -84,6 +84,7 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks"
 import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
@@ -216,8 +217,13 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
 
 export function AgentPresetsBuilder() {
   const workspaceId = useWorkspaceId()
-  const { presets, presetsIsLoading, presetsError } =
-    useAgentPresets(workspaceId)
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
+    workspaceId,
+    { enabled: agentPresetsEnabled && !featureFlagsLoading }
+  )
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
@@ -348,6 +354,21 @@ export function AgentPresetsBuilder() {
     Object.keys(modelOptionsByProvider).forEach((provider) => set.add(provider))
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [modelOptionsByProvider, providers])
+
+  if (featureFlagsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (!agentPresetsEnabled) {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <Alert variant="destructive" className="max-w-xl">
+          <AlertTitle>Feature not available</AlertTitle>
+          <AlertDescription>Agent presets feature is not enabled for this workspace.</AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   if (presetsIsLoading) {
     return <CenteredSpinner />
