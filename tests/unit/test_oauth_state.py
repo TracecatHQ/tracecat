@@ -327,7 +327,8 @@ class TestOAuthState:
             provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
-            provider_config={"redirect_uri": "http://localhost:8000/callback"},
+            authorization_endpoint="https://login.example.com/oauth2/v2.0/authorize",
+            token_endpoint="https://login.example.com/oauth2/v2.0/token",
         )
 
         # Ensure role has required fields

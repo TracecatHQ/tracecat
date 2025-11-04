@@ -18,20 +18,18 @@ class GitHubMCPProvider(MCPAuthProvider):
     """
 
     id: ClassVar[str] = "github_mcp"
-    token_endpoint_auth_methods_supported: ClassVar[list[str]] = ["none"]
-
-    # MCP server endpoint
-    _mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
+    mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
 
     # Fallback OAuth endpoints (GitHub doesn't support discovery)
-    _fallback_auth_endpoint: ClassVar[str] = "https://github.com/login/oauth/authorize"
-    _fallback_token_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str] = (
+        "https://github.com/login/oauth/authorize"
+    )
+    default_token_endpoint: ClassVar[str] = (
         "https://github.com/login/oauth/access_token"
     )
 
     # No default scopes - authorization server determines based on user permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
-
     # Provider metadata
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="github_mcp",
@@ -53,4 +51,6 @@ class GitHubMCPProvider(MCPAuthProvider):
             "Complete authorization to enable MCP integration",
         ],
         api_docs_url="https://docs.github.com/en/copilot",
+        setup_guide_url="https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/set-up-the-github-mcp-server",
+        troubleshooting_url="https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors",
     )

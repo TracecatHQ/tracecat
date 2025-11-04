@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     Interval,
     String,
+    Text,
     func,
     text,
 )
@@ -1540,10 +1541,15 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         default=OAuthGrantType.AUTHORIZATION_CODE,
         description="OAuth grant type used for this integration",
     )
-    provider_config: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
-        description="Provider-specific configuration for the integration",
+    authorization_endpoint: str | None = Field(
+        default=None,
+        sa_column=Column(Text),
+        description="OAuth authorization endpoint configured for this integration",
+    )
+    token_endpoint: str | None = Field(
+        default=None,
+        sa_column=Column(Text),
+        description="OAuth token endpoint configured for this integration",
     )
 
     # Relationships
