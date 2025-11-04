@@ -465,9 +465,17 @@ class TestCoreCreateTable:
         mock_service = AsyncMock()
 
         # Create a chain of exceptions: ProgrammingError wrapping DuplicateTableError
+        # SQLAlchemy's ProgrammingError chains exceptions via __cause__
         duplicate_error = DuplicateTableError("relation already exists")
         programming_error = ProgrammingError("statement", {}, duplicate_error)
-        mock_service.create_table.side_effect = programming_error
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = duplicate_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -490,12 +498,24 @@ class TestCoreCreateTable:
         mock_service = AsyncMock()
 
         # Create a chain of exceptions: ProgrammingError wrapping DuplicateTableError
+        # SQLAlchemy's ProgrammingError chains exceptions via __cause__
         duplicate_error = DuplicateTableError("relation already exists")
         programming_error = ProgrammingError("statement", {}, duplicate_error)
-        mock_service.create_table.side_effect = programming_error
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = duplicate_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
 
         # Mock get_table_by_name to return the existing table
         mock_service.get_table_by_name.return_value = mock_table
+
+        # Mock session.rollback() for the rollback call (must be async)
+        mock_service.session = MagicMock()
+        mock_service.session.rollback = AsyncMock()
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -507,6 +527,9 @@ class TestCoreCreateTable:
 
         # Assert create_table was called first
         mock_service.create_table.assert_called_once()
+
+        # Assert rollback was called
+        mock_service.session.rollback.assert_called_once()
 
         # Assert get_table_by_name was called to fetch existing table
         mock_service.get_table_by_name.assert_called_once_with("test_table")
@@ -525,7 +548,14 @@ class TestCoreCreateTable:
         # Create a ProgrammingError with a different cause (not DuplicateTableError)
         other_error = Exception("Some other database error")
         programming_error = ProgrammingError("statement", {}, other_error)
-        mock_service.create_table.side_effect = programming_error
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = other_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
