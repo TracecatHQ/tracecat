@@ -708,6 +708,7 @@ function AgentPresetChatPane({
                 href={`/organization/settings/agent`}
                 className="font-medium text-primary hover:underline"
                 target="_blank"
+                rel="noopener noreferrer"
               >
                 organization agent settings page
               </Link>{" "}
