@@ -103,6 +103,7 @@ import {
   type IntegrationReadMinimal,
   type IntegrationUpdate,
   integrationsConnectProvider,
+  integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
   integrationsGetIntegration,
   integrationsListIntegrations,
@@ -4405,6 +4406,42 @@ export function useIntegrationProvider({
     },
   })
 
+  const {
+    mutateAsync: deleteIntegration,
+    isPending: deleteIntegrationIsPending,
+    error: deleteIntegrationError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsDeleteIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId, grantType],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
+      })
+      toast({
+        title: "Connection deleted",
+        description: "Removed integration configuration",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to delete integration:", error)
+      toast({
+        title: "Failed to delete",
+        description: `Could not delete integration: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
   // Test connection for client credentials providers
   const {
     mutateAsync: testConnection,
@@ -4459,6 +4496,9 @@ export function useIntegrationProvider({
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
+    deleteIntegration,
+    deleteIntegrationIsPending,
+    deleteIntegrationError,
     testConnection,
     testConnectionIsPending,
     testConnectionError,
