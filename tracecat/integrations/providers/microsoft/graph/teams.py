@@ -25,7 +25,7 @@ class MicrosoftTeamsACProvider(MicrosoftGraphACProvider):
     )
     metadata: ClassVar[ProviderMetadata] = get_graph_ac_metadata(
         id="microsoft_teams",
-        name="Microsoft Teams (Delegated)",
+        name="Microsoft Teams",
     )
 
 
@@ -40,5 +40,5 @@ class MicrosoftTeamsCCProvider(MicrosoftGraphCCProvider):
     )
     metadata: ClassVar[ProviderMetadata] = get_graph_cc_metadata(
         id="microsoft_teams",
-        name="Microsoft Teams (Service account)",
+        name="Microsoft Teams",
     )

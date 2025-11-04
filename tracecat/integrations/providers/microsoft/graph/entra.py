@@ -25,7 +25,7 @@ class MicrosoftEntraACProvider(MicrosoftGraphACProvider):
     )
     metadata: ClassVar[ProviderMetadata] = get_graph_ac_metadata(
         id="microsoft_entra",
-        name="Microsoft Entra ID (Delegated)",
+        name="Microsoft Entra ID",
     )
 
 
@@ -38,5 +38,5 @@ class MicrosoftEntraCCProvider(MicrosoftGraphCCProvider):
     )
     metadata: ClassVar[ProviderMetadata] = get_graph_cc_metadata(
         id="microsoft_entra",
-        name="Microsoft Entra ID (Service account)",
+        name="Microsoft Entra ID",
     )
