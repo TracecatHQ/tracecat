@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
-from tracecat.agent.presets.schemas import (
-    AgentPresetCreate,
-    AgentPresetRead,
-    AgentPresetUpdate,
-)
+from tracecat.agent.presets.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.presets.service import AgentPresetsService
 from tracecat.agent.schemas import (
     ModelConfig,
@@ -22,8 +18,7 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentPreset as AgentPresetModel
-from tracecat.db.models import OrganizationSecret
+from tracecat.db.models import AgentPreset, OrganizationSecret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -58,42 +53,37 @@ class AgentManagementService(BaseService):
             )
         return self._presets_service
 
-    async def list_agent_presets(self) -> list[AgentPresetRead]:
+    async def list_agent_presets(self) -> Sequence[AgentPreset]:
         """List agent presets in the current workspace."""
 
         service = self._get_presets_service()
-        presets = await service.list_presets()
-        return [self._serialize_preset(preset) for preset in presets]
+        return await service.list_presets()
 
-    async def get_agent_preset(self, preset_id: uuid.UUID) -> AgentPresetRead:
+    async def get_agent_preset(self, preset_id: uuid.UUID) -> AgentPreset:
         """Retrieve a single agent preset by ID."""
 
         service = self._get_presets_service()
-        preset = await service.get_preset(preset_id)
-        return self._serialize_preset(preset)
+        return await service.get_preset(preset_id)
 
-    async def get_agent_preset_by_slug(self, slug: str) -> AgentPresetRead:
+    async def get_agent_preset_by_slug(self, slug: str) -> AgentPreset:
         """Retrieve an agent preset by slug."""
 
         service = self._get_presets_service()
-        preset = await service.get_preset_by_slug(slug)
-        return self._serialize_preset(preset)
+        return await service.get_preset_by_slug(slug)
 
-    async def create_agent_preset(self, params: AgentPresetCreate) -> AgentPresetRead:
+    async def create_agent_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset."""
 
         service = self._get_presets_service()
-        preset = await service.create_preset(params)
-        return self._serialize_preset(preset)
+        return await service.create_preset(params)
 
     async def update_agent_preset(
         self, preset_id: uuid.UUID, params: AgentPresetUpdate
-    ) -> AgentPresetRead:
+    ) -> AgentPreset:
         """Update an existing agent preset."""
 
         service = self._get_presets_service()
-        preset = await service.update_preset(preset_id, params)
-        return self._serialize_preset(preset)
+        return await service.update_preset(preset_id, params)
 
     async def delete_agent_preset(self, preset_id: uuid.UUID) -> None:
         """Delete an agent preset."""
@@ -116,9 +106,6 @@ class AgentManagementService(BaseService):
         if preset_id is not None:
             return await service.get_agent_config(preset_id)
         return await service.get_agent_config_by_slug(slug or "")
-
-    def _serialize_preset(self, preset: AgentPresetModel) -> AgentPresetRead:
-        return AgentPresetRead.model_validate(preset)
 
     def _get_credential_secret_name(self, provider: str) -> str:
         """Get the standardized secret name for a provider's credentials."""

@@ -232,8 +232,7 @@ async def preset_agent(
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
 ) -> dict[str, Any]:
     async with AgentManagementService.with_session() as service:
-        preset_config = await service.get_agent_preset_by_slug(preset)
-        config = preset_config.to_agent_config()
+        config = await service.resolve_agent_preset_config(slug=preset)
 
     if actions is not None:
         config.actions = actions

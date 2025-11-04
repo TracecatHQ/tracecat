@@ -37,7 +37,8 @@ async def list_agent_presets(
     """List all agent presets for the current workspace."""
 
     service = AgentManagementService(session, role=role)
-    return await service.list_agent_presets()
+    presets = await service.list_agent_presets()
+    return [AgentPresetRead.model_validate(preset) for preset in presets]
 
 
 @router.post(
@@ -55,7 +56,8 @@ async def create_agent_preset(
 
     service = AgentManagementService(session, role=role)
     try:
-        return await service.create_agent_preset(params)
+        preset = await service.create_agent_preset(params)
+        return AgentPresetRead.model_validate(preset)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -74,7 +76,8 @@ async def get_agent_preset(
 
     service = AgentManagementService(session, role=role)
     try:
-        return await service.get_agent_preset(preset_id)
+        preset = await service.get_agent_preset(preset_id)
+        return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -93,7 +96,8 @@ async def get_agent_preset_by_slug(
 
     service = AgentManagementService(session, role=role)
     try:
-        return await service.get_agent_preset_by_slug(slug)
+        preset = await service.get_agent_preset_by_slug(slug)
+        return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -113,7 +117,8 @@ async def update_agent_preset(
 
     service = AgentManagementService(session, role=role)
     try:
-        return await service.update_agent_preset(preset_id, params)
+        preset = await service.update_agent_preset(preset_id, params)
+        return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
