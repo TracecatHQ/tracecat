@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageCircle,
   Plus,
+  RotateCcw,
   Sparkles,
   Trash2,
 } from "lucide-react"
@@ -631,10 +632,17 @@ function AgentProfileChatPane({
     return providersStatus?.[profile.model_provider] ?? false
   }, [providersStatus, profile])
 
-  const handleStartChat = async () => {
-    if (!profile || createChatPending) {
+  const canStartChat = Boolean(profile && providerReady)
+
+  const handleStartChat = async (forceNew = false) => {
+    if (!profile || createChatPending || !providerReady) {
       return
     }
+
+    if (!forceNew && activeChatId) {
+      return
+    }
+
     try {
       const newChat = await createChat({
         title: `${profile.name} chat`,
@@ -647,6 +655,10 @@ function AgentProfileChatPane({
     } catch (error) {
       console.error("Failed to create agent profile chat", error)
     }
+  }
+
+  const handleResetChat = async () => {
+    await handleStartChat(true)
   }
 
   const renderBody = () => {
@@ -702,8 +714,8 @@ function AgentProfileChatPane({
           <p>Create a chat session to test this agent live.</p>
           <Button
             size="sm"
-            onClick={handleStartChat}
-            disabled={createChatPending}
+            onClick={() => void handleStartChat()}
+            disabled={createChatPending || !canStartChat}
           >
             {createChatPending ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
@@ -760,6 +772,21 @@ function AgentProfileChatPane({
               ? `Chat with ${profile.name}`
               : "Select a profile to begin"}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleResetChat}
+            disabled={createChatPending || !canStartChat}
+          >
+            {createChatPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-2 size-4" />
+            )}
+            Reset chat
+          </Button>
         </div>
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
