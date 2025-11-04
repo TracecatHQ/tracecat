@@ -2,32 +2,32 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
-import { AgentProfilesBuilder } from "@/components/agents/agent-profiles-builder"
+import { AgentPresetsBuilder } from "@/components/agents/agent-presets-builder"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 
-export default function AgentProfilesPage() {
+export default function AgentPresetsPage() {
   const router = useRouter()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentProfilesEnabled = isFeatureEnabled("agent-approvals")
+  const agentPresetsEnabled = isFeatureEnabled("agent-approvals")
 
   useEffect(() => {
-    document.title = "Agent Profiles"
+    document.title = "Agent Presets"
   }, [])
 
   useEffect(() => {
-    if (!featureFlagsLoading && !agentProfilesEnabled) {
+    if (!featureFlagsLoading && !agentPresetsEnabled) {
       router.replace("/not-found")
     }
-  }, [agentProfilesEnabled, featureFlagsLoading, router])
+  }, [agentPresetsEnabled, featureFlagsLoading, router])
 
-  if (featureFlagsLoading || !agentProfilesEnabled) {
+  if (featureFlagsLoading || !agentPresetsEnabled) {
     return <CenteredSpinner />
   }
 
   return (
     <div className="h-full">
-      <AgentProfilesBuilder />
+      <AgentPresetsBuilder />
     </div>
   )
 }

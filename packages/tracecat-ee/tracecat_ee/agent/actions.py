@@ -7,7 +7,7 @@ from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS, langfuse_
 from typing_extensions import Doc
 
 from tracecat.agent.types import OutputType
-from tracecat.registry.fields import ActionType, TextArea, Yaml
+from tracecat.registry.fields import ActionType, AgentPreset, TextArea, Yaml
 
 
 @registry.register(
@@ -60,8 +60,32 @@ async def approvals_agent(
     raise ActionIsInterfaceError()
 
 
+@registry.register(
+    default_title="Preset approvals AI agent",
+    description="AI agent with tool calling capabilities and human-in-the-loop approval support. Returns the output and full message history.",
+    display_group="AI",
+    doc_url="https://ai.pydantic.dev/agents/",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
+    namespace="ai",
+)
+async def preset_approvals_agent(
+    preset: Annotated[
+        str,
+        Doc("Preset of the agent to use."),
+        AgentPreset(),
+    ],
+    user_prompt: Annotated[
+        str,
+        Doc("User prompt to the agent."),
+        TextArea(),
+    ],
+) -> dict[str, Any]:
+    raise ActionIsInterfaceError()
+
+
 class ApprovalsAgentActionArgs(BaseModel):
     user_prompt: str
+    preset: str | None = None
     model_name: str
     model_provider: str
     tool_approvals: dict[str, bool] | None = None

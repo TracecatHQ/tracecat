@@ -27,18 +27,18 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
-  AgentProfilesCreateAgentProfileData,
-  AgentProfilesCreateAgentProfileResponse,
-  AgentProfilesDeleteAgentProfileData,
-  AgentProfilesDeleteAgentProfileResponse,
-  AgentProfilesGetAgentProfileBySlugData,
-  AgentProfilesGetAgentProfileBySlugResponse,
-  AgentProfilesGetAgentProfileData,
-  AgentProfilesGetAgentProfileResponse,
-  AgentProfilesListAgentProfilesData,
-  AgentProfilesListAgentProfilesResponse,
-  AgentProfilesUpdateAgentProfileData,
-  AgentProfilesUpdateAgentProfileResponse,
+  AgentPresetsCreateAgentPresetData,
+  AgentPresetsCreateAgentPresetResponse,
+  AgentPresetsDeleteAgentPresetData,
+  AgentPresetsDeleteAgentPresetResponse,
+  AgentPresetsGetAgentPresetBySlugData,
+  AgentPresetsGetAgentPresetBySlugResponse,
+  AgentPresetsGetAgentPresetData,
+  AgentPresetsGetAgentPresetResponse,
+  AgentPresetsListAgentPresetsData,
+  AgentPresetsListAgentPresetsResponse,
+  AgentPresetsUpdateAgentPresetData,
+  AgentPresetsUpdateAgentPresetResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
   AgentStreamAgentSessionData,
@@ -3458,19 +3458,19 @@ export const agentSetDefaultModel = (
 }
 
 /**
- * List Agent Profiles
- * List all agent profiles for the current workspace.
+ * List Agent Presets
+ * List all agent presets for the current workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentProfileRead Successful Response
+ * @returns AgentPresetRead Successful Response
  * @throws ApiError
  */
-export const agentProfilesListAgentProfiles = (
-  data: AgentProfilesListAgentProfilesData
-): CancelablePromise<AgentProfilesListAgentProfilesResponse> => {
+export const agentPresetsListAgentPresets = (
+  data: AgentPresetsListAgentPresetsData
+): CancelablePromise<AgentPresetsListAgentPresetsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/agent/profiles",
+    url: "/agent/presets",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -3481,20 +3481,20 @@ export const agentProfilesListAgentProfiles = (
 }
 
 /**
- * Create Agent Profile
- * Create a new agent profile.
+ * Create Agent Preset
+ * Create a new agent preset.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns AgentProfileRead Successful Response
+ * @returns AgentPresetRead Successful Response
  * @throws ApiError
  */
-export const agentProfilesCreateAgentProfile = (
-  data: AgentProfilesCreateAgentProfileData
-): CancelablePromise<AgentProfilesCreateAgentProfileResponse> => {
+export const agentPresetsCreateAgentPreset = (
+  data: AgentPresetsCreateAgentPresetData
+): CancelablePromise<AgentPresetsCreateAgentPresetResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/agent/profiles",
+    url: "/agent/presets",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -3507,22 +3507,22 @@ export const agentProfilesCreateAgentProfile = (
 }
 
 /**
- * Get Agent Profile
- * Retrieve an agent profile by ID.
+ * Get Agent Preset
+ * Retrieve an agent preset by ID.
  * @param data The data for the request.
- * @param data.profileId
+ * @param data.presetId
  * @param data.workspaceId
- * @returns AgentProfileRead Successful Response
+ * @returns AgentPresetRead Successful Response
  * @throws ApiError
  */
-export const agentProfilesGetAgentProfile = (
-  data: AgentProfilesGetAgentProfileData
-): CancelablePromise<AgentProfilesGetAgentProfileResponse> => {
+export const agentPresetsGetAgentPreset = (
+  data: AgentPresetsGetAgentPresetData
+): CancelablePromise<AgentPresetsGetAgentPresetResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/agent/profiles/{profile_id}",
+    url: "/agent/presets/{preset_id}",
     path: {
-      profile_id: data.profileId,
+      preset_id: data.presetId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -3534,23 +3534,23 @@ export const agentProfilesGetAgentProfile = (
 }
 
 /**
- * Update Agent Profile
- * Update an existing agent profile.
+ * Update Agent Preset
+ * Update an existing agent preset.
  * @param data The data for the request.
- * @param data.profileId
+ * @param data.presetId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns AgentProfileRead Successful Response
+ * @returns AgentPresetRead Successful Response
  * @throws ApiError
  */
-export const agentProfilesUpdateAgentProfile = (
-  data: AgentProfilesUpdateAgentProfileData
-): CancelablePromise<AgentProfilesUpdateAgentProfileResponse> => {
+export const agentPresetsUpdateAgentPreset = (
+  data: AgentPresetsUpdateAgentPresetData
+): CancelablePromise<AgentPresetsUpdateAgentPresetResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/agent/profiles/{profile_id}",
+    url: "/agent/presets/{preset_id}",
     path: {
-      profile_id: data.profileId,
+      preset_id: data.presetId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -3564,22 +3564,22 @@ export const agentProfilesUpdateAgentProfile = (
 }
 
 /**
- * Delete Agent Profile
- * Delete an agent profile.
+ * Delete Agent Preset
+ * Delete an agent preset.
  * @param data The data for the request.
- * @param data.profileId
+ * @param data.presetId
  * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const agentProfilesDeleteAgentProfile = (
-  data: AgentProfilesDeleteAgentProfileData
-): CancelablePromise<AgentProfilesDeleteAgentProfileResponse> => {
+export const agentPresetsDeleteAgentPreset = (
+  data: AgentPresetsDeleteAgentPresetData
+): CancelablePromise<AgentPresetsDeleteAgentPresetResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/agent/profiles/{profile_id}",
+    url: "/agent/presets/{preset_id}",
     path: {
-      profile_id: data.profileId,
+      preset_id: data.presetId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -3591,20 +3591,20 @@ export const agentProfilesDeleteAgentProfile = (
 }
 
 /**
- * Get Agent Profile By Slug
- * Retrieve an agent profile by slug.
+ * Get Agent Preset By Slug
+ * Retrieve an agent preset by slug.
  * @param data The data for the request.
  * @param data.slug
  * @param data.workspaceId
- * @returns AgentProfileRead Successful Response
+ * @returns AgentPresetRead Successful Response
  * @throws ApiError
  */
-export const agentProfilesGetAgentProfileBySlug = (
-  data: AgentProfilesGetAgentProfileBySlugData
-): CancelablePromise<AgentProfilesGetAgentProfileBySlugResponse> => {
+export const agentPresetsGetAgentPresetBySlug = (
+  data: AgentPresetsGetAgentPresetBySlugData
+): CancelablePromise<AgentPresetsGetAgentPresetBySlugResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/agent/profiles/by-slug/{slug}",
+    url: "/agent/presets/by-slug/{slug}",
     path: {
       slug: data.slug,
     },

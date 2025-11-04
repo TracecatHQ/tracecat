@@ -7,6 +7,6 @@ class FeatureFlag(StrEnum):
     GIT_SYNC = "git-sync"
     AGENT_SANDBOX = "agent-sandbox"
     AGENT_APPROVALS = "agent-approvals"
-    AGENT_PROFILES = "agent-profiles"
+    AGENT_PRESETS = "agent-presets"
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"

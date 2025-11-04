@@ -44,8 +44,8 @@ export default function AgentsPage() {
             </p>
           </div>
           <Button asChild size="sm" variant="outline">
-            <Link href={`/workspaces/${workspaceId}/agents/profiles`}>
-              Manage profiles
+            <Link href={`/workspaces/${workspaceId}/agents/presets`}>
+              Manage presets
             </Link>
           </Button>
         </header>

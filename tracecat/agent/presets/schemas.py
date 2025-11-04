@@ -1,4 +1,4 @@
-"""Pydantic schemas for agent profile resources."""
+"""Pydantic schemas for agent preset resources."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.identifiers import OwnerID
 
 
-class AgentProfileBase(BaseModel):
-    """Shared fields for agent profile mutations."""
+class AgentPresetBase(BaseModel):
+    """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
@@ -30,22 +30,22 @@ class AgentProfileBase(BaseModel):
     retries: int = Field(default=3, ge=0)
 
 
-class AgentProfileCreate(AgentProfileBase):
-    """Payload for creating a new agent profile."""
+class AgentPresetCreate(AgentPresetBase):
+    """Payload for creating a new agent preset."""
 
     name: str = Field(..., min_length=1, max_length=120)
     slug: str | None = Field(default=None, min_length=1, max_length=160)
 
 
-class AgentProfileUpdate(AgentProfileBase):
-    """Payload for updating an existing agent profile."""
+class AgentPresetUpdate(AgentPresetBase):
+    """Payload for updating an existing agent preset."""
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     slug: str | None = Field(default=None, min_length=1, max_length=160)
 
 
-class AgentProfileRead(AgentProfileBase):
-    """API model for reading agent profiles."""
+class AgentPresetRead(AgentPresetBase):
+    """API model for reading agent presets."""
 
     id: uuid.UUID
     owner_id: OwnerID
@@ -57,7 +57,7 @@ class AgentProfileRead(AgentProfileBase):
     model_config = ConfigDict(from_attributes=True)
 
     def to_agent_config(self) -> AgentConfig:
-        """Convert the profile into an executable agent configuration."""
+        """Convert the preset into an executable agent configuration."""
 
         return AgentConfig(
             model_name=self.model_name,
@@ -75,11 +75,11 @@ class AgentProfileRead(AgentProfileBase):
         )
 
 
-class AgentProfileWithConfig(AgentProfileRead):
-    """Agent profile with the resolved configuration attached."""
+class AgentPresetWithConfig(AgentPresetRead):
+    """Agent preset with the resolved configuration attached."""
 
     config: AgentConfig
 
     @classmethod
-    def from_profile(cls, profile: AgentProfileRead) -> AgentProfileWithConfig:
-        return cls(**profile.model_dump(), config=profile.to_agent_config())
+    def from_preset(cls, preset: AgentPresetRead) -> AgentPresetWithConfig:
+        return cls(**preset.model_dump(), config=preset.to_agent_config())

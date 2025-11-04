@@ -8,12 +8,12 @@ from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
-from tracecat.agent.profiles.schemas import (
-    AgentProfileCreate,
-    AgentProfileRead,
-    AgentProfileUpdate,
+from tracecat.agent.presets.schemas import (
+    AgentPresetCreate,
+    AgentPresetRead,
+    AgentPresetUpdate,
 )
-from tracecat.agent.profiles.service import AgentProfilesService
+from tracecat.agent.presets.service import AgentPresetsService
 from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
@@ -22,7 +22,7 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentProfile as AgentProfileModel
+from tracecat.db.models import AgentPreset as AgentPresetModel
 from tracecat.db.models import OrganizationSecret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
@@ -44,83 +44,81 @@ class AgentManagementService(BaseService):
         super().__init__(session, role=role)
         self.secrets_service = SecretsService(session, role=role)
         self.settings_service = SettingsService(session, role=role)
-        self._profiles_service: AgentProfilesService | None = None
+        self._presets_service: AgentPresetsService | None = None
 
-    def _get_profiles_service(self) -> AgentProfilesService:
-        if self._profiles_service is None:
+    def _get_presets_service(self) -> AgentPresetsService:
+        if self._presets_service is None:
             if self.role is None or self.role.workspace_id is None:
                 raise TracecatAuthorizationError(
-                    "Agent profiles require a workspace role",
+                    "Agent presets require a workspace role",
                 )
-            self._profiles_service = AgentProfilesService(
+            self._presets_service = AgentPresetsService(
                 session=self.session,
                 role=self.role,
             )
-        return self._profiles_service
+        return self._presets_service
 
-    async def list_agent_profiles(self) -> list[AgentProfileRead]:
-        """List agent profiles in the current workspace."""
+    async def list_agent_presets(self) -> list[AgentPresetRead]:
+        """List agent presets in the current workspace."""
 
-        service = self._get_profiles_service()
-        profiles = await service.list_profiles()
-        return [self._serialize_profile(profile) for profile in profiles]
+        service = self._get_presets_service()
+        presets = await service.list_presets()
+        return [self._serialize_preset(preset) for preset in presets]
 
-    async def get_agent_profile(self, profile_id: uuid.UUID) -> AgentProfileRead:
-        """Retrieve a single agent profile by ID."""
+    async def get_agent_preset(self, preset_id: uuid.UUID) -> AgentPresetRead:
+        """Retrieve a single agent preset by ID."""
 
-        service = self._get_profiles_service()
-        profile = await service.get_profile(profile_id)
-        return self._serialize_profile(profile)
+        service = self._get_presets_service()
+        preset = await service.get_preset(preset_id)
+        return self._serialize_preset(preset)
 
-    async def get_agent_profile_by_slug(self, slug: str) -> AgentProfileRead:
-        """Retrieve an agent profile by slug."""
+    async def get_agent_preset_by_slug(self, slug: str) -> AgentPresetRead:
+        """Retrieve an agent preset by slug."""
 
-        service = self._get_profiles_service()
-        profile = await service.get_profile_by_slug(slug)
-        return self._serialize_profile(profile)
+        service = self._get_presets_service()
+        preset = await service.get_preset_by_slug(slug)
+        return self._serialize_preset(preset)
 
-    async def create_agent_profile(
-        self, params: AgentProfileCreate
-    ) -> AgentProfileRead:
-        """Create a new agent profile."""
+    async def create_agent_preset(self, params: AgentPresetCreate) -> AgentPresetRead:
+        """Create a new agent preset."""
 
-        service = self._get_profiles_service()
-        profile = await service.create_profile(params)
-        return self._serialize_profile(profile)
+        service = self._get_presets_service()
+        preset = await service.create_preset(params)
+        return self._serialize_preset(preset)
 
-    async def update_agent_profile(
-        self, profile_id: uuid.UUID, params: AgentProfileUpdate
-    ) -> AgentProfileRead:
-        """Update an existing agent profile."""
+    async def update_agent_preset(
+        self, preset_id: uuid.UUID, params: AgentPresetUpdate
+    ) -> AgentPresetRead:
+        """Update an existing agent preset."""
 
-        service = self._get_profiles_service()
-        profile = await service.update_profile(profile_id, params)
-        return self._serialize_profile(profile)
+        service = self._get_presets_service()
+        preset = await service.update_preset(preset_id, params)
+        return self._serialize_preset(preset)
 
-    async def delete_agent_profile(self, profile_id: uuid.UUID) -> None:
-        """Delete an agent profile."""
+    async def delete_agent_preset(self, preset_id: uuid.UUID) -> None:
+        """Delete an agent preset."""
 
-        service = self._get_profiles_service()
-        await service.delete_profile(profile_id)
+        service = self._get_presets_service()
+        await service.delete_preset(preset_id)
 
-    async def resolve_agent_profile_config(
+    async def resolve_agent_preset_config(
         self,
         *,
-        profile_id: uuid.UUID | None = None,
+        preset_id: uuid.UUID | None = None,
         slug: str | None = None,
     ) -> AgentConfig:
-        """Get an agent configuration from a profile by ID or slug."""
+        """Get an agent configuration from a preset by ID or slug."""
 
-        if profile_id is None and slug is None:
-            raise ValueError("Either profile_id or slug must be provided")
+        if preset_id is None and slug is None:
+            raise ValueError("Either preset_id or slug must be provided")
 
-        service = self._get_profiles_service()
-        if profile_id is not None:
-            return await service.get_agent_config(profile_id)
+        service = self._get_presets_service()
+        if preset_id is not None:
+            return await service.get_agent_config(preset_id)
         return await service.get_agent_config_by_slug(slug or "")
 
-    def _serialize_profile(self, profile: AgentProfileModel) -> AgentProfileRead:
-        return AgentProfileRead.model_validate(profile)
+    def _serialize_preset(self, preset: AgentPresetModel) -> AgentPresetRead:
+        return AgentPresetRead.model_validate(preset)
 
     def _get_credential_secret_name(self, provider: str) -> str:
         """Get the standardized secret name for a provider's credentials."""
@@ -298,24 +296,24 @@ class AgentManagementService(BaseService):
             yield model_config
 
     @contextlib.asynccontextmanager
-    async def with_profile_config(
+    async def with_preset_config(
         self,
         *,
-        profile_id: uuid.UUID | None = None,
+        preset_id: uuid.UUID | None = None,
         slug: str | None = None,
     ) -> AsyncIterator[AgentConfig]:
-        """Yield an agent profile configuration with provider credentials loaded."""
+        """Yield an agent preset configuration with provider credentials loaded."""
 
-        profile_config = await self.resolve_agent_profile_config(
-            profile_id=profile_id,
+        preset_config = await self.resolve_agent_preset_config(
+            preset_id=preset_id,
             slug=slug,
         )
-        credentials = await self.get_provider_credentials(profile_config.model_provider)
+        credentials = await self.get_provider_credentials(preset_config.model_provider)
         if not credentials:
             raise TracecatNotFoundError(
-                f"No credentials found for provider '{profile_config.model_provider}'. "
+                f"No credentials found for provider '{preset_config.model_provider}'. "
                 "Please configure credentials for this provider first."
             )
 
         with secrets_manager.env_sandbox(credentials):
-            yield profile_config
+            yield preset_config

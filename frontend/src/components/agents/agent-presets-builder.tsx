@@ -19,9 +19,9 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type {
-  AgentProfileCreate,
-  AgentProfileRead,
-  AgentProfileUpdate,
+  AgentPresetCreate,
+  AgentPresetRead,
+  AgentPresetUpdate,
   ChatEntity,
 } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -59,10 +59,10 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  useAgentProfiles,
-  useCreateAgentProfile,
-  useDeleteAgentProfile,
-  useUpdateAgentProfile,
+  useAgentPresets,
+  useCreateAgentPreset,
+  useDeleteAgentPreset,
+  useUpdateAgentPreset,
 } from "@/hooks"
 import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
@@ -84,10 +84,10 @@ const PRESET_OUTPUT_TYPES = [
   { label: "List of numbers", value: "list[int]" },
 ] as const
 
-const NEW_PROFILE_ID = "__new__"
+const NEW_PRESET_ID = "__new__"
 const DEFAULT_RETRIES = 3
 
-const agentProfileSchema = z
+const agentPresetSchema = z
   .object({
     name: z.string().min(1, "Name is required"),
     slug: z.string().min(1, "Slug is required"),
@@ -171,11 +171,11 @@ const agentProfileSchema = z
     }
   })
 
-type AgentProfileFormValues = z.infer<typeof agentProfileSchema>
-type ToolApprovalFormValue = AgentProfileFormValues["toolApprovals"][number]
-type KeyValueFormValue = AgentProfileFormValues["modelSettings"][number]
+type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
+type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
+type KeyValueFormValue = AgentPresetFormValues["modelSettings"][number]
 
-const DEFAULT_FORM_VALUES: AgentProfileFormValues = {
+const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   name: "",
   slug: "",
   description: "",
@@ -195,78 +195,76 @@ const DEFAULT_FORM_VALUES: AgentProfileFormValues = {
   retries: DEFAULT_RETRIES,
 }
 
-export function AgentProfilesBuilder() {
+export function AgentPresetsBuilder() {
   const workspaceId = useWorkspaceId()
-  const { profiles, profilesIsLoading, profilesError } =
-    useAgentProfiles(workspaceId)
+  const { presets, presetsIsLoading, presetsError } =
+    useAgentPresets(workspaceId)
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
-  const [sidebarTab, setSidebarTab] = useState<"profiles" | "chat">("profiles")
-  const { createAgentProfile, createAgentProfileIsPending } =
-    useCreateAgentProfile(workspaceId)
-  const { updateAgentProfile, updateAgentProfileIsPending } =
-    useUpdateAgentProfile(workspaceId)
-  const { deleteAgentProfile, deleteAgentProfileIsPending } =
-    useDeleteAgentProfile(workspaceId)
+  const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">("presets")
+  const { createAgentPreset, createAgentPresetIsPending } =
+    useCreateAgentPreset(workspaceId)
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspaceId)
+  const { deleteAgentPreset, deleteAgentPresetIsPending } =
+    useDeleteAgentPreset(workspaceId)
 
-  const [selectedProfileId, setSelectedProfileId] =
-    useState<string>(NEW_PROFILE_ID)
-  const [optimisticProfile, setOptimisticProfile] =
-    useState<AgentProfileRead | null>(null)
+  const [selectedPresetId, setSelectedPresetId] =
+    useState<string>(NEW_PRESET_ID)
+  const [optimisticPreset, setOptimisticPreset] =
+    useState<AgentPresetRead | null>(null)
 
-  const combinedProfiles = useMemo(() => {
-    if (!profiles) {
-      return optimisticProfile ? [optimisticProfile] : []
+  const combinedPresets = useMemo(() => {
+    if (!presets) {
+      return optimisticPreset ? [optimisticPreset] : []
     }
     if (
-      optimisticProfile &&
-      !profiles.some((profile) => profile.id === optimisticProfile.id)
+      optimisticPreset &&
+      !presets.some((preset) => preset.id === optimisticPreset.id)
     ) {
-      return [optimisticProfile, ...profiles]
+      return [optimisticPreset, ...presets]
     }
-    return profiles
-  }, [optimisticProfile, profiles])
+    return presets
+  }, [optimisticPreset, presets])
 
   useEffect(() => {
-    if (!profiles || profiles.length === 0) {
-      setSelectedProfileId(NEW_PROFILE_ID)
+    if (!presets || presets.length === 0) {
+      setSelectedPresetId(NEW_PRESET_ID)
       return
     }
 
-    if (selectedProfileId === NEW_PROFILE_ID) {
+    if (selectedPresetId === NEW_PRESET_ID) {
       return
     }
 
-    const exists = profiles.some((profile) => profile.id === selectedProfileId)
+    const exists = presets.some((preset) => preset.id === selectedPresetId)
     if (!exists) {
-      setSelectedProfileId(profiles[0]?.id ?? NEW_PROFILE_ID)
+      setSelectedPresetId(presets[0]?.id ?? NEW_PRESET_ID)
     }
-  }, [profiles, selectedProfileId])
+  }, [presets, selectedPresetId])
 
   useEffect(() => {
-    if (!optimisticProfile || !profiles) {
+    if (!optimisticPreset || !presets) {
       return
     }
-    const synced = profiles.some(
-      (profile) => profile.id === optimisticProfile.id
-    )
+    const synced = presets.some((preset) => preset.id === optimisticPreset.id)
     if (synced) {
-      setOptimisticProfile(null)
+      setOptimisticPreset(null)
     }
-  }, [optimisticProfile, profiles])
+  }, [optimisticPreset, presets])
 
-  const selectedProfile =
-    selectedProfileId === NEW_PROFILE_ID
+  const selectedPreset =
+    selectedPresetId === NEW_PRESET_ID
       ? null
-      : (combinedProfiles.find((profile) => profile.id === selectedProfileId) ??
+      : (combinedPresets.find((preset) => preset.id === selectedPresetId) ??
         null)
 
-  const chatTabDisabled = !selectedProfile
+  const chatTabDisabled = !selectedPreset
 
   useEffect(() => {
     if (chatTabDisabled && sidebarTab === "chat") {
-      setSidebarTab("profiles")
+      setSidebarTab("presets")
     }
   }, [chatTabDisabled, sidebarTab])
 
@@ -332,19 +330,19 @@ export function AgentProfilesBuilder() {
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [modelOptionsByProvider, providers])
 
-  if (profilesIsLoading) {
+  if (presetsIsLoading) {
     return <CenteredSpinner />
   }
 
-  if (profilesError) {
+  if (presetsError) {
     const detail =
-      typeof profilesError.body?.detail === "string"
-        ? profilesError.body.detail
-        : profilesError.message
+      typeof presetsError.body?.detail === "string"
+        ? presetsError.body.detail
+        : presetsError.message
     return (
       <div className="flex h-full items-center justify-center px-6">
         <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Unable to load agent profiles</AlertTitle>
+          <AlertTitle>Unable to load agent presets</AlertTitle>
           <AlertDescription>{detail}</AlertDescription>
         </Alert>
       </div>
@@ -362,13 +360,13 @@ export function AgentProfilesBuilder() {
                 if (value === "chat" && chatTabDisabled) {
                   return
                 }
-                setSidebarTab(value as "profiles" | "chat")
+                setSidebarTab(value as "presets" | "chat")
               }}
               className="flex h-full flex-col"
             >
               <div className="px-3 pt-3">
                 <TabsList className="grid h-9 w-full grid-cols-2">
-                  <TabsTrigger value="profiles">Profiles</TabsTrigger>
+                  <TabsTrigger value="presets">Presets</TabsTrigger>
                   <TabsTrigger value="chat" disabled={chatTabDisabled}>
                     Live chat
                   </TabsTrigger>
@@ -376,22 +374,22 @@ export function AgentProfilesBuilder() {
               </div>
               <div className="flex-1 min-h-0">
                 <TabsContent
-                  value="profiles"
+                  value="presets"
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
-                  <ProfilesSidebar
-                    profiles={combinedProfiles}
-                    selectedId={selectedProfileId}
-                    onSelect={(id) => setSelectedProfileId(id)}
-                    onCreate={() => setSelectedProfileId(NEW_PROFILE_ID)}
+                  <PresetsSidebar
+                    presets={combinedPresets}
+                    selectedId={selectedPresetId}
+                    onSelect={(id) => setSelectedPresetId(id)}
+                    onCreate={() => setSelectedPresetId(NEW_PRESET_ID)}
                   />
                 </TabsContent>
                 <TabsContent
                   value="chat"
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
-                  <AgentProfileChatPane
-                    profile={selectedProfile}
+                  <AgentPresetChatPane
+                    preset={selectedPreset}
                     workspaceId={workspaceId}
                   />
                 </TabsContent>
@@ -401,51 +399,51 @@ export function AgentProfilesBuilder() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={50} minSize={34}>
-          <AgentProfileForm
-            key={selectedProfile?.id ?? NEW_PROFILE_ID}
-            profile={selectedProfile}
-            mode={selectedProfile ? "edit" : "create"}
+          <AgentPresetForm
+            key={selectedPreset?.id ?? NEW_PRESET_ID}
+            preset={selectedPreset}
+            mode={selectedPreset ? "edit" : "create"}
             actionSuggestions={actionSuggestions}
             namespaceSuggestions={namespaceSuggestions}
             modelOptionsByProvider={modelOptionsByProvider}
             modelProviderOptions={modelProviderOptions}
             isSaving={
-              selectedProfile
-                ? updateAgentProfileIsPending
-                : createAgentProfileIsPending
+              selectedPreset
+                ? updateAgentPresetIsPending
+                : createAgentPresetIsPending
             }
-            isDeleting={deleteAgentProfileIsPending}
+            isDeleting={deleteAgentPresetIsPending}
             onCreate={async (payload) => {
-              const created = await createAgentProfile(payload)
-              setOptimisticProfile(created)
-              setSelectedProfileId(created.id)
+              const created = await createAgentPreset(payload)
+              setOptimisticPreset(created)
+              setSelectedPresetId(created.id)
               return created
             }}
-            onUpdate={async (profileId, payload) => {
-              const updated = await updateAgentProfile({
-                profileId,
+            onUpdate={async (presetId, payload) => {
+              const updated = await updateAgentPreset({
+                presetId,
                 ...payload,
               })
-              setOptimisticProfile(updated)
-              setSelectedProfileId(updated.id)
+              setOptimisticPreset(updated)
+              setSelectedPresetId(updated.id)
               return updated
             }}
             onDelete={
-              selectedProfile
+              selectedPreset
                 ? async () => {
-                    await deleteAgentProfile({
-                      profileId: selectedProfile.id,
-                      profileName: selectedProfile.name,
+                    await deleteAgentPreset({
+                      presetId: selectedPreset.id,
+                      presetName: selectedPreset.name,
                     })
-                    setOptimisticProfile(null)
+                    setOptimisticPreset(null)
                     const remaining =
-                      profiles?.filter(
-                        (profile) => profile.id !== selectedProfile.id
+                      presets?.filter(
+                        (preset) => preset.id !== selectedPreset.id
                       ) ?? []
                     if (remaining.length > 0) {
-                      setSelectedProfileId(remaining[0].id)
+                      setSelectedPresetId(remaining[0].id)
                     } else {
-                      setSelectedProfileId(NEW_PROFILE_ID)
+                      setSelectedPresetId(NEW_PRESET_ID)
                     }
                   }
                 : undefined
@@ -454,8 +452,8 @@ export function AgentProfilesBuilder() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={30} minSize={20}>
-          <AgentProfileBuilderChatPane
-            profile={selectedProfile}
+          <AgentPresetBuilderChatPane
+            preset={selectedPreset}
             workspaceId={workspaceId}
           />
         </ResizablePanel>
@@ -464,26 +462,26 @@ export function AgentProfilesBuilder() {
   )
 }
 
-function ProfilesSidebar({
-  profiles,
+function PresetsSidebar({
+  presets,
   selectedId,
   onSelect,
   onCreate,
 }: {
-  profiles: AgentProfileRead[] | null
+  presets: AgentPresetRead[] | null
   selectedId: string
   onSelect: (id: string) => void
   onCreate: () => void
 }) {
-  const isCreating = selectedId === NEW_PROFILE_ID
-  const list = profiles ?? []
+  const isCreating = selectedId === NEW_PRESET_ID
+  const list = presets ?? []
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <h2 className="text-sm font-semibold tracking-tight">
-            Agent profiles
+            Agent presets
           </h2>
           <p className="text-xs text-muted-foreground">{list.length} saved</p>
         </div>
@@ -502,20 +500,20 @@ function ProfilesSidebar({
             {list.length === 0 ? (
               <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
                 <Bot className="size-4 opacity-60" />
-                <span>No saved profiles yet.</span>
+                <span>No saved presets yet.</span>
                 <span>
                   Create one to reuse agents across workflows and chat.
                 </span>
               </div>
             ) : (
-              list.map((profile) => (
+              list.map((preset) => (
                 <SidebarItem
-                  key={profile.id}
-                  active={selectedId === profile.id}
-                  onClick={() => onSelect(profile.id)}
-                  title={profile.name}
-                  description={profile.slug}
-                  status={profile.model_name}
+                  key={preset.id}
+                  active={selectedId === preset.id}
+                  onClick={() => onSelect(preset.id)}
+                  title={preset.name}
+                  description={preset.slug}
+                  status={preset.model_name}
                 />
               ))
             )}
@@ -578,11 +576,11 @@ function SidebarItem({
   )
 }
 
-function AgentProfileChatPane({
-  profile,
+function AgentPresetChatPane({
+  preset,
   workspaceId,
 }: {
-  profile: AgentProfileRead | null
+  preset: AgentPresetRead | null
   workspaceId: string
 }) {
   const [createdChatId, setCreatedChatId] = useState<string | null>(null)
@@ -593,16 +591,16 @@ function AgentProfileChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_profile" as ChatEntity,
-      entityId: profile?.id,
+      entityType: "agent_preset" as ChatEntity,
+      entityId: preset?.id,
       limit: 1,
     },
-    { enabled: Boolean(profile && workspaceId) }
+    { enabled: Boolean(preset && workspaceId) }
   )
 
   useEffect(() => {
     setCreatedChatId(null)
-  }, [profile?.id])
+  }, [preset?.id])
 
   const existingChatId = chats?.[0]?.id
   const activeChatId = createdChatId ?? existingChatId
@@ -614,27 +612,27 @@ function AgentProfileChatPane({
   })
 
   const modelInfo: ModelInfo | null = useMemo(() => {
-    if (!profile) {
+    if (!preset) {
       return null
     }
     return {
-      name: profile.model_name,
-      provider: profile.model_provider,
-      baseUrl: profile.base_url ?? null,
+      name: preset.model_name,
+      provider: preset.model_provider,
+      baseUrl: preset.base_url ?? null,
     }
-  }, [profile])
+  }, [preset])
 
   const providerReady = useMemo(() => {
-    if (!profile) {
+    if (!preset) {
       return false
     }
-    return providersStatus?.[profile.model_provider] ?? false
-  }, [providersStatus, profile])
+    return providersStatus?.[preset.model_provider] ?? false
+  }, [providersStatus, preset])
 
-  const canStartChat = Boolean(profile && providerReady)
+  const canStartChat = Boolean(preset && providerReady)
 
   const handleStartChat = async (forceNew = false) => {
-    if (!profile || createChatPending || !providerReady) {
+    if (!preset || createChatPending || !providerReady) {
       return
     }
 
@@ -644,15 +642,15 @@ function AgentProfileChatPane({
 
     try {
       const newChat = await createChat({
-        title: `${profile.name} chat`,
-        entity_type: "agent_profile" as ChatEntity,
-        entity_id: profile.id,
-        tools: profile.actions ?? undefined,
+        title: `${preset.name} chat`,
+        entity_type: "agent_preset" as ChatEntity,
+        entity_id: preset.id,
+        tools: preset.actions ?? undefined,
       })
       setCreatedChatId(newChat.id)
       await refetchChats()
     } catch (error) {
-      console.error("Failed to create agent profile chat", error)
+      console.error("Failed to create agent preset chat", error)
     }
   }
 
@@ -661,11 +659,11 @@ function AgentProfileChatPane({
   }
 
   const renderBody = () => {
-    if (!profile) {
+    if (!preset) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
           <MessageCircle className="size-5" />
-          <p>Select a saved profile to start a conversation.</p>
+          <p>Select a saved preset to start a conversation.</p>
         </div>
       )
     }
@@ -684,8 +682,8 @@ function AgentProfileChatPane({
           <AlertCircle className="size-5 text-amber-500" />
           <p>
             Configure credentials for{" "}
-            <span className="font-medium">{profile.model_provider}</span> to
-            chat with this agent.
+            <span className="font-medium">{preset.model_provider}</span> to chat
+            with this agent.
           </p>
         </div>
       )
@@ -752,10 +750,10 @@ function AgentProfileChatPane({
       <ChatSessionPane
         chat={chat}
         workspaceId={workspaceId}
-        entityType={"agent_profile"}
-        entityId={profile.id}
+        entityType={"agent_preset"}
+        entityId={preset.id}
         className="flex-1 min-h-0"
-        placeholder={`Talk to ${profile.name}...`}
+        placeholder={`Talk to ${preset.name}...`}
         modelInfo={modelInfo}
       />
     )
@@ -767,9 +765,7 @@ function AgentProfileChatPane({
         <div>
           <h3 className="text-sm font-semibold">Interactive session</h3>
           <p className="text-xs text-muted-foreground">
-            {profile
-              ? `Chat with ${profile.name}`
-              : "Select a profile to begin"}
+            {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -793,8 +789,8 @@ function AgentProfileChatPane({
   )
 }
 
-function AgentProfileForm({
-  profile,
+function AgentPresetForm({
+  preset,
   mode,
   onCreate,
   onUpdate,
@@ -806,13 +802,13 @@ function AgentProfileForm({
   modelProviderOptions,
   modelOptionsByProvider,
 }: {
-  profile: AgentProfileRead | null
+  preset: AgentPresetRead | null
   mode: "create" | "edit"
-  onCreate: (payload: AgentProfileCreate) => Promise<AgentProfileRead>
+  onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
   onUpdate: (
-    profileId: string,
-    payload: AgentProfileUpdate
-  ) => Promise<AgentProfileRead>
+    presetId: string,
+    payload: AgentPresetUpdate
+  ) => Promise<AgentPresetRead>
   onDelete?: () => Promise<void>
   isSaving: boolean
   isDeleting: boolean
@@ -823,10 +819,10 @@ function AgentProfileForm({
 }) {
   const slugEditedRef = useRef(mode === "edit")
 
-  const form = useForm<AgentProfileFormValues>({
-    resolver: zodResolver(agentProfileSchema),
+  const form = useForm<AgentPresetFormValues>({
+    resolver: zodResolver(agentPresetSchema),
     mode: "onBlur",
-    defaultValues: profile ? profileToFormValues(profile) : DEFAULT_FORM_VALUES,
+    defaultValues: preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES,
   })
 
   const {
@@ -857,12 +853,10 @@ function AgentProfileForm({
   })
 
   useEffect(() => {
-    const defaults = profile
-      ? profileToFormValues(profile)
-      : DEFAULT_FORM_VALUES
+    const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
     form.reset(defaults, { keepDirty: false })
     slugEditedRef.current = mode === "edit"
-  }, [form, mode, profile])
+  }, [form, mode, preset])
 
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
@@ -892,13 +886,13 @@ function AgentProfileForm({
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const payload = formValuesToPayload(values)
-    if (mode === "edit" && profile) {
-      const updated = await onUpdate(profile.id, payload)
-      form.reset(profileToFormValues(updated))
+    if (mode === "edit" && preset) {
+      const updated = await onUpdate(preset.id, payload)
+      form.reset(presetToFormValues(updated))
       slugEditedRef.current = true
     } else {
       const created = await onCreate(payload)
-      form.reset(profileToFormValues(created))
+      form.reset(presetToFormValues(created))
       slugEditedRef.current = true
     }
   })
@@ -916,8 +910,8 @@ function AgentProfileForm({
         <div className="space-y-1">
           <h2 className="text-sm font-semibold">
             {mode === "edit"
-              ? (profile?.name ?? "Agent profile")
-              : "Create agent profile"}
+              ? (preset?.name ?? "Agent preset")
+              : "Create agent preset"}
           </h2>
           <p className="text-xs text-muted-foreground">
             Configure prompts, tools, models, and approvals for reusable agents.
@@ -931,7 +925,7 @@ function AgentProfileForm({
               size="sm"
               onClick={async () => {
                 if (
-                  confirm("Delete this agent profile? This cannot be undone.")
+                  confirm("Delete this agent preset? This cannot be undone.")
                 ) {
                   await onDelete()
                 }
@@ -949,7 +943,7 @@ function AgentProfileForm({
             disabled={isSaving || !canSubmit}
           >
             {isSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-            {mode === "edit" ? "Save changes" : "Create profile"}
+            {mode === "edit" ? "Save changes" : "Create preset"}
           </Button>
         </div>
       </div>
@@ -964,7 +958,7 @@ function AgentProfileForm({
           >
             <section className="space-y-4">
               <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Profile details</h3>
+                <h3 className="text-sm font-semibold">Preset details</h3>
                 <p className="text-xs text-muted-foreground">
                   Basic metadata for identifying this agent across Tracecat.
                 </p>
@@ -1389,7 +1383,7 @@ function AgentProfileForm({
                           <FormField
                             control={form.control}
                             name={
-                              `toolApprovals.${index}.tool` as FieldPath<AgentProfileFormValues>
+                              `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
                             }
                             render={({ field }) => (
                               <FormItem className="flex-1">
@@ -1425,7 +1419,7 @@ function AgentProfileForm({
                           <FormField
                             control={form.control}
                             name={
-                              `toolApprovals.${index}.allow` as FieldPath<AgentProfileFormValues>
+                              `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
                             }
                             render={({ field }) => (
                               <FormItem className="flex flex-row items-center gap-2 space-y-0">
@@ -1538,7 +1532,7 @@ function KeyValueFieldArray({
   title: string
   description?: string
   fields: { id: string }[]
-  control: Control<AgentProfileFormValues>
+  control: Control<AgentPresetFormValues>
   name: "mcpServerHeaders" | "modelSettings"
   onAdd: () => void
   onRemove: (index: number) => void
@@ -1584,7 +1578,7 @@ function KeyValueFieldArray({
               <FormField
                 control={control}
                 name={
-                  `${name}.${index}.key` as FieldPath<AgentProfileFormValues>
+                  `${name}.${index}.key` as FieldPath<AgentPresetFormValues>
                 }
                 render={({ field: innerField }) => (
                   <FormItem>
@@ -1610,7 +1604,7 @@ function KeyValueFieldArray({
               <FormField
                 control={control}
                 name={
-                  `${name}.${index}.value` as FieldPath<AgentProfileFormValues>
+                  `${name}.${index}.value` as FieldPath<AgentPresetFormValues>
                 }
                 render={({ field: innerField }) => (
                   <FormItem>
@@ -1662,14 +1656,14 @@ function KeyValueFieldArray({
   )
 }
 
-function AgentProfileBuilderChatPane({
-  profile,
+function AgentPresetBuilderChatPane({
+  preset,
   workspaceId,
 }: {
-  profile: AgentProfileRead | null
+  preset: AgentPresetRead | null
   workspaceId: string
 }) {
-  const profileId = profile?.id
+  const presetId = preset?.id
   const [createdChatId, setCreatedChatId] = useState<string | null>(null)
 
   const { providersStatus, isLoading: providersStatusLoading } =
@@ -1678,16 +1672,16 @@ function AgentProfileBuilderChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_profile_builder" as ChatEntity,
-      entityId: profileId ?? undefined,
+      entityType: "agent_preset_builder" as ChatEntity,
+      entityId: presetId ?? undefined,
       limit: 1,
     },
-    { enabled: Boolean(profileId && workspaceId) }
+    { enabled: Boolean(presetId && workspaceId) }
   )
 
   useEffect(() => {
     setCreatedChatId(null)
-  }, [profileId])
+  }, [presetId])
 
   const existingChatId = chats?.[0]?.id
   const activeChatId = createdChatId ?? existingChatId
@@ -1699,28 +1693,28 @@ function AgentProfileBuilderChatPane({
   })
 
   const modelInfo: ModelInfo | null = useMemo(() => {
-    if (!profile) {
+    if (!preset) {
       return null
     }
     return {
-      name: profile.model_name,
-      provider: profile.model_provider,
-      baseUrl: profile.base_url ?? null,
+      name: preset.model_name,
+      provider: preset.model_provider,
+      baseUrl: preset.base_url ?? null,
     }
-  }, [profile])
+  }, [preset])
 
   const providerReady = useMemo(() => {
-    if (!profileId) {
+    if (!presetId) {
       return false
     }
-    const provider = profile?.model_provider ?? ""
+    const provider = preset?.model_provider ?? ""
     return providersStatus?.[provider] ?? false
-  }, [providersStatus, profile?.model_provider, profileId])
+  }, [providersStatus, preset?.model_provider, presetId])
 
-  const canStartChat = Boolean(profileId && providerReady)
+  const canStartChat = Boolean(presetId && providerReady)
 
   const handleStartChat = async (forceNew = false) => {
-    if (!profile || !profileId || createChatPending || !providerReady) {
+    if (!preset || !presetId || createChatPending || !providerReady) {
       return
     }
 
@@ -1730,9 +1724,9 @@ function AgentProfileBuilderChatPane({
 
     try {
       const newChat = await createChat({
-        title: `${profile.name} builder assistant`,
-        entity_type: "agent_profile_builder" as ChatEntity,
-        entity_id: profileId,
+        title: `${preset.name} builder assistant`,
+        entity_type: "agent_preset_builder" as ChatEntity,
+        entity_id: presetId,
       })
       setCreatedChatId(newChat.id)
       await refetchChats()
@@ -1749,11 +1743,11 @@ function AgentProfileBuilderChatPane({
   }
 
   const renderBody = () => {
-    if (!profileId) {
+    if (!presetId) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
           <MessageCircle className="size-5" />
-          <p>Save this profile to chat with the builder assistant.</p>
+          <p>Save this preset to chat with the builder assistant.</p>
         </div>
       )
     }
@@ -1773,7 +1767,7 @@ function AgentProfileBuilderChatPane({
           <p>
             Configure credentials for{" "}
             <span className="font-medium">
-              {profile?.model_provider ?? "this provider"}
+              {preset?.model_provider ?? "this provider"}
             </span>{" "}
             to enable the builder assistant.
           </p>
@@ -1842,10 +1836,10 @@ function AgentProfileBuilderChatPane({
       <ChatSessionPane
         chat={chat}
         workspaceId={workspaceId}
-        entityType={"agent_profile_builder"}
-        entityId={profileId}
+        entityType={"agent_preset_builder"}
+        entityId={presetId}
         className="flex-1 min-h-0"
-        placeholder={`Ask ${profile?.name ?? "the assistant"} to refine the system prompt...`}
+        placeholder={`Ask ${preset?.name ?? "the assistant"} to refine the system prompt...`}
         modelInfo={modelInfo}
       />
     )
@@ -1881,22 +1875,20 @@ function AgentProfileBuilderChatPane({
   )
 }
 
-function profileToFormValues(
-  profile: AgentProfileRead
-): AgentProfileFormValues {
+function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
   const outputType =
-    profile.output_type === null || profile.output_type === undefined
+    preset.output_type === null || preset.output_type === undefined
       ? null
-      : profile.output_type
+      : preset.output_type
 
   return {
-    name: profile.name,
-    slug: profile.slug,
-    description: profile.description ?? "",
-    instructions: profile.instructions ?? "",
-    model_provider: profile.model_provider,
-    model_name: profile.model_name,
-    base_url: profile.base_url ?? "",
+    name: preset.name,
+    slug: preset.slug,
+    description: preset.description ?? "",
+    instructions: preset.instructions ?? "",
+    model_provider: preset.model_provider,
+    model_name: preset.model_name,
+    base_url: preset.base_url ?? "",
     outputTypeKind: outputType
       ? typeof outputType === "string"
         ? "preset"
@@ -1907,40 +1899,38 @@ function profileToFormValues(
       outputType && typeof outputType === "object"
         ? JSON.stringify(outputType, null, 2)
         : "",
-    actions: profile.actions ?? [],
-    namespaces: profile.namespaces ?? [],
-    toolApprovals: profile.tool_approvals
-      ? Object.entries(profile.tool_approvals).map(
+    actions: preset.actions ?? [],
+    namespaces: preset.namespaces ?? [],
+    toolApprovals: preset.tool_approvals
+      ? Object.entries(preset.tool_approvals).map(
           ([tool, allow]): ToolApprovalFormValue => ({
             tool,
             allow: Boolean(allow),
           })
         )
       : [],
-    mcpServerUrl: profile.mcp_server_url ?? "",
-    mcpServerHeaders: profile.mcp_server_headers
-      ? Object.entries(profile.mcp_server_headers).map(
+    mcpServerUrl: preset.mcp_server_url ?? "",
+    mcpServerHeaders: preset.mcp_server_headers
+      ? Object.entries(preset.mcp_server_headers).map(
           ([key, value]): KeyValueFormValue => ({
             key,
             value: value ?? "",
           })
         )
       : [],
-    modelSettings: profile.model_settings
-      ? Object.entries(profile.model_settings).map(
+    modelSettings: preset.model_settings
+      ? Object.entries(preset.model_settings).map(
           ([key, value]): KeyValueFormValue => ({
             key,
             value: typeof value === "string" ? value : JSON.stringify(value),
           })
         )
       : [],
-    retries: profile.retries ?? DEFAULT_RETRIES,
+    retries: preset.retries ?? DEFAULT_RETRIES,
   }
 }
 
-function formValuesToPayload(
-  values: AgentProfileFormValues
-): AgentProfileCreate {
+function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
   const outputType =
     values.outputTypeKind === "none"
       ? null

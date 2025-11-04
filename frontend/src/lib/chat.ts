@@ -30,8 +30,8 @@ export function isModelMessage(value: unknown): value is ModelMessage {
 export function isChatEntity(value: unknown): value is ChatEntity {
   return (
     value === "case" ||
-    value === "agent_profile" ||
-    value === "agent_profile_builder"
+    value === "agent_preset" ||
+    value === "agent_preset_builder"
   )
 }
 
@@ -184,13 +184,13 @@ export const ENTITY_TO_INVALIDATION: Record<
       })
     },
   },
-  agent_profile: {
+  agent_preset: {
     predicate: () => false,
     handler: () => {
-      // No related caches to invalidate for agent profile chats.
+      // No related caches to invalidate for agent preset chats.
     },
   },
-  agent_profile_builder: {
+  agent_preset_builder: {
     predicate: () => false,
     handler: () => {
       // No cache invalidation required for builder assistant chats.

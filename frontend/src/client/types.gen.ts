@@ -183,10 +183,14 @@ export type AgentOutput = {
   trace_id?: string | null
 }
 
+export type AgentPreset = {
+  component_id?: "agent-preset"
+}
+
 /**
- * Payload for creating a new agent profile.
+ * Payload for creating a new agent preset.
  */
-export type AgentProfileCreate = {
+export type AgentPresetCreate = {
   description?: string | null
   instructions?: string | null
   model_name: string
@@ -211,9 +215,9 @@ export type AgentProfileCreate = {
 }
 
 /**
- * API model for reading agent profiles.
+ * API model for reading agent presets.
  */
-export type AgentProfileRead = {
+export type AgentPresetRead = {
   description?: string | null
   instructions?: string | null
   model_name: string
@@ -242,9 +246,9 @@ export type AgentProfileRead = {
 }
 
 /**
- * Payload for updating an existing agent profile.
+ * Payload for updating an existing agent preset.
  */
-export type AgentProfileUpdate = {
+export type AgentPresetUpdate = {
   description?: string | null
   instructions?: string | null
   model_name: string
@@ -1390,7 +1394,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case" | "agent_profile" | "agent_profile_builder"
+export type ChatEntity = "case" | "agent_preset" | "agent_preset_builder"
 
 /**
  * Model for chat metadata with a single message.
@@ -1922,6 +1926,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentPreset
 
 export type EditorFunctionRead = {
   name: string
@@ -2133,7 +2138,7 @@ export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
   | "agent-approvals"
-  | "agent-profiles"
+  | "agent-presets"
   | "case-durations"
   | "case-tasks"
 
@@ -6341,47 +6346,47 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
-export type AgentProfilesListAgentProfilesData = {
+export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
 }
 
-export type AgentProfilesListAgentProfilesResponse = Array<AgentProfileRead>
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetRead>
 
-export type AgentProfilesCreateAgentProfileData = {
-  requestBody: AgentProfileCreate
+export type AgentPresetsCreateAgentPresetData = {
+  requestBody: AgentPresetCreate
   workspaceId: string
 }
 
-export type AgentProfilesCreateAgentProfileResponse = AgentProfileRead
+export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
 
-export type AgentProfilesGetAgentProfileData = {
-  profileId: string
+export type AgentPresetsGetAgentPresetData = {
+  presetId: string
   workspaceId: string
 }
 
-export type AgentProfilesGetAgentProfileResponse = AgentProfileRead
+export type AgentPresetsGetAgentPresetResponse = AgentPresetRead
 
-export type AgentProfilesUpdateAgentProfileData = {
-  profileId: string
-  requestBody: AgentProfileUpdate
+export type AgentPresetsUpdateAgentPresetData = {
+  presetId: string
+  requestBody: AgentPresetUpdate
   workspaceId: string
 }
 
-export type AgentProfilesUpdateAgentProfileResponse = AgentProfileRead
+export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
 
-export type AgentProfilesDeleteAgentProfileData = {
-  profileId: string
+export type AgentPresetsDeleteAgentPresetData = {
+  presetId: string
   workspaceId: string
 }
 
-export type AgentProfilesDeleteAgentProfileResponse = void
+export type AgentPresetsDeleteAgentPresetResponse = void
 
-export type AgentProfilesGetAgentProfileBySlugData = {
+export type AgentPresetsGetAgentPresetBySlugData = {
   slug: string
   workspaceId: string
 }
 
-export type AgentProfilesGetAgentProfileBySlugResponse = AgentProfileRead
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
 
 export type AgentListAgentSessionsData = {
   workspaceId: string
@@ -9057,14 +9062,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/profiles": {
+  "/agent/presets": {
     get: {
-      req: AgentProfilesListAgentProfilesData
+      req: AgentPresetsListAgentPresetsData
       res: {
         /**
          * Successful Response
          */
-        200: Array<AgentProfileRead>
+        200: Array<AgentPresetRead>
         /**
          * Validation Error
          */
@@ -9072,12 +9077,12 @@ export type $OpenApiTs = {
       }
     }
     post: {
-      req: AgentProfilesCreateAgentProfileData
+      req: AgentPresetsCreateAgentPresetData
       res: {
         /**
          * Successful Response
          */
-        201: AgentProfileRead
+        201: AgentPresetRead
         /**
          * Validation Error
          */
@@ -9085,14 +9090,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/profiles/{profile_id}": {
+  "/agent/presets/{preset_id}": {
     get: {
-      req: AgentProfilesGetAgentProfileData
+      req: AgentPresetsGetAgentPresetData
       res: {
         /**
          * Successful Response
          */
-        200: AgentProfileRead
+        200: AgentPresetRead
         /**
          * Validation Error
          */
@@ -9100,12 +9105,12 @@ export type $OpenApiTs = {
       }
     }
     patch: {
-      req: AgentProfilesUpdateAgentProfileData
+      req: AgentPresetsUpdateAgentPresetData
       res: {
         /**
          * Successful Response
          */
-        200: AgentProfileRead
+        200: AgentPresetRead
         /**
          * Validation Error
          */
@@ -9113,7 +9118,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: AgentProfilesDeleteAgentProfileData
+      req: AgentPresetsDeleteAgentPresetData
       res: {
         /**
          * Successful Response
@@ -9126,14 +9131,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/profiles/by-slug/{slug}": {
+  "/agent/presets/by-slug/{slug}": {
     get: {
-      req: AgentProfilesGetAgentProfileBySlugData
+      req: AgentPresetsGetAgentPresetBySlugData
       res: {
         /**
          * Successful Response
          */
-        200: AgentProfileRead
+        200: AgentPresetRead
         /**
          * Validation Error
          */

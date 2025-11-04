@@ -1,25 +1,25 @@
-"""Prompt helpers for agent profile-related chats."""
+"""Prompt helpers for agent preset-related chats."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tracecat.agent.profiles.schemas import AgentProfileRead
+from tracecat.agent.presets.schemas import AgentPresetRead
 
 
 @dataclass(slots=True)
-class AgentProfileBuilderPrompt:
-    """Builds instructions for the agent profile builder assistant."""
+class AgentPresetBuilderPrompt:
+    """Builds instructions for the agent preset builder assistant."""
 
-    profile: AgentProfileRead
+    preset: AgentPresetRead
 
     @property
     def instructions(self) -> str:
-        description = self.profile.description or "(no description provided)"
-        system_prompt = self.profile.instructions or "(currently empty)"
+        description = self.preset.description or "(no description provided)"
+        system_prompt = self.preset.instructions or "(currently empty)"
         header = (
-            "You are Tracecat's agent profile builder assistant. Your job is to help "
-            "workspace users refine the system prompt and configuration for the selected agent profile."
+            "You are Tracecat's agent preset builder assistant. Your job is to help "
+            "workspace users refine the system prompt and configuration for the selected agent preset."
         )
         guidelines = (
             "Keep the conversation focused on improving the agent's instructions. "
@@ -31,9 +31,9 @@ class AgentProfileBuilderPrompt:
             "You may only refer to the existing agent configuration and suggest edits."
         )
         context = (
-            "Agent Profile Context:\n"
-            f"- Name: {self.profile.name}\n"
-            f"- Slug: {self.profile.slug}\n"
+            "Agent Preset Context:\n"
+            f"- Name: {self.preset.name}\n"
+            f"- Slug: {self.preset.slug}\n"
             f"- Description: {description}\n\n"
             "Current System Prompt:\n"
             f"{system_prompt}"

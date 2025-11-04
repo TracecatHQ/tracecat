@@ -148,7 +148,7 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-    agent_profiles: list["AgentProfile"] = Relationship(
+    agent_presets: list["AgentPreset"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -1371,12 +1371,12 @@ class Approval(Resource, table=True):
     )
 
 
-class AgentProfile(Resource, table=True):
-    """Database model for storing reusable agent configurations."""
+class AgentPreset(Resource, table=True):
+    """Database model for storing reusable agent preset configurations."""
 
-    __tablename__: str = "agent_profile"
+    __tablename__: str = "agent_preset"
     __table_args__ = (
-        UniqueConstraint("owner_id", "slug", name="uq_agent_profile_owner_slug"),
+        UniqueConstraint("owner_id", "slug", name="uq_agent_preset_owner_slug"),
     )
 
     id: uuid.UUID = Field(
@@ -1384,13 +1384,13 @@ class AgentProfile(Resource, table=True):
         nullable=False,
         unique=True,
         index=True,
-        description="Unique agent profile identifier",
+        description="Unique agent preset identifier",
     )
     owner_id: OwnerID = Field(
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
-    owner: Workspace | None = Relationship(back_populates="agent_profiles")
-    name: str = Field(..., max_length=120, description="Human readable profile name")
+    owner: Workspace | None = Relationship(back_populates="agent_presets")
+    name: str = Field(..., max_length=120, description="Human readable preset name")
     slug: str = Field(
         ...,
         max_length=160,
@@ -1400,7 +1400,7 @@ class AgentProfile(Resource, table=True):
     description: str | None = Field(
         default=None,
         max_length=1000,
-        description="Optional description for the profile",
+        description="Optional description for the preset",
     )
     instructions: str | None = Field(
         default=None,

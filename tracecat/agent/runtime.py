@@ -61,6 +61,8 @@ async def run_agent(
     model_name: str,
     model_provider: str,
     actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
     mcp_server_url: str | None = None,
     mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
@@ -84,6 +86,8 @@ async def run_agent(
         model_provider: Provider of the model (e.g., "openai", "anthropic").
         actions: List of action names to make available to the agent
                 (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
+        namespaces: Optional list of namespaces to restrict available tools.
+        tool_approvals: Optional per-tool approval requirements keyed by action name.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
         mcp_server_url: Optional URL of the MCP server to use.
@@ -164,6 +168,8 @@ async def run_agent(
                 mcp_server_url=mcp_server_url,
                 mcp_server_headers=mcp_server_headers,
                 actions=actions,
+                namespaces=namespaces,
+                tool_approvals=tool_approvals,
             ),
             max_requests=max_requests,
             max_tool_calls=max_tool_calls,

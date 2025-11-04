@@ -8,7 +8,7 @@ from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.profiles.prompts import AgentProfileBuilderPrompt
+from tracecat.agent.presets.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, ModelMessageTA
@@ -84,10 +84,10 @@ class ChatService(BaseWorkspaceService):
         if entity_type == ChatEntity.CASE:
             case = await self._get_case(chat.entity_id)
             return CaseCopilotPrompts(case=case).instructions
-        if entity_type == ChatEntity.AGENT_PROFILE_BUILDER:
+        if entity_type == ChatEntity.AGENT_PRESET_BUILDER:
             agent_service = AgentManagementService(self.session, self.role)
-            profile = await agent_service.get_agent_profile(chat.entity_id)
-            prompt = AgentProfileBuilderPrompt(profile=profile)
+            preset = await agent_service.get_agent_preset(chat.entity_id)
+            prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
         else:
             raise ValueError(
@@ -158,12 +158,12 @@ class ChatService(BaseWorkspaceService):
                     config=config,
                 )
                 await executor.start(args)
-        elif chat_entity is ChatEntity.AGENT_PROFILE:
-            async with agent_svc.with_profile_config(
-                profile_id=chat.entity_id
-            ) as profile_config:
+        elif chat_entity is ChatEntity.AGENT_PRESET:
+            async with agent_svc.with_preset_config(
+                preset_id=chat.entity_id
+            ) as preset_config:
                 # Work on a copy so we don't mutate the cached config
-                config = replace(profile_config)
+                config = replace(preset_config)
                 if not config.actions and chat.tools:
                     config.actions = chat.tools
                 args = RunAgentArgs(
@@ -172,7 +172,7 @@ class ChatService(BaseWorkspaceService):
                     config=config,
                 )
                 await executor.start(args)
-        elif chat_entity is ChatEntity.AGENT_PROFILE_BUILDER:
+        elif chat_entity is ChatEntity.AGENT_PRESET_BUILDER:
             instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
             async with agent_svc.with_model_config() as model_config:
                 config = AgentConfig(
