@@ -3,12 +3,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat.agent.presets.schemas import (
+from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetUpdate,
 )
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
@@ -35,9 +35,8 @@ async def list_agent_presets(
     session: AsyncDBSession,
 ) -> list[AgentPresetRead]:
     """List all agent presets for the current workspace."""
-
-    service = AgentManagementService(session, role=role)
-    presets = await service.list_agent_presets()
+    service = AgentPresetService(session, role=role)
+    presets = await service.list_presets()
     return [AgentPresetRead.model_validate(preset) for preset in presets]
 
 
@@ -53,10 +52,9 @@ async def create_agent_preset(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Create a new agent preset."""
-
-    service = AgentManagementService(session, role=role)
+    service = AgentPresetService(session, role=role)
     try:
-        preset = await service.create_agent_preset(params)
+        preset = await service.create_preset(params)
         return AgentPresetRead.model_validate(preset)
     except TracecatValidationError as e:
         raise HTTPException(
@@ -73,10 +71,9 @@ async def get_agent_preset(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by ID."""
-
-    service = AgentManagementService(session, role=role)
+    service = AgentPresetService(session, role=role)
     try:
-        preset = await service.get_agent_preset(preset_id)
+        preset = await service.get_preset(preset_id)
         return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -93,10 +90,9 @@ async def get_agent_preset_by_slug(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by slug."""
-
-    service = AgentManagementService(session, role=role)
+    service = AgentPresetService(session, role=role)
     try:
-        preset = await service.get_agent_preset_by_slug(slug)
+        preset = await service.get_preset_by_slug(slug)
         return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -114,10 +110,9 @@ async def update_agent_preset(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Update an existing agent preset."""
-
-    service = AgentManagementService(session, role=role)
+    service = AgentPresetService(session, role=role)
     try:
-        preset = await service.update_agent_preset(preset_id, params)
+        preset = await service.update_preset(preset_id, params)
         return AgentPresetRead.model_validate(preset)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -139,10 +134,9 @@ async def delete_agent_preset(
     session: AsyncDBSession,
 ) -> None:
     """Delete an agent preset."""
-
-    service = AgentManagementService(session, role=role)
+    service = AgentPresetService(session, role=role)
     try:
-        await service.delete_agent_preset(preset_id)
+        await service.delete_preset(preset_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

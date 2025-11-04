@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
-from tracecat.agent.presets.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.presets.service import AgentPresetsService
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
@@ -18,7 +17,7 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentPreset, OrganizationSecret
+from tracecat.db.models import OrganizationSecret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -39,73 +38,14 @@ class AgentManagementService(BaseService):
         super().__init__(session, role=role)
         self.secrets_service = SecretsService(session, role=role)
         self.settings_service = SettingsService(session, role=role)
-        self._presets_service: AgentPresetsService | None = None
-
-    def _get_presets_service(self) -> AgentPresetsService:
-        if self._presets_service is None:
-            if self.role is None or self.role.workspace_id is None:
-                raise TracecatAuthorizationError(
-                    "Agent presets require a workspace role",
-                )
-            self._presets_service = AgentPresetsService(
+        try:
+            # This is a workspace scoped service
+            self.presets = AgentPresetService(
                 session=self.session,
                 role=self.role,
             )
-        return self._presets_service
-
-    async def list_agent_presets(self) -> Sequence[AgentPreset]:
-        """List agent presets in the current workspace."""
-
-        service = self._get_presets_service()
-        return await service.list_presets()
-
-    async def get_agent_preset(self, preset_id: uuid.UUID) -> AgentPreset:
-        """Retrieve a single agent preset by ID."""
-
-        service = self._get_presets_service()
-        return await service.get_preset(preset_id)
-
-    async def get_agent_preset_by_slug(self, slug: str) -> AgentPreset:
-        """Retrieve an agent preset by slug."""
-
-        service = self._get_presets_service()
-        return await service.get_preset_by_slug(slug)
-
-    async def create_agent_preset(self, params: AgentPresetCreate) -> AgentPreset:
-        """Create a new agent preset."""
-
-        service = self._get_presets_service()
-        return await service.create_preset(params)
-
-    async def update_agent_preset(
-        self, preset_id: uuid.UUID, params: AgentPresetUpdate
-    ) -> AgentPreset:
-        """Update an existing agent preset."""
-
-        service = self._get_presets_service()
-        return await service.update_preset(preset_id, params)
-
-    async def delete_agent_preset(self, preset_id: uuid.UUID) -> None:
-        """Delete an agent preset."""
-
-        service = self._get_presets_service()
-        await service.delete_preset(preset_id)
-
-    async def resolve_agent_preset_config(
-        self,
-        *,
-        preset_id: uuid.UUID | None = None,
-        slug: str | None = None,
-    ) -> AgentConfig:
-        """Get an agent configuration from a preset by ID or slug."""
-
-        if preset_id is None and slug is None:
-            raise ValueError("Either preset_id or slug must be provided")
-
-        service = self._get_presets_service()
-        if preset_id is not None:
-            return await service.get_agent_config(preset_id)
-        return await service.get_agent_config_by_slug(slug or "")
+        except TracecatAuthorizationError:
+            self.presets = None
 
     def _get_credential_secret_name(self, provider: str) -> str:
         """Get the standardized secret name for a provider's credentials."""
@@ -290,8 +230,12 @@ class AgentManagementService(BaseService):
         slug: str | None = None,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded."""
+        if self.presets is None:
+            raise TracecatAuthorizationError(
+                "Agent presets require a workspace role",
+            )
 
-        preset_config = await self.resolve_agent_preset_config(
+        preset_config = await self.presets.resolve_agent_preset_config(
             preset_id=preset_id,
             slug=slug,
         )

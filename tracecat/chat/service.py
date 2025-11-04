@@ -8,7 +8,8 @@ from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.presets.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, ModelMessageTA
@@ -85,8 +86,8 @@ class ChatService(BaseWorkspaceService):
             case = await self._get_case(chat.entity_id)
             return CaseCopilotPrompts(case=case).instructions
         if entity_type == ChatEntity.AGENT_PRESET_BUILDER:
-            agent_service = AgentManagementService(self.session, self.role)
-            preset = await agent_service.get_agent_preset(chat.entity_id)
+            agent_preset_service = AgentPresetService(self.session, self.role)
+            preset = await agent_preset_service.get_preset(chat.entity_id)
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
         else:

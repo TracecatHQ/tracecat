@@ -10,17 +10,17 @@ from slugify import slugify
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import desc, select
 
-from tracecat.agent.presets.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.db.models import AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 
 
-class AgentPresetsService(BaseWorkspaceService):
+class AgentPresetService(BaseWorkspaceService):
     """CRUD operations and helpers for agent presets."""
 
-    service_name = "agent_presets"
+    service_name = "agent_preset"
 
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
@@ -119,6 +119,20 @@ class AgentPresetsService(BaseWorkspaceService):
 
         preset = await self._get_preset_model_by_slug(slug)
         return self._preset_to_agent_config(preset)
+
+    async def resolve_agent_preset_config(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> AgentConfig:
+        """Get an agent configuration from a preset by ID or slug."""
+        if preset_id is None and slug is None:
+            raise ValueError("Either preset_id or slug must be provided")
+
+        if preset_id is not None:
+            return await self.get_agent_config(preset_id)
+        return await self.get_agent_config_by_slug(slug or "")
 
     async def _normalize_and_validate_slug(
         self,

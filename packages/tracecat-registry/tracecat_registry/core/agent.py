@@ -4,8 +4,8 @@ from typing import Annotated, Any
 from typing_extensions import Doc
 
 from tracecat.agent.factory import build_agent
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime import run_agent, run_agent_sync
-from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.registry.fields import ActionType, AgentPreset, TextArea
 from tracecat_registry import RegistrySecret, RegistrySecretType, registry
@@ -231,7 +231,7 @@ async def preset_agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
 ) -> dict[str, Any]:
-    async with AgentManagementService.with_session() as service:
+    async with AgentPresetService.with_session() as service:
         config = await service.resolve_agent_preset_config(slug=preset)
 
     if actions is not None:
