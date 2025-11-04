@@ -22,7 +22,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
-from tracecat_ee.agent.approvals.models import ApprovalRead
+from tracecat_ee.agent.approvals.schemas import ApprovalRead
 from tracecat_ee.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,

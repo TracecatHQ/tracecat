@@ -11,7 +11,7 @@ from tracecat_ee.agent.activities import (
     PersistApprovalsActivityInputs,
     ToolApprovalPayload,
 )
-from tracecat_ee.agent.approvals.models import ApprovalCreate, ApprovalUpdate
+from tracecat_ee.agent.approvals.schemas import ApprovalCreate, ApprovalUpdate
 from tracecat_ee.agent.approvals.service import (
     ApprovalManager,
     ApprovalMap,
@@ -301,7 +301,7 @@ class TestRecordApprovalRequestsActivity:
                 )
             )
             # Simulate it being approved
-            from tracecat_ee.agent.approvals.models import ApprovalUpdate
+            from tracecat_ee.agent.approvals.schemas import ApprovalUpdate
 
             await service.update_approval(
                 initial,
