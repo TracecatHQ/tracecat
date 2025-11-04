@@ -1,7 +1,7 @@
 """Add agent presets
 
 Revision ID: d110a55643ba
-Revises: b376e6d16619
+Revises: 0aef095985d4
 Create Date: 2025-11-04 17:06:03.137296
 
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "d110a55643ba"
-down_revision: str | None = "b376e6d16619"
+down_revision: str | None = "0aef095985d4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
