@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
@@ -191,6 +192,16 @@ class CSVSchemaInferer:
     def __init__(self, headers: Sequence[str | None]) -> None:
         if not headers:
             raise TracecatImportError("CSV file must include a header row")
+
+        normalised_headers = [((header or "").strip()) for header in headers]
+        duplicates = [
+            name for name, count in Counter(normalised_headers).items() if count > 1 and name
+        ]
+        if duplicates:
+            duplicates_str = ", ".join(sorted(duplicates))
+            raise TracecatImportError(
+                f"CSV headers must be unique. Duplicate columns: {duplicates_str}"
+            )
 
         used: set[str] = set()
         self._columns: list[_ColumnStats] = []

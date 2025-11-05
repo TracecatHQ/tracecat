@@ -269,11 +269,10 @@ class TestCSVSchemaInferer:
 
     def test_handles_duplicate_and_invalid_headers(self) -> None:
         """Ensure duplicate and invalid headers are auto-fixed."""
-        headers = ["First Name", "First-Name", "123count", ""]
+        headers = ["First Name", "123count", ""]
         rows = [
             {
                 "First Name": "Alice",
-                "First-Name": "duplicate",
                 "123count": "5",
                 "": "",
             }
@@ -286,12 +285,18 @@ class TestCSVSchemaInferer:
 
         assert [column.name for column in columns] == [
             "firstname",
-            "firstname_1",
-            "col_3_123count",
-            "col_4",
+            "col_2_123count",
+            "col_3",
         ]
         mapping = inferer.column_mapping
         assert mapping["First Name"] == "firstname"
-        assert mapping["First-Name"] == "firstname_1"
-        assert mapping["123count"] == "col_3_123count"
-        assert mapping[""] == "col_4"
+        assert mapping["123count"] == "col_2_123count"
+        assert mapping[""] == "col_3"
+
+    def test_rejects_duplicate_headers(self) -> None:
+        """Duplicate CSV headers should raise an import error."""
+        headers = ["Name", "Age", "Name"]
+        with pytest.raises(
+            TracecatImportError, match="Duplicate columns: Name"
+        ):
+            CSVSchemaInferer.initialise(headers)
