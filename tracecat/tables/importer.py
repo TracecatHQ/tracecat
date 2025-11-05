@@ -1,10 +1,9 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Self
 from uuid import UUID
 
 import orjson
-from typing_extensions import Self
-
 from pydantic import BaseModel
 
 from tracecat.db.models import Table, TableColumn

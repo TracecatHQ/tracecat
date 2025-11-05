@@ -137,9 +137,7 @@ class TestTablesService:
                 assert col.nullable is True
                 assert col.default == "0"  # Default values are stored as strings
 
-    async def test_import_table_from_csv(
-        self, tables_service: TablesService
-    ) -> None:
+    async def test_import_table_from_csv(self, tables_service: TablesService) -> None:
         """Importing a CSV should create table, columns, and rows."""
         csv_content = "\n".join(
             [
@@ -149,7 +147,11 @@ class TestTablesService:
             ]
         )
 
-        table, rows_inserted, column_mapping = await tables_service.import_table_from_csv(
+        (
+            table,
+            rows_inserted,
+            column_mapping,
+        ) = await tables_service.import_table_from_csv(
             contents=csv_content.encode(),
             filename="People.csv",
         )

@@ -168,6 +168,7 @@ class TableUpdate(BaseModel):
             )
         return value
 
+
 class TableImportResponse(BaseModel):
     """Response model for importing a table from CSV."""
 

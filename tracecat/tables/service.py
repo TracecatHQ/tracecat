@@ -48,6 +48,7 @@ from tracecat.tables.common import (
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.importer import CSVSchemaInferer, generate_table_name
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -55,7 +56,6 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.tables.importer import CSVSchemaInferer, generate_table_name
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -1400,7 +1400,9 @@ class TablesService(BaseTablesService):
         try:
             csv_text = contents.decode()
         except UnicodeDecodeError as exc:
-            raise TracecatImportError("CSV import requires UTF-8 encoded files") from exc
+            raise TracecatImportError(
+                "CSV import requires UTF-8 encoded files"
+            ) from exc
 
         first_pass = StringIO(csv_text)
         reader = csv.DictReader(first_pass)

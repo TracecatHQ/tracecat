@@ -7,7 +7,7 @@ import pytest
 
 from tracecat.db.models import Table, TableColumn
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import CSVImporter, ColumnInfo, CSVSchemaInferer
+from tracecat.tables.importer import ColumnInfo, CSVImporter, CSVSchemaInferer
 from tracecat.tables.service import TablesService
 
 
