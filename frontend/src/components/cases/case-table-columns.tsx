@@ -183,8 +183,8 @@ export function createColumns(
         return fuzzysort.single(String(value), rowValue) !== null
       },
       meta: {
-        headerClassName: "min-w-0 flex-1 text-left",
-        cellClassName: "min-w-0 flex-1 text-left",
+        headerClassName: "min-w-0 max-w-[40rem] text-left",
+        cellClassName: "min-w-0 max-w-[40rem] text-left",
       },
     },
     {
