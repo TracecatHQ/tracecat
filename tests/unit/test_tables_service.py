@@ -202,6 +202,28 @@ class TestTablesService:
         assert rows_by_name["Alice"]["age"] is None
         assert rows_by_name["Bob"]["age"] == 42
 
+    async def test_import_table_from_csv_honors_chunk_size(
+        self, tables_service: TablesService
+    ) -> None:
+        """Imports should allow larger chunk sizes without hitting the default cap."""
+
+        header = "name"
+        total_rows = 1500
+        rows = [f"row_{i}" for i in range(total_rows)]
+        csv_content = "\n".join([header, *rows])
+
+        table, inserted, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="Large.csv",
+            chunk_size=total_rows,
+        )
+
+        assert inserted == total_rows
+
+        retrieved_table = await tables_service.get_table(table.id)
+        actual_rows = await tables_service.list_rows(retrieved_table)
+        assert len(actual_rows) == total_rows
+
     async def test_update_table(self, tables_service: TablesService) -> None:
         """Test updating table metadata."""
         # Create table

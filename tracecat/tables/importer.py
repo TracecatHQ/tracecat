@@ -65,7 +65,9 @@ class CSVImporter:
     ) -> None:
         """Process and insert a chunk of rows."""
         if chunk:
-            count = await service.batch_insert_rows(table, chunk)
+            count = await service.batch_insert_rows(
+                table, chunk, chunk_size=self.chunk_size
+            )
             self.total_rows_inserted += count
 
 

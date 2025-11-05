@@ -34,12 +34,12 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
+from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.tables.common import (
     coerce_to_utc_datetime,
@@ -1454,10 +1454,7 @@ class TablesService(BaseTablesService):
                             mapped_row[column.name] = None
                         continue
                     value_to_convert = raw_value
-                    if (
-                        isinstance(raw_value, str)
-                        and column.type is not SqlType.TEXT
-                    ):
+                    if isinstance(raw_value, str) and column.type is not SqlType.TEXT:
                         value_to_convert = raw_value.strip()
                     try:
                         mapped_row[column.name] = convert_value(
@@ -1471,12 +1468,16 @@ class TablesService(BaseTablesService):
                 if mapped_row:
                     chunk.append(mapped_row)
                 if len(chunk) >= chunk_size:
-                    rows_inserted += await self._insert_import_chunk(table, chunk)
+                    rows_inserted += await self._insert_import_chunk(
+                        table, chunk, chunk_size=chunk_size
+                    )
                     chunk = []
 
             if chunk:
-                rows_inserted += await self._insert_import_chunk(table, chunk)
-        except Exception as exc:
+                rows_inserted += await self._insert_import_chunk(
+                    table, chunk, chunk_size=chunk_size
+                )
+        except Exception:
             await self._cleanup_failed_import(table)
             raise
         finally:
@@ -1486,12 +1487,12 @@ class TablesService(BaseTablesService):
         return table, rows_inserted, column_mapping
 
     async def _insert_import_chunk(
-        self, table: Table, chunk: list[dict[str, Any]]
+        self, table: Table, chunk: list[dict[str, Any]], *, chunk_size: int
     ) -> int:
         if not chunk:
             return 0
         try:
-            return await self.batch_insert_rows(table, chunk)
+            return await self.batch_insert_rows(table, chunk, chunk_size=chunk_size)
         except DBAPIError as exc:
             message = _summarize_db_error(exc)
             raise TracecatImportError(

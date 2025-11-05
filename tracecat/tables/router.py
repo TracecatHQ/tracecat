@@ -17,6 +17,7 @@ from fastapi import (
 )
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
@@ -61,6 +62,43 @@ WorkspaceAdminUser = Annotated[
         min_access_level=AccessLevel.ADMIN,
     ),
 ]
+
+
+async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> bytes:
+    """Read an uploaded CSV file enforcing a maximum size limit."""
+    chunk_size = 1024 * 1024  # 1MB chunks to balance throughput and memory
+    total_read = 0
+    buffer = bytearray()
+
+    await file.seek(0)
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_size:
+            max_size_mb = max_size / (1024 * 1024)
+            logger.warning(
+                "CSV import exceeds size limit",
+                filename=file.filename,
+                declared_content_type=file.content_type,
+                max_size_bytes=max_size,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"CSV file exceeds maximum allowed size of {max_size_mb:.2f}MB"
+                ),
+            )
+        buffer.extend(chunk)
+
+    if total_read == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CSV file appears to be empty",
+        )
+
+    return bytes(buffer)
 
 
 @router.get("")
@@ -463,7 +501,9 @@ async def import_table_from_csv(
     service = TablesService(session, role=role)
 
     try:
-        contents = await file.read()
+        contents = await _read_csv_upload_with_limit(
+            file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
+        )
         table, rows_inserted, column_mapping = await service.import_table_from_csv(
             contents=contents,
             filename=file.filename,
@@ -491,6 +531,8 @@ async def import_table_from_csv(
             rows_inserted=rows_inserted,
             column_mapping=column_mapping,
         )
+    except HTTPException:
+        raise
     except TracecatImportError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -527,8 +569,11 @@ async def import_csv(
     importer = CSVImporter(table.columns)
 
     # Process CSV file
+    csv_file: StringIO | None = None
     try:
-        contents = await file.read()
+        contents = await _read_csv_upload_with_limit(
+            file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
+        )
         csv_file = StringIO(contents.decode())
         csv_reader = csv.DictReader(csv_file)
 
@@ -545,6 +590,8 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
+    except HTTPException:
+        raise
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")
         raise HTTPException(
@@ -558,6 +605,7 @@ async def import_csv(
             detail=f"Error processing CSV: {str(e)}",
         ) from e
     finally:
-        csv_file.close()
+        if csv_file is not None:
+            csv_file.close()
 
     return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)

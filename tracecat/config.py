@@ -309,6 +309,11 @@ TRACECAT__MAX_FILE_SIZE_BYTES = int(
 )
 """The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
 
+TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES", 5 * 1024 * 1024)
+)
+"""Maximum CSV upload size for table imports in bytes. Defaults to 5MB."""
+
 TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
     os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
 )

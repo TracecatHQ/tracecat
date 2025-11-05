@@ -194,7 +194,9 @@ class TestCSVImporter:
         await csv_importer.process_chunk(chunk, mock_service, mock_table)
 
         # Verify service was called correctly
-        mock_service.batch_insert_rows.assert_called_once_with(mock_table, chunk)
+        mock_service.batch_insert_rows.assert_called_once_with(
+            mock_table, chunk, chunk_size=csv_importer.chunk_size
+        )
         assert csv_importer.total_rows_inserted == 2
 
     @pytest.mark.anyio
@@ -297,14 +299,10 @@ class TestCSVSchemaInferer:
     def test_rejects_duplicate_headers(self) -> None:
         """Duplicate CSV headers should raise an import error."""
         headers = ["Name", "Age", "Name"]
-        with pytest.raises(
-            TracecatImportError, match="Duplicate columns: Name"
-        ):
+        with pytest.raises(TracecatImportError, match="Duplicate columns: Name"):
             CSVSchemaInferer.initialise(headers)
 
     def test_rejects_blank_duplicate_headers(self) -> None:
         headers = ["", " ", ""]
-        with pytest.raises(
-            TracecatImportError, match="Duplicate columns: <empty>"
-        ):
+        with pytest.raises(TracecatImportError, match="Duplicate columns: <empty>"):
             CSVSchemaInferer.initialise(headers)
