@@ -159,6 +159,12 @@ class ChatService(BaseWorkspaceService):
                     config = replace(preset_config)
                     if not config.actions and chat.tools:
                         config.actions = chat.tools
+                    args = RunAgentArgs(
+                        user_prompt=user_prompt,
+                        session_id=chat_id,
+                        config=config,
+                    )
+                    await executor.start(args)
             else:
                 instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
                 async with agent_svc.with_model_config() as model_config:
@@ -168,12 +174,12 @@ class ChatService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         actions=chat.tools,
                     )
-            args = RunAgentArgs(
-                user_prompt=user_prompt,
-                session_id=chat_id,
-                config=config,
-            )
-            await executor.start(args)
+                    args = RunAgentArgs(
+                        user_prompt=user_prompt,
+                        session_id=chat_id,
+                        config=config,
+                    )
+                    await executor.start(args)
         elif chat_entity is ChatEntity.AGENT_PRESET:
             async with agent_svc.with_preset_config(
                 preset_id=chat.entity_id
@@ -264,6 +270,14 @@ class ChatService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(chat)
 
+        return chat
+
+    async def update_chat_last_stream_id(self, chat: Chat, last_stream_id: str) -> Chat:
+        """Update the last stream ID for a chat."""
+        chat.last_stream_id = last_stream_id
+        self.session.add(chat)
+        await self.session.commit()
+        await self.session.refresh(chat)
         return chat
 
     async def append_message(
