@@ -184,6 +184,9 @@ export function useUpdateChat(workspaceId: string) {
         queryKey: ["chat", variables.chatId, workspaceId],
       })
       queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["chats", workspaceId],
       })
     },

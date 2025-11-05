@@ -84,19 +84,9 @@ export function ChatInterface({
     workspaceId,
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
-  const [optimisticPresetId, setOptimisticPresetId] = useState<
-    string | null | undefined
-  >(undefined)
-
-  useEffect(() => {
-    setOptimisticPresetId(undefined)
-  }, [chat?.agent_preset_id, selectedChatId])
 
   const presetOptions = presetsEnabled ? (presets ?? []) : []
-  const effectivePresetId =
-    optimisticPresetId !== undefined
-      ? optimisticPresetId
-      : (chat?.agent_preset_id ?? null)
+  const effectivePresetId = chat?.agent_preset_id ?? null
   const selectedPreset =
     presetsEnabled && effectivePresetId
       ? presetOptions.find((preset) => preset.id === effectivePresetId)
@@ -111,7 +101,6 @@ export function ChatInterface({
       return
     }
 
-    setOptimisticPresetId(nextPresetId)
     try {
       await updateChat({
         chatId: selectedChatId,
@@ -120,7 +109,6 @@ export function ChatInterface({
         },
       })
     } catch (error) {
-      setOptimisticPresetId(undefined)
       console.error("Failed to update chat preset:", error)
       toast({
         title: "Failed to update preset",
@@ -393,14 +381,6 @@ function ChatBody({
   selectedPreset,
   toolsEnabled,
 }: ChatBodyProps) {
-  if (chatError) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <span className="text-red-500">Failed to load chat</span>
-      </div>
-    )
-  }
-
   const {
     ready: chatReady,
     loading: chatReadyLoading,
@@ -422,6 +402,13 @@ function ChatBody({
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
+      </div>
+    )
+  }
+  if (chatError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-red-500">Failed to load chat</span>
       </div>
     )
   }
@@ -467,6 +454,7 @@ function ChatBody({
       placeholder={`Ask about this ${entityType}...`}
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
+      toolsEnabled={toolsEnabled}
     />
   )
 }
