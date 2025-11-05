@@ -262,8 +262,17 @@ class ChatService(BaseWorkspaceService):
         params: ChatUpdate,
     ) -> Chat:
         """Update chat properties."""
-        # Update fields if provided
         set_fields = params.model_dump(exclude_unset=True)
+
+        if "agent_preset_id" in set_fields:
+            preset_id = set_fields.pop("agent_preset_id")
+            if preset_id is not None:
+                preset_service = AgentPresetService(self.session, self.role)
+                # Raises TracecatNotFoundError if preset not found
+                await preset_service.get_preset(preset_id)
+            chat.agent_preset_id = preset_id
+
+        # Update remaining fields if provided
         for field, value in set_fields.items():
             setattr(chat, field, value)
         self.session.add(chat)
