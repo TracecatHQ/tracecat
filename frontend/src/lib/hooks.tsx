@@ -196,8 +196,8 @@ import {
   type TablesDeleteTableData,
   type TablesGetTableData,
   type TablesImportCsvData,
-  type TablesImportTableData,
-  type TablesImportTableResponse,
+  type TablesImportTableFromCsvData,
+  type TablesImportTableFromCsvResponse,
   type TablesInsertRowData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
@@ -215,7 +215,7 @@ import {
   tablesDeleteTable,
   tablesGetTable,
   tablesImportCsv,
-  tablesImportTable,
+  tablesImportTableFromCsv,
   tablesInsertRow,
   tablesListTables,
   tablesUpdateColumn,
@@ -3133,11 +3133,11 @@ export function useImportTableFromCsv() {
     isPending: importTableIsPending,
     error: importTableError,
   } = useMutation<
-    TablesImportTableResponse,
+    TablesImportTableFromCsvResponse,
     TracecatApiError,
-    TablesImportTableData
+    TablesImportTableFromCsvData
   >({
-    mutationFn: async (params) => await tablesImportTable(params),
+    mutationFn: async (params) => await tablesImportTableFromCsv(params),
     onSuccess: (response, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
