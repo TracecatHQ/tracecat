@@ -165,6 +165,9 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
             return 3600
 
         now = datetime.now(UTC)
-        expiry_ts = expiry.astimezone(UTC)
+        if expiry.tzinfo is None:
+            expiry_ts = expiry.replace(tzinfo=UTC)
+        else:
+            expiry_ts = expiry.astimezone(UTC)
         delta = int((expiry_ts - now).total_seconds())
         return max(delta, 0)
