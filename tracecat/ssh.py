@@ -107,6 +107,26 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
         logger.debug("Killed ssh-agent")
 
 
+def _split_host_port(url: str) -> tuple[str, str | None]:
+    """Split a host string into host and port components."""
+
+    if url.startswith("[") and "]" in url:
+        closing_idx = url.index("]")
+        host_part = url[1:closing_idx]
+        remainder = url[closing_idx + 1 :]
+        if remainder.startswith(":") and remainder[1:].isdigit():
+            return host_part, remainder[1:]
+        if not remainder:
+            return host_part, None
+        return url, None
+
+    if ":" in url:
+        host_part, port_part = url.rsplit(":", 1)
+        if port_part.isdigit():
+            return host_part, port_part
+    return url, None
+
+
 def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
     """Synchronously add the host to the known hosts file if not already present.
 
@@ -124,16 +144,38 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
 
         known_hosts_file = ssh_dir / "known_hosts"
 
+        host, port = _split_host_port(url)
+        if port:
+            formatted_host = f"[{host}]:{port}"
+            known_host_tokens = {url, formatted_host, host}
+        else:
+            formatted_host = host
+            known_host_tokens = {url, formatted_host}
+
         # Check if host already exists in known_hosts
         if known_hosts_file.exists():
             with known_hosts_file.open("r") as f:
                 # Look for the hostname in existing entries
-                if any(url in line for line in f.readlines()):
-                    logger.debug("Host already in known_hosts file", url=url)
-                    return
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    entry_host = stripped.split()[0]
+                    if entry_host in known_host_tokens:
+                        logger.debug(
+                            "Host already in known_hosts file",
+                            url=url,
+                            entry_host=entry_host,
+                        )
+                        return
         # Use ssh-keyscan to get the host key
+        cmd = ["ssh-keyscan"]
+        if port:
+            cmd.extend(["-p", port])
+        cmd.append(host)
+
         result = subprocess.run(
-            ["ssh-keyscan", url],
+            cmd,
             capture_output=True,
             text=True,
             env=env.to_dict(),
@@ -143,9 +185,21 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
         if result.returncode != 0:
             raise RuntimeError(f"Failed to get host key: {result.stderr.strip()}")
 
+        output_lines = result.stdout.splitlines(keepends=True)
+        if port:
+            rewritten_lines = []
+            for line in output_lines:
+                if line.startswith(host):
+                    rewritten_lines.append(formatted_host + line[len(host) :])
+                else:
+                    rewritten_lines.append(line)
+            output = "".join(rewritten_lines)
+        else:
+            output = "".join(output_lines)
+
         # Append the host key to the known_hosts file
         with known_hosts_file.open("a") as f:
-            f.write(result.stdout)
+            f.write(output)
 
         logger.info("Added host to known hosts", url=url)
     except Exception as e:
