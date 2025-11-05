@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import TracecatImportError
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import ColumnInfo, CSVImporter, CSVSchemaInferer
 from tracecat.tables.service import TablesService
@@ -298,5 +299,12 @@ class TestCSVSchemaInferer:
         headers = ["Name", "Age", "Name"]
         with pytest.raises(
             TracecatImportError, match="Duplicate columns: Name"
+        ):
+            CSVSchemaInferer.initialise(headers)
+
+    def test_rejects_blank_duplicate_headers(self) -> None:
+        headers = ["", " ", ""]
+        with pytest.raises(
+            TracecatImportError, match="Duplicate columns: <empty>"
         ):
             CSVSchemaInferer.initialise(headers)

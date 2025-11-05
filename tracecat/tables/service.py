@@ -39,6 +39,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.tables.common import (
     coerce_to_utc_datetime,
@@ -1438,41 +1439,49 @@ class TablesService(BaseTablesService):
 
         chunk: list[dict[str, Any]] = []
         rows_inserted = 0
-        for row in reader:
-            mapped_row: dict[str, Any] = {}
-            for column in inferred_columns:
-                raw_value = row.get(column.original_name)
-                if raw_value is None:
-                    mapped_row[column.name] = None
-                    continue
-                if isinstance(raw_value, str) and raw_value.strip() == "":
-                    if column.type is SqlType.TEXT:
-                        mapped_row[column.name] = ""
-                    else:
+        try:
+            for row in reader:
+                mapped_row: dict[str, Any] = {}
+                for column in inferred_columns:
+                    raw_value = row.get(column.original_name)
+                    if raw_value is None:
                         mapped_row[column.name] = None
-                    continue
-                value_to_convert = raw_value
-                if isinstance(raw_value, str) and column.type is not SqlType.TEXT:
-                    value_to_convert = raw_value.strip()
-                try:
-                    mapped_row[column.name] = convert_value(
-                        value_to_convert, column.type
-                    )
-                except TypeError as exc:
-                    raise TracecatImportError(
-                        f"Cannot convert value {raw_value!r} in column "
-                        f"{column.original_name!r} to type {column.type}"
-                    ) from exc
-            if mapped_row:
-                chunk.append(mapped_row)
-            if len(chunk) >= chunk_size:
+                        continue
+                    if isinstance(raw_value, str) and raw_value.strip() == "":
+                        if column.type is SqlType.TEXT:
+                            mapped_row[column.name] = ""
+                        else:
+                            mapped_row[column.name] = None
+                        continue
+                    value_to_convert = raw_value
+                    if (
+                        isinstance(raw_value, str)
+                        and column.type is not SqlType.TEXT
+                    ):
+                        value_to_convert = raw_value.strip()
+                    try:
+                        mapped_row[column.name] = convert_value(
+                            value_to_convert, column.type
+                        )
+                    except TypeError as exc:
+                        raise TracecatImportError(
+                            f"Cannot convert value {raw_value!r} in column "
+                            f"{column.original_name!r} to type {column.type}"
+                        ) from exc
+                if mapped_row:
+                    chunk.append(mapped_row)
+                if len(chunk) >= chunk_size:
+                    rows_inserted += await self._insert_import_chunk(table, chunk)
+                    chunk = []
+
+            if chunk:
                 rows_inserted += await self._insert_import_chunk(table, chunk)
-                chunk = []
+        except Exception as exc:
+            await self._cleanup_failed_import(table)
+            raise
+        finally:
+            second_pass.close()
 
-        if chunk:
-            rows_inserted += await self._insert_import_chunk(table, chunk)
-
-        second_pass.close()
         await self.session.refresh(table)
         return table, rows_inserted, column_mapping
 
@@ -1488,6 +1497,16 @@ class TablesService(BaseTablesService):
             raise TracecatImportError(
                 f"Failed to insert rows into table '{table.name}': {message}"
             ) from exc
+
+    async def _cleanup_failed_import(self, table: Table) -> None:
+        try:
+            await self.delete_table(table)
+        except Exception as cleanup_error:
+            logger.error(
+                "Failed to clean up table after import failure",
+                table_id=str(table.id),
+                error=cleanup_error,
+            )
 
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         result = await super().update_table(table, params)

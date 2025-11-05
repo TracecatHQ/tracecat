@@ -165,10 +165,12 @@ class TestTablesService:
         retrieved_table = await tables_service.get_table(table.id)
         rows = await tables_service.list_rows(retrieved_table)
         assert len(rows) == 2
-        first_row = rows[0]
-        assert "fullname" in first_row
-        assert isinstance(first_row["age"], int)
-        assert isinstance(first_row["active"], bool)
+        rows_by_name = {row["fullname"]: row for row in rows}
+        assert rows_by_name.keys() == {"Alice", "Bob"}
+        assert isinstance(rows_by_name["Alice"]["age"], int)
+        assert isinstance(rows_by_name["Alice"]["active"], bool)
+        assert isinstance(rows_by_name["Bob"]["age"], int)
+        assert isinstance(rows_by_name["Bob"]["active"], bool)
 
         second_table, _, _ = await tables_service.import_table_from_csv(
             contents=csv_content.encode(),
@@ -196,8 +198,9 @@ class TestTablesService:
         retrieved_table = await tables_service.get_table(table.id)
         rows = await tables_service.list_rows(retrieved_table)
         assert len(rows) == 2
-        assert rows[0]["age"] is None
-        assert rows[1]["age"] == 42
+        rows_by_name = {row["name"]: row for row in rows}
+        assert rows_by_name["Alice"]["age"] is None
+        assert rows_by_name["Bob"]["age"] == 42
 
     async def test_update_table(self, tables_service: TablesService) -> None:
         """Test updating table metadata."""

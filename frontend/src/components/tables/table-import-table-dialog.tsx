@@ -39,7 +39,8 @@ const tableImportSchema = z.object({
       if (file.size > FILE_SIZE_LIMIT_MB * BYTES_PER_MB) {
         return false
       }
-      return file.type === "text/csv" || file.name.endsWith(".csv")
+      const lowerName = file.name?.toLowerCase() ?? ""
+      return file.type === "text/csv" || lowerName.endsWith(".csv")
     },
     (file) => ({
       message: `Please upload a CSV file under 5MB. Current file size: ${(file.size / BYTES_PER_MB).toFixed(2)}MB`,

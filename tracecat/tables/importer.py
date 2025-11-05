@@ -193,10 +193,12 @@ class CSVSchemaInferer:
         if not headers:
             raise TracecatImportError("CSV file must include a header row")
 
-        normalised_headers = [((header or "").strip()) for header in headers]
-        duplicates = [
-            name for name, count in Counter(normalised_headers).items() if count > 1 and name
-        ]
+        normalised_headers = [(header or "").strip() for header in headers]
+        duplicates: list[str] = []
+        for name, count in Counter(normalised_headers).items():
+            if count > 1:
+                display = name if name else "<empty>"
+                duplicates.append(display)
         if duplicates:
             duplicates_str = ", ".join(sorted(duplicates))
             raise TracecatImportError(
