@@ -7,6 +7,9 @@ definition:
   display_group: Wazuh
   doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.active_response_controller.run_command
   author: bouddha-fr
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
   expects:
     command:
       type: str
@@ -28,11 +31,16 @@ definition:
       default: null
   steps:
     - ref: get_access_token
-      action: tools.wazuh.get_access_token
+      action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.wazuh.base_url }}
-        verify_ssl: ${{ inputs.verify_ssl  }}
-        auth_token_exp_timeout: 900
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Content-Type: application/json
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        payload:
+          auth_token_exp_timeout: ${{ inputs.auth_token_exp_timeout }}
+        verify_ssl: ${{ inputs.verify_ssl }}
     - ref: run_active_response
       action: core.http_request
       args:
@@ -42,8 +50,8 @@ definition:
           agents_list: ${{ inputs.agents_list }}
         headers:
           Content-Type: application/json
-          Authorization: Bearer ${{ steps.get_access_token.result }}
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
         payload:
           command: ${{ inputs.command }}
-        verify_ssl: ${{ inputs.verify_ssl  }}
+        verify_ssl: ${{ inputs.verify_ssl }}
   returns: ${{ steps.run_active_response.result.data }}
