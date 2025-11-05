@@ -183,6 +183,95 @@ export type AgentOutput = {
   trace_id?: string | null
 }
 
+export type AgentPreset = {
+  component_id?: "agent-preset"
+}
+
+/**
+ * Payload for creating a new agent preset.
+ */
+export type AgentPresetCreate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name: string
+  slug?: string | null
+}
+
+/**
+ * API model for reading agent presets.
+ */
+export type AgentPresetRead = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Payload for updating an existing agent preset.
+ */
+export type AgentPresetUpdate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name?: string | null
+  slug?: string | null
+}
+
 export type AgentSessionRead = {
   id: string
   created_at: string
@@ -1305,7 +1394,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "agent_preset" | "agent_preset_builder"
 
 /**
  * Model for chat metadata with a single message.
@@ -1837,6 +1926,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentPreset
 
 export type EditorFunctionRead = {
   name: string
@@ -2048,6 +2138,7 @@ export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
   | "agent-approvals"
+  | "agent-presets"
   | "case-durations"
   | "case-tasks"
 
@@ -6266,6 +6357,48 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentPresetsListAgentPresetsData = {
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetRead>
+
+export type AgentPresetsCreateAgentPresetData = {
+  requestBody: AgentPresetCreate
+  workspaceId: string
+}
+
+export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsGetAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsUpdateAgentPresetData = {
+  presetId: string
+  requestBody: AgentPresetUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsDeleteAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsDeleteAgentPresetResponse = void
+
+export type AgentPresetsGetAgentPresetBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
 export type AgentListAgentSessionsData = {
   workspaceId: string
 }
@@ -8933,6 +9066,90 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets": {
+    get: {
+      req: AgentPresetsListAgentPresetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsCreateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentPresetsUpdateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsDeleteAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/by-slug/{slug}": {
+    get: {
+      req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
         /**
          * Validation Error
          */

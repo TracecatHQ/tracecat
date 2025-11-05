@@ -4874,6 +4874,7 @@ export function useChatReadiness() {
   const modelInfo: ModelInfo = {
     name: defaultModel,
     provider: providerId,
+    baseUrl: null,
   }
   if (!hasCreds) {
     return {

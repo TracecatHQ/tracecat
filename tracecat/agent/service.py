@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import contextlib
+import uuid
 from collections.abc import AsyncIterator
 
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import OrganizationSecret
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.enums import SecretType
@@ -35,6 +38,14 @@ class AgentManagementService(BaseService):
         super().__init__(session, role=role)
         self.secrets_service = SecretsService(session, role=role)
         self.settings_service = SettingsService(session, role=role)
+        try:
+            # This is a workspace scoped service
+            self.presets = AgentPresetService(
+                session=self.session,
+                role=self.role,
+            )
+        except TracecatAuthorizationError:
+            self.presets = None
 
     def _get_credential_secret_name(self, provider: str) -> str:
         """Get the standardized secret name for a provider's credentials."""
@@ -210,3 +221,30 @@ class AgentManagementService(BaseService):
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
             yield model_config
+
+    @contextlib.asynccontextmanager
+    async def with_preset_config(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> AsyncIterator[AgentConfig]:
+        """Yield an agent preset configuration with provider credentials loaded."""
+        if self.presets is None:
+            raise TracecatAuthorizationError(
+                "Agent presets require a workspace role",
+            )
+
+        preset_config = await self.presets.resolve_agent_preset_config(
+            preset_id=preset_id,
+            slug=slug,
+        )
+        credentials = await self.get_provider_credentials(preset_config.model_provider)
+        if not credentials:
+            raise TracecatNotFoundError(
+                f"No credentials found for provider '{preset_config.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
+
+        with secrets_manager.env_sandbox(credentials):
+            yield preset_config

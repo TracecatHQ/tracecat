@@ -51,7 +51,6 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     agent_tools: list[Tool[Any | None]] = []
     if config.actions:
         tools = await build_agent_tools(
-            fixed_arguments=config.fixed_arguments,
             namespaces=config.namespaces,
             actions=config.actions,
             tool_approvals=config.tool_approvals,
@@ -69,7 +68,6 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     if config.actions:
         tool_calling_prompt = ToolCallPrompt(
             tools=tools.tools,
-            fixed_arguments=config.fixed_arguments,
         )
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n".join(part for part in instruction_parts if part)

@@ -240,7 +240,6 @@ async def create_single_tool(
     service: RegistryActionsService,
     ra: RegistryAction,
     action_name: str,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
     tool_approvals: dict[str, bool] | None = None,
 ) -> CreateToolResult | None:
     """Create a single tool from a registry action.
@@ -249,25 +248,22 @@ async def create_single_tool(
         service: The registry actions service instance
         ra: The registry action to create a tool from
         action_name: The formatted action name (namespace.name)
-        fixed_arguments: Fixed arguments for actions
+        tool_approvals: Tool approval requirements by tool name
 
     Returns:
         CreateToolResult containing the tool and metadata, or None if creation failed
     """
     collected_secrets: set[RegistrySecretType] = set()
-    fixed_arguments = fixed_arguments or {}
 
     try:
         # Fetch all secrets for this action
         action_secrets = await service.fetch_all_action_secrets(ra)
         collected_secrets.update(action_secrets)
 
-        # Get fixed arguments for this specific action
-        action_fixed_args = fixed_arguments.get(action_name)
         tool = await create_tool_from_registry(
             action_name,
             ra,
-            action_fixed_args,
+            None,
             service=service,
             tool_approvals=tool_approvals,
         )
@@ -295,7 +291,6 @@ class BuildToolsResult[DepsT]:
 async def build_agent_tools(
     namespaces: list[str] | None = None,
     actions: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
     tool_approvals: dict[str, bool] | None = None,
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
@@ -342,7 +337,6 @@ async def build_agent_tools(
                 service,
                 ra,
                 action_name,
-                fixed_arguments=fixed_arguments,
                 tool_approvals=tool_approvals,
             )
 

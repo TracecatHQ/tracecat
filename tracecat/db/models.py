@@ -148,6 +148,10 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    agent_presets: list["AgentPreset"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
     case_duration_definitions: list["CaseDurationDefinition"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
@@ -1365,6 +1369,91 @@ class Approval(Resource, table=True):
         default=None,
         sa_column=Column(TIMESTAMP(timezone=True)),
     )
+
+
+class AgentPreset(Resource, table=True):
+    """Database model for storing reusable agent preset configurations."""
+
+    __tablename__: str = "agent_preset"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "slug", name="uq_agent_preset_owner_slug"),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        description="Unique agent preset identifier",
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    owner: Workspace | None = Relationship(back_populates="agent_presets")
+    name: str = Field(..., max_length=120, description="Human readable preset name")
+    slug: str = Field(
+        ...,
+        max_length=160,
+        index=True,
+        description="Stable slug identifier used for lookups",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional description for the preset",
+    )
+    instructions: str | None = Field(
+        default=None,
+        sa_column=Column(Text),
+        description="System instructions for the agent",
+    )
+    model_name: str = Field(
+        ..., max_length=120, description="Model name used for execution"
+    )
+    model_provider: str = Field(
+        ..., max_length=120, description="LLM provider identifier"
+    )
+    base_url: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional model base URL override",
+    )
+    output_type: dict[str, Any] | str | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Optional structured output type definition",
+    )
+    actions: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool identifiers available to the agent",
+    )
+    namespaces: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool namespaces available to the agent",
+    )
+    tool_approvals: dict[str, bool] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Tool approval requirements by tool name",
+    )
+    mcp_server_url: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional MCP server URL",
+    )
+    mcp_server_headers: dict[str, str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Headers to include when connecting to the MCP server",
+    )
+    model_settings: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Provider specific model settings",
+    )
+    retries: int = Field(default=3, description="Maximum retry attempts per run")
 
 
 class File(Resource, table=True):
