@@ -1389,6 +1389,10 @@ export type ChatCreate = {
    * Tools available to the agent for this chat
    */
   tools?: Array<string> | null
+  /**
+   * Optional agent preset to use for the chat session
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -1439,6 +1443,10 @@ export type ChatRead = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1485,6 +1493,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1527,6 +1539,10 @@ export type ChatReadVercel = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1556,6 +1572,10 @@ export type ChatUpdate = {
    * Chat title
    */
   title?: string | null
+  /**
+   * Agent preset to use for the chat session (set to null for default instructions)
+   */
+  agent_preset_id?: string | null
 }
 
 /**

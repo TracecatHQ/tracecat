@@ -4575,6 +4575,19 @@ export const $ChatCreate = {
       title: "Tools",
       description: "Tools available to the agent for this chat",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Optional agent preset to use for the chat session",
+    },
   },
   type: "object",
   required: ["title", "entity_type", "entity_id"],
@@ -4659,6 +4672,19 @@ export const $ChatRead = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4746,6 +4772,19 @@ export const $ChatReadMinimal = {
       title: "Tools",
       description: "Tools available to the agent",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -4823,6 +4862,19 @@ export const $ChatReadVercel = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4903,6 +4955,20 @@ export const $ChatUpdate = {
       ],
       title: "Title",
       description: "Chat title",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "Agent preset to use for the chat session (set to null for default instructions)",
     },
   },
   type: "object",

@@ -54,6 +54,7 @@ async def create_chat(
         entity_type=request.entity_type,
         entity_id=request.entity_id,
         tools=request.tools,
+        agent_preset_id=request.agent_preset_id,
     )
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
@@ -113,6 +114,7 @@ async def get_chat(
         entity_type=chat.entity_type,
         entity_id=chat.entity_id,
         tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         last_stream_id=chat.last_stream_id,
@@ -152,6 +154,7 @@ async def get_chat_vercel(
         entity_type=chat.entity_type,
         entity_id=chat.entity_id,
         tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         last_stream_id=chat.last_stream_id,
@@ -162,7 +165,7 @@ async def get_chat_vercel(
 @router.patch("/{chat_id}")
 async def update_chat(
     chat_id: uuid.UUID,
-    request: ChatUpdate,
+    params: ChatUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> ChatReadMinimal:
@@ -175,11 +178,7 @@ async def update_chat(
             detail="Chat not found",
         )
 
-    chat = await svc.update_chat(
-        chat,
-        tools=request.tools,
-        title=request.title,
-    )
+    chat = await svc.update_chat(chat, params=params)
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 

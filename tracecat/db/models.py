@@ -1438,6 +1438,10 @@ class AgentPreset(Resource, table=True):
         sa_column=Column(JSONB),
         description="Tool approval requirements by tool name",
     )
+    chats: list["Chat"] = Relationship(
+        back_populates="agent_preset",
+        sa_relationship_kwargs={"cascade": "save-update"},
+    )
     mcp_server_url: str | None = Field(
         default=None,
         max_length=500,
@@ -1753,6 +1757,15 @@ class Chat(Resource, table=True):
         sa_column=Column(JSONB),
         description="The tools available to the agent for this chat.",
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID,
+            ForeignKey("agent_preset.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        description="Optional agent preset used for this chat session.",
+    )
     last_stream_id: str | None = Field(
         default=None,
         sa_column=Column(String(length=128), nullable=True),
@@ -1767,6 +1780,10 @@ class Chat(Resource, table=True):
             "cascade": "all, delete",
             "order_by": "ChatMessage.created_at.asc()",
         },
+    )
+    agent_preset: AgentPreset | None = Relationship(
+        back_populates="chats",
+        sa_relationship_kwargs={"lazy": "joined"},
     )
 
 
