@@ -137,6 +137,66 @@ class TestTablesService:
                 assert col.nullable is True
                 assert col.default == "0"  # Default values are stored as strings
 
+    async def test_import_table_from_csv(
+        self, tables_service: TablesService
+    ) -> None:
+        """Importing a CSV should create table, columns, and rows."""
+        csv_content = "\n".join(
+            [
+                "Full Name,Age,Active,Joined",
+                "Alice,30,true,2024-01-01T12:00:00Z",
+                "Bob,25,false,2024-01-02",
+            ]
+        )
+
+        table, rows_inserted, column_mapping = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="People.csv",
+        )
+
+        assert table.name == "people"
+        assert rows_inserted == 2
+        assert column_mapping["Full Name"] == "fullname"
+        assert column_mapping["Age"] == "age"
+        assert column_mapping["Active"] == "active"
+
+        retrieved_table = await tables_service.get_table(table.id)
+        rows = await tables_service.list_rows(retrieved_table)
+        assert len(rows) == 2
+        first_row = rows[0]
+        assert "fullname" in first_row
+        assert isinstance(first_row["age"], int)
+        assert isinstance(first_row["active"], bool)
+
+        second_table, _, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="People.csv",
+        )
+        assert second_table.name == "people_1"
+
+    async def test_import_table_handles_empty_numeric_values(
+        self, tables_service: TablesService
+    ) -> None:
+        """Empty cells in numeric columns should be treated as NULL."""
+        csv_content = "\n".join(
+            [
+                "Name,Age",
+                "Alice,",
+                "Bob,42",
+            ]
+        )
+
+        table, _, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="Ages.csv",
+        )
+
+        retrieved_table = await tables_service.get_table(table.id)
+        rows = await tables_service.list_rows(retrieved_table)
+        assert len(rows) == 2
+        assert rows[0]["age"] is None
+        assert rows[1]["age"] == 42
+
     async def test_update_table(self, tables_service: TablesService) -> None:
         """Test updating table metadata."""
         # Create table

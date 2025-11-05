@@ -296,7 +296,7 @@ interface CsvPreviewProps {
   csvData: CsvPreviewData
 }
 
-function CsvPreview({ csvData }: CsvPreviewProps) {
+export function CsvPreview({ csvData }: CsvPreviewProps) {
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>

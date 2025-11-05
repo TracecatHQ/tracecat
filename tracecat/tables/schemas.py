@@ -167,3 +167,10 @@ class TableUpdate(BaseModel):
                 "Table name must contain only letters, numbers, and underscores, and start with a letter or underscore"
             )
         return value
+
+class TableImportResponse(BaseModel):
+    """Response model for importing a table from CSV."""
+
+    table: TableRead
+    rows_inserted: int
+    column_mapping: dict[str, str]

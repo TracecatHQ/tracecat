@@ -7,7 +7,7 @@ import pytest
 
 from tracecat.db.models import Table, TableColumn
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import ColumnInfo, CSVImporter
+from tracecat.tables.importer import CSVImporter, ColumnInfo, CSVSchemaInferer
 from tracecat.tables.service import TablesService
 
 
@@ -206,3 +206,92 @@ class TestCSVImporter:
 
         mock_service.batch_insert_rows.assert_not_called()
         assert csv_importer.total_rows_inserted == 0
+
+
+class TestCSVSchemaInferer:
+    """Tests for CSV schema inference utilities."""
+
+    def test_infers_types_and_names(self) -> None:
+        """Ensure types and sanitised names are derived correctly."""
+        headers = [
+            "Name",
+            "Age",
+            "Active",
+            "Score",
+            "Joined",
+            "Identifier",
+            "Metadata",
+        ]
+        uuid_value = str(uuid4())
+        rows = [
+            {
+                "Name": "Alice",
+                "Age": "30",
+                "Active": "true",
+                "Score": "88.5",
+                "Joined": "2024-01-01T12:30:00Z",
+                "Identifier": uuid_value,
+                "Metadata": '{"team": "alpha"}',
+            },
+            {
+                "Name": "Bob",
+                "Age": "41",
+                "Active": "false",
+                "Score": "70",
+                "Joined": "2024-02-11",
+                "Identifier": uuid_value,
+                "Metadata": '{"team": "beta"}',
+            },
+        ]
+
+        inferer = CSVSchemaInferer.initialise(headers)
+        for row in rows:
+            inferer.observe(row)
+        columns = inferer.result()
+
+        assert [column.name for column in columns] == [
+            "name",
+            "age",
+            "active",
+            "score",
+            "joined",
+            "identifier",
+            "metadata",
+        ]
+        type_map = {column.name: column.type for column in columns}
+        assert type_map["name"] is SqlType.TEXT
+        assert type_map["age"] is SqlType.INTEGER
+        assert type_map["active"] is SqlType.BOOLEAN
+        assert type_map["score"] is SqlType.NUMERIC
+        assert type_map["joined"] is SqlType.TIMESTAMPTZ
+        assert type_map["identifier"] is SqlType.UUID
+        assert type_map["metadata"] is SqlType.JSONB
+
+    def test_handles_duplicate_and_invalid_headers(self) -> None:
+        """Ensure duplicate and invalid headers are auto-fixed."""
+        headers = ["First Name", "First-Name", "123count", ""]
+        rows = [
+            {
+                "First Name": "Alice",
+                "First-Name": "duplicate",
+                "123count": "5",
+                "": "",
+            }
+        ]
+
+        inferer = CSVSchemaInferer.initialise(headers)
+        for row in rows:
+            inferer.observe(row)
+        columns = inferer.result()
+
+        assert [column.name for column in columns] == [
+            "firstname",
+            "firstname_1",
+            "col_3_123count",
+            "col_4",
+        ]
+        mapping = inferer.column_mapping
+        assert mapping["First Name"] == "firstname"
+        assert mapping["First-Name"] == "firstname_1"
+        assert mapping["123count"] == "col_3_123count"
+        assert mapping[""] == "col_4"

@@ -33,6 +33,7 @@ from tracecat.tables.schemas import (
     TableCreate,
     TableRead,
     TableReadMinimal,
+    TableImportResponse,
     TableRowInsert,
     TableRowInsertBatch,
     TableRowInsertBatchResponse,
@@ -448,6 +449,57 @@ async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON format for column_mapping",
+        ) from e
+
+
+@router.post("/import", status_code=status.HTTP_201_CREATED)
+async def import_table_from_csv(
+    role: WorkspaceAdminUser,
+    session: AsyncDBSession,
+    file: UploadFile = File(...),
+    table_name: str | None = Form(default=None),
+) -> TableImportResponse:
+    """Create a new table by importing a CSV file."""
+    service = TablesService(session, role=role)
+
+    try:
+        contents = await file.read()
+        table, rows_inserted, column_mapping = await service.import_table_from_csv(
+            contents=contents,
+            filename=file.filename,
+            table_name=table_name,
+        )
+        table_with_columns = await service.get_table(table.id)
+        index_columns = await service.get_index(table_with_columns)
+        table_read = TableRead(
+            id=table_with_columns.id,
+            name=table_with_columns.name,
+            columns=[
+                TableColumnRead(
+                    id=column.id,
+                    name=column.name,
+                    type=SqlType(column.type),
+                    nullable=column.nullable,
+                    default=column.default,
+                    is_index=column.name in index_columns,
+                )
+                for column in table_with_columns.columns
+            ],
+        )
+        return TableImportResponse(
+            table=table_read,
+            rows_inserted=rows_inserted,
+            column_mapping=column_mapping,
+        )
+    except TracecatImportError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+    except Exception as e:
+        logger.warning(f"Unexpected error during table import: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error processing CSV: {str(e)}",
         ) from e
 
 

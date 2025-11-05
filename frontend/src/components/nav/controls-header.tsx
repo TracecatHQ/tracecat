@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ClockPlus,
+  FileUpIcon,
   Flag,
   Flame,
   PanelRight,
@@ -48,6 +49,7 @@ import { EntitySelectorPopover } from "@/components/entities/entity-selector-pop
 import { Spinner } from "@/components/loading/spinner"
 import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
   AlertDialog,
@@ -180,20 +182,56 @@ function WorkflowsActions() {
 }
 
 function TablesActions() {
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
+    null
+  )
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Create table
-      </Button>
-      <CreateTableDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            New table
+            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
+            <Plus className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Create table</span>
+              <span className="text-xs text-muted-foreground">
+                Define columns manually
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("import")}>
+            <FileUpIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Import from CSV</span>
+              <span className="text-xs text-muted-foreground">
+                Infer columns and data from a CSV file
+              </span>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreateTableDialog
+        open={activeDialog === "create"}
+        onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+      />
+      <TableImportTableDialog
+        open={activeDialog === "import"}
+        onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+      />
     </>
   )
 }

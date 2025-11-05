@@ -665,6 +665,11 @@ export type Body_tables_import_csv = {
   column_mapping: string
 }
 
+export type Body_tables_import_table_from_csv = {
+  file: Blob | File
+  table_name?: string | null
+}
+
 export type Body_workflows_create_workflow = {
   title?: string | null
   description?: string | null
@@ -4014,6 +4019,17 @@ export type TableCreate = {
 }
 
 /**
+ * Response model for importing a table from CSV.
+ */
+export type TableImportResponse = {
+  table: TableRead
+  rows_inserted: number
+  column_mapping: {
+    [key: string]: string
+  }
+}
+
+/**
  * Read model for a table.
  */
 export type TableRead = {
@@ -6708,6 +6724,13 @@ export type TablesBatchInsertRowsData = {
 }
 
 export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
+
+export type TablesImportTableFromCsvData = {
+  formData: Body_tables_import_table_from_csv
+  workspaceId: string
+}
+
+export type TablesImportTableFromCsvResponse = TableImportResponse
 
 export type TablesImportCsvData = {
   formData: Body_tables_import_csv
@@ -9818,6 +9841,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/import": {
+    post: {
+      req: TablesImportTableFromCsvData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableImportResponse
         /**
          * Validation Error
          */

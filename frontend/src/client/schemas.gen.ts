@@ -2468,6 +2468,30 @@ export const $Body_tables_import_csv = {
   title: "Body_tables-import_csv",
 } as const
 
+export const $Body_tables_import_table_from_csv = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_tables-import_table_from_csv",
+} as const
+
 export const $Body_workflows_create_workflow = {
   properties: {
     title: {
@@ -12195,6 +12219,29 @@ export const $TableCreate = {
   required: ["name"],
   title: "TableCreate",
   description: "Create model for a table.",
+} as const
+
+export const $TableImportResponse = {
+  properties: {
+    table: {
+      $ref: "#/components/schemas/TableRead",
+    },
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted",
+    },
+    column_mapping: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Column Mapping",
+    },
+  },
+  type: "object",
+  required: ["table", "rows_inserted", "column_mapping"],
+  title: "TableImportResponse",
+  description: "Response model for importing a table from CSV.",
 } as const
 
 export const $TableRead = {
