@@ -94,6 +94,12 @@ class TableRowInsert(BaseModel):
     upsert: bool = False
 
 
+class TableRowUpdate(BaseModel):
+    """Update model for a table row."""
+
+    data: dict[str, Any]
+
+
 class TableRowInsertBatch(BaseModel):
     """Request body for batch inserting rows."""
 

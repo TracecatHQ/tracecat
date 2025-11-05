@@ -88,6 +88,9 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.UUID:
             # For UUID, ensure proper quoting
             default_value = f"'{default}'::uuid"
+        case SqlType.ENUM:
+            # Store enums as string literals
+            default_value = f"'{default}'"
         case _:
             raise TypeError(f"Unsupported SQL type for default value: {type}")
     return default_value
@@ -134,6 +137,8 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
             return sa.bindparam(key=name, value=value, type_=sa.UUID)
+        case SqlType.ENUM:
+            return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case _:
             raise TypeError(f"Unsupported SQL type for value conversion: {type}")
 
@@ -191,6 +196,8 @@ def convert_value(value: str | None, type: SqlType) -> Any:
             case SqlType.JSONB:
                 return orjson.loads(value)
             case SqlType.TEXT:
+                return str(value)
+            case SqlType.ENUM:
                 return str(value)
             case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return coerce_to_utc_datetime(value)

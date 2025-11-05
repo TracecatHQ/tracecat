@@ -1,5 +1,6 @@
-from collections import defaultdict
-from collections.abc import Sequence
+import json
+import re
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -10,7 +11,7 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -37,7 +38,7 @@ from tracecat.tables.common import (
     coerce_to_utc_datetime,
     handle_default_value,
     is_valid_sql_type,
-    to_sql_clause,
+    parse_postgres_default,
 )
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -85,31 +86,323 @@ class BaseTablesService(BaseService):
         return WorkspaceUUID.new(workspace_id)
 
     def _normalize_row_inputs(
-        self, table: Table, data: dict[str, Any]
+        self,
+        table: Table,
+        data: dict[str, Any],
+        *,
+        include_defaults: bool = False,
     ) -> dict[str, Any]:
         """Coerce row inputs to the expected SQL types."""
-        if not data:
-            return {}
-
         column_index = {column.name: column for column in table.columns}
         normalised: dict[str, Any] = {}
-        for column_name, value in data.items():
-            column = column_index.get(column_name)
-            if column is None:
-                raise ValueError(
-                    f"Column '{column_name}' does not exist in table '{table.name}'"
-                )
+
+        provided_names = set(data.keys())
+
+        for column_name, column in column_index.items():
+            if column_name in data:
+                value = data[column_name]
+            elif include_defaults:
+                if column.default is not None:
+                    value = self._default_json_value(
+                        SqlType(column.type), column.default
+                    )
+                elif column.nullable:
+                    value = None
+                else:
+                    raise ValueError(
+                        f"Column '{column_name}' is required but no value was provided"
+                    )
+            else:
+                continue
 
             sql_type = SqlType(column.type)
-            if (
-                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
-                and value is not None
-            ):
-                normalised[column_name] = coerce_to_utc_datetime(value)
-            else:
-                normalised[column_name] = value
+            if value is None:
+                normalised[column_name] = None
+                continue
+
+            if sql_type is SqlType.ENUM:
+                candidate = str(value).strip()
+                allowed = self._enum_values(column)
+                if allowed and candidate not in allowed:
+                    raise ValueError(
+                        f"Invalid value '{candidate}' for column '{column_name}'. "
+                        f"Allowed values are: {', '.join(allowed)}"
+                    )
+                normalised[column_name] = candidate
+                continue
+
+            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+                # Store timestamps in ISO 8601 text so JSONB can serialise them safely
+                normalised[column_name] = coerce_to_utc_datetime(value).isoformat()
+                continue
+
+            normalised[column_name] = value
+
+        # Preserve any unexpected columns for better error reporting
+        for column_name in provided_names - set(column_index.keys()):
+            raise ValueError(
+                f"Column '{column_name}' does not exist in table '{table.name}'"
+            )
 
         return normalised
+
+    def _jsonb_text_path(self, column_name: str) -> sa.ColumnElement:
+        """Return an expression that extracts a JSONB column as text."""
+        sanitized = self._sanitize_identifier(column_name)
+        data_col = sa.column("data", type_=JSONB)
+        return sa.func.jsonb_extract_path_text(data_col, sa.literal(sanitized))
+
+    def _flatten_record(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        materialised = dict(row)
+        payload = materialised.pop("data", None)
+        if isinstance(payload, Mapping):
+            materialised.update(payload)
+        return materialised
+
+    def _enum_metadata(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            raise ValueError("Enum columns expect an object with an 'enum_values' list")
+
+        raw_values = payload.get("enum_values")
+        if raw_values is None:
+            raise ValueError("Enum columns require an 'enum_values' list")
+        if isinstance(raw_values, (str, bytes)) or not isinstance(raw_values, Sequence):
+            raise ValueError("Enum 'enum_values' must be a list of strings")
+
+        cleaned: list[str] = []
+        for raw in raw_values:
+            if not isinstance(raw, str):
+                raise ValueError("Enum values must be strings")
+            candidate = raw.strip()
+            if not candidate:
+                raise ValueError("Enum values cannot be empty")
+            if candidate not in cleaned:
+                cleaned.append(candidate)
+
+        if not cleaned:
+            raise ValueError("Enum columns require at least one value")
+
+        default_value = payload.get("default") or payload.get("value")
+        if default_value is not None:
+            if not isinstance(default_value, str):
+                raise ValueError("Enum default must be a string")
+            candidate = default_value.strip()
+            if candidate and candidate not in cleaned:
+                raise ValueError(
+                    f"Enum default '{candidate}' must be one of: {', '.join(cleaned)}"
+                )
+            default_value = candidate or None
+
+        metadata: dict[str, Any] = {"enum_values": cleaned}
+        if default_value is not None:
+            metadata["default"] = default_value
+            metadata["value"] = default_value
+        return metadata
+
+    def _enum_values(self, column: TableColumn) -> tuple[str, ...]:
+        raw = column.default
+        if not isinstance(raw, Mapping):
+            return ()
+        try:
+            metadata = self._enum_metadata(raw)
+        except ValueError as exc:
+            self.logger.warning(
+                "Invalid enum metadata encountered",
+                column=column.name,
+                table=column.table.name if column.table else None,
+                error=str(exc),
+            )
+            return ()
+        return tuple(metadata["enum_values"])
+
+    def _column_metadata(self, sql_type: SqlType, default: Any | None) -> Any | None:
+        if default is None:
+            return None
+        if sql_type is SqlType.ENUM:
+            return self._enum_metadata(default)
+        return handle_default_value(sql_type, default)
+
+    def _default_json_value(
+        self, sql_type: SqlType, default_payload: Any | None
+    ) -> Any | None:
+        if default_payload is None:
+            return None
+
+        if sql_type is SqlType.ENUM:
+            if isinstance(default_payload, Mapping):
+                value = default_payload.get("default") or default_payload.get("value")
+                return value if value is not None else None
+            return str(default_payload)
+
+        if isinstance(default_payload, str):
+            parsed = parse_postgres_default(default_payload)
+        else:
+            parsed = default_payload
+
+        if parsed in (None, ""):
+            return None
+        if isinstance(parsed, str) and parsed.lower() == "null":
+            return None
+
+        try:
+            if sql_type is SqlType.BOOLEAN:
+                if isinstance(parsed, str):
+                    lowered = parsed.lower()
+                    if lowered in {"true", "1"}:
+                        return True
+                    if lowered in {"false", "0"}:
+                        return False
+                return bool(parsed)
+            if sql_type is SqlType.INTEGER:
+                return int(parsed)
+            if sql_type is SqlType.NUMERIC:
+                return float(parsed)
+            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+                try:
+                    return coerce_to_utc_datetime(parsed).isoformat()
+                except Exception:
+                    if isinstance(parsed, str):
+                        return parsed
+                    return None
+            if sql_type is SqlType.JSONB and isinstance(parsed, str):
+                try:
+                    return json.loads(parsed)
+                except json.JSONDecodeError:
+                    return parsed
+        except Exception:
+            return None
+
+        return parsed
+
+    async def _reset_column_values(
+        self,
+        table: Table,
+        column_name: str,
+        default_payload: Any | None,
+        sql_type: SqlType,
+    ) -> None:
+        sanitized_column = self._sanitize_identifier(column_name)
+        conn = await self.session.connection()
+
+        default_value = self._default_json_value(sql_type, default_payload)
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(
+            self._sanitize_identifier(table.name),
+            data_col,
+            schema=self._get_schema_name(),
+        )
+        path = sa.literal_column(f"ARRAY['{sanitized_column}']")
+
+        if default_value is None:
+            new_value_expr = sa.literal_column("'null'::jsonb")
+            params: dict[str, Any] = {}
+        else:
+            new_value_expr = sa.bindparam("new_value", type_=JSONB)
+            params = {"new_value": default_value}
+
+        stmt = (
+            sa.update(table_obj)
+            .values(
+                data=sa.func.jsonb_set(
+                    data_col,
+                    path,
+                    new_value_expr,
+                    True,
+                )
+            )
+            .where(data_col.has_key(sanitized_column))
+        )
+        await conn.execute(stmt, params)
+
+    async def _ensure_no_null_values(self, table: Table, column_name: str) -> None:
+        sanitized_column = self._sanitize_identifier(column_name)
+        schema_name = self._get_schema_name()
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(
+            self._sanitize_identifier(table.name),
+            data_col,
+            schema=schema_name,
+        )
+        value_expr = self._jsonb_text_path(column_name)
+
+        stmt = (
+            sa.select(sa.literal(True))
+            .select_from(table_obj)
+            .where(
+                sa.or_(
+                    sa.not_(data_col.has_key(sanitized_column)),
+                    value_expr.is_(None),
+                )
+            )
+            .limit(1)
+        )
+
+        conn = await self.session.connection()
+        result = await conn.execute(stmt)
+        if result.scalar():
+            raise ValueError(
+                f"Cannot set column '{column_name}' to disallow nulls while existing rows contain null or missing values."
+            )
+
+    async def _ensure_unique_values(self, table: Table, column_name: str) -> None:
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(
+            sanitized_table_name,
+            data_col,
+            schema=schema_name,
+        )
+        value_expr = self._jsonb_text_path(column_name)
+
+        stmt = (
+            sa.select(value_expr.label("value"), sa.func.count().label("count"))
+            .select_from(table_obj)
+            .where(value_expr.isnot(None))
+            .group_by(value_expr)
+            .having(sa.func.count() > 1)
+            .limit(1)
+        )
+
+        conn = await self.session.connection()
+        result = await conn.execute(stmt)
+        duplicate = result.mappings().first()
+        if duplicate is not None:
+            raise ValueError(
+                f"Cannot create a unique index on '{column_name}' because duplicate value '{duplicate['value']}' exists."
+            )
+
+    async def _rename_jsonb_key(self, table: Table, old_key: str, new_key: str) -> None:
+        if old_key == new_key:
+            return
+
+        sanitized_old = self._sanitize_identifier(old_key)
+        sanitized_new = self._sanitize_identifier(new_key)
+        full_table_name = self._full_table_name(table.name)
+        conn = await self.session.connection()
+        stmt = sa.text(
+            f"""
+            UPDATE {full_table_name}
+            SET data = jsonb_set(
+                data - :old_key,
+                '{{{sanitized_new}}}',
+                COALESCE(data -> :old_key, 'null'::jsonb),
+                true
+            )
+            WHERE data ? :old_key
+            """
+        )
+        await conn.execute(stmt, {"old_key": sanitized_old})
+
+    async def _drop_unique_index(self, table: Table, column_name: str) -> None:
+        schema_name = self._get_schema_name()
+        sanitized_column = self._sanitize_identifier(column_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        index_name = f"uq_{sanitized_table_name}_{sanitized_column}"
+
+        conn = await self.session.connection()
+        ddl = sa.text(f'DROP INDEX IF EXISTS "{schema_name}"."{index_name}"')
+        await conn.execute(ddl)
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -155,13 +448,29 @@ class BaseTablesService(BaseService):
             return indexes
 
         indexes = await conn.run_sync(inspect_indexes)
-        # Assume only single column indexes
-        index_names = [
-            index["column_names"][0]
-            for index in indexes
-            if len(index["column_names"]) == 1
-            and isinstance(index["column_names"][0], str)
-        ]
+        index_names: list[str] = []
+        for index in indexes:
+            if not index.get("unique"):
+                continue
+
+            column_names = index.get("column_names") or []
+            if (
+                len(column_names) == 1
+                and isinstance(column_names[0], str)
+                and column_names[0] not in index_names
+            ):
+                index_names.append(column_names[0])
+                continue
+
+            for expression in index.get("expressions") or []:
+                if not isinstance(expression, str):
+                    continue
+                match = re.search(r"data\s*->>\s*'([^']+)'", expression)
+                if match:
+                    column = match.group(1)
+                    if column not in index_names:
+                        index_names.append(column)
+
         self.logger.info("Found unique index column", columns=index_names)
         return index_names
 
@@ -232,6 +541,12 @@ class BaseTablesService(BaseService):
                 sa.TIMESTAMP(timezone=True),
                 nullable=False,
                 server_default=sa.text("now()"),
+            ),
+            sa.Column(
+                "data",
+                JSONB,
+                nullable=False,
+                server_default=sa.text("'{}'::jsonb"),
             ),
             schema=schema_name,
         )
@@ -331,45 +646,24 @@ class BaseTablesService(BaseService):
             ValueError: If the column type is invalid
         """
         column_name = self._sanitize_identifier(params.name)
-        full_table_name = self._full_table_name(table.name)
 
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
 
-        # Handle default value based on type
-        default_value = params.default
-        if default_value is not None:
-            default_value = handle_default_value(sql_type, default_value)
-        # Create the column metadata first
+        # Handle default value / metadata based on type
+        column_metadata = self._column_metadata(sql_type, params.default)
+
+        # Create the column metadata
         column = TableColumn(
             table_id=table.id,
             name=column_name,
             type=sql_type.value,
             nullable=params.nullable,
-            default=default_value,  # Store original default in metadata
+            default=column_metadata,  # Persist enum metadata in column definition
         )
         self.session.add(column)
-
-        # Build the column definition string
-        column_def = [f"{column_name} {sql_type.value}"]
-        if not params.nullable:
-            column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
-
-        column_def_str = " ".join(column_def)
-
-        # Add the column to the physical table
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (full_table_name, column_def_str),
-            )
-        )
-
         await self.session.flush()
         return column
 
@@ -379,10 +673,10 @@ class BaseTablesService(BaseService):
         column: TableColumn,
         params: TableColumnUpdate,
     ) -> TableColumn:
-        """Update a column in an existing table.
+        """Update column metadata.
 
         Args:
-            column: The column to update
+            column: The column metadata to update
             params: Parameters for updating the column
 
         Returns:
@@ -390,87 +684,119 @@ class BaseTablesService(BaseService):
 
         Raises:
             ValueError: If the column type is invalid
-            ProgrammingError: If the database operation fails
         """
         set_fields = params.model_dump(exclude_unset=True)
-        full_table_name = self._full_table_name(column.table.name)
-        conn = await self.session.connection()
-        is_index = set_fields.pop("is_index", False)
+        is_index = set_fields.pop("is_index", None)
 
-        # Create index if requested
-        if is_index:
-            await self.create_unique_index(column.table, column.name)
+        table = column.table
+        existing_index_columns = await self.get_index(table)
+        had_unique_index = column.name in existing_index_columns
 
-        # Handle physical column changes if name or type is being updated
-        if "name" in set_fields or "type" in set_fields:
-            old_name = self._sanitize_identifier(column.name)
-            new_name = self._sanitize_identifier(set_fields.get("name", column.name))
-            new_type = set_fields.get("type", column.type)
+        current_type = SqlType(column.type)
+        next_nullable = set_fields.get("nullable", column.nullable)
+        if column.nullable and next_nullable is False:
+            await self._ensure_no_null_values(table, column.name)
 
-            if not is_valid_sql_type(new_type):
-                raise ValueError(f"Invalid type: {new_type}")
+        requested_name = set_fields.get("name")
+        new_name = (
+            self._sanitize_identifier(requested_name)
+            if isinstance(requested_name, str)
+            else column.name
+        )
+        rename_requested = new_name != column.name
 
-            # Build ALTER COLUMN statement using safe DDL construction
-            if "name" in set_fields:
-                await conn.execute(
-                    sa.DDL(
-                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                        (full_table_name, old_name, new_name),
-                    )
-                )
-            if "type" in set_fields:
-                await conn.execute(
-                    sa.DDL(
-                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, new_type),
-                    )
-                )
-            if "nullable" in set_fields:
-                constraint = (
-                    "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-                )
-                await conn.execute(
-                    sa.DDL(
-                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                        # No user input is interpolated here - only predefined SQL keywords
-                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                        (full_table_name, new_name),
-                    )
-                )
-            if "default" in set_fields:
-                updated_default = set_fields["default"]
-                if updated_default is None:
-                    await conn.execute(
-                        sa.DDL(
-                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                            (full_table_name, new_name),
-                        )
-                    )
-                else:
-                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                    # We must use string interpolation here, but it's SAFE because:
-                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                    # 3. The function validates the SQL type and rejects invalid inputs
-                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                    formatted_default = handle_default_value(
-                        SqlType(new_type if "type" in set_fields else column.type),
-                        updated_default,
-                    )
-                    await conn.execute(
-                        sa.DDL(
-                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                            # Other parameters (table/column names) still use secure parameter binding
-                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                            (full_table_name, new_name),
-                        )
-                    )
+        requested_type = set_fields.get("type")
+        if requested_type is not None and not is_valid_sql_type(requested_type):
+            raise ValueError(f"Invalid type: {requested_type}")
+        new_type = (
+            SqlType(requested_type)
+            if requested_type is not None
+            else SqlType(column.type)
+        )
+        type_changed = new_type != current_type
 
-        # Update the column metadata
-        for key, value in set_fields.items():
+        if "default" in set_fields:
+            set_fields["default"] = self._column_metadata(
+                new_type, set_fields["default"]
+            )
+
+        if rename_requested:
+            existing_names = {col.name for col in table.columns if col.id != column.id}
+            if new_name in existing_names:
+                raise ValueError(f"Column '{new_name}' already exists")
+            if had_unique_index:
+                await self._drop_unique_index(table, column.name)
+            await self._rename_jsonb_key(table, column.name, new_name)
+
+        if new_type is SqlType.ENUM:
+            metadata_payload = (
+                set_fields.get("default") if "default" in set_fields else column.default
+            )
+            if metadata_payload is None:
+                raise ValueError("Enum columns require an 'enum_values' definition")
+            enum_metadata = self._enum_metadata(metadata_payload)
+            if "default" not in set_fields:
+                set_fields["default"] = enum_metadata
+
+        for key, raw_value in set_fields.items():
+            if key not in ("name", "type", "nullable", "default"):
+                continue
+
+            if key == "name" and isinstance(raw_value, str):
+                value = new_name
+            elif key == "type":
+                value = new_type.value
+            else:
+                value = raw_value
+
             setattr(column, key, value)
 
+        if rename_requested:
+            column.name = new_name
+
+        if requested_type is not None:
+            column.type = new_type.value
+            if "default" not in set_fields:
+                column.default = None
+
         await self.session.flush()
+
+        reset_required = type_changed or (
+            new_type is SqlType.ENUM
+            and (requested_type is not None or "default" in set_fields)
+        )
+        if reset_required:
+            default_payload = set_fields.get("default", column.default)
+            if next_nullable is False:
+                resolved_default = self._default_json_value(new_type, default_payload)
+                if resolved_default is None:
+                    raise ValueError(
+                        f"Column '{new_name}' requires a default value when changing type because it is non-nullable."
+                    )
+            await self._reset_column_values(table, new_name, default_payload, new_type)
+
+        next_is_index = had_unique_index
+        if is_index is True:
+            next_is_index = True
+        elif is_index is False:
+            next_is_index = False
+
+        if next_is_index and not had_unique_index:
+            await self._ensure_unique_values(table, new_name)
+
+        recreate_existing_index = rename_requested and had_unique_index
+        if is_index is True:
+            recreate_existing_index = True
+        elif is_index is False:
+            recreate_existing_index = False
+            if not rename_requested and had_unique_index:
+                await self._drop_unique_index(table, column.name)
+
+        if recreate_existing_index:
+            current_index_columns = await self.get_index(table)
+            if column.name not in current_index_columns:
+                await self.create_unique_index(table, column.name)
+
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -484,28 +810,28 @@ class BaseTablesService(BaseService):
 
         # Get the fully qualified table name with schema
         full_table_name = self._full_table_name(table.name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         # Sanitize column names to prevent SQL injection
         sanitized_column = self._sanitize_identifier(column_name)
 
+        if sanitized_column not in {col.name for col in table.columns}:
+            raise ValueError(
+                f"Column '{column_name}' does not exist on table '{table.name}'"
+            )
+
+        await self._ensure_unique_values(table, column_name)
+
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
-        index_name = f"uq_{table.name}_{sanitized_column}"
+        index_name = f"uq_{sanitized_table_name}_{sanitized_column}"
 
         # Get database connection
         conn = await self.session.connection()
 
-        # Execute the CREATE UNIQUE INDEX SQL command
-        await conn.execute(
-            sa.DDL(
-                "CREATE UNIQUE INDEX %s ON %s (%s)",
-                (
-                    index_name,  # Name of the index
-                    full_table_name,  # Table to create index on
-                    sanitized_column,  # Column to index
-                ),
-            )
-        )
+        index_expression = f"(data ->> '{sanitized_column}')"
+        ddl = f"CREATE UNIQUE INDEX {index_name} ON {full_table_name} ({index_expression})"
+        await conn.execute(sa.DDL(ddl))
 
         # Commit the transaction
         await self.session.flush()
@@ -513,21 +839,11 @@ class BaseTablesService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
-        full_table_name = self._full_table_name(column.table.name)
-        sanitized_column = self._sanitize_identifier(column.name)
 
-        # Delete the column metadata first
+        # TODO: Handle/Consider orphaned keys
+
+        # Delete the column metadata
         await self.session.delete(column)
-
-        # Drop the column from the physical table using DDL
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s DROP COLUMN %s",
-                (full_table_name, sanitized_column),
-            )
-        )
-
         await self.session.flush()
 
     """Rows"""
@@ -546,7 +862,7 @@ class BaseTablesService(BaseService):
             .offset(offset)
         )
         result = await conn.execute(stmt)
-        return [dict(row) for row in result.mappings().all()]
+        return [self._flatten_record(row) for row in result.mappings().all()]
 
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
@@ -562,7 +878,7 @@ class BaseTablesService(BaseService):
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
-        return row
+        return self._flatten_record(row)
 
     async def insert_row(
         self,
@@ -585,110 +901,93 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = self._normalize_row_inputs(table, params.data)
-        col_map = {c.name: c for c in table.columns}
+        row_data = self._normalize_row_inputs(table, params.data, include_defaults=True)
         upsert = params.upsert
-
-        value_clauses: dict[str, sa.BindParameter] = {}
-        cols = []
 
         table_name_for_logging = table.name
         sanitized_table_name = self._sanitize_identifier(table.name)
-
-        for col, value in row_data.items():
-            value_clauses[col] = to_sql_clause(
-                value, col_map[col].name, SqlType(col_map[col].type)
-            )
-            cols.append(sa.column(self._sanitize_identifier(col)))
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(sanitized_table_name, data_col, schema=schema_name)
+        record = {"data": row_data}
 
         if not upsert:
-            stmt = (
-                sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
-                .values(**value_clauses)
-                .returning(sa.text("*"))
-            )
-        else:
-            # For upsert operations
-            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
-            pg_stmt = insert(table_obj)
-            pg_stmt = pg_stmt.values(**value_clauses)
-
-            # Get columns with unique constraints for conflict resolution
-            index = await self.get_index(table)
-
-            # Check if we have any unique columns to use for conflict resolution
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
-
-            # Ensure all conflict keys are actually in the data
-            if not all(key in value_clauses for key in index):
-                raise ValueError("Data to upsert must contain the unique index column")
-
-            # Define what gets updated on conflict
-            update_dict = {
-                col: pg_stmt.excluded[col]
-                for col in value_clauses.keys()
-                if col not in index  # Don't update the unique columns
-            }
-
+            stmt = sa.insert(table_obj).values(record).returning(sa.text("*"))
             try:
-                # Complete the statement with on_conflict_do_update
-                stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=index, set_=update_dict
-                ).returning(sa.text("*"))
-
                 result = await conn.execute(stmt)
                 await self.session.flush()
                 row = result.mappings().one()
-                return dict(row)
-            except ProgrammingError as e:
+                return self._flatten_record(row)
+            except IntegrityError as e:
                 # Drill down to the root cause
                 original_error = e
                 while (cause := e.__cause__) is not None:
                     e = cause
+
+                # Check for unique constraint violations (which are the most common IntegrityErrors)
                 if "violates unique constraint" in str(e):
                     self.logger.warning(
                         "Trying to insert duplicate values",
-                        index=index,
                         table_name=table_name_for_logging,
                     )
                     raise ValueError(
-                        "Please check for duplicate values in the unique index columns"
-                    ) from original_error
-                elif (
-                    "no unique or exclusion constraint matching the ON CONFLICT"
-                    in str(e)
-                ):
-                    raise ValueError(
-                        "Please check that the unique index columns are present in the data"
+                        "Please check for duplicate values"
                     ) from original_error
                 raise
 
-        # For non-upsert or if the exception handling for upsert didn't return
+        # For upsert operations
+        index = await self.get_index(table)
+
+        # Check if we have any unique columns to use for conflict resolution
+        if not index:
+            raise ValueError("Table must have at least one unique index for upsert")
+
+        if len(index) > 1:
+            raise ValueError(
+                "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+            )
+
+        index_column = self._sanitize_identifier(index[0])
+
+        # Ensure the conflict key is actually in the data
+        if index_column not in row_data:
+            raise ValueError("Data to upsert must contain the unique index column")
+
+        pg_stmt = insert(table_obj).values(record)
+        index_expression = sa.text(f"(data ->> '{index_column}')")
+
         try:
+            stmt = pg_stmt.on_conflict_do_update(
+                index_elements=[index_expression],
+                set_={
+                    "data": sa.func.coalesce(
+                        sa.column("data", type_=JSONB),
+                        sa.text("'{}'::jsonb"),
+                    ).op("||")(pg_stmt.excluded.data),
+                    "updated_at": sa.func.now(),
+                },
+            ).returning(sa.text("*"))
+
             result = await conn.execute(stmt)
             await self.session.flush()
             row = result.mappings().one()
-            return dict(row)
-        except IntegrityError as e:
+            return self._flatten_record(row)
+        except ProgrammingError as e:
             # Drill down to the root cause
             original_error = e
             while (cause := e.__cause__) is not None:
                 e = cause
-
-            # Check for unique constraint violations (which are the most common IntegrityErrors)
             if "violates unique constraint" in str(e):
                 self.logger.warning(
                     "Trying to insert duplicate values",
+                    index=index,
                     table_name=table_name_for_logging,
                 )
                 raise ValueError(
-                    "Please check for duplicate values"
+                    "Please check for duplicate values in the unique index columns"
+                ) from original_error
+            if "no unique or exclusion constraint matching the ON CONFLICT" in str(e):
+                raise ValueError(
+                    "Please check that the unique index columns are present in the data"
                 ) from original_error
             raise
 
@@ -716,24 +1015,31 @@ class BaseTablesService(BaseService):
 
         # Normalise inputs and build update statement using SQLAlchemy
         normalised_data = self._normalize_row_inputs(table, data)
-        col_map = {c.name: c for c in table.columns}
         sanitized_table_name = self._sanitize_identifier(table.name)
-        value_clauses: dict[str, sa.BindParameter] = {}
-        cols = []
-        for column_name, value in normalised_data.items():
-            cols.append(sa.column(self._sanitize_identifier(column_name)))
-            value_clauses[column_name] = to_sql_clause(
-                value, col_map[column_name].name, SqlType(col_map[column_name].type)
-            )
 
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(
+            sanitized_table_name,
+            sa.column("id"),
+            data_col,
+            sa.column("updated_at"),
+            schema=schema_name,
+        )
+        payload_param = sa.bindparam("payload", type_=JSONB)
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(table_obj)
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(
+                data=sa.func.coalesce(
+                    sa.column("data", type_=JSONB),
+                    sa.text("'{}'::jsonb"),
+                ).op("||")(payload_param),
+                updated_at=sa.func.now(),
+            )
             .returning(sa.text("*"))
         )
 
-        result = await conn.execute(stmt)
+        result = await conn.execute(stmt, {"payload": normalised_data})
         await self.session.flush()
 
         try:
@@ -743,7 +1049,7 @@ class BaseTablesService(BaseService):
                 f"Row {row_id} not found in table {table.name}"
             ) from None
 
-        return dict(row)
+        return self._flatten_record(row)
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
@@ -774,18 +1080,25 @@ class BaseTablesService(BaseService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table_name)
 
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        column_names = {column.name for column in table.columns}
+        match_payload: dict[str, Any] = {}
+        for column, value in zip(columns, values, strict=True):
+            sanitized_col = self._sanitize_identifier(column)
+            if sanitized_col not in column_names:
+                raise ValueError(
+                    f"Column '{column}' does not exist in table '{table_name}'"
+                )
+            match_payload[sanitized_col] = value
+
+        data_col = sa.column("data", type_=JSONB)
         stmt = (
             sa.select(sa.text("*"))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .where(
-                sa.and_(
-                    *[col == value for col, value in zip(cols, values, strict=True)]
-                )
-            )
+            .where(data_col.contains(match_payload))
         )
         if limit is not None:
             stmt = stmt.limit(limit)
@@ -798,7 +1111,7 @@ class BaseTablesService(BaseService):
                         "isolation_level": "READ COMMITTED",
                     },
                 )
-                return [dict(row) for row in result.mappings().all()]
+                return [self._flatten_record(row) for row in result.mappings().all()]
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
                 self.logger.warning(
@@ -849,17 +1162,28 @@ class BaseTablesService(BaseService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table_name)
 
-        table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
-        condition = sa.and_(
-            *[col == value for col, value in zip(cols, values, strict=True)]
-        )
+        column_names = {column.name for column in table.columns}
+        match_payload: dict[str, Any] = {}
+        for column, value in zip(columns, values, strict=True):
+            sanitized_col = self._sanitize_identifier(column)
+            if sanitized_col not in column_names:
+                raise ValueError(
+                    f"Column '{column}' does not exist in table '{table_name}'"
+                )
+            match_payload[sanitized_col] = value
 
-        exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
-        stmt = sa.select(exists_stmt)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        data_col = sa.column("data", type_=JSONB)
+        stmt = (
+            sa.select(sa.literal(True))
+            .select_from(table_clause)
+            .where(data_col.contains(match_payload))
+            .limit(1)
+        )
 
         async with self.session.begin() as txn:
             conn = await txn.session.connection()
@@ -963,21 +1287,8 @@ class BaseTablesService(BaseService):
                 search_pattern = sa.func.concat("%", search_term, "%")
                 search_conditions = []
                 for col_name in searchable_columns:
-                    sanitized_col = self._sanitize_identifier(col_name)
-                    if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
-                    ]:
-                        # For JSONB columns, convert to text for searching
-                        search_conditions.append(
-                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
-                                search_pattern
-                            )
-                        )
-                    else:
-                        # For TEXT columns, search directly
-                        search_conditions.append(
-                            sa.column(sanitized_col).ilike(search_pattern)
-                        )
+                    expr = self._jsonb_text_path(col_name)
+                    search_conditions.append(expr.ilike(search_pattern))
                 where_conditions.append(sa.or_(*search_conditions))
             else:
                 # No searchable columns found, search_term will have no effect
@@ -1012,7 +1323,7 @@ class BaseTablesService(BaseService):
 
         try:
             result = await conn.execute(stmt)
-            return [dict(row) for row in result.mappings().all()]
+            return [self._flatten_record(row) for row in result.mappings().all()]
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1091,21 +1402,8 @@ class BaseTablesService(BaseService):
                 search_pattern = sa.func.concat("%", search_term, "%")
                 search_conditions = []
                 for col_name in searchable_columns:
-                    sanitized_col = self._sanitize_identifier(col_name)
-                    if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
-                    ]:
-                        # For JSONB columns, convert to text for searching
-                        search_conditions.append(
-                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
-                                search_pattern
-                            )
-                        )
-                    else:
-                        # For TEXT columns, search directly
-                        search_conditions.append(
-                            sa.column(sanitized_col).ilike(search_pattern)
-                        )
+                    expr = self._jsonb_text_path(col_name)
+                    search_conditions.append(expr.ilike(search_pattern))
                 where_conditions.append(sa.or_(*search_conditions))
             else:
                 # No searchable columns found, search_term will have no effect
@@ -1181,7 +1479,7 @@ class BaseTablesService(BaseService):
 
         try:
             result = await conn.execute(stmt)
-            rows = [dict(row) for row in result.mappings().all()]
+            rows = [self._flatten_record(row) for row in result.mappings().all()]
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1272,90 +1570,56 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
 
         sanitized_table_name = self._sanitize_identifier(table.name)
-
-        # Group rows by their column sets to avoid inserting NULL into missing columns.
-        rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
-        for row in rows:
-            normalised_row = self._normalize_row_inputs(table, row)
-            rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
-
+        data_col = sa.column("data", type_=JSONB)
+        table_obj = sa.table(sanitized_table_name, data_col, schema=schema_name)
+        normalised_rows = [self._normalize_row_inputs(table, row) for row in rows]
+        payload = [{"data": row} for row in normalised_rows]
         conn = await self.session.connection()
 
-        total_affected = 0
-
-        # If we need upsert behaviour, fetch the unique index once.
-        index: list[str] | None = None
-        if upsert:
-            index = await self.get_index(table)
-
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
-
-        # Iterate over groups and execute separate INSERT/UPSERT statements.
-        for col_set, group_rows in rows_by_columns.items():
-            # Sanitize column identifiers for this group
-            cols = [sa.column(self._sanitize_identifier(col)) for col in col_set]
-            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
-
-            if not upsert:
-                stmt = sa.insert(table_obj).values(group_rows)
-            else:
-                # Ensure each row contains the unique index column(s)
-                assert index is not None  # mypy / type checker hint
-                for row in group_rows:
-                    if not all(k in row for k in index):
-                        raise ValueError(
-                            "Each row to upsert must contain the unique index column"
-                        )
-
-                pg_stmt = insert(table_obj).values(group_rows)
-
-                # Build a mapping of *sanitized* Column objects so we can use them safely
-                col_objs = {  # key is the sanitized column name
-                    col_obj.key: col_obj for col_obj in cols
-                }
-
-                # Columns to update on conflict: all non-index columns present in this group.
-                #
-                # We wrap the new value in COALESCE(new, existing) so that if the incoming
-                # value is NULL we keep the existing value. This matches the behaviour
-                # promised in the function docstring.
-                update_dict = {}
-                for raw_col_name in col_set:
-                    sanitized_name = self._sanitize_identifier(raw_col_name)
-                    if sanitized_name in index:
-                        # Never update columns that are part of the unique index
-                        continue
-
-                    column_obj = col_objs[sanitized_name]
-                    update_dict[column_obj] = sa.func.coalesce(
-                        pg_stmt.excluded[sanitized_name],
-                        column_obj,
-                    )
-
-                if update_dict:
-                    stmt = pg_stmt.on_conflict_do_update(
-                        index_elements=index,
-                        set_=update_dict,
-                    )
-                else:
-                    # Nothing to update (e.g., the only columns present are the unique index)
-                    stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
-
+        if not upsert:
+            stmt = sa.insert(table_obj).values(payload)
             try:
                 result = await conn.execute(stmt)
-                total_affected += result.rowcount
             except Exception as e:
-                # Re-raise as DBAPIError for consistency
                 raise DBAPIError("Failed to insert batch", str(e), e) from e
+            await self.session.flush()
+            return result.rowcount
 
-        # Flush once at the end to ensure changes are persisted within the transaction.
+        index = await self.get_index(table)
+        if not index:
+            raise ValueError("Table must have at least one unique index for upsert")
+        if len(index) > 1:
+            raise ValueError(
+                "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+            )
+
+        sanitized_index_col = self._sanitize_identifier(index[0])
+        for row in normalised_rows:
+            if sanitized_index_col not in row:
+                raise ValueError(
+                    "Each row to upsert must contain the unique index column"
+                )
+
+        pg_stmt = insert(table_obj).values(payload)
+        index_expression = sa.text(f"(data ->> '{sanitized_index_col}')")
+        stmt = pg_stmt.on_conflict_do_update(
+            index_elements=[index_expression],
+            set_={
+                "data": sa.func.coalesce(
+                    sa.column("data", type_=JSONB),
+                    sa.text("'{}'::jsonb"),
+                ).op("||")(pg_stmt.excluded.data),
+                "updated_at": sa.func.now(),
+            },
+        )
+
+        try:
+            result = await conn.execute(stmt)
+        except Exception as e:
+            raise DBAPIError("Failed to insert batch", str(e), e) from e
+
         await self.session.flush()
-        return total_affected
+        return result.rowcount
 
 
 class TablesService(BaseTablesService):
@@ -1739,6 +2003,10 @@ def sanitize_identifier(identifier: str) -> str:
     """Sanitize table/column names to prevent SQL injection."""
     # Remove any non-alphanumeric characters except underscores
     sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized[0].isalpha():
-        raise ValueError("Identifier must start with a letter")
+    if not sanitized:
+        raise ValueError(
+            "Identifier must contain at least one alphanumeric character or underscore."
+        )
+    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
     return sanitized.lower()

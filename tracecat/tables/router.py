@@ -37,6 +37,7 @@ from tracecat.tables.schemas import (
     TableRowInsertBatch,
     TableRowInsertBatchResponse,
     TableRowRead,
+    TableRowUpdate,
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
@@ -380,6 +381,39 @@ async def insert_row(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             ) from e
+
+
+@router.patch("/{table_id}/rows/{row_id}")
+async def update_row(
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    row_id: UUID,
+    params: TableRowUpdate,
+) -> TableRowRead:
+    """Update a row in a table."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    try:
+        row = await service.update_row(table, row_id, params.data)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    return TableRowRead.model_validate(row)
 
 
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)

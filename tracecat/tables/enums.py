@@ -12,3 +12,4 @@ class SqlType(StrEnum):
     TIMESTAMPTZ = "TIMESTAMPTZ"
     JSONB = "JSONB"
     UUID = "UUID"
+    ENUM = "ENUM"
