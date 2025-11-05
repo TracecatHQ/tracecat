@@ -157,10 +157,19 @@ export function createColumns(
         }
 
         return (
-          <div className="flex min-w-0 max-w-[20rem] flex-1 flex-col gap-[0.45rem] text-xs">
-            <span className="truncate text-xs font-medium" title={summary}>
-              {summary}
-            </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-[0.45rem] text-xs">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block truncate text-xs font-medium">
+                  {summary ?? "—"}
+                </span>
+              </TooltipTrigger>
+              {summary ? (
+                <TooltipContent className="max-w-sm break-words text-xs">
+                  <p>{summary}</p>
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
             {metadataItems.length ? (
               <div className="flex flex-wrap items-center gap-1 text-xs">
                 {metadataItems}
@@ -174,8 +183,8 @@ export function createColumns(
         return fuzzysort.single(String(value), rowValue) !== null
       },
       meta: {
-        headerClassName: "min-w-0 max-w-[20rem] text-left",
-        cellClassName: "min-w-0 max-w-[20rem] text-left",
+        headerClassName: "min-w-0 max-w-[40rem] text-left",
+        cellClassName: "min-w-0 max-w-[40rem] text-left",
       },
     },
     {
