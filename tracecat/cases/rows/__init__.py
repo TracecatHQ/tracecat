@@ -1,0 +1,2 @@
+"""Case table rows module."""
+

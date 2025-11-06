@@ -20,7 +20,6 @@ import {
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
 import { CustomTagInput } from "@/components/tags-input"
-import { getColumnEnumValues } from "@/lib/tables"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,13 +54,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import type { TracecatApiError } from "@/lib/errors"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import {
+  getColumnEnumValues,
   parseEnumValuesInput,
   SqlTypeEnum,
 } from "@/lib/tables"
@@ -251,9 +251,9 @@ const updateColumnFormSchema = z
       .string()
       .min(1, { message: "Name must be at least 1 character" })
       .max(255, { message: "Name must be less than 255 characters" })
-         .regex(/^[a-zA-Z0-9_]+$/, {
-      message: "Name must contain only letters, numbers, and underscores",
-         }),
+      .regex(/^[a-zA-Z0-9_]+$/, {
+        message: "Name must contain only letters, numbers, and underscores",
+      }),
     type: z.enum(SqlTypeEnum),
     nullable: z.boolean(),
     defaultValue: z.string().optional(),

@@ -1193,6 +1193,54 @@ export type CaseStatus =
   | "closed"
   | "other"
 
+/**
+ * Model for linking an existing table row to a case.
+ */
+export type CaseTableRowLink = {
+  /**
+   * ID of the table
+   */
+  table_id: string
+  /**
+   * ID of the row in the table
+   */
+  row_id: string
+}
+
+/**
+ * Model for reading a case table row link with full details.
+ */
+export type CaseTableRowRead = {
+  /**
+   * Case table row link ID
+   */
+  id: string
+  /**
+   * Case ID
+   */
+  case_id: string
+  /**
+   * Table ID
+   */
+  table_id: string
+  /**
+   * Row ID from the dynamic table
+   */
+  row_id: string
+  /**
+   * Name of the table
+   */
+  table_name: string
+  /**
+   * The actual row data from JSONB
+   */
+  row_data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
 export type CaseTagCreate = {
   /**
    * Tag ID (UUID) or ref
@@ -1518,6 +1566,30 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
   items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseTableRowRead_ = {
+  items: Array<CaseTableRowRead>
   /**
    * Cursor for next page
    */
@@ -7062,6 +7134,50 @@ export type CaseRecordsUnlinkCaseRecordData = {
 
 export type CaseRecordsUnlinkCaseRecordResponse = CaseRecordDeleteResponse
 
+export type CaseTableRowsListCaseTableRowsData = {
+  caseId: string
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type CaseTableRowsListCaseTableRowsResponse =
+  CursorPaginatedResponse_CaseTableRowRead_
+
+export type CaseTableRowsLinkTableRowData = {
+  caseId: string
+  requestBody: CaseTableRowLink
+  workspaceId: string
+}
+
+export type CaseTableRowsLinkTableRowResponse = CaseTableRowRead
+
+export type CaseTableRowsGetCaseTableRowData = {
+  caseId: string
+  linkId: string
+  workspaceId: string
+}
+
+export type CaseTableRowsGetCaseTableRowResponse = CaseTableRowRead
+
+export type CaseTableRowsUnlinkTableRowData = {
+  caseId: string
+  linkId: string
+  workspaceId: string
+}
+
+export type CaseTableRowsUnlinkTableRowResponse = void
+
 export type ChatCreateChatData = {
   requestBody: ChatCreate
   workspaceId: string
@@ -10320,6 +10436,62 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseRecordDeleteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/rows": {
+    get: {
+      req: CaseTableRowsListCaseTableRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseTableRowRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseTableRowsLinkTableRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/rows/{link_id}": {
+    get: {
+      req: CaseTableRowsGetCaseTableRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseTableRowsUnlinkTableRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

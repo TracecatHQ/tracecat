@@ -1045,7 +1045,6 @@ class CaseDuration(Resource, table=True):
         sa_relationship_kwargs={"lazy": "selectin"},
     )
 
-
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -1142,7 +1141,9 @@ class Case(Resource, table=True):
         back_populates="case",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-
+    table_row_links: list["CaseTableRow"] = Relationship(
+        back_populates="case",
+    )
 
 class CaseComment(Resource, table=True):
     """A comment on a case."""
@@ -1256,6 +1257,46 @@ class CaseTask(Resource, table=True):
         sa_relationship_kwargs={"lazy": "selectin"}
     )
 
+
+class CaseTableRow(Resource, table=True):
+    """Link table between cases and table rows."""
+
+    __tablename__: str = "case_table_row"
+    __table_args__ = (
+        UniqueConstraint("case_id", "table_id", "row_id", name="uq_case_table_row_link"),
+        Index("idx_case_table_row_case", "case_id"),
+        Index("idx_case_table_row_table", "table_id"),
+        Index("idx_case_table_row_case_table", "case_id", "table_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    )
+    table_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("tables.id", ondelete="CASCADE"), nullable=False)
+    )
+    row_id: UUID4 = Field(
+        sa_column=Column(UUID, nullable=False),
+        description="Row ID from the dynamic table (workspace schema)",
+    )
+
+    case: Case = Relationship(
+        back_populates="table_row_links",
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseTableRow.case_id]",
+        },
+    )
+    table: Table = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseTableRow.table_id]",
+        },
+    )
 
 class Interaction(Resource, table=True):
     """Database model for storing workflow interaction state.

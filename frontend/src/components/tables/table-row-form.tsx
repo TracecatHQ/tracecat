@@ -25,9 +25,7 @@ const trimString = z.string().transform((val) => val.trim())
 
 function stringInputSchema(column: TableColumnRead) {
   if (column.nullable === false) {
-    return trimString.pipe(
-      z.string().min(1, `${column.name} is required`)
-    )
+    return trimString.pipe(z.string().min(1, `${column.name} is required`))
   }
   return trimString.transform((val) => (val.length === 0 ? null : val))
 }
@@ -239,38 +237,35 @@ export function TableRowFieldInput({
         : String(rawValue)
 
   switch (column.type.toUpperCase()) {
-    case "BOOLEAN":
-      {
-        const selectValue =
-          rawValue === undefined || rawValue === null || value === ""
-            ? EMPTY_SELECT_VALUE
-            : value
-        return (
-          <Select
-            value={selectValue}
-            onValueChange={(next) =>
-              field.onChange(
-                next === EMPTY_SELECT_VALUE ? undefined : next
-              )
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select…" />
-            </SelectTrigger>
-            <SelectContent>
-              {column.nullable !== false && (
-                <SelectItem value={EMPTY_SELECT_VALUE}>
-                  <span className="text-muted-foreground">No value</span>
-                </SelectItem>
-              )}
-              <SelectItem value="true">true</SelectItem>
-              <SelectItem value="false">false</SelectItem>
-              <SelectItem value="1">1</SelectItem>
-              <SelectItem value="0">0</SelectItem>
-            </SelectContent>
-          </Select>
-        )
-      }
+    case "BOOLEAN": {
+      const selectValue =
+        rawValue === undefined || rawValue === null || value === ""
+          ? EMPTY_SELECT_VALUE
+          : value
+      return (
+        <Select
+          value={selectValue}
+          onValueChange={(next) =>
+            field.onChange(next === EMPTY_SELECT_VALUE ? undefined : next)
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select…" />
+          </SelectTrigger>
+          <SelectContent>
+            {column.nullable !== false && (
+              <SelectItem value={EMPTY_SELECT_VALUE}>
+                <span className="text-muted-foreground">No value</span>
+              </SelectItem>
+            )}
+            <SelectItem value="true">true</SelectItem>
+            <SelectItem value="false">false</SelectItem>
+            <SelectItem value="1">1</SelectItem>
+            <SelectItem value="0">0</SelectItem>
+          </SelectContent>
+        </Select>
+      )
+    }
     case "INTEGER":
     case "NUMERIC":
       return (
@@ -314,9 +309,7 @@ export function TableRowFieldInput({
         <Select
           value={selectValue}
           onValueChange={(next) =>
-            field.onChange(
-              next === EMPTY_SELECT_VALUE ? undefined : next
-            )
+            field.onChange(next === EMPTY_SELECT_VALUE ? undefined : next)
           }
           disabled={options.length === 0 && column.nullable === false}
         >

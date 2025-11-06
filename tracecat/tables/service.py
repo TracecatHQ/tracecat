@@ -28,7 +28,7 @@ from tenacity import (
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
-from tracecat.db.models import Table, TableColumn
+from tracecat.db.models import CaseTableRow, Table, TableColumn
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -1007,6 +1007,56 @@ class BaseTablesService(BaseService):
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
         return self._flatten_record(row)
 
+    # Helper for fetching case-linked rows
+    async def get_rows_by_ids(
+        self, table: Table, row_ids: Sequence[UUID | str]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Fetch multiple rows by ID in a single query."""
+        if not row_ids:
+            return {}
+
+        normalised_ids: list[UUID] = []
+        seen: set[UUID] = set()
+        for raw_id in row_ids:
+            try:
+                resolved = raw_id if isinstance(raw_id, UUID) else UUID(str(raw_id))
+            except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+                self.logger.warning(
+                    "Skipping invalid row identifier during batch fetch",
+                    table=table.name,
+                    row_id=raw_id,
+                    error=str(exc),
+                )
+                continue
+            if resolved not in seen:
+                seen.add(resolved)
+                normalised_ids.append(resolved)
+
+        if not normalised_ids:
+            return {}
+
+        context = self._table_context(table)
+        conn = await self.session.connection()
+        stmt = (
+            sa.select("*")
+            .select_from(context.table)
+            .where(context.table.c.id.in_(normalised_ids))
+        )
+
+        result = await conn.execute(stmt)
+        rows: dict[UUID, dict[str, Any]] = {}
+        for mapping in result.mappings().all():
+            flattened = self._flatten_record(mapping)
+            raw_id = flattened.get("id")
+            if raw_id is None:
+                continue
+            try:
+                resolved_id = raw_id if isinstance(raw_id, UUID) else UUID(str(raw_id))
+            except (TypeError, ValueError):
+                continue
+            rows[resolved_id] = flattened
+        return rows
+
     async def insert_row(
         self,
         table: Table,
@@ -1167,11 +1217,21 @@ class BaseTablesService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
-        """Delete a row from the table."""
+        """Delete a row from the table and cascade delete any case links."""
         context = self._table_context(table)
-        conn = await self.session.connection()
-        stmt = sa.delete(context.table).where(sa.column("id") == row_id)
-        await conn.execute(stmt)
+
+        async with self.session.begin_nested():
+            await self.session.execute(
+                sa.delete(CaseTableRow).where(
+                    CaseTableRow.table_id == table.id,
+                    CaseTableRow.row_id == row_id,
+                )
+            )
+
+            await self.session.execute(
+                sa.delete(context.table).where(context.table.c.id == row_id)
+            )
+
         await self.session.flush()
 
     @retry(

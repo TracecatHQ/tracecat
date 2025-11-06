@@ -141,6 +141,14 @@ import type {
   CasesUpdateFieldResponse,
   CasesUpdateTaskData,
   CasesUpdateTaskResponse,
+  CaseTableRowsGetCaseTableRowData,
+  CaseTableRowsGetCaseTableRowResponse,
+  CaseTableRowsLinkTableRowData,
+  CaseTableRowsLinkTableRowResponse,
+  CaseTableRowsListCaseTableRowsData,
+  CaseTableRowsListCaseTableRowsResponse,
+  CaseTableRowsUnlinkTableRowData,
+  CaseTableRowsUnlinkTableRowResponse,
   CaseTagsCreateCaseTagData,
   CaseTagsCreateCaseTagResponse,
   CaseTagsDeleteCaseTagData,
@@ -6065,6 +6073,127 @@ export const caseRecordsUnlinkCaseRecord = (
     path: {
       case_id: data.caseId,
       case_record_id: data.caseRecordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Table Rows
+ * List paginated table rows for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_CaseTableRowRead_ Successful Response
+ * @throws ApiError
+ */
+export const caseTableRowsListCaseTableRows = (
+  data: CaseTableRowsListCaseTableRowsData
+): CancelablePromise<CaseTableRowsListCaseTableRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/rows",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Link Table Row
+ * Link an existing table row to a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowRead Successful Response
+ * @throws ApiError
+ */
+export const caseTableRowsLinkTableRow = (
+  data: CaseTableRowsLinkTableRowData
+): CancelablePromise<CaseTableRowsLinkTableRowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/rows",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case Table Row
+ * Get a specific case table row link.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.linkId
+ * @param data.workspaceId
+ * @returns CaseTableRowRead Successful Response
+ * @throws ApiError
+ */
+export const caseTableRowsGetCaseTableRow = (
+  data: CaseTableRowsGetCaseTableRowData
+): CancelablePromise<CaseTableRowsGetCaseTableRowResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/rows/{link_id}",
+    path: {
+      case_id: data.caseId,
+      link_id: data.linkId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink Table Row
+ * Unlink a table row from a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.linkId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseTableRowsUnlinkTableRow = (
+  data: CaseTableRowsUnlinkTableRowData
+): CancelablePromise<CaseTableRowsUnlinkTableRowResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/rows/{link_id}",
+    path: {
+      case_id: data.caseId,
+      link_id: data.linkId,
     },
     query: {
       workspace_id: data.workspaceId,

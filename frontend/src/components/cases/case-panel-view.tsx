@@ -38,6 +38,7 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CaseRecordsSection } from "@/components/cases/case-records-section"
+import { CaseTableRowsSection } from "@/components/cases/case-table-rows-section"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
@@ -974,6 +975,14 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     />
                   </div>
                 )}
+
+                {/* Table Rows Section */}
+                <div className="mb-6">
+                  <CaseTableRowsSection
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                  />
+                </div>
 
                 {/* Tabs using shadcn components */}
                 <Tabs

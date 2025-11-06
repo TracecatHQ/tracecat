@@ -37,6 +37,7 @@ from tracecat.auth.users import (
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.records.router import router as case_records_router
+from tracecat.cases.rows.router import router as case_table_rows_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.cases.tag_definitions.router import (
@@ -242,6 +243,7 @@ def create_app(**kwargs) -> FastAPI:
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
     )
     app.include_router(case_records_router)
+    app.include_router(case_table_rows_router)
     app.include_router(chat_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)

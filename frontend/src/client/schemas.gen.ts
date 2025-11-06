@@ -3562,6 +3562,90 @@ export const $CaseStatus = {
   description: "Case status values aligned with OCSF Incident Finding status.",
 } as const
 
+export const $CaseTableRowLink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+      description: "ID of the table",
+    },
+    row_id: {
+      type: "string",
+      format: "uuid",
+      title: "Row Id",
+      description: "ID of the row in the table",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_id"],
+  title: "CaseTableRowLink",
+  description: "Model for linking an existing table row to a case.",
+} as const
+
+export const $CaseTableRowRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Case table row link ID",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+      description: "Case ID",
+    },
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+      description: "Table ID",
+    },
+    row_id: {
+      type: "string",
+      format: "uuid",
+      title: "Row Id",
+      description: "Row ID from the dynamic table",
+    },
+    table_name: {
+      type: "string",
+      title: "Table Name",
+      description: "Name of the table",
+    },
+    row_data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Row Data",
+      description: "The actual row data from JSONB",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "table_id",
+    "row_id",
+    "table_name",
+    "row_data",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseTableRowRead",
+  description: "Model for reading a case table row link with full details.",
+} as const
+
 export const $CaseTagCreate = {
   properties: {
     tag_id: {
@@ -4537,6 +4621,69 @@ export const $CursorPaginatedResponse_CaseReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_CaseTableRowRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseTableRowRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseTableRowRead]",
 } as const
 
 export const $CursorPaginatedResponse_RecordRead_ = {

@@ -40,5 +40,6 @@ export function useTablesPagination({
     queryKey: ["rows", "paginated", tableId, workspaceId],
     queryFn: adaptedTablesListRows,
     additionalParams: { tableId },
+    enabled: Boolean(tableId),
   })
 }

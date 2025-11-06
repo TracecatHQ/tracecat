@@ -54,6 +54,7 @@ import {
   type CasesListCommentsData,
   type CasesListTagsData,
   type CasesListTasksData,
+  type CaseTableRowRead,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
@@ -86,6 +87,7 @@ import {
   casesUpdateCase,
   casesUpdateComment,
   casesUpdateTask,
+  caseTableRowsUnlinkTableRow,
   caseTagsCreateCaseTag,
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
@@ -3251,6 +3253,56 @@ export function useCaseRecords({
     records,
     recordsIsLoading,
     recordsError,
+  }
+}
+
+export function useUnlinkCaseTableRow({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: unlinkCaseTableRow,
+    isPending: unlinkCaseTableRowIsPending,
+    error: unlinkCaseTableRowError,
+  } = useMutation<void, TracecatApiError, string>({
+    mutationFn: async (linkId: string) =>
+      await caseTableRowsUnlinkTableRow({
+        caseId,
+        workspaceId,
+        linkId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-table-rows", caseId, workspaceId],
+        exact: false,
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Row unlinked",
+        description: "The table row has been unlinked from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to unlink row",
+        description:
+          error.message || "An error occurred while unlinking the row.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    unlinkCaseTableRow,
+    unlinkCaseTableRowIsPending,
+    unlinkCaseTableRowError,
   }
 }
 

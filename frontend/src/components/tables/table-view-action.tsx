@@ -48,13 +48,13 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
           {user?.isPrivileged() && <DropdownMenuSeparator />}
           {user?.isPrivileged() && (
             <>
-                <DropdownMenuItem
+              <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
                   setActiveType("edit")
                 }}
-                >
+              >
                 <PencilIcon className="mr-2 size-3" />
                 Edit row
               </DropdownMenuItem>
