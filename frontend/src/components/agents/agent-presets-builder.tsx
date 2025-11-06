@@ -35,7 +35,9 @@ import type {
   AgentPresetUpdate,
   ChatEntity,
 } from "@/client"
+import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -308,6 +310,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         value: action.action,
         description: action.description,
         group: action.namespace,
+        icon: getIcon(action.action, {
+          className: "size-6 p-[3px] border-[0.5px]",
+        }),
       }))
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [registryActions])
@@ -1455,82 +1460,90 @@ function AgentPresetForm({
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {toolApprovalFields.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className="rounded-md border px-3 py-3"
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                          <FormField
-                            control={form.control}
-                            name={
-                              `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
-                            }
-                            render={({ field }) => (
-                              <FormItem className="flex-1">
-                                <FormLabel className="text-xs uppercase text-muted-foreground">
-                                  Tool ID
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="core.http_request"
-                                    value={String(field.value ?? "")}
-                                    onChange={field.onChange}
-                                    onBlur={field.onBlur}
-                                    name={field.name}
-                                    ref={field.ref}
-                                    disabled={isSaving}
-                                    list={`agent-tool-options-${index}`}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                                <datalist id={`agent-tool-options-${index}`}>
-                                  {actionSuggestions.map((suggestion) => (
-                                    <option
-                                      key={suggestion.value}
-                                      value={suggestion.value}
-                                    >
-                                      {suggestion.label}
-                                    </option>
-                                  ))}
-                                </datalist>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={
-                              `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
-                            }
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                                <FormControl>
-                                  <Switch
-                                    checked={Boolean(field.value)}
-                                    onCheckedChange={field.onChange}
-                                    disabled={isSaving}
-                                  />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Allow without manual approval
-                                </FormDescription>
-                              </FormItem>
-                            )}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="self-start text-muted-foreground"
-                            onClick={() => removeToolApproval(index)}
-                            disabled={isSaving}
-                            aria-label="Remove approval rule"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
+                    {toolApprovalFields.map((item, index) => {
+                      const approvalSwitchId = `tool-approval-${item.id}-allow`
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="rounded-md border px-3 py-3"
+                        >
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                            <FormField
+                              control={form.control}
+                              name={
+                                `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
+                              }
+                              render={({ field }) => (
+                                <FormItem className="flex-1">
+                                  <FormLabel className="text-xs uppercase text-muted-foreground">
+                                    Tool ID
+                                  </FormLabel>
+                                  <FormControl>
+                                    <ActionSelect
+                                      field={field}
+                                      suggestions={actionSuggestions}
+                                      searchKeys={[
+                                        "label",
+                                        "value",
+                                        "description",
+                                        "group",
+                                      ]}
+                                      placeholder="Select an action..."
+                                      disabled={isSaving}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={
+                                `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
+                              }
+                              render={({ field }) => (
+                                <FormItem className="space-y-2 md:justify-self-center">
+                                  <FormLabel
+                                    htmlFor={approvalSwitchId}
+                                    className="text-xs uppercase text-muted-foreground"
+                                  >
+                                    Manual approval
+                                  </FormLabel>
+                                  <FormControl>
+                                    <div className="flex items-center gap-3 px-3 py-2">
+                                      <Switch
+                                        id={approvalSwitchId}
+                                        checked={Boolean(field.value)}
+                                        onCheckedChange={field.onChange}
+                                        disabled={isSaving}
+                                      />
+                                      <span className="text-sm font-medium min-w-[100px]">
+                                        {field.value
+                                          ? "Required"
+                                          : "Not required"}
+                                      </span>
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="justify-self-start self-start text-muted-foreground md:justify-self-end"
+                              onClick={() => removeToolApproval(index)}
+                              disabled={isSaving}
+                              aria-label="Remove approval rule"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
