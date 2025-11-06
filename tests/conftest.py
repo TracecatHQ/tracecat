@@ -28,6 +28,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.db.models import Workspace
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
@@ -397,7 +398,9 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(get_temporal_client())
+    client = loop.run_until_complete(
+        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    )
     return client
 
 
