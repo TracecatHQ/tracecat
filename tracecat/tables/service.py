@@ -1,7 +1,7 @@
 import json
 import re
-from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -67,6 +67,7 @@ class _TableContext:
     table_name: str
     table: TableClause
     data_column: ColumnElement[Any]
+
 
 class BaseTablesService(BaseService):
     """Service for managing user-defined tables."""
@@ -827,12 +828,9 @@ class BaseTablesService(BaseService):
         index_dropped = False
         if rename_requested:
             # Check for duplicate names by querying directly
-            existing_stmt = (
-                select(TableColumn.name)
-                .where(
-                    TableColumn.table_id == column.table_id,
-                    TableColumn.id != column.id,
-                )
+            existing_stmt = select(TableColumn.name).where(
+                TableColumn.table_id == column.table_id,
+                TableColumn.id != column.id,
             )
             result = await self.session.exec(existing_stmt)
             existing_names = set(result.all())
@@ -897,9 +895,7 @@ class BaseTablesService(BaseService):
                     )
             await self._reset_column_values(table, new_name, default_payload, new_type)
 
-        should_have_unique_index = (
-            had_unique_index if is_index is None else is_index
-        )
+        should_have_unique_index = had_unique_index if is_index is None else is_index
         if should_have_unique_index:
             current_index_columns = await self.get_index(table)
             if new_name not in current_index_columns:
@@ -951,7 +947,7 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
         sanitized_key = self._sanitize_identifier(key)
         key_literal = sa.literal(sanitized_key)
-        
+
         stmt = (
             sa.update(context.table)
             .values(data=context.data_column.op("-")(key_literal))
@@ -983,12 +979,7 @@ class BaseTablesService(BaseService):
         """List all rows in a table."""
         context = self._table_context(table)
         conn = await self.session.connection()
-        stmt = (
-            sa.select("*")
-            .select_from(context.table)
-            .limit(limit)
-            .offset(offset)
-        )
+        stmt = sa.select("*").select_from(context.table).limit(limit).offset(offset)
         result = await conn.execute(stmt)
         return [self._flatten_record(row) for row in result.mappings().all()]
 
@@ -997,9 +988,7 @@ class BaseTablesService(BaseService):
         context = self._table_context(table)
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
-            .select_from(context.table)
-            .where(sa.column("id") == row_id)
+            sa.select("*").select_from(context.table).where(sa.column("id") == row_id)
         )
         result = await conn.execute(stmt)
         row = result.mappings().first()
@@ -1263,9 +1252,7 @@ class BaseTablesService(BaseService):
                 raise ValueError(
                     f"Column '{column}' does not exist in table '{table_name}'"
                 )
-            match_payload[sanitized_col] = self._normalise_value(
-                column_model, value
-            )
+            match_payload[sanitized_col] = self._normalise_value(column_model, value)
 
         stmt = (
             sa.select(sa.text("*"))
@@ -1345,9 +1332,7 @@ class BaseTablesService(BaseService):
                 raise ValueError(
                     f"Column '{column}' does not exist in table '{table_name}'"
                 )
-            match_payload[sanitized_col] = self._normalise_value(
-                column_model, value
-            )
+            match_payload[sanitized_col] = self._normalise_value(column_model, value)
 
         stmt = (
             sa.select(sa.literal(True))

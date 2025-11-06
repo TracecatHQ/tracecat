@@ -212,7 +212,9 @@ class TestTablesService:
         )
 
         updated_table = await tables_service.get_table(table.id)
-        updated_column = next(col for col in updated_table.columns if col.id == column.id)
+        updated_column = next(
+            col for col in updated_table.columns if col.id == column.id
+        )
         assert updated_column.name == "newcolumn"
 
         rows = await tables_service.list_rows(updated_table)
@@ -249,7 +251,9 @@ class TestTablesService:
             )
 
         indexes = await conn.run_sync(fetch_indexes)
-        assert any(index["name"] == "uq_mixedcasetable_unique_value" for index in indexes)
+        assert any(
+            index["name"] == "uq_mixedcasetable_unique_value" for index in indexes
+        )
 
 
 class TestParsePostgresDefault:

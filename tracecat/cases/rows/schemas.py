@@ -27,4 +27,3 @@ class CaseTableRowRead(BaseModel):
     row_data: dict[str, Any] = Field(..., description="The actual row data from JSONB")
     created_at: datetime
     updated_at: datetime
-

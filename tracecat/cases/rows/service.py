@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
@@ -14,13 +15,12 @@ from tracecat.cases.rows.schemas import CaseTableRowLink
 from tracecat.db.models import Case, CaseTableRow, Table
 from tracecat.exceptions import (
     TracecatNotFoundError,
-    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
-    CursorPaginationParams,
     CursorPaginatedResponse,
+    CursorPaginationParams,
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
@@ -30,6 +30,7 @@ class CaseTableRowService(BaseWorkspaceService):
     """Service for managing case table rows."""
 
     service_name = "case_table_rows"
+
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.tables_service = TablesService(session, role)
@@ -151,7 +152,9 @@ class CaseTableRowService(BaseWorkspaceService):
 
         if has_more and page_items:
             last_item = page_items[-1]
-            next_cursor = paginator.encode_cursor(last_item.created_at, str(last_item.id))
+            next_cursor = paginator.encode_cursor(
+                last_item.created_at, str(last_item.id)
+            )
 
         if params.cursor and page_items:
             first_item = page_items[0]

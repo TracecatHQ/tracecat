@@ -38,11 +38,12 @@ from tracecat.tags.schemas import TagRead
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
 
-MAX_CASE_ROW_LINKS = 50
 
 # Must be imported directly to preserve the udf metadata
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
+
+MAX_CASE_ROW_LINKS = 50
 
 if is_feature_enabled(FeatureFlag.CASE_TASKS):
     logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")

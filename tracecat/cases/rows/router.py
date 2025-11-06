@@ -6,6 +6,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlmodel import select
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
@@ -14,7 +15,6 @@ from tracecat.cases.rows.service import CaseTableRowService
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import CaseTableRow
-from sqlmodel import select
 from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
@@ -62,9 +62,7 @@ async def list_case_table_rows(
     response = await service.list_case_table_rows(case, params)
 
     # Convert to CaseTableRowRead format
-    items = [
-        CaseTableRowRead.model_validate(item) for item in response.items
-    ]
+    items = [CaseTableRowRead.model_validate(item) for item in response.items]
 
     return CursorPaginatedResponse(
         items=items,
@@ -151,9 +149,7 @@ async def link_table_row(
             user_id=role.user_id,
             error=str(e),
         )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         logger.warning(
             "Validation error linking table row",
@@ -218,7 +214,4 @@ async def unlink_table_row(
             user_id=role.user_id,
             error=str(e),
         )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
-
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

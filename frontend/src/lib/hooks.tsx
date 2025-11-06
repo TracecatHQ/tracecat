@@ -54,7 +54,6 @@ import {
   type CasesListCommentsData,
   type CasesListTagsData,
   type CasesListTasksData,
-  type CaseTableRowRead,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,

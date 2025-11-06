@@ -1045,6 +1045,7 @@ class CaseDuration(Resource, table=True):
         sa_relationship_kwargs={"lazy": "selectin"},
     )
 
+
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -1144,6 +1145,7 @@ class Case(Resource, table=True):
     table_row_links: list["CaseTableRow"] = Relationship(
         back_populates="case",
     )
+
 
 class CaseComment(Resource, table=True):
     """A comment on a case."""
@@ -1263,7 +1265,9 @@ class CaseTableRow(Resource, table=True):
 
     __tablename__: str = "case_table_row"
     __table_args__ = (
-        UniqueConstraint("case_id", "table_id", "row_id", name="uq_case_table_row_link"),
+        UniqueConstraint(
+            "case_id", "table_id", "row_id", name="uq_case_table_row_link"
+        ),
         Index("idx_case_table_row_case", "case_id"),
         Index("idx_case_table_row_table", "table_id"),
         Index("idx_case_table_row_case_table", "case_id", "table_id"),
@@ -1276,10 +1280,14 @@ class CaseTableRow(Resource, table=True):
         index=True,
     )
     case_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+        )
     )
     table_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("tables.id", ondelete="CASCADE"), nullable=False)
+        sa_column=Column(
+            UUID, ForeignKey("tables.id", ondelete="CASCADE"), nullable=False
+        )
     )
     row_id: UUID4 = Field(
         sa_column=Column(UUID, nullable=False),
@@ -1297,6 +1305,7 @@ class CaseTableRow(Resource, table=True):
             "foreign_keys": "[CaseTableRow.table_id]",
         },
     )
+
 
 class Interaction(Resource, table=True):
     """Database model for storing workflow interaction state.
