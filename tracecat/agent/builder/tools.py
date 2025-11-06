@@ -10,7 +10,6 @@ from pydantic_ai.tools import Tool
 
 from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.common import UNSET, Unset
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatAuthorizationError
 
@@ -45,54 +44,19 @@ def build_agent_preset_builder_tools(
         return preset.model_dump(mode="json")
 
     async def update_agent_preset(
-        name: str | None | Unset = UNSET,
-        slug: str | None | Unset = UNSET,
-        description: str | None | Unset = UNSET,
-        instructions: str | None | Unset = UNSET,
-        model_name: str | None | Unset = UNSET,
-        model_provider: str | None | Unset = UNSET,
-        base_url: str | None | Unset = UNSET,
-        output_type: dict[str, Any] | str | None | Unset = UNSET,
-        actions: list[str] | None | Unset = UNSET,
-        namespaces: list[str] | None | Unset = UNSET,
-        tool_approvals: dict[str, bool] | None | Unset = UNSET,
-        mcp_server_url: str | None | Unset = UNSET,
-        mcp_server_headers: dict[str, str] | None | Unset = UNSET,
-        model_settings: dict[str, Any] | None | Unset = UNSET,
-        retries: int | None | Unset = UNSET,
+        params: AgentPresetUpdate,
     ) -> dict[str, Any]:
-        """Patch selected fields on the agent preset and return the updated record."""
+        """Patch selected fields on the agent preset and return the updated record.
 
-        update_payload = {
-            key: value
-            for key, value in {
-                "name": name,
-                "slug": slug,
-                "description": description,
-                "instructions": instructions,
-                "model_name": model_name,
-                "model_provider": model_provider,
-                "base_url": base_url,
-                "output_type": output_type,
-                "actions": actions,
-                "namespaces": namespaces,
-                "tool_approvals": tool_approvals,
-                "mcp_server_url": mcp_server_url,
-                "mcp_server_headers": mcp_server_headers,
-                "model_settings": model_settings,
-                "retries": retries,
-            }.items()
-            if value is not UNSET
-        }
+        Only include fields you want to change - omit unchanged fields to minimize data transfer.
+        """
 
-        if not update_payload:
+        if not params.model_fields_set:
             raise ValueError("Provide at least one field to update.")
 
-        update = AgentPresetUpdate(**update_payload)
         async with _preset_service() as service:
-            await service.update_preset(preset_id, update)
-            preset = await service.get_preset(preset_id)
-        return preset.model_dump(mode="json")
+            updated = await service.update_preset(preset_id, params)
+        return updated.model_dump(mode="json")
 
     return [
         Tool(
