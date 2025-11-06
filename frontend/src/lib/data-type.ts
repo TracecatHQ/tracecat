@@ -7,6 +7,7 @@ import {
   Hash,
   ListTodo,
   SquareCheck,
+  Tags,
   ToggleLeft,
   Type,
 } from "lucide-react"
@@ -40,6 +41,7 @@ export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   TIMESTAMP: { label: "Date and time", icon: CalendarClock },
   TIMESTAMPTZ: { label: "Date and time", icon: CalendarClock },
   JSONB: { label: "JSON", icon: Braces },
+  ENUM: { label: "Enum", icon: Tags },
 }
 
 export function getFieldTypeConfig(type?: FieldType | null) {

@@ -1,11 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import type { Row } from "@tanstack/react-table"
 import { useParams } from "next/navigation"
+import { useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
-import type { TableRead } from "@/client"
+import type { TableRead, TableRowRead } from "@/client"
 import {
+  buildInitialValues,
   createRowSchema,
   type DynamicFormData,
   TableRowFieldInput,
@@ -28,63 +30,106 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { useGetTable, useInsertRow } from "@/lib/hooks"
+import { useGetTable, useUpdateTableRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const FALLBACK_SCHEMA = z.object({})
-
-function useRowSchema(table: TableRead | undefined) {
-  return table ? createRowSchema(table) : FALLBACK_SCHEMA
-}
-
-export function TableInsertRowDialog({
+export function TableEditRowDialog({
   open,
   onOpenChange,
+  row,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  row: Row<TableRowRead>
 }) {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
   const workspaceId = useWorkspaceId()
   const { table } = useGetTable({ tableId: tableId || "", workspaceId })
-  const schema = useRowSchema(table)
-  const { insertRow, insertRowIsPending } = useInsertRow()
+  const { updateRow, updateRowIsPending } = useUpdateTableRow()
+
+  if (!tableId || !table || !workspaceId) {
+    return null
+  }
+
+  return (
+    <TableEditRowDialogContent
+      open={open}
+      onOpenChange={onOpenChange}
+      row={row}
+      table={table}
+      tableId={tableId}
+      workspaceId={workspaceId}
+      updateRow={updateRow}
+      updateRowIsPending={updateRowIsPending}
+    />
+  )
+}
+
+function TableEditRowDialogContent({
+  open,
+  onOpenChange,
+  row,
+  table,
+  tableId,
+  workspaceId,
+  updateRow,
+  updateRowIsPending,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  row: Row<TableRowRead>
+  table: TableRead
+  tableId: string
+  workspaceId: string
+  updateRow: ReturnType<typeof useUpdateTableRow>["updateRow"]
+  updateRowIsPending: boolean
+}) {
+  const schema = useMemo(() => createRowSchema(table), [table])
+
+  const initialValues = useMemo(
+    () => buildInitialValues(table, row.original),
+    [table, row.original]
+  )
 
   const form = useForm<DynamicFormData>({
     resolver: zodResolver(schema),
-    defaultValues: {},
+    defaultValues: initialValues,
   })
+
+  useEffect(() => {
+    if (open) {
+      form.reset(initialValues)
+    }
+  }, [open, initialValues, form])
+
+  const rowId = row.original.id
 
   const onSubmit = async (data: DynamicFormData) => {
     try {
-      if (!tableId) {
-        console.error("Table ID is missing")
+      if (!rowId) {
+        console.error("Row ID is missing")
         return
       }
-      await insertRow({
+      await updateRow({
         requestBody: { data },
         tableId,
+        rowId,
         workspaceId,
       })
       onOpenChange(false)
-      form.reset()
     } catch (error) {
       console.error(error)
     }
-  }
-
-  if (!table) {
-    return null
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add new row</DialogTitle>
+          <DialogTitle>Edit row</DialogTitle>
           <DialogDescription>
-            Add a new row to the "{table.name}" table.
+            Update the selected row in the "{table.name}" table (ID: {rowId}).
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -108,8 +153,8 @@ export function TableInsertRowDialog({
               />
             ))}
             <DialogFooter>
-              <Button type="submit" disabled={insertRowIsPending}>
-                Add row
+              <Button type="submit" disabled={updateRowIsPending}>
+                Save changes
               </Button>
             </DialogFooter>
           </form>

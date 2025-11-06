@@ -821,6 +821,7 @@ class Table(Resource, table=True):
         sa_relationship_kwargs={
             "cascade": "all, delete",
             "lazy": "selectin",
+            "order_by": "TableColumn.created_at",
         },
     )
 

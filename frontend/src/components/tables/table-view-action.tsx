@@ -2,9 +2,10 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { Row } from "@tanstack/react-table"
-import { CopyIcon, Trash2Icon } from "lucide-react"
+import { CopyIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import type { TableRowRead } from "@/client"
+import { TableEditRowDialog } from "@/components/tables/table-edit-row-dialog"
 import { TableViewActionDeleteDialog } from "@/components/tables/table-view-action-delete-dialog"
 
 import { Button } from "@/components/ui/button"
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
 
-type TableViewActionType = "delete" | "insert" | null
+type TableViewActionType = "delete" | "edit" | null
 
 export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
   const { user } = useAuth()
@@ -44,8 +45,19 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy ID
           </DropdownMenuItem>
+          {user?.isPrivileged() && <DropdownMenuSeparator />}
           {user?.isPrivileged() && (
             <>
+                <DropdownMenuItem
+                className="py-1 text-xs text-foreground/80"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveType("edit")
+                }}
+                >
+                <PencilIcon className="mr-2 size-3" />
+                Edit row
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="py-1 text-xs text-destructive"
@@ -64,6 +76,11 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
       <TableViewActionDeleteDialog
         row={row}
         open={activeType === "delete"}
+        onOpenChange={onOpenChange}
+      />
+      <TableEditRowDialog
+        row={row}
+        open={activeType === "edit"}
         onOpenChange={onOpenChange}
       />
     </>

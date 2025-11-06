@@ -1,5 +1,6 @@
 import json
 import re
+from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -11,8 +12,11 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy.dialects.postgresql import JSONB, array, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
+from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.schema import TableClause
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
@@ -55,6 +59,15 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 
 
+@dataclass(slots=True)
+class _TableContext:
+    """Runtime context for dynamic workspace tables."""
+
+    schema: str
+    table_name: str
+    table: TableClause
+    data_column: ColumnElement[Any]
+
 class BaseTablesService(BaseService):
     """Service for managing user-defined tables."""
 
@@ -85,6 +98,25 @@ class BaseTablesService(BaseService):
             raise TracecatAuthorizationError("Workspace ID is required")
         return WorkspaceUUID.new(workspace_id)
 
+    def _table_context(self, table: Table) -> _TableContext:
+        schema_name = self._get_schema_name()
+        sanitized_table = self._sanitize_identifier(table.name)
+        data_col = sa.column("data", type_=JSONB)
+        table_clause = sa.table(
+            sanitized_table,
+            sa.column("id"),
+            sa.column("created_at"),
+            sa.column("updated_at"),
+            data_col,
+            schema=schema_name,
+        )
+        return _TableContext(
+            schema=schema_name,
+            table_name=sanitized_table,
+            table=table_clause,
+            data_column=data_col,
+        )
+
     def _normalize_row_inputs(
         self,
         table: Table,
@@ -93,64 +125,147 @@ class BaseTablesService(BaseService):
         include_defaults: bool = False,
     ) -> dict[str, Any]:
         """Coerce row inputs to the expected SQL types."""
-        column_index = {column.name: column for column in table.columns}
+        if not data and not include_defaults:
+            return {}
+
+        column_index = self._column_index(table)
         normalised: dict[str, Any] = {}
 
-        provided_names = set(data.keys())
+        for column_name, raw_value in data.items():
+            column = column_index.get(column_name)
+            if column is None:
+                raise ValueError(
+                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                )
+            normalised[column_name] = self._normalise_value(column, raw_value)
 
-        for column_name, column in column_index.items():
-            if column_name in data:
-                value = data[column_name]
-            elif include_defaults:
-                if column.default is not None:
-                    value = self._default_json_value(
-                        SqlType(column.type), column.default
-                    )
-                elif column.nullable:
-                    value = None
-                else:
-                    raise ValueError(
-                        f"Column '{column_name}' is required but no value was provided"
-                    )
-            else:
+        if not include_defaults:
+            return normalised
+
+        for column in table.columns:
+            if column.name in normalised:
                 continue
 
             sql_type = SqlType(column.type)
-            if value is None:
-                normalised[column_name] = None
-                continue
-
-            if sql_type is SqlType.ENUM:
-                candidate = str(value).strip()
-                allowed = self._enum_values(column)
-                if allowed and candidate not in allowed:
-                    raise ValueError(
-                        f"Invalid value '{candidate}' for column '{column_name}'. "
-                        f"Allowed values are: {', '.join(allowed)}"
-                    )
-                normalised[column_name] = candidate
-                continue
-
-            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
-                # Store timestamps in ISO 8601 text so JSONB can serialise them safely
-                normalised[column_name] = coerce_to_utc_datetime(value).isoformat()
-                continue
-
-            normalised[column_name] = value
-
-        # Preserve any unexpected columns for better error reporting
-        for column_name in provided_names - set(column_index.keys()):
-            raise ValueError(
-                f"Column '{column_name}' does not exist in table '{table.name}'"
-            )
+            if column.default is not None:
+                normalised[column.name] = self._default_json_value(
+                    sql_type, column.default
+                )
+            elif column.nullable:
+                normalised[column.name] = None
+            else:
+                raise ValueError(
+                    f"Column '{column.name}' is required but no value was provided"
+                )
 
         return normalised
 
-    def _jsonb_text_path(self, column_name: str) -> sa.ColumnElement:
+    def _normalise_value(self, column: TableColumn, value: Any) -> Any:
+        if value is None:
+            return None
+
+        sql_type = SqlType(column.type)
+        if sql_type is SqlType.ENUM:
+            candidate = str(value).strip()
+            allowed = self._enum_values(column)
+            if allowed and candidate not in allowed:
+                raise ValueError(
+                    f"Invalid value '{candidate}' for column '{column.name}'. "
+                    f"Allowed values are: {', '.join(allowed)}"
+                )
+            return candidate
+
+        if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+            return coerce_to_utc_datetime(value).isoformat()
+
+        return value
+
+    @staticmethod
+    def _column_index(table: Table) -> dict[str, TableColumn]:
+        return {column.name: column for column in table.columns}
+
+    def _jsonb_text_path(
+        self, context: _TableContext, column_name: str
+    ) -> ColumnElement[Any]:
         """Return an expression that extracts a JSONB column as text."""
         sanitized = self._sanitize_identifier(column_name)
-        data_col = sa.column("data", type_=JSONB)
-        return sa.func.jsonb_extract_path_text(data_col, sa.literal(sanitized))
+        return sa.func.jsonb_extract_path_text(
+            context.data_column, sa.literal(sanitized)
+        )
+
+    def _row_filter_conditions(
+        self,
+        table: Table,
+        context: _TableContext,
+        *,
+        search_term: str | None,
+        start_time: datetime | None,
+        end_time: datetime | None,
+        updated_before: datetime | None,
+        updated_after: datetime | None,
+    ) -> list[ColumnElement[Any]]:
+        conditions: list[ColumnElement[Any]] = []
+
+        if search_term:
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            searchable_columns = [
+                column
+                for column in table.columns
+                if column.type in {SqlType.TEXT.value, SqlType.JSONB.value}
+            ]
+            if searchable_columns:
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions = [
+                    self._jsonb_text_path(context, column.name).ilike(search_pattern)
+                    for column in searchable_columns
+                ]
+                conditions.append(sa.or_(*search_conditions))
+            else:
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        if start_time is not None:
+            conditions.append(sa.column("created_at") >= start_time)
+        if end_time is not None:
+            conditions.append(sa.column("created_at") <= end_time)
+        if updated_after is not None:
+            conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before is not None:
+            conditions.append(sa.column("updated_at") <= updated_before)
+
+        return conditions
+
+    def _row_select(
+        self,
+        table: Table,
+        *,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> tuple[Select, _TableContext]:
+        context = self._table_context(table)
+        stmt = sa.select(sa.text("*")).select_from(context.table)
+        where_conditions = self._row_filter_conditions(
+            table,
+            context,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
+        return stmt, context
 
     def _flatten_record(self, row: Mapping[str, Any]) -> dict[str, Any]:
         materialised = dict(row)
@@ -281,16 +396,11 @@ class BaseTablesService(BaseService):
         default_payload: Any | None,
         sql_type: SqlType,
     ) -> None:
+        context = self._table_context(table)
         sanitized_column = self._sanitize_identifier(column_name)
         conn = await self.session.connection()
 
         default_value = self._default_json_value(sql_type, default_payload)
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(
-            self._sanitize_identifier(table.name),
-            data_col,
-            schema=self._get_schema_name(),
-        )
         path = sa.literal_column(f"ARRAY['{sanitized_column}']")
 
         if default_value is None:
@@ -301,36 +411,30 @@ class BaseTablesService(BaseService):
             params = {"new_value": default_value}
 
         stmt = (
-            sa.update(table_obj)
+            sa.update(context.table)
             .values(
                 data=sa.func.jsonb_set(
-                    data_col,
+                    context.data_column,
                     path,
                     new_value_expr,
                     True,
                 )
             )
-            .where(data_col.has_key(sanitized_column))
+            .where(context.data_column.has_key(sanitized_column))
         )
         await conn.execute(stmt, params)
 
     async def _ensure_no_null_values(self, table: Table, column_name: str) -> None:
+        context = self._table_context(table)
         sanitized_column = self._sanitize_identifier(column_name)
-        schema_name = self._get_schema_name()
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(
-            self._sanitize_identifier(table.name),
-            data_col,
-            schema=schema_name,
-        )
-        value_expr = self._jsonb_text_path(column_name)
+        value_expr = self._jsonb_text_path(context, column_name)
 
         stmt = (
             sa.select(sa.literal(True))
-            .select_from(table_obj)
+            .select_from(context.table)
             .where(
                 sa.or_(
-                    sa.not_(data_col.has_key(sanitized_column)),
+                    sa.not_(context.data_column.has_key(sanitized_column)),
                     value_expr.is_(None),
                 )
             )
@@ -345,19 +449,12 @@ class BaseTablesService(BaseService):
             )
 
     async def _ensure_unique_values(self, table: Table, column_name: str) -> None:
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(
-            sanitized_table_name,
-            data_col,
-            schema=schema_name,
-        )
-        value_expr = self._jsonb_text_path(column_name)
+        context = self._table_context(table)
+        value_expr = self._jsonb_text_path(context, column_name)
 
         stmt = (
             sa.select(value_expr.label("value"), sa.func.count().label("count"))
-            .select_from(table_obj)
+            .select_from(context.table)
             .where(value_expr.isnot(None))
             .group_by(value_expr)
             .having(sa.func.count() > 1)
@@ -378,21 +475,26 @@ class BaseTablesService(BaseService):
 
         sanitized_old = self._sanitize_identifier(old_key)
         sanitized_new = self._sanitize_identifier(new_key)
-        full_table_name = self._full_table_name(table.name)
+
+        context = self._table_context(table)
         conn = await self.session.connection()
-        stmt = sa.text(
-            f"""
-            UPDATE {full_table_name}
-            SET data = jsonb_set(
-                data - :old_key,
-                '{{{sanitized_new}}}',
-                COALESCE(data -> :old_key, 'null'::jsonb),
-                true
-            )
-            WHERE data ? :old_key
-            """
+
+        old_key_literal = sa.literal(sanitized_old)
+        path_literal = array([sa.literal(sanitized_new)])
+        new_value = sa.func.coalesce(
+            sa.func.jsonb_extract_path(context.data_column, old_key_literal),
+            sa.literal_column("'null'::jsonb"),
         )
-        await conn.execute(stmt, {"old_key": sanitized_old})
+        updated_data = sa.func.jsonb_set(
+            context.data_column, path_literal, new_value, sa.true()
+        ).op("-")(old_key_literal)
+
+        stmt = (
+            sa.update(context.table)
+            .values(data=updated_data)
+            .where(context.data_column.has_key(sanitized_old))
+        )
+        await conn.execute(stmt)
 
     async def _drop_unique_index(self, table: Table, column_name: str) -> None:
         schema_name = self._get_schema_name()
@@ -688,13 +790,15 @@ class BaseTablesService(BaseService):
         set_fields = params.model_dump(exclude_unset=True)
         is_index = set_fields.pop("is_index", None)
 
-        table = column.table
+        # Fetch table explicitly to avoid lazy loading issues
+        table = await self.get_table(column.table_id)
         existing_index_columns = await self.get_index(table)
         had_unique_index = column.name in existing_index_columns
 
         current_type = SqlType(column.type)
         next_nullable = set_fields.get("nullable", column.nullable)
-        if column.nullable and next_nullable is False:
+        # Validate that no null values exist if we're making the column non-nullable
+        if next_nullable is False and "nullable" in set_fields:
             await self._ensure_no_null_values(table, column.name)
 
         requested_name = set_fields.get("name")
@@ -720,12 +824,23 @@ class BaseTablesService(BaseService):
                 new_type, set_fields["default"]
             )
 
+        index_dropped = False
         if rename_requested:
-            existing_names = {col.name for col in table.columns if col.id != column.id}
+            # Check for duplicate names by querying directly
+            existing_stmt = (
+                select(TableColumn.name)
+                .where(
+                    TableColumn.table_id == column.table_id,
+                    TableColumn.id != column.id,
+                )
+            )
+            result = await self.session.exec(existing_stmt)
+            existing_names = set(result.all())
             if new_name in existing_names:
                 raise ValueError(f"Column '{new_name}' already exists")
             if had_unique_index:
                 await self._drop_unique_index(table, column.name)
+                index_dropped = True
             await self._rename_jsonb_key(table, column.name, new_name)
 
         if new_type is SqlType.ENUM:
@@ -758,6 +873,13 @@ class BaseTablesService(BaseService):
             column.type = new_type.value
             if "default" not in set_fields:
                 column.default = None
+            if had_unique_index and not index_dropped:
+                await self._drop_unique_index(table, column.name)
+                index_dropped = True
+
+        if is_index is False and had_unique_index and not index_dropped:
+            await self._drop_unique_index(table, column.name)
+            index_dropped = True
 
         await self.session.flush()
 
@@ -775,27 +897,13 @@ class BaseTablesService(BaseService):
                     )
             await self._reset_column_values(table, new_name, default_payload, new_type)
 
-        next_is_index = had_unique_index
-        if is_index is True:
-            next_is_index = True
-        elif is_index is False:
-            next_is_index = False
-
-        if next_is_index and not had_unique_index:
-            await self._ensure_unique_values(table, new_name)
-
-        recreate_existing_index = rename_requested and had_unique_index
-        if is_index is True:
-            recreate_existing_index = True
-        elif is_index is False:
-            recreate_existing_index = False
-            if not rename_requested and had_unique_index:
-                await self._drop_unique_index(table, column.name)
-
-        if recreate_existing_index:
+        should_have_unique_index = (
+            had_unique_index if is_index is None else is_index
+        )
+        if should_have_unique_index:
             current_index_columns = await self.get_index(table)
-            if column.name not in current_index_columns:
-                await self.create_unique_index(table, column.name)
+            if new_name not in current_index_columns:
+                await self.create_unique_index(table, new_name)
 
         return column
 
@@ -837,10 +945,31 @@ class BaseTablesService(BaseService):
         await self.session.flush()
 
     @require_access_level(AccessLevel.ADMIN)
+    async def _remove_jsonb_key(self, table: Table, key: str) -> None:
+        """Remove a key from all rows' data JSONB column."""
+        context = self._table_context(table)
+        conn = await self.session.connection()
+        sanitized_key = self._sanitize_identifier(key)
+        key_literal = sa.literal(sanitized_key)
+        
+        stmt = (
+            sa.update(context.table)
+            .values(data=context.data_column.op("-")(key_literal))
+            .where(context.data_column.has_key(sanitized_key))
+        )
+        await conn.execute(stmt)
+
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        # Get table before deleting column metadata
+        table = await self.get_table(column.table_id)
 
-        # TODO: Handle/Consider orphaned keys
+        existing_index_columns = await self.get_index(table)
+        if column.name in existing_index_columns:
+            await self._drop_unique_index(table, column.name)
+
+        # Cascade: remove the key from all rows' data
+        await self._remove_jsonb_key(table, column.name)
 
         # Delete the column metadata
         await self.session.delete(column)
@@ -852,12 +981,11 @@ class BaseTablesService(BaseService):
         self, table: Table, *, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
         """List all rows in a table."""
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
+        context = self._table_context(table)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(sanitized_table_name, schema=schema_name))
+            .select_from(context.table)
             .limit(limit)
             .offset(offset)
         )
@@ -866,12 +994,11 @@ class BaseTablesService(BaseService):
 
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
+        context = self._table_context(table)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(sanitized_table_name, schema=schema_name))
+            .select_from(context.table)
             .where(sa.column("id") == row_id)
         )
         result = await conn.execute(stmt)
@@ -898,20 +1025,17 @@ class BaseTablesService(BaseService):
             ValueError: If conflict keys are specified but not present in the data
             DBAPIError: If there's no unique index on the specified conflict keys
         """
-        schema_name = self._get_schema_name()
+        context = self._table_context(table)
         conn = await self.session.connection()
 
         row_data = self._normalize_row_inputs(table, params.data, include_defaults=True)
         upsert = params.upsert
 
         table_name_for_logging = table.name
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(sanitized_table_name, data_col, schema=schema_name)
         record = {"data": row_data}
 
         if not upsert:
-            stmt = sa.insert(table_obj).values(record).returning(sa.text("*"))
+            stmt = sa.insert(context.table).values(record).returning(sa.text("*"))
             try:
                 result = await conn.execute(stmt)
                 await self.session.flush()
@@ -952,7 +1076,7 @@ class BaseTablesService(BaseService):
         if index_column not in row_data:
             raise ValueError("Data to upsert must contain the unique index column")
 
-        pg_stmt = insert(table_obj).values(record)
+        pg_stmt = insert(context.table).values(record)
         index_expression = sa.text(f"(data ->> '{index_column}')")
 
         try:
@@ -960,7 +1084,7 @@ class BaseTablesService(BaseService):
                 index_elements=[index_expression],
                 set_={
                     "data": sa.func.coalesce(
-                        sa.column("data", type_=JSONB),
+                        context.data_column,
                         sa.text("'{}'::jsonb"),
                     ).op("||")(pg_stmt.excluded.data),
                     "updated_at": sa.func.now(),
@@ -1010,28 +1134,18 @@ class BaseTablesService(BaseService):
         Raises:
             TracecatNotFoundError: If the row does not exist
         """
-        schema_name = self._get_schema_name()
+        context = self._table_context(table)
         conn = await self.session.connection()
 
         # Normalise inputs and build update statement using SQLAlchemy
         normalised_data = self._normalize_row_inputs(table, data)
-        sanitized_table_name = self._sanitize_identifier(table.name)
-
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(
-            sanitized_table_name,
-            sa.column("id"),
-            data_col,
-            sa.column("updated_at"),
-            schema=schema_name,
-        )
         payload_param = sa.bindparam("payload", type_=JSONB)
         stmt = (
-            sa.update(table_obj)
+            sa.update(context.table)
             .where(sa.column("id") == row_id)
             .values(
                 data=sa.func.coalesce(
-                    sa.column("data", type_=JSONB),
+                    context.data_column,
                     sa.text("'{}'::jsonb"),
                 ).op("||")(payload_param),
                 updated_at=sa.func.now(),
@@ -1054,11 +1168,9 @@ class BaseTablesService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
+        context = self._table_context(table)
         conn = await self.session.connection()
-        table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
+        stmt = sa.delete(context.table).where(sa.column("id") == row_id)
         await conn.execute(stmt)
         await self.session.flush()
 
@@ -1081,24 +1193,24 @@ class BaseTablesService(BaseService):
             raise ValueError("Values and column names must have the same length")
 
         table = await self.get_table_by_name(table_name)
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
-
-        column_names = {column.name for column in table.columns}
+        context = self._table_context(table)
+        column_index = self._column_index(table)
         match_payload: dict[str, Any] = {}
         for column, value in zip(columns, values, strict=True):
             sanitized_col = self._sanitize_identifier(column)
-            if sanitized_col not in column_names:
+            column_model = column_index.get(sanitized_col)
+            if column_model is None:
                 raise ValueError(
                     f"Column '{column}' does not exist in table '{table_name}'"
                 )
-            match_payload[sanitized_col] = value
+            match_payload[sanitized_col] = self._normalise_value(
+                column_model, value
+            )
 
-        data_col = sa.column("data", type_=JSONB)
         stmt = (
             sa.select(sa.text("*"))
-            .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .where(data_col.contains(match_payload))
+            .select_from(context.table)
+            .where(context.data_column.contains(match_payload))
         )
         if limit is not None:
             stmt = stmt.limit(limit)
@@ -1119,7 +1231,7 @@ class BaseTablesService(BaseService):
                     kind=type(e).__name__,
                     error=str(e),
                     table=table_name,
-                    schema=schema_name,
+                    schema=context.schema,
                 )
                 # Ensure transaction is rolled back
                 await conn.rollback()
@@ -1138,7 +1250,7 @@ class BaseTablesService(BaseService):
                     kind=type(e).__name__,
                     error=str(e),
                     table=table_name,
-                    schema=schema_name,
+                    schema=context.schema,
                 )
                 raise
 
@@ -1163,25 +1275,24 @@ class BaseTablesService(BaseService):
             raise ValueError("Values and column names must have the same length")
 
         table = await self.get_table_by_name(table_name)
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
-
-        column_names = {column.name for column in table.columns}
+        context = self._table_context(table)
+        column_index = self._column_index(table)
         match_payload: dict[str, Any] = {}
         for column, value in zip(columns, values, strict=True):
             sanitized_col = self._sanitize_identifier(column)
-            if sanitized_col not in column_names:
+            column_model = column_index.get(sanitized_col)
+            if column_model is None:
                 raise ValueError(
                     f"Column '{column}' does not exist in table '{table_name}'"
                 )
-            match_payload[sanitized_col] = value
+            match_payload[sanitized_col] = self._normalise_value(
+                column_model, value
+            )
 
-        table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        data_col = sa.column("data", type_=JSONB)
         stmt = (
             sa.select(sa.literal(True))
-            .select_from(table_clause)
-            .where(data_col.contains(match_payload))
+            .select_from(context.table)
+            .where(context.data_column.contains(match_payload))
             .limit(1)
         )
 
@@ -1202,7 +1313,7 @@ class BaseTablesService(BaseService):
                     kind=type(e).__name__,
                     error=str(e),
                     table=table_name,
-                    schema=schema_name,
+                    schema=context.schema,
                 )
                 await conn.rollback()
                 raise
@@ -1220,7 +1331,7 @@ class BaseTablesService(BaseService):
                     kind=type(e).__name__,
                     error=str(e),
                     table=table_name,
-                    schema=schema_name,
+                    schema=context.schema,
                 )
                 raise
 
@@ -1255,67 +1366,15 @@ class BaseTablesService(BaseService):
             TracecatNotFoundError: If the table does not exist
             ValueError: If search parameters are invalid
         """
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        conn = await self.session.connection()
-
-        # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
-            sa.table(sanitized_table_name, schema=schema_name)
+        stmt, context = self._row_select(
+            table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
         )
-
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Add text search conditions
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Get all text-searchable columns (TEXT and JSONB types)
-            searchable_columns = [
-                col.name
-                for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
-            ]
-
-            if searchable_columns:
-                # Use SQLAlchemy's concat function for proper parameter binding
-                search_pattern = sa.func.concat("%", search_term, "%")
-                search_conditions = []
-                for col_name in searchable_columns:
-                    expr = self._jsonb_text_path(col_name)
-                    search_conditions.append(expr.ilike(search_pattern))
-                where_conditions.append(sa.or_(*search_conditions))
-            else:
-                # No searchable columns found, search_term will have no effect
-                self.logger.warning(
-                    "No searchable columns found for text search",
-                    table=table.name,
-                    search_term=search_term,
-                )
-
-        # Add date filters
-        if start_time is not None:
-            where_conditions.append(sa.column("created_at") >= start_time)
-
-        if end_time is not None:
-            where_conditions.append(sa.column("created_at") <= end_time)
-
-        if updated_after is not None:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
-
-        if updated_before is not None:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
-
-        # Apply WHERE conditions if any
-        if where_conditions:
-            stmt = stmt.where(sa.and_(*where_conditions))
-
-        # Apply limit and offset
+        conn = await self.session.connection()
         if limit is not None:
             stmt = stmt.limit(limit)
         if offset > 0:
@@ -1338,7 +1397,7 @@ class BaseTablesService(BaseService):
                 kind=type(e).__name__,
                 error=str(e),
                 table=table.name,
-                schema=schema_name,
+                schema=context.schema,
             )
             raise
 
@@ -1370,68 +1429,17 @@ class BaseTablesService(BaseService):
             TracecatNotFoundError: If the table does not exist
             ValueError: If search parameters are invalid
         """
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
+        base_stmt, context = self._row_select(
+            table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+        stmt = base_stmt
         conn = await self.session.connection()
 
-        # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
-            sa.table(sanitized_table_name, schema=schema_name)
-        )
-
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Add text search conditions
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Get all text-searchable columns (TEXT and JSONB types)
-            searchable_columns = [
-                col.name
-                for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
-            ]
-
-            if searchable_columns:
-                # Use SQLAlchemy's concat function for proper parameter binding
-                search_pattern = sa.func.concat("%", search_term, "%")
-                search_conditions = []
-                for col_name in searchable_columns:
-                    expr = self._jsonb_text_path(col_name)
-                    search_conditions.append(expr.ilike(search_pattern))
-                where_conditions.append(sa.or_(*search_conditions))
-            else:
-                # No searchable columns found, search_term will have no effect
-                self.logger.warning(
-                    "No searchable columns found for text search",
-                    table=table.name,
-                    search_term=search_term,
-                )
-
-        # Add date filters
-        if start_time is not None:
-            where_conditions.append(sa.column("created_at") >= start_time)
-
-        if end_time is not None:
-            where_conditions.append(sa.column("created_at") <= end_time)
-
-        if updated_after is not None:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
-
-        if updated_before is not None:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
-
-        # Apply WHERE conditions if any
-        if where_conditions:
-            stmt = stmt.where(sa.and_(*where_conditions))
-
-        # Apply cursor-based pagination
-        # Decode cursor if provided
         cursor_data = None
         if params.cursor:
             try:
@@ -1494,7 +1502,7 @@ class BaseTablesService(BaseService):
                 kind=type(e).__name__,
                 error=str(e),
                 table=table.name,
-                schema=schema_name,
+                schema=context.schema,
             )
             raise
 
@@ -1567,17 +1575,13 @@ class BaseTablesService(BaseService):
         if len(rows) > chunk_size:
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
-        schema_name = self._get_schema_name()
-
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        data_col = sa.column("data", type_=JSONB)
-        table_obj = sa.table(sanitized_table_name, data_col, schema=schema_name)
+        context = self._table_context(table)
         normalised_rows = [self._normalize_row_inputs(table, row) for row in rows]
         payload = [{"data": row} for row in normalised_rows]
         conn = await self.session.connection()
 
         if not upsert:
-            stmt = sa.insert(table_obj).values(payload)
+            stmt = sa.insert(context.table).values(payload)
             try:
                 result = await conn.execute(stmt)
             except Exception as e:
@@ -1600,13 +1604,13 @@ class BaseTablesService(BaseService):
                     "Each row to upsert must contain the unique index column"
                 )
 
-        pg_stmt = insert(table_obj).values(payload)
+        pg_stmt = insert(context.table).values(payload)
         index_expression = sa.text(f"(data ->> '{sanitized_index_col}')")
         stmt = pg_stmt.on_conflict_do_update(
             index_elements=[index_expression],
             set_={
                 "data": sa.func.coalesce(
-                    sa.column("data", type_=JSONB),
+                    context.data_column,
                     sa.text("'{}'::jsonb"),
                 ).op("||")(pg_stmt.excluded.data),
                 "updated_at": sa.func.now(),

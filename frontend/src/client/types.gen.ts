@@ -3806,6 +3806,7 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+  | "ENUM"
 
 /**
  * Event for when a case status is changed.
@@ -3974,6 +3975,15 @@ export type TableRowRead = {
   created_at: string
   updated_at: string
   [key: string]: unknown | string
+}
+
+/**
+ * Update model for a table row.
+ */
+export type TableRowUpdate = {
+  data: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -6559,6 +6569,15 @@ export type TablesGetRowData = {
 }
 
 export type TablesGetRowResponse = unknown
+
+export type TablesUpdateRowData = {
+  requestBody: TableRowUpdate
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesUpdateRowResponse = TableRowRead
 
 export type TablesDeleteRowData = {
   rowId: string
@@ -9573,6 +9592,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TablesUpdateRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRowRead
         /**
          * Validation Error
          */

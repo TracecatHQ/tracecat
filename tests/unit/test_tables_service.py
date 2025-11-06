@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -179,6 +180,76 @@ class TestTablesService:
                     type=SqlType.TIMESTAMP,
                 ),
             )
+
+    async def test_update_column_renames_json_key_with_sanitization(
+        self, tables_service: TablesService
+    ) -> None:
+        """Renaming a column sanitizes the JSONB key and migrated rows reflect the new name."""
+        table_name = "sanitize_table"
+        await tables_service.create_table(
+            TableCreate(
+                name=table_name,
+                columns=[
+                    TableColumnCreate(
+                        name="original",
+                        type=SqlType.TEXT,
+                        nullable=True,
+                    )
+                ],
+            )
+        )
+        table = await tables_service.get_table_by_name(table_name)
+        column = table.columns[0]
+
+        await tables_service.insert_row(
+            table,
+            TableRowInsert(data={"original": "value"}),
+        )
+
+        await tables_service.update_column(
+            column,
+            TableColumnUpdate(name="New Column!"),
+        )
+
+        updated_table = await tables_service.get_table(table.id)
+        updated_column = next(col for col in updated_table.columns if col.id == column.id)
+        assert updated_column.name == "newcolumn"
+
+        rows = await tables_service.list_rows(updated_table)
+        assert rows[0]["newcolumn"] == "value"
+        assert "original" not in rows[0]
+
+    async def test_create_unique_index_uses_sanitized_table_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Unique index names use sanitized table identifiers."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="MixedCaseTable",
+                columns=[
+                    TableColumnCreate(
+                        name="unique_value",
+                        type=SqlType.TEXT,
+                        nullable=True,
+                    )
+                ],
+            )
+        )
+
+        await tables_service.create_unique_index(table, "unique_value")
+
+        schema_name = tables_service._get_schema_name()
+        conn = await tables_service.session.connection()
+
+        def fetch_indexes(sync_conn):
+            inspector = sa.inspect(sync_conn)
+            return inspector.get_indexes(
+                "mixedcasetable",
+                schema=schema_name,
+            )
+
+        indexes = await conn.run_sync(fetch_indexes)
+        assert any(index["name"] == "uq_mixedcasetable_unique_value" for index in indexes)
 
 
 class TestParsePostgresDefault:

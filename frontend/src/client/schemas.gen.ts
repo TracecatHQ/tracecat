@@ -11340,6 +11340,7 @@ export const $SqlType = {
     "TIMESTAMPTZ",
     "JSONB",
     "UUID",
+    "ENUM",
   ],
   title: "SqlType",
   description: "Supported SQL types.",
@@ -11761,6 +11762,20 @@ export const $TableRowRead = {
   required: ["id", "created_at", "updated_at"],
   title: "TableRowRead",
   description: "Read model for a table row.",
+} as const
+
+export const $TableRowUpdate = {
+  properties: {
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["data"],
+  title: "TableRowUpdate",
+  description: "Update model for a table row.",
 } as const
 
 export const $TableUpdate = {
