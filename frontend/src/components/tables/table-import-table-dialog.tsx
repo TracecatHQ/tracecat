@@ -26,6 +26,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import type { TracecatApiError } from "@/lib/errors"
 import { useImportTableFromCsv } from "@/lib/hooks"
 import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -133,11 +134,18 @@ export function TableImportTableDialog({
       setCsvPreview(null)
     } catch (error) {
       if (error instanceof ApiError) {
+        const apiError = error as TracecatApiError
+        const detail =
+          typeof apiError.body.detail === "string"
+            ? apiError.body.detail
+            : typeof apiError.body.detail === "object"
+              ? JSON.stringify(apiError.body.detail)
+              : undefined
         form.setError("file", {
           type: "manual",
           message:
-            typeof error.body?.detail === "string"
-              ? error.body.detail
+            detail && detail !== "{}"
+              ? detail
               : "Failed to import table",
         })
       } else {
