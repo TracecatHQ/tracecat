@@ -1477,7 +1477,10 @@ function AgentPresetForm({
                         const approvalSwitchId = `tool-approval-${item.id}-allow`
 
                         return (
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                          <div
+                            key={item.id}
+                            className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
+                          >
                             <FormField
                               control={form.control}
                               name={
