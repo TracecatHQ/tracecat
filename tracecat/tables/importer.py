@@ -108,7 +108,7 @@ def _looks_like_json(value: str) -> bool:
 
 
 @dataclass(slots=True)
-class _ColumnStats:
+class ColumnStats:
     original_name: str
     name: str
     seen_non_empty: bool = False
@@ -208,14 +208,14 @@ class CSVSchemaInferer:
             )
 
         used: set[str] = set()
-        self._columns: list[_ColumnStats] = []
+        self._columns: list[ColumnStats] = []
         self.column_mapping: dict[str, str] = {}
 
         for index, header in enumerate(headers, start=1):
             header_value = header or ""
             base = _normalise_identifier(header_value, prefix=f"col_{index}")
             name = _ensure_unique_identifier(base, used)
-            stats = _ColumnStats(original_name=header_value, name=name)
+            stats = ColumnStats(original_name=header_value, name=name)
             self._columns.append(stats)
             self.column_mapping[header_value] = name
 
