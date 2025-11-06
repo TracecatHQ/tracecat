@@ -270,6 +270,11 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
+import {
+  tablesCreateTableFromCsv,
+  type TablesCreateTableFromCsvData,
+  type TablesCreateTableFromCsvResponse,
+} from "@/client/tables-import"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
@@ -2711,6 +2716,47 @@ export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
     table,
     tableIsLoading,
     tableError,
+  }
+}
+
+export function useCreateTableFromCsv() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: createTableFromCsv,
+    isPending: createTableFromCsvIsPending,
+    error: createTableFromCsvError,
+  } = useMutation<
+    TablesCreateTableFromCsvResponse,
+    TracecatApiError,
+    TablesCreateTableFromCsvData
+  >({
+    mutationFn: async (params: TablesCreateTableFromCsvData) =>
+      await tablesCreateTableFromCsv(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+      toast({
+        title: "Table created",
+        description: `Imported data into ${variables.formData.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      if (error.status === 403) {
+        toast({
+          title: "Forbidden",
+          description: "You cannot perform this action",
+        })
+      } else if (error.status !== 409) {
+        console.error("Error creating table from CSV", error)
+      }
+    },
+  })
+
+  return {
+    createTableFromCsv,
+    createTableFromCsvIsPending,
+    createTableFromCsvError,
   }
 }
 
