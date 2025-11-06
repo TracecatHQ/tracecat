@@ -1,5 +1,6 @@
 """Unit tests for the CSVImporter class."""
 
+from io import StringIO
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -7,7 +8,7 @@ import pytest
 
 from tracecat.db.models import Table, TableColumn
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import ColumnInfo, CSVImporter
+from tracecat.tables.importer import ColumnInfo, CSVImporter, load_csv_table
 from tracecat.tables.service import TablesService
 
 
@@ -206,3 +207,54 @@ class TestCSVImporter:
 
         mock_service.batch_insert_rows.assert_not_called()
         assert csv_importer.total_rows_inserted == 0
+
+
+class TestLoadCSVTable:
+    def test_load_csv_table_basic(self) -> None:
+        csv_text = "Name,Age,Score\nAlice,30,85.5\nBob,25,91\n"
+        columns, rows = load_csv_table(StringIO(csv_text))
+
+        assert [column.name for column in columns] == ["name", "age", "score"]
+        assert [column.type for column in columns] == [
+            SqlType.TEXT,
+            SqlType.INTEGER,
+            SqlType.NUMERIC,
+        ]
+        assert rows == [
+            {"name": "Alice", "age": 30, "score": 85.5},
+            {"name": "Bob", "age": 25, "score": 91.0},
+        ]
+
+    def test_load_csv_table_mixed_types(self) -> None:
+        csv_text = "Value\n1\nfoo\n3\n"
+        columns, rows = load_csv_table(StringIO(csv_text))
+
+        assert columns[0].name == "value"
+        assert columns[0].type == SqlType.TEXT
+        assert rows == [
+            {"value": 1},
+            {"value": "foo"},
+            {"value": 3},
+        ]
+
+    def test_load_csv_table_sanitises_columns(self) -> None:
+        csv_text = "123 Invalid!,123 Invalid!,Flag\ntrue,false,true\n"
+        columns, rows = load_csv_table(StringIO(csv_text))
+
+        assert [column.name for column in columns] == [
+            "col_123_invalid",
+            "col_123_invalid_1",
+            "flag",
+        ]
+        assert [column.type for column in columns] == [
+            SqlType.BOOLEAN,
+            SqlType.BOOLEAN,
+            SqlType.BOOLEAN,
+        ]
+        assert rows == [
+            {
+                "col_123_invalid": True,
+                "col_123_invalid_1": False,
+                "flag": True,
+            }
+        ]

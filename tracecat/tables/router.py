@@ -25,7 +25,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import CSVImporter
+from tracecat.tables.importer import CSVImporter, load_csv_table
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
@@ -106,6 +106,46 @@ async def create_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the table",
         ) from e
+
+
+@router.post("/import", response_model=TableRead, status_code=status.HTTP_201_CREATED)
+async def create_table_from_csv(
+    role: WorkspaceAdminUser,
+    session: AsyncDBSession,
+    name: str = Form(...),
+    file: UploadFile = File(...),
+) -> TableRead:
+    service = TablesService(session, role=role)
+    contents = await file.read()
+
+    csv_file = StringIO(contents.decode())
+    try:
+        columns, rows = load_csv_table(csv_file)
+    finally:
+        csv_file.close()
+
+    table = await service.create_table(TableCreate(name=name, columns=columns))
+    table = await service.get_table(table.id)
+
+    if rows:
+        await service.batch_insert_rows(table, rows)
+
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=SqlType(column.type),
+                nullable=column.nullable,
+                default=column.default,
+                created_at=column.created_at,
+                updated_at=column.updated_at,
+            )
+            for column in table.columns
+        ],
+    )
 
 
 @router.get("/{table_id}", response_model=TableRead)
