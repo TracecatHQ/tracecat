@@ -271,9 +271,9 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import {
-  tablesCreateTableFromCsv,
   type TablesCreateTableFromCsvData,
   type TablesCreateTableFromCsvResponse,
+  tablesCreateTableFromCsv,
 } from "@/client/tables-import"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"

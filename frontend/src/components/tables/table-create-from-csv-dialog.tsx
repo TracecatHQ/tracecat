@@ -198,7 +198,10 @@ export function TableCreateFromCsvDialog({
                     >
                       Back
                     </Button>
-                    <Button type="submit" disabled={createTableFromCsvIsPending}>
+                    <Button
+                      type="submit"
+                      disabled={createTableFromCsvIsPending}
+                    >
                       {createTableFromCsvIsPending ? (
                         <>
                           <Spinner className="mr-2 size-4" />
