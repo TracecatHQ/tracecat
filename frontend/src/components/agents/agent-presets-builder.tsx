@@ -1477,7 +1477,7 @@ function AgentPresetForm({
                               render={({ field }) => (
                                 <FormItem className="flex-1">
                                   <FormLabel className="text-xs uppercase text-muted-foreground">
-                                    Tool ID
+                                    Tool
                                   </FormLabel>
                                   <FormControl>
                                     <ActionSelect
