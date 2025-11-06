@@ -124,6 +124,58 @@ class IntegrationUpdate(BaseModel):
         return value
 
 
+class CustomOAuthProviderBase(BaseModel):
+    """Shared fields for custom OAuth provider definitions."""
+
+    name: str = Field(..., min_length=3, max_length=120)
+    description: str | None = Field(default=None, max_length=512)
+    grant_type: OAuthGrantType
+    authorization_endpoint: str = Field(
+        ..., description="OAuth authorization endpoint URL", min_length=8
+    )
+    token_endpoint: str = Field(
+        ..., description="OAuth token endpoint URL", min_length=8
+    )
+    scopes: list[str] | None = Field(
+        default=None, description="Default OAuth scopes to request"
+    )
+
+    @field_validator("authorization_endpoint", "token_endpoint", mode="before")
+    @classmethod
+    def _validate_https_endpoint(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Endpoint is required")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("Endpoint must not be empty")
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "https":
+            raise ValueError("OAuth endpoints must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("OAuth endpoints must include a hostname")
+        return value
+
+
+class CustomOAuthProviderCreate(CustomOAuthProviderBase):
+    """Request payload for creating a custom OAuth provider."""
+
+    provider_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=255,
+        description="Optional custom identifier for the provider",
+    )
+    client_id: str = Field(
+        ..., min_length=1, max_length=512, description="OAuth client identifier"
+    )
+    client_secret: SecretStr | None = Field(
+        default=None,
+        description="OAuth client secret for the provider",
+        min_length=1,
+    )
+
+
 class IntegrationOAuthConnect(BaseModel):
     """Request model for connecting an integration."""
 

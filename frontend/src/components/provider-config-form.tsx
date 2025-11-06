@@ -370,6 +370,27 @@ export function ProviderConfigForm({
             <CardContent className="flex flex-col gap-4">
               <FormField
                 control={form.control}
+                name="client_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{clientIdLabel}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder={clientIdPlaceholder}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      {clientIdDescription}
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="client_secret"
                 render={({ field }) => (
                   <FormItem>
@@ -394,27 +415,6 @@ export function ProviderConfigForm({
                     <FormMessage />
                     <FormDescription className="text-xs">
                       {clientSecretDescription}
-                    </FormDescription>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="client_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{clientIdLabel}</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        value={field.value ?? ""}
-                        placeholder={clientIdPlaceholder}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                    <FormDescription className="text-xs">
-                      {clientIdDescription}
                     </FormDescription>
                   </FormItem>
                 )}

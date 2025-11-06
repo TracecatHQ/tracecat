@@ -164,6 +164,10 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    oauth_providers: list["WorkspaceOAuthProvider"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
     # Custom entities owned by this workspace
     entities: list["Entity"] = Relationship(
         back_populates="owner",
@@ -1678,6 +1682,79 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
             return IntegrationStatus.CONFIGURED
         else:
             return IntegrationStatus.NOT_CONFIGURED
+
+
+class WorkspaceOAuthProvider(SQLModel, TimestampMixin, table=True):
+    """Custom OAuth providers defined within a workspace."""
+
+    __tablename__: str = "oauth_provider"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "provider_id",
+            "grant_type",
+            name="uq_oauth_provider_owner_provider_grant_type",
+        ),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("workspace.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    provider_id: str = Field(
+        ...,
+        description="Unique identifier for the custom OAuth provider",
+        index=True,
+    )
+    name: str = Field(
+        ...,
+        description="Display name for the custom provider",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional description for the custom provider",
+    )
+    grant_type: OAuthGrantType = Field(
+        ...,
+        description="OAuth grant type supported by this provider",
+    )
+    authorization_endpoint: str = Field(
+        ...,
+        sa_column=Column(
+            Text,
+            nullable=False,
+        ),
+        description="Default OAuth authorization endpoint for this provider",
+    )
+    token_endpoint: str = Field(
+        ...,
+        sa_column=Column(
+            Text,
+            nullable=False,
+        ),
+        description="Default OAuth token endpoint for this provider",
+    )
+    scopes: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            JSONB,
+            nullable=False,
+            server_default=text("'[]'::jsonb"),
+        ),
+        description="Default OAuth scopes requested by this provider",
+    )
+
+    owner: Workspace = Relationship(back_populates="oauth_providers")
 
 
 class OAuthStateDB(SQLModel, TimestampMixin, table=True):

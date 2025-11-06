@@ -270,6 +270,10 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
+import {
+  type CustomOAuthProviderCreateRequest,
+  providersCreateCustomProvider,
+} from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
@@ -4278,6 +4282,66 @@ export function useIntegrations(workspaceId: string) {
     providers,
     providersIsLoading,
     providersError,
+  }
+}
+
+type CreateCustomProviderParams = Omit<
+  CustomOAuthProviderCreateRequest,
+  "provider_id"
+> & {
+  provider_id?: string | null
+}
+
+export function useCreateCustomProvider(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createCustomProvider,
+    isPending: createCustomProviderIsPending,
+    error: createCustomProviderError,
+  } = useMutation({
+    mutationFn: async (params: CreateCustomProviderParams) => {
+      const cleanScopes = params.scopes
+        ?.map((scope) => scope.trim())
+        .filter(Boolean)
+      const payload: CustomOAuthProviderCreateRequest = {
+        ...params,
+        name: params.name.trim(),
+        description: params.description?.trim() || undefined,
+        authorization_endpoint: params.authorization_endpoint.trim(),
+        token_endpoint: params.token_endpoint.trim(),
+        client_id: params.client_id.trim(),
+        client_secret: params.client_secret?.trim() || undefined,
+        scopes: cleanScopes ?? [],
+        provider_id: params.provider_id?.trim() || undefined,
+      }
+
+      return await providersCreateCustomProvider({
+        workspaceId,
+        requestBody: payload,
+      })
+    },
+    onSuccess: (provider) => {
+      queryClient.invalidateQueries({ queryKey: ["providers", workspaceId] })
+      toast({
+        title: "Provider created",
+        description: `Added ${provider.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to create custom provider:", error)
+      toast({
+        title: "Failed to create provider",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createCustomProvider,
+    createCustomProviderIsPending,
+    createCustomProviderError,
   }
 }
 
