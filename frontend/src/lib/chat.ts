@@ -146,29 +146,32 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   }
 }
 
-const CASE_UPDATE_ACTIONS = new Set([
-  "core__cases__update_case",
-  "core__cases__create_comment",
-])
+const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
+  case: ["core__cases__update_case", "core__cases__create_comment"],
+  agent_preset_builder: ["update_agent_preset"],
+}
 
 // mapping from chatentity to
 /**
  * Maps chat entity types to their query invalidation logic.
  * Each entity type defines how to invalidate related queries when updates occur.
  */
-export const ENTITY_TO_INVALIDATION: Record<
-  ChatEntity,
-  {
-    predicate: (toolName: string) => boolean
-    handler: (
-      queryClient: QueryClient,
-      workspaceId: string,
-      entityId: string
-    ) => void
-  }
+export const ENTITY_TO_INVALIDATION: Partial<
+  Record<
+    ChatEntity,
+    {
+      predicate: (toolName: string) => boolean
+      handler: (
+        queryClient: QueryClient,
+        workspaceId: string,
+        entityId: string
+      ) => void
+    }
+  >
 > = {
   case: {
-    predicate: (toolName: string) => CASE_UPDATE_ACTIONS.has(toolName),
+    predicate: (toolName: string) =>
+      Boolean(UPDATE_ON_ACTIONS.case?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
       // Invalidate specific case query
       queryClient.invalidateQueries({ queryKey: ["case", entityId] })
@@ -184,14 +187,9 @@ export const ENTITY_TO_INVALIDATION: Record<
       })
     },
   },
-  agent_preset: {
-    predicate: () => false,
-    handler: () => {
-      // No related caches to invalidate for agent preset chats.
-    },
-  },
   agent_preset_builder: {
-    predicate: () => false,
+    predicate: (toolName: string) =>
+      Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
     handler: () => {
       // No cache invalidation required for builder assistant chats.
     },
