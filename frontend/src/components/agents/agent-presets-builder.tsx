@@ -1411,7 +1411,6 @@ function AgentPresetForm({
                         placeholder="Add tools by action id"
                         searchKeys={["label", "value", "description", "group"]}
                         allowCustomTags
-                        className="border"
                         disabled={isSaving}
                       />
                     </FormControl>
@@ -1436,7 +1435,6 @@ function AgentPresetForm({
                         placeholder="Restrict to namespaces (optional)"
                         searchKeys={["label", "value"]}
                         allowCustomTags
-                        className="border"
                         disabled={isSaving}
                       />
                     </FormControl>

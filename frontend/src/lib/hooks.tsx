@@ -4834,11 +4834,20 @@ export function useDeleteProviderCredentials() {
  *  modelInfo – model info (if any)
  */
 
-export function useChatReadiness() {
+interface ChatReadinessOptions {
+  modelOverride?: {
+    name: string
+    provider: string
+    baseUrl?: string | null
+  }
+}
+
+export function useChatReadiness(options?: ChatReadinessOptions) {
   const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
   const { models, modelsLoading } = useAgentModels()
   const { providersStatus, isLoading: statusLoading } =
     useModelProvidersStatus()
+  const modelOverride = options?.modelOverride
 
   const loading = defaultModelLoading || modelsLoading || statusLoading
 
@@ -4846,6 +4855,29 @@ export function useChatReadiness() {
     return {
       ready: false,
       loading: true,
+    }
+  }
+
+  if (modelOverride) {
+    const modelInfo: ModelInfo = {
+      name: modelOverride.name,
+      provider: modelOverride.provider,
+      baseUrl: modelOverride.baseUrl ?? null,
+    }
+    const hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
+    if (!hasOverrideCreds) {
+      return {
+        ready: false,
+        loading: false,
+        reason: "no_credentials",
+        modelInfo,
+      }
+    }
+
+    return {
+      ready: true,
+      loading: false,
+      modelInfo,
     }
   }
 
