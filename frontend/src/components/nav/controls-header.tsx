@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
@@ -18,8 +17,7 @@ import {
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
-import type { CaseStatus, EntityRead, OAuthGrantType } from "@/client"
-import { entitiesCreateEntity } from "@/client"
+import type { CaseStatus, OAuthGrantType } from "@/client"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import {
@@ -42,10 +40,7 @@ import {
   FolderViewToggle,
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
-import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
-import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
 import { Spinner } from "@/components/loading/spinner"
-import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
@@ -58,7 +53,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -79,10 +73,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Label } from "@/components/ui/label"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { Switch } from "@/components/ui/switch"
-import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
@@ -92,18 +83,15 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
-import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
-import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
   useGetTable,
   useIntegrationProvider,
   useUpdateCase,
 } from "@/lib/hooks"
-import { getIconByName } from "@/lib/icons"
 import { capitalizeFirst, cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -127,39 +115,6 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
   closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
   other: "bg-muted/5 dark:bg-muted/[0.12]",
   unknown: "bg-slate-500/[0.03] dark:bg-slate-500/[0.08]",
-}
-
-function EntitiesDetailHeaderActions() {
-  const [includeInactive, setIncludeInactive] = useLocalStorage(
-    "entities-include-inactive",
-    false
-  )
-  return (
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Label
-          htmlFor="entities-include-inactive"
-          className="text-xs text-muted-foreground"
-        >
-          Include inactive
-        </Label>
-        <Switch
-          id="entities-include-inactive"
-          checked={includeInactive}
-          onCheckedChange={setIncludeInactive}
-        />
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => entityEvents.emitAddField()}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add field
-      </Button>
-    </div>
-  )
 }
 
 function WorkflowsActions() {
@@ -590,99 +545,6 @@ function VariablesActions() {
   )
 }
 
-function EntitiesActions() {
-  const [createEntityDialogOpen, setCreateEntityDialogOpen] = useState(false)
-  const workspaceId = useWorkspaceId()
-  const queryClient = useQueryClient()
-
-  const { mutateAsync: createEntity, isPending: isCreatingEntity } =
-    useMutation({
-      mutationFn: async (data: {
-        key: string
-        display_name: string
-        description?: string
-        icon?: string
-      }) =>
-        await entitiesCreateEntity({
-          workspaceId,
-          requestBody: {
-            key: data.key,
-            display_name: data.display_name,
-            description: data.description,
-            icon: data.icon,
-          },
-        }),
-      onSuccess: (_, data) => {
-        queryClient.invalidateQueries({ queryKey: ["entities", workspaceId] })
-        toast({
-          title: "Entity created",
-          description: `${data.display_name} has been created successfully.`,
-        })
-        setCreateEntityDialogOpen(false)
-      },
-    })
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setCreateEntityDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add entity
-      </Button>
-      <CreateEntityDialog
-        open={createEntityDialogOpen}
-        onOpenChange={setCreateEntityDialogOpen}
-        onSubmit={async (data) => {
-          await createEntity(data)
-        }}
-        isSubmitting={isCreatingEntity}
-      />
-    </div>
-  )
-}
-
-function RecordsActions() {
-  const workspaceId = useWorkspaceId()
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [selectedEntityId, setSelectedEntityId] = useState<string>("")
-  const { entities } = useEntities(workspaceId)
-
-  const handleEntitySelect = (entity: EntityRead) => {
-    setSelectedEntityId(entity.id)
-    setDialogOpen(true)
-  }
-
-  return (
-    <>
-      <EntitySelectorPopover
-        entities={entities}
-        onSelect={handleEntitySelect}
-        buttonText="Add record"
-      />
-      {selectedEntityId && (
-        <CreateRecordDialog
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open)
-            if (!open) {
-              setSelectedEntityId("")
-            }
-          }}
-          workspaceId={workspaceId}
-          entityId={selectedEntityId}
-          onSuccess={() => {
-            setSelectedEntityId("")
-          }}
-        />
-      )}
-    </>
-  )
-}
-
 function CaseBreadcrumb({
   caseId,
   workspaceId,
@@ -861,50 +723,6 @@ function IntegrationBreadcrumb({
   )
 }
 
-function EntityBreadcrumb({
-  entityId,
-  workspaceId,
-}: {
-  entityId: string
-  workspaceId: string
-}) {
-  const { entity } = useEntity(workspaceId, entityId)
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold flex items-center gap-2">
-            <span className="flex items-center gap-2">
-              {entity?.icon &&
-                (() => {
-                  const IconComponent = getIconByName(entity.icon)
-                  return IconComponent ? (
-                    <IconComponent className="h-4 w-4 text-muted-foreground" />
-                  ) : null
-                })()}
-              {entity?.display_name || entityId}
-            </span>
-            {entity?.key && (
-              <Badge variant="secondary" className="text-xs font-normal">
-                {entity.key}
-              </Badge>
-            )}
-          </BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  )
-}
-
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -1005,36 +823,10 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/entities")) {
-    // Entity detail page
-    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
-    if (entityMatch) {
-      const entityId = entityMatch[1]
-      return {
-        title: (
-          <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
-        ),
-        actions: <EntitiesDetailHeaderActions />,
-      }
-    }
-    // Index
-    return {
-      title: "Entities",
-      actions: <EntitiesActions />,
-    }
-  }
-
   if (pagePath.startsWith("/members")) {
     return {
       title: "Members",
       actions: <MembersActions />,
-    }
-  }
-
-  if (pagePath.startsWith("/records")) {
-    return {
-      title: "Records",
-      actions: <RecordsActions />,
     }
   }
 

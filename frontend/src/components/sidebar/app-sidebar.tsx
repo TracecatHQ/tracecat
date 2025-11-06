@@ -2,11 +2,9 @@
 
 import {
   BotIcon,
-  BoxIcon,
   BracketsIcon,
   KeyRoundIcon,
   type LucideIcon,
-  ShapesIcon,
   SquareStackIcon,
   Table2Icon,
   UsersIcon,
@@ -101,18 +99,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
-    },
-    {
-      title: "Records",
-      url: `${basePath}/records`,
-      icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/records`),
-    },
-    {
-      title: "Entities",
-      url: `${basePath}/entities`,
-      icon: ShapesIcon,
-      isActive: pathname?.startsWith(`${basePath}/entities`),
     },
     {
       title: "Variables",
