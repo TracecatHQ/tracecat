@@ -1,20 +1,14 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, Lock, Timer } from "lucide-react"
+import { ArrowUpRight, Timer } from "lucide-react"
 import { useState } from "react"
 import type { CaseDurationDefinitionUpdate } from "@/client"
 import { CaseDurationsTable } from "@/components/cases/case-durations-table"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -140,16 +134,10 @@ export function CaseDurationsView() {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Lock />
-              </EmptyMedia>
-              <EmptyTitle>Enterprise only</EmptyTitle>
-              <EmptyDescription>
-                Case durations are only available on enterprise plans.
-              </EmptyDescription>
-            </EmptyHeader>
+          <FeatureFlagEmptyState
+            title="Enterprise only"
+            description="Case durations are only available on enterprise plans."
+          >
             <Button
               variant="link"
               asChild
@@ -161,10 +149,10 @@ export function CaseDurationsView() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Learn more <ArrowUpRight />
+                Learn more <ArrowUpRight className="size-4" />
               </a>
             </Button>
-          </Empty>
+          </FeatureFlagEmptyState>
         </div>
       </div>
     )

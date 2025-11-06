@@ -1722,6 +1722,39 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
 }
 
 /**
+ * Request payload for creating a custom OAuth provider.
+ */
+export type CustomOAuthProviderCreate = {
+  name: string
+  description?: string | null
+  grant_type: OAuthGrantType
+  /**
+   * OAuth authorization endpoint URL
+   */
+  authorization_endpoint: string
+  /**
+   * OAuth token endpoint URL
+   */
+  token_endpoint: string
+  /**
+   * Default OAuth scopes to request
+   */
+  scopes?: Array<string> | null
+  /**
+   * Optional custom identifier for the provider
+   */
+  provider_id?: string | null
+  /**
+   * OAuth client identifier
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
+}
+
+/**
  * This is the runtime configuration for the workflow.
  *
  * Activities don't need access to this.
@@ -7397,6 +7430,13 @@ export type IntegrationsTestConnectionData = {
 export type IntegrationsTestConnectionResponse =
   IntegrationTestConnectionResponse
 
+export type ProvidersCreateCustomProviderData = {
+  requestBody: CustomOAuthProviderCreate
+  workspaceId: string
+}
+
+export type ProvidersCreateCustomProviderResponse = ProviderReadMinimal
+
 export type ProvidersListProvidersData = {
   workspaceId: string
 }
@@ -10855,6 +10895,19 @@ export type $OpenApiTs = {
     }
   }
   "/providers": {
+    post: {
+      req: ProvidersCreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ProviderReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: ProvidersListProvidersData
       res: {
