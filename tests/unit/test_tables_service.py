@@ -150,7 +150,7 @@ class TestTablesService:
         (
             table,
             rows_inserted,
-            column_mapping,
+            inferred_columns,
         ) = await tables_service.import_table_from_csv(
             contents=csv_content.encode(),
             filename="People.csv",
@@ -158,9 +158,10 @@ class TestTablesService:
 
         assert table.name == "people"
         assert rows_inserted == 2
-        assert column_mapping["Full Name"] == "fullname"
-        assert column_mapping["Age"] == "age"
-        assert column_mapping["Active"] == "active"
+        mapping = {col.original_name: col.name for col in inferred_columns}
+        assert mapping["Full Name"] == "fullname"
+        assert mapping["Age"] == "age"
+        assert mapping["Active"] == "active"
 
         retrieved_table = await tables_service.get_table(table.id)
         rows = await tables_service.list_rows(retrieved_table)
@@ -221,7 +222,7 @@ class TestTablesService:
         assert inserted == total_rows
 
         retrieved_table = await tables_service.get_table(table.id)
-        actual_rows = await tables_service.list_rows(retrieved_table)
+        actual_rows = await tables_service.list_rows(retrieved_table, limit=total_rows)
         assert len(actual_rows) == total_rows
 
     async def test_update_table(self, tables_service: TablesService) -> None:

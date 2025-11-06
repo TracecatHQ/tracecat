@@ -28,6 +28,7 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.schemas import (
+    InferredColumn,
     TableColumnCreate,
     TableColumnRead,
     TableColumnUpdate,
@@ -504,7 +505,7 @@ async def import_table_from_csv(
         contents = await _read_csv_upload_with_limit(
             file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
         )
-        table, rows_inserted, column_mapping = await service.import_table_from_csv(
+        table, rows_inserted, inferred_columns = await service.import_table_from_csv(
             contents=contents,
             filename=file.filename,
             table_name=table_name,
@@ -529,7 +530,14 @@ async def import_table_from_csv(
         return TableImportResponse(
             table=table_read,
             rows_inserted=rows_inserted,
-            column_mapping=column_mapping,
+            column_mapping=[
+                InferredColumn(
+                    csv_header=column.original_name,
+                    field_name=column.name,
+                    field_type=column.type,
+                )
+                for column in inferred_columns
+            ],
         )
     except HTTPException:
         raise

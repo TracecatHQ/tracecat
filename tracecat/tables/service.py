@@ -49,7 +49,11 @@ from tracecat.tables.common import (
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import CSVSchemaInferer, generate_table_name
+from tracecat.tables.importer import (
+    CSVSchemaInferer,
+    InferredCSVColumn,
+    generate_table_name,
+)
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -1396,7 +1400,7 @@ class TablesService(BaseTablesService):
         filename: str | None = None,
         table_name: str | None = None,
         chunk_size: int = 1000,
-    ) -> tuple[Table, int, dict[str, str]]:
+    ) -> tuple[Table, int, list[InferredCSVColumn]]:
         """Create a new table by inferring schema and rows from a CSV file."""
         try:
             csv_text = contents.decode()
@@ -1415,7 +1419,6 @@ class TablesService(BaseTablesService):
         first_pass.close()
 
         inferred_columns = inferer.result()
-        column_mapping = dict(inferer.column_mapping)
 
         if not inferred_columns:
             raise TracecatImportError("CSV file does not contain any columns")
@@ -1484,7 +1487,7 @@ class TablesService(BaseTablesService):
             second_pass.close()
 
         await self.session.refresh(table)
-        return table, rows_inserted, column_mapping
+        return table, rows_inserted, inferred_columns
 
     async def _insert_import_chunk(
         self, table: Table, chunk: list[dict[str, Any]], *, chunk_size: int
@@ -1494,7 +1497,13 @@ class TablesService(BaseTablesService):
         try:
             return await self.batch_insert_rows(table, chunk, chunk_size=chunk_size)
         except DBAPIError as exc:
-            message = _summarize_db_error(exc)
+            # Get error message, removing SQL queries that may contain sensitive data
+            cause = exc.__cause__ or exc
+            message = str(cause).strip()
+            if "[SQL:" in message:
+                message = message.split("[SQL:", 1)[0].strip()
+            if not message:
+                message = cause.__class__.__name__
             raise TracecatImportError(
                 f"Failed to insert rows into table '{table.name}': {message}"
             ) from exc
@@ -1884,12 +1893,3 @@ def sanitize_identifier(identifier: str) -> str:
     if not sanitized[0].isalpha():
         raise ValueError("Identifier must start with a letter")
     return sanitized.lower()
-
-
-def _summarize_db_error(exc: DBAPIError) -> str:
-    """Trim verbose SQLAlchemy DBAPI error messages to a user-friendly summary."""
-    cause = exc.__cause__ or exc
-    message = str(cause)
-    if "[SQL:" in message:
-        message = message.split("[SQL:", 1)[0].strip()
-    return message

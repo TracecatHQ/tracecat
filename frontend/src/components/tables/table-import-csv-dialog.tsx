@@ -301,60 +301,55 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
       <div className="max-h-60 overflow-auto rounded border">
-        <Table className="min-w-full table-fixed">
-          <TableHeader>
-            <TableRow>
-              {csvData.headers.map((header) => {
+        <div className="overflow-x-auto">
+          <Table className="w-full min-w-max table-auto">
+            <TableHeader>
+              <TableRow>
+                {csvData.headers.map((header) => {
+                  return (
+                    <TableHead
+                      key={header}
+                      className="sticky top-0 min-w-[120px] max-w-[200px] whitespace-nowrap bg-muted/50 px-3 py-2"
+                    >
+                      <div className="truncate" title={header}>
+                        {header}
+                      </div>
+                    </TableHead>
+                  )
+                })}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {csvData.preview.map((row, i) => {
                 return (
-                  <TableHead
-                    key={header}
-                    className="sticky top-0 min-w-[160px] whitespace-nowrap bg-muted/50"
-                  >
-                    {header}
-                  </TableHead>
+                  <TableRow key={i}>
+                    {csvData.headers.map((header) => {
+                      const cellValue = row[header]
+                      const isObject =
+                        typeof cellValue === "object" && cellValue !== null
+                      const fullValue = isObject
+                        ? JSON.stringify(cellValue)
+                        : String(cellValue || "")
+                      const displayValue = fullValue.length > 100
+                        ? fullValue.substring(0, 97) + "..."
+                        : fullValue
+
+                      return (
+                        <TableCell
+                          key={header}
+                          className="min-w-[120px] max-w-[200px] truncate px-3 py-2"
+                          title={fullValue}
+                        >
+                          {displayValue}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
                 )
               })}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {csvData.preview.map((row, i) => {
-              return (
-                <TableRow key={i}>
-                  {csvData.headers.map((header) => {
-                    const cellValue = row[header]
-                    const isObject =
-                      typeof cellValue === "object" && cellValue !== null
-                    let displayValue
-                    if (isObject) {
-                      const jsonString = JSON.stringify(cellValue)
-                      if (jsonString.length > 30) {
-                        displayValue = jsonString.substring(0, 27) + "..."
-                      } else {
-                        displayValue = jsonString
-                      }
-                    } else {
-                      displayValue = String(cellValue || "")
-                    }
-
-                    return (
-                      <TableCell
-                        key={header}
-                        className="min-w-[160px] truncate"
-                        title={
-                          isObject
-                            ? JSON.stringify(cellValue)
-                            : String(cellValue || "")
-                        }
-                      >
-                        {displayValue}
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   )

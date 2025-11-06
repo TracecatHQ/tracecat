@@ -7629,6 +7629,29 @@ distinguish multiple files.`,
   description: "A URL to an image.",
 } as const
 
+export const $InferredColumn = {
+  properties: {
+    csv_header: {
+      type: "string",
+      title: "Csv Header",
+      description: "Original column header in the CSV file",
+    },
+    field_name: {
+      type: "string",
+      title: "Field Name",
+      description: "Column name created in Tracecat",
+    },
+    field_type: {
+      $ref: "#/components/schemas/SqlType",
+      description: "Inferred SQL type for the column",
+    },
+  },
+  type: "object",
+  required: ["csv_header", "field_name", "field_type"],
+  title: "InferredColumn",
+  description: "Inferred column mapping between CSV headers and table columns.",
+} as const
+
 export const $Integer = {
   properties: {
     component_id: {
@@ -12231,10 +12254,10 @@ export const $TableImportResponse = {
       title: "Rows Inserted",
     },
     column_mapping: {
-      additionalProperties: {
-        type: "string",
+      items: {
+        $ref: "#/components/schemas/InferredColumn",
       },
-      type: "object",
+      type: "array",
       title: "Column Mapping",
     },
   },

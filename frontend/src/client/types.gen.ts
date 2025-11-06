@@ -2425,6 +2425,24 @@ export type ImageUrl = {
   readonly identifier: string
 }
 
+/**
+ * Inferred column mapping between CSV headers and table columns.
+ */
+export type InferredColumn = {
+  /**
+   * Original column header in the CSV file
+   */
+  csv_header: string
+  /**
+   * Column name created in Tracecat
+   */
+  field_name: string
+  /**
+   * Inferred SQL type for the column
+   */
+  field_type: SqlType
+}
+
 export type Integer = {
   component_id?: "integer"
   min_val?: number | null
@@ -4024,9 +4042,7 @@ export type TableCreate = {
 export type TableImportResponse = {
   table: TableRead
   rows_inserted: number
-  column_mapping: {
-    [key: string]: string
-  }
+  column_mapping: Array<InferredColumn>
 }
 
 /**
