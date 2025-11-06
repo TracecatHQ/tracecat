@@ -1927,11 +1927,12 @@ function AgentPresetBuilderChatPane({
       <ChatSessionPane
         chat={chat}
         workspaceId={workspaceId}
-        entityType={"agent_preset_builder"}
+        entityType="agent_preset_builder"
         entityId={presetId}
         className="flex-1 min-h-0"
         placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
         modelInfo={modelInfo}
+        toolsEnabled={false}
       />
     )
   }
