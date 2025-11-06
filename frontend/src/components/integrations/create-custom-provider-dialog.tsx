@@ -6,6 +6,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { FeatureFlag } from "@/client"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -17,7 +18,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import {
   Form,
   FormControl,
@@ -254,7 +254,10 @@ export function CreateCustomProviderDialog({
                     <FormItem>
                       <FormLabel>Grant type</FormLabel>
                       <FormControl>
-                        <Select value={field.value} onValueChange={field.onChange}>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Select grant type">
                               {field.value
