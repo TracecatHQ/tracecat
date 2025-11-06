@@ -3,6 +3,7 @@
 import os
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -160,7 +161,10 @@ class IntegrationService(BaseWorkspaceService):
         }
 
         class_name = f"CustomProvider_{provider.id.hex}"
-        return type(class_name, (CustomOAuthProviderMixin, base_cls), attrs)
+        return cast(
+            type[BaseOAuthProvider],
+            type(class_name, (CustomOAuthProviderMixin, base_cls), attrs),
+        )
 
     async def resolve_provider_impl(
         self, *, provider_key: ProviderKey
@@ -746,14 +750,12 @@ class IntegrationService(BaseWorkspaceService):
 
         if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration with client credentials (patch operation)
-            if not any(
-                (
-                    client_id,
-                    client_secret,
-                    authorization_endpoint,
-                    token_endpoint,
-                    requested_scopes,
-                )
+            if (
+                client_id is None
+                and client_secret is None
+                and authorization_endpoint is None
+                and token_endpoint is None
+                and requested_scopes is None
             ):
                 return integration
 
@@ -780,7 +782,7 @@ class IntegrationService(BaseWorkspaceService):
 
             if requested_scopes is not None:
                 integration.requested_scopes = (
-                    " ".join(normalized_scopes) if normalized_scopes else None
+                    " ".join(normalized_scopes) if normalized_scopes else ""
                 )
 
             self.session.add(integration)
@@ -820,9 +822,13 @@ class IntegrationService(BaseWorkspaceService):
                     resolved_token,
                     field_name="token_endpoint",
                 ),
-                requested_scopes=" ".join(normalized_scopes)
+                requested_scopes=(
+                    " ".join(normalized_scopes)
+                    if requested_scopes is not None
+                    else None
+                )
                 if normalized_scopes
-                else None,
+                else ("" if requested_scopes is not None else None),
             )
 
             self.session.add(integration)

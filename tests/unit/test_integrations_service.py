@@ -1719,8 +1719,8 @@ class TestIntegrationServiceScopes:
             requested_scopes=[],
         )
 
-        # When creating new integration with empty scopes, it's not stored (None)
-        assert integration.requested_scopes is None
+        # Empty scopes are stored explicitly as empty string
+        assert integration.requested_scopes == ""
 
     async def test_store_provider_config_scope_updates(
         self,
@@ -1748,23 +1748,19 @@ class TestIntegrationServiceScopes:
         )
         assert integration.requested_scopes == "custom.read custom.admin"
 
-        # Update with empty scopes - BUG: empty list is falsy so it doesn't update
-        # This should ideally update to empty string, but current implementation
-        # treats empty list as "no update" due to the any() check
+        # Update with empty scopes
         integration = await integration_service.store_provider_config(
             provider_key=provider_key,
             requested_scopes=[],
         )
-        assert (
-            integration.requested_scopes == "custom.read custom.admin"
-        )  # Unchanged due to bug
+        assert integration.requested_scopes == ""
 
-        # Update with None (should not change existing)
+        # Update with None (should not change existing empty value)
         integration = await integration_service.store_provider_config(
             provider_key=provider_key,
             requested_scopes=None,
         )
-        assert integration.requested_scopes == "custom.read custom.admin"  # Unchanged
+        assert integration.requested_scopes == ""  # Unchanged
 
     async def test_get_provider_config_scope_fallback(
         self,

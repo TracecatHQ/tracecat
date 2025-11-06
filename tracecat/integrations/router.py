@@ -20,7 +20,7 @@ from tracecat.integrations.dependencies import (
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
-from tracecat.integrations.providers import all_providers, get_provider_class
+from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
 )
@@ -102,10 +102,15 @@ async def oauth_callback(
 
     # Overwrite role with workspace context from validated state
     # This is always authorization code
+    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    ctx_role.set(role)
+
+    # Create service to resolve provider (including custom providers)
+    svc = IntegrationService(session, role=role)
     key = ProviderKey(
         id=oauth_state_db.provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
     )
-    provider_impl = get_provider_class(key)
+    provider_impl = await svc.resolve_provider_impl(provider_key=key)
     if provider_impl is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -117,17 +122,11 @@ async def oauth_callback(
             detail="OAuth 2.0 Authorization code grant is not supported for this provider",
         )
 
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
-    ctx_role.set(role)
-
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
     await session.commit()
 
     # Exchange code for tokens
-    svc = IntegrationService(session, role=role)
-    # The grant type is AC
-    key = ProviderKey(id=provider_impl.id, grant_type=provider_impl.grant_type)
     integration = await svc.get_integration(provider_key=key)
 
     provider_config = (
