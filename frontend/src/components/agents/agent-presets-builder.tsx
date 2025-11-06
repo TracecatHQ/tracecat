@@ -1460,14 +1460,23 @@ function AgentPresetForm({
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {toolApprovalFields.map((item, index) => {
-                      const approvalSwitchId = `tool-approval-${item.id}-allow`
+                    {/* Column headers */}
+                    <div className="grid gap-3 px-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                      <div className="text-xs font-medium uppercase text-muted-foreground">
+                        Tool
+                      </div>
+                      <div className="text-xs font-medium uppercase text-muted-foreground md:text-center">
+                        Manual approval
+                      </div>
+                      <div className="w-10" aria-hidden="true" />
+                    </div>
 
-                      return (
-                        <div
-                          key={item.id}
-                          className="rounded-md border px-3 py-3"
-                        >
+                    {/* Content rows */}
+                    <div className="space-y-2">
+                      {toolApprovalFields.map((item, index) => {
+                        const approvalSwitchId = `tool-approval-${item.id}-allow`
+
+                        return (
                           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
                             <FormField
                               control={form.control}
@@ -1476,9 +1485,6 @@ function AgentPresetForm({
                               }
                               render={({ field }) => (
                                 <FormItem className="flex-1">
-                                  <FormLabel className="text-xs uppercase text-muted-foreground">
-                                    Tool
-                                  </FormLabel>
                                   <FormControl>
                                     <ActionSelect
                                       field={field}
@@ -1503,13 +1509,7 @@ function AgentPresetForm({
                                 `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
                               }
                               render={({ field }) => (
-                                <FormItem className="space-y-2 md:justify-self-center">
-                                  <FormLabel
-                                    htmlFor={approvalSwitchId}
-                                    className="text-xs uppercase text-muted-foreground"
-                                  >
-                                    Manual approval
-                                  </FormLabel>
+                                <FormItem className="md:justify-self-center">
                                   <FormControl>
                                     <div className="flex items-center gap-3 px-3 py-2">
                                       <Switch
@@ -1541,9 +1541,9 @@ function AgentPresetForm({
                               <Trash2 className="size-4" />
                             </Button>
                           </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
