@@ -157,7 +157,7 @@ export function CaseTableRowsTable({
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
-                  navigator.clipboard.writeText(String(row.original.row_id))
+                  navigator.clipboard?.writeText(String(row.original.row_id))
                 }}
               >
                 <Copy className="mr-2 h-3 w-3" />

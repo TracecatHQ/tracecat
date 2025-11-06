@@ -90,7 +90,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
             default_value = f"'{default}'::uuid"
         case SqlType.ENUM:
             # Store enums as string literals
-            default_value = f"'{default}'"
+            default_value = f"'{str(default).replace("'", "''")}'"
         case _:
             raise TypeError(f"Unsupported SQL type for default value: {type}")
     return default_value

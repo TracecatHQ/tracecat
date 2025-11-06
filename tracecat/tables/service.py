@@ -752,7 +752,7 @@ class BaseTablesService(BaseService):
 
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
-            raise ValueError(f"Invalid type: {params.type}")
+            raise ValueError(f"Invalid type: SqlType.{params.type.name}")
         sql_type = SqlType(params.type)
 
         # Handle default value / metadata based on type
@@ -1210,14 +1210,14 @@ class BaseTablesService(BaseService):
         context = self._table_context(table)
 
         async with self.session.begin_nested():
-            await self.session.execute(
+            await self.session.exec(
                 sa.delete(CaseTableRow).where(
                     CaseTableRow.table_id == table.id,
                     CaseTableRow.row_id == row_id,
                 )
             )
 
-            await self.session.execute(
+            await self.session.exec(
                 sa.delete(context.table).where(context.table.c.id == row_id)
             )
 
@@ -1261,45 +1261,45 @@ class BaseTablesService(BaseService):
         )
         if limit is not None:
             stmt = stmt.limit(limit)
-        async with self.session.begin() as txn:
-            conn = await txn.session.connection()
-            try:
-                result = await conn.execute(
-                    stmt,
-                    execution_options={
-                        "isolation_level": "READ COMMITTED",
-                    },
-                )
-                return [self._flatten_record(row) for row in result.mappings().all()]
-            except _RETRYABLE_DB_EXCEPTIONS as e:
-                # Log the error for debugging
-                self.logger.warning(
-                    "Retryable DB exception occurred",
-                    kind=type(e).__name__,
-                    error=str(e),
-                    table=table_name,
-                    schema=context.schema,
-                )
-                # Ensure transaction is rolled back
-                await conn.rollback()
-                raise
-            except ProgrammingError as e:
-                while (cause := e.__cause__) is not None:
-                    e = cause
-                if isinstance(e, UndefinedTableError):
-                    raise TracecatNotFoundError(
-                        f"Table '{table_name}' does not exist"
-                    ) from e
-                raise ValueError(str(e)) from e
-            except Exception as e:
-                self.logger.error(
-                    "Unexpected DB exception occurred",
-                    kind=type(e).__name__,
-                    error=str(e),
-                    table=table_name,
-                    schema=context.schema,
-                )
-                raise
+        # Use connection directly instead of begin() to avoid transaction conflicts
+        conn = await self.session.connection()
+        try:
+            result = await conn.execute(
+                stmt,
+                execution_options={
+                    "isolation_level": "READ COMMITTED",
+                },
+            )
+            return [self._flatten_record(row) for row in result.mappings().all()]
+        except _RETRYABLE_DB_EXCEPTIONS as e:
+            # Log the error for debugging
+            self.logger.warning(
+                "Retryable DB exception occurred",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table_name,
+                schema=context.schema,
+            )
+            # Ensure transaction is rolled back
+            await conn.rollback()
+            raise
+        except ProgrammingError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, UndefinedTableError):
+                raise TracecatNotFoundError(
+                    f"Table '{table_name}' does not exist"
+                ) from e
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected DB exception occurred",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table_name,
+                schema=context.schema,
+            )
+            raise
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -1792,7 +1792,7 @@ class TableEditorService(BaseService):
 
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
-            raise ValueError(f"Invalid type: {params.type}")
+            raise ValueError(f"Invalid type: SqlType.{params.type.name}")
 
         # Handle default value based on type
         default_value = params.default
