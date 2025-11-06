@@ -165,9 +165,7 @@ function ImportWorkflowDialog({
                   <div className="space-y-1 leading-none">
                     <FormLabel>Use workflow ID from file</FormLabel>
                     <FormDescription>
-                      When checked, the system will use the workflow ID provided
-                      in the YAML/JSON file. If not checked, a new ID will be
-                      generated.
+                      If not checked, a new ID will be generated.
                     </FormDescription>
                   </div>
                 </FormItem>
