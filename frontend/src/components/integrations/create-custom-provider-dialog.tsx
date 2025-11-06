@@ -217,11 +217,21 @@ export function CreateCustomProviderDialog({
                   <FormControl>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select grant type" />
+                        <SelectValue placeholder="Select grant type">
+                          {field.value
+                            ? GRANT_OPTIONS.find(
+                                (opt) => opt.value === field.value
+                              )?.title
+                            : null}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {GRANT_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            textValue={option.title}
+                          >
                             <div className="flex flex-col gap-1">
                               <span className="text-sm font-medium">
                                 {option.title}
