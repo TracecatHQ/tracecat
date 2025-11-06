@@ -685,16 +685,22 @@ function ActionPanelContent({
   ].filter((e) => e.ref === slugify(action.title))
 
   return (
-    <div onBlur={onPanelBlur} className="pb-10">
+    <div
+      onBlur={onPanelBlur}
+      className="flex h-full flex-col overflow-hidden pb-16"
+    >
       <Tabs
         defaultValue="inputs"
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as ActionPanelTabs)}
-        className="w-full"
+        className="flex h-full w-full flex-col"
       >
         <FormProvider {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit)}>
-            <div className="relative">
+          <form
+            onSubmit={methods.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <div className="relative shrink-0">
               <h3 className="p-4 pt-6">
                 <div className="flex w-full items-start space-x-4">
                   <div className="flex-col">
@@ -829,8 +835,10 @@ function ActionPanelContent({
                 </TabsList>
               </div>
               <Separator />
-              <div className="w-full overflow-x-auto">
-                <TabsContent value="inputs">
+            </div>
+            <div className="flex-1 overflow-auto">
+              <div className="w-full min-w-[30rem] overflow-x-auto pb-32">
+                <TabsContent value="inputs" className="pb-8">
                   <SectionErrorBoundary>
                     {/* Metadata */}
                     <Accordion
@@ -1292,7 +1300,7 @@ function ActionPanelContent({
                     </Accordion>
                   </SectionErrorBoundary>
                 </TabsContent>
-                <TabsContent value="control-flow">
+                <TabsContent value="control-flow" className="pb-8">
                   <SectionErrorBoundary>
                     <div className="mt-6 space-y-8 px-4">
                       {/* Run if */}
@@ -1538,7 +1546,7 @@ function ActionPanelContent({
                 </TabsContent>
                 {/* Template */}
                 {registryAction?.implementation && (
-                  <TabsContent value="template-inputs">
+                  <TabsContent value="template-inputs" className="pb-8">
                     <SectionErrorBoundary>
                       <Accordion
                         type="multiple"
