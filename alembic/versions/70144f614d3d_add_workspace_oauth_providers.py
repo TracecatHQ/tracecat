@@ -1,21 +1,22 @@
 """add workspace oauth providers
 
 Revision ID: 70144f614d3d
-Revises: d110a55643ba
+Revises: fba6c5cd4c77
 Create Date: 2025-11-05 17:09:39.337627
 
 """
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
 revision: str = "70144f614d3d"
-down_revision: str | None = "d110a55643ba"
+down_revision: str | None = "fba6c5cd4c77"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
