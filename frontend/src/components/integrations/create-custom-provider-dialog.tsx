@@ -1,10 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2, Plus } from "lucide-react"
+import { ArrowUpRight, Loader2, Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { FeatureFlag } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -16,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import {
   Form,
   FormControl,
@@ -34,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useCreateCustomProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -105,6 +108,9 @@ const GRANT_OPTIONS = [
   },
 ]
 
+const CUSTOM_OAUTH_PROVIDERS_FEATURE_FLAG =
+  "custom-oauth-providers" as FeatureFlag
+
 export function CreateCustomProviderDialog({
   triggerProps,
 }: {
@@ -116,6 +122,10 @@ export function CreateCustomProviderDialog({
   const [open, setOpen] = useState(false)
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const customOAuthProvidersEnabled = isFeatureEnabled(
+    CUSTOM_OAUTH_PROVIDERS_FEATURE_FLAG
+  )
 
   const form = useForm<CustomProviderFormValues>({
     resolver: zodResolver(formSchema),
@@ -163,212 +173,243 @@ export function CreateCustomProviderDialog({
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Add custom OAuth provider</DialogTitle>
-          <DialogDescription>
-            Configure a custom OAuth provider using client credentials or
-            delegated authorization.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            className="space-y-5"
-            onSubmit={form.handleSubmit(onSubmit)}
-            noValidate
-          >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Provider name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="My Security Platform" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Optional description for this provider"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Appears in the integrations list for this workspace.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="grant_type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Grant type</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select grant type">
-                          {field.value
-                            ? GRANT_OPTIONS.find(
-                                (opt) => opt.value === field.value
-                              )?.title
-                            : null}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GRANT_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            textValue={option.title}
-                          >
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm font-medium">
-                                {option.title}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {option.description}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Choose how Tracecat authenticates with this provider.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="client_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Client ID</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Client ID" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="client_secret"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Client secret{" "}
-                      {grantType === "authorization_code" && (
-                        <span className="text-xs text-muted-foreground">
-                          (optional)
-                        </span>
-                      )}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Client secret"
-                        type="password"
-                        autoComplete="new-password"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <FormField
-              control={form.control}
-              name="authorization_endpoint"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Authorization endpoint</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://example.com/oauth2/authorize"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="token_endpoint"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Token endpoint</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://example.com/oauth2/token"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="scopes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Scopes</FormLabel>
-                  <FormControl>
-                    <MultiTagCommandInput
-                      value={field.value ?? []}
-                      onChange={field.onChange}
-                      suggestions={[]}
-                      searchKeys={["label", "value"]}
-                      allowCustomTags
-                      placeholder="Add scopes"
-                    />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Provide the OAuth scopes to request by default.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+        {featureFlagsLoading ? (
+          <div className="flex min-h-[280px] items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : !customOAuthProvidersEnabled ? (
+          <div className="py-10">
+            <FeatureFlagEmptyState
+              className="w-full"
+              title="Enterprise only"
+              description="Custom OAuth providers are only available on enterprise plans."
+            >
               <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-                disabled={createCustomProviderIsPending}
+                variant="link"
+                asChild
+                className="text-muted-foreground"
+                size="sm"
               >
-                Cancel
+                <a
+                  href="https://tracecat.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Learn more <ArrowUpRight className="size-4" />
+                </a>
               </Button>
-              <Button
-                type="submit"
-                className="gap-2"
-                disabled={createCustomProviderIsPending}
+            </FeatureFlagEmptyState>
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Add custom OAuth provider</DialogTitle>
+              <DialogDescription>
+                Configure a custom OAuth provider using client credentials or
+                delegated authorization.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form
+                className="space-y-5"
+                onSubmit={form.handleSubmit(onSubmit)}
+                noValidate
               >
-                {createCustomProviderIsPending && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                Save provider
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Provider name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="My Security Platform" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Optional description for this provider"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Appears in the integrations list for this workspace.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="grant_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Grant type</FormLabel>
+                      <FormControl>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select grant type">
+                              {field.value
+                                ? GRANT_OPTIONS.find(
+                                    (opt) => opt.value === field.value
+                                  )?.title
+                                : null}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GRANT_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                textValue={option.title}
+                              >
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-sm font-medium">
+                                    {option.title}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {option.description}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Choose how Tracecat authenticates with this provider.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="client_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client ID</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Client ID" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_secret"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Client secret{" "}
+                          {grantType === "authorization_code" && (
+                            <span className="text-xs text-muted-foreground">
+                              (optional)
+                            </span>
+                          )}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Client secret"
+                            type="password"
+                            autoComplete="new-password"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="authorization_endpoint"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Authorization endpoint</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="https://example.com/oauth2/authorize"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="token_endpoint"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Token endpoint</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="https://example.com/oauth2/token"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="scopes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Scopes</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value ?? []}
+                          onChange={field.onChange}
+                          suggestions={[]}
+                          searchKeys={["label", "value"]}
+                          allowCustomTags
+                          placeholder="Add scopes"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Provide the OAuth scopes to request by default.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleOpenChange(false)}
+                    disabled={createCustomProviderIsPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="gap-2"
+                    disabled={createCustomProviderIsPending}
+                  >
+                    {createCustomProviderIsPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    Save provider
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
