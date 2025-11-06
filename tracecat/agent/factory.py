@@ -49,13 +49,18 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
     agent_tools: list[Tool[Any | None]] = []
+    tool_prompt_tools: list[Tool[Any | None]] = []
     if config.actions:
         tools = await build_agent_tools(
             namespaces=config.namespaces,
             actions=config.actions,
             tool_approvals=config.tool_approvals,
         )
-        agent_tools = tools.tools
+        agent_tools.extend(tools.tools)
+        tool_prompt_tools.extend(tools.tools)
+    if config.custom_tools:
+        agent_tools.extend(config.custom_tools)
+        tool_prompt_tools.extend(config.custom_tools)
     _output_type = _parse_output_type(config.output_type) if config.output_type else str
     _model_settings = (
         ModelSettings(**config.model_settings) if config.model_settings else None
@@ -65,9 +70,9 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     verbosity_prompt = VerbosityPrompt()
     instructions = f"{config.instructions}\n{verbosity_prompt.prompt}"
 
-    if config.actions:
+    if tool_prompt_tools:
         tool_calling_prompt = ToolCallPrompt(
-            tools=tools.tools,
+            tools=tool_prompt_tools,
         )
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n".join(part for part in instruction_parts if part)
