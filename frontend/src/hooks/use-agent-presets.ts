@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type AgentPresetCreate,
   type AgentPresetRead,
+  type AgentPresetReadMinimal,
   type AgentPresetUpdate,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
+  agentPresetsGetAgentPreset,
   agentPresetsListAgentPresets,
   agentPresetsUpdateAgentPreset,
 } from "@/client"
@@ -20,7 +22,7 @@ export function useAgentPresets(
     isLoading: presetsIsLoading,
     error: presetsError,
     refetch: refetchPresets,
-  } = useQuery<AgentPresetRead[], TracecatApiError>({
+  } = useQuery<AgentPresetReadMinimal[], TracecatApiError>({
     queryKey: ["agent-presets", workspaceId],
     queryFn: async () => {
       if (!workspaceId) {
@@ -37,6 +39,36 @@ export function useAgentPresets(
     presetsIsLoading,
     presetsError,
     refetchPresets,
+  }
+}
+
+export function useAgentPreset(
+  workspaceId: string,
+  presetId?: string | null,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const {
+    data: preset,
+    isLoading: presetIsLoading,
+    error: presetError,
+    refetch: refetchPreset,
+  } = useQuery<AgentPresetRead, TracecatApiError>({
+    queryKey: ["agent-preset", workspaceId, presetId],
+    queryFn: async () => {
+      if (!workspaceId || !presetId) {
+        throw new Error("workspaceId and presetId are required")
+      }
+      return await agentPresetsGetAgentPreset({ workspaceId, presetId })
+    },
+    enabled: enabled && Boolean(workspaceId) && Boolean(presetId),
+    retry: retryHandler,
+  })
+
+  return {
+    preset,
+    presetIsLoading,
+    presetError,
+    refetchPreset,
   }
 }
 

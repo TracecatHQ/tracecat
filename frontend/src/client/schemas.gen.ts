@@ -1125,6 +1125,62 @@ export const $AgentPresetRead = {
   description: "API model for reading agent presets.",
 } as const
 
+export const $AgentPresetReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "description",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetReadMinimal",
+  description: "Minimal API model for reading agent presets in list endpoints.",
+} as const
+
 export const $AgentPresetUpdate = {
   properties: {
     description: {

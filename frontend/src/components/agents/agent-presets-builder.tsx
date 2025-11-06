@@ -31,6 +31,7 @@ import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
+  AgentPresetReadMinimal,
   AgentPresetUpdate,
   ChatEntity,
 } from "@/client"
@@ -80,6 +81,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  useAgentPreset,
   useAgentPresets,
   useCreateAgentPreset,
   useDeleteAgentPreset,
@@ -240,9 +242,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { deleteAgentPreset, deleteAgentPresetIsPending } =
     useDeleteAgentPreset(workspaceId)
 
-  const [optimisticPreset, setOptimisticPreset] =
-    useState<AgentPresetRead | null>(null)
-
   const handleSetSelectedPresetId = useCallback(
     (nextId: string) => {
       if (!workspaceId) {
@@ -259,63 +258,36 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     [activePresetId, router, workspaceId]
   )
 
-  const combinedPresets = useMemo(() => {
-    if (!presets) {
-      return optimisticPreset ? [optimisticPreset] : []
+  // Fetch full preset data when a preset is selected (not in create mode)
+  const selectedPresetId =
+    activePresetId === NEW_PRESET_ID ? null : activePresetId
+  const { preset: selectedPreset } = useAgentPreset(
+    workspaceId,
+    selectedPresetId,
+    {
+      enabled: agentPresetsEnabled && !featureFlagsLoading,
     }
-    if (
-      optimisticPreset &&
-      !presets.some((preset) => preset.id === optimisticPreset.id)
-    ) {
-      return [optimisticPreset, ...presets]
-    }
-    return presets
-  }, [optimisticPreset, presets])
-
-  useEffect(() => {
-    if (!optimisticPreset || !presets) {
-      return
-    }
-    const synced = presets.some((preset) => preset.id === optimisticPreset.id)
-    if (synced) {
-      setOptimisticPreset(null)
-    }
-  }, [optimisticPreset, presets])
-
-  const selectedPreset =
-    activePresetId === NEW_PRESET_ID
-      ? null
-      : (combinedPresets.find((preset) => preset.id === activePresetId) ?? null)
+  )
 
   useEffect(() => {
     if (
       !presetId ||
       presetId === NEW_PRESET_ID ||
-      featureFlagsLoading ||
       presetsIsLoading ||
-      !agentPresetsEnabled
+      !presets
     ) {
       return
     }
-    const presetExists = combinedPresets.some(
-      (preset) => preset.id === presetId
-    )
+    const presetExists = presets.some((preset) => preset.id === presetId)
     if (presetExists) {
       return
     }
-    if (combinedPresets.length > 0) {
-      handleSetSelectedPresetId(combinedPresets[0].id)
+    if (presets.length > 0) {
+      handleSetSelectedPresetId(presets[0].id)
     } else {
       handleSetSelectedPresetId(NEW_PRESET_ID)
     }
-  }, [
-    agentPresetsEnabled,
-    combinedPresets,
-    featureFlagsLoading,
-    handleSetSelectedPresetId,
-    presetId,
-    presetsIsLoading,
-  ])
+  }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
 
   const chatTabDisabled = !selectedPreset
 
@@ -387,23 +359,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [modelOptionsByProvider, providers])
 
-  if (featureFlagsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (!agentPresetsEnabled) {
-    return (
-      <div className="flex h-full items-center justify-center px-6">
-        <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Feature not available</AlertTitle>
-          <AlertDescription>
-            Agent presets feature is not enabled for this workspace.
-          </AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
-
   if (presetsIsLoading) {
     return <CenteredSpinner />
   }
@@ -452,7 +407,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
                   <PresetsSidebar
-                    presets={combinedPresets}
+                    presets={presets ?? []}
                     selectedId={activePresetId}
                     workspaceId={workspaceId}
                     onCreate={() => handleSetSelectedPresetId(NEW_PRESET_ID)}
@@ -463,7 +418,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
                   <AgentPresetChatPane
-                    preset={selectedPreset}
+                    preset={selectedPreset ?? null}
                     workspaceId={workspaceId}
                   />
                 </TabsContent>
@@ -475,7 +430,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         <ResizablePanel defaultSize={50} minSize={34}>
           <AgentPresetForm
             key={selectedPreset?.id ?? NEW_PRESET_ID}
-            preset={selectedPreset}
+            preset={selectedPreset ?? null}
             mode={selectedPreset ? "edit" : "create"}
             actionSuggestions={actionSuggestions}
             namespaceSuggestions={namespaceSuggestions}
@@ -489,7 +444,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
             isDeleting={deleteAgentPresetIsPending}
             onCreate={async (payload) => {
               const created = await createAgentPreset(payload)
-              setOptimisticPreset(created)
               handleSetSelectedPresetId(created.id)
               return created
             }}
@@ -498,7 +452,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                 presetId,
                 ...payload,
               })
-              setOptimisticPreset(updated)
               handleSetSelectedPresetId(updated.id)
               return updated
             }}
@@ -509,7 +462,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                       presetId: selectedPreset.id,
                       presetName: selectedPreset.name,
                     })
-                    setOptimisticPreset(null)
                     const remaining =
                       presets?.filter(
                         (preset) => preset.id !== selectedPreset.id
@@ -527,7 +479,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={30} minSize={20}>
           <AgentPresetBuilderChatPane
-            preset={selectedPreset}
+            preset={selectedPreset ?? null}
             workspaceId={workspaceId}
           />
         </ResizablePanel>
@@ -542,13 +494,13 @@ function PresetsSidebar({
   workspaceId,
   onCreate,
 }: {
-  presets: AgentPresetRead[] | null
+  presets: AgentPresetReadMinimal[]
   selectedId: string
   workspaceId: string
   onCreate: () => void
 }) {
   const isCreating = selectedId === NEW_PRESET_ID
-  const list = presets ?? []
+  const list = presets
 
   return (
     <div className="flex h-full flex-col">
@@ -586,8 +538,7 @@ function PresetsSidebar({
                   href={`/workspaces/${workspaceId}/agents/presets/${preset.id}`}
                   active={selectedId === preset.id}
                   title={preset.name}
-                  description={preset.slug}
-                  status={preset.model_name}
+                  description={preset.description ?? preset.slug}
                 />
               ))
             )}

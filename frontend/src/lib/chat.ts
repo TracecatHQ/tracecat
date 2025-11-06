@@ -190,8 +190,11 @@ export const ENTITY_TO_INVALIDATION: Partial<
   agent_preset_builder: {
     predicate: (toolName: string) =>
       Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
-    handler: () => {
-      // No cache invalidation required for builder assistant chats.
+    handler: (queryClient, workspaceId, entityId) => {
+      // Invalidate agent presets list for the workspace
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset", workspaceId, entityId],
+      })
     },
   },
 }
