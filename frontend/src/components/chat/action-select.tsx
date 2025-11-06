@@ -120,7 +120,17 @@ export function ActionSelect<T extends FieldValues>({
           <CommandInput
             placeholder="Search actions..."
             value={searchValue}
-            onValueChange={setSearchValue}
+            onValueChange={(value) => {
+              // First update the value
+              setSearchValue(value)
+              // Then force scroll to top of the list
+              requestAnimationFrame(() => {
+                const commandList = document.querySelector("[cmdk-list]")
+                if (commandList) {
+                  commandList.scrollTop = 0
+                }
+              })
+            }}
             className="h-9"
           />
           <ScrollArea className="max-h-[300px]">
