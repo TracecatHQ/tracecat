@@ -10,6 +10,7 @@ from pydantic_ai.tools import Tool
 
 from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.common import UNSET, Unset
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatAuthorizationError
 
@@ -44,21 +45,21 @@ def build_agent_preset_builder_tools(
         return preset.model_dump(mode="json")
 
     async def update_agent_preset(
-        name: str | None = None,
-        slug: str | None = None,
-        description: str | None = None,
-        instructions: str | None = None,
-        model_name: str | None = None,
-        model_provider: str | None = None,
-        base_url: str | None = None,
-        output_type: dict[str, Any] | str | None = None,
-        actions: list[str] | None = None,
-        namespaces: list[str] | None = None,
-        tool_approvals: dict[str, bool] | None = None,
-        mcp_server_url: str | None = None,
-        mcp_server_headers: dict[str, str] | None = None,
-        model_settings: dict[str, Any] | None = None,
-        retries: int | None = None,
+        name: str | None | Unset = UNSET,
+        slug: str | None | Unset = UNSET,
+        description: str | None | Unset = UNSET,
+        instructions: str | None | Unset = UNSET,
+        model_name: str | None | Unset = UNSET,
+        model_provider: str | None | Unset = UNSET,
+        base_url: str | None | Unset = UNSET,
+        output_type: dict[str, Any] | str | None | Unset = UNSET,
+        actions: list[str] | None | Unset = UNSET,
+        namespaces: list[str] | None | Unset = UNSET,
+        tool_approvals: dict[str, bool] | None | Unset = UNSET,
+        mcp_server_url: str | None | Unset = UNSET,
+        mcp_server_headers: dict[str, str] | None | Unset = UNSET,
+        model_settings: dict[str, Any] | None | Unset = UNSET,
+        retries: int | None | Unset = UNSET,
     ) -> dict[str, Any]:
         """Patch selected fields on the agent preset and return the updated record."""
 
@@ -81,7 +82,7 @@ def build_agent_preset_builder_tools(
                 "model_settings": model_settings,
                 "retries": retries,
             }.items()
-            if value is not None
+            if value is not UNSET
         }
 
         if not update_payload:
