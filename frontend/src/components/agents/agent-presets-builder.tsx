@@ -11,8 +11,10 @@ import {
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   type MouseEvent,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -105,7 +107,7 @@ const PRESET_OUTPUT_TYPES = [
   { label: "List of numbers", value: "list[int]" },
 ] as const
 
-const NEW_PRESET_ID = "__new__"
+const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
 
 const agentPresetSchema = z
@@ -216,10 +218,12 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   retries: DEFAULT_RETRIES,
 }
 
-export function AgentPresetsBuilder() {
+export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const activePresetId = presetId ?? NEW_PRESET_ID
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -236,10 +240,24 @@ export function AgentPresetsBuilder() {
   const { deleteAgentPreset, deleteAgentPresetIsPending } =
     useDeleteAgentPreset(workspaceId)
 
-  const [selectedPresetId, setSelectedPresetId] =
-    useState<string>(NEW_PRESET_ID)
   const [optimisticPreset, setOptimisticPreset] =
     useState<AgentPresetRead | null>(null)
+
+  const handleSetSelectedPresetId = useCallback(
+    (nextId: string) => {
+      if (!workspaceId) {
+        return
+      }
+      const normalizedId = nextId?.trim() ? nextId : NEW_PRESET_ID
+      if (normalizedId === activePresetId) {
+        return
+      }
+      router.replace(
+        `/workspaces/${workspaceId}/agents/presets/${normalizedId}`
+      )
+    },
+    [activePresetId, router, workspaceId]
+  )
 
   const combinedPresets = useMemo(() => {
     if (!presets) {
@@ -255,22 +273,6 @@ export function AgentPresetsBuilder() {
   }, [optimisticPreset, presets])
 
   useEffect(() => {
-    if (!presets || presets.length === 0) {
-      setSelectedPresetId(NEW_PRESET_ID)
-      return
-    }
-
-    if (selectedPresetId === NEW_PRESET_ID) {
-      return
-    }
-
-    const exists = presets.some((preset) => preset.id === selectedPresetId)
-    if (!exists) {
-      setSelectedPresetId(presets[0]?.id ?? NEW_PRESET_ID)
-    }
-  }, [presets, selectedPresetId])
-
-  useEffect(() => {
     if (!optimisticPreset || !presets) {
       return
     }
@@ -281,10 +283,39 @@ export function AgentPresetsBuilder() {
   }, [optimisticPreset, presets])
 
   const selectedPreset =
-    selectedPresetId === NEW_PRESET_ID
+    activePresetId === NEW_PRESET_ID
       ? null
-      : (combinedPresets.find((preset) => preset.id === selectedPresetId) ??
-        null)
+      : (combinedPresets.find((preset) => preset.id === activePresetId) ?? null)
+
+  useEffect(() => {
+    if (
+      !presetId ||
+      presetId === NEW_PRESET_ID ||
+      featureFlagsLoading ||
+      presetsIsLoading ||
+      !agentPresetsEnabled
+    ) {
+      return
+    }
+    const presetExists = combinedPresets.some(
+      (preset) => preset.id === presetId
+    )
+    if (presetExists) {
+      return
+    }
+    if (combinedPresets.length > 0) {
+      handleSetSelectedPresetId(combinedPresets[0].id)
+    } else {
+      handleSetSelectedPresetId(NEW_PRESET_ID)
+    }
+  }, [
+    agentPresetsEnabled,
+    combinedPresets,
+    featureFlagsLoading,
+    handleSetSelectedPresetId,
+    presetId,
+    presetsIsLoading,
+  ])
 
   const chatTabDisabled = !selectedPreset
 
@@ -422,9 +453,9 @@ export function AgentPresetsBuilder() {
                 >
                   <PresetsSidebar
                     presets={combinedPresets}
-                    selectedId={selectedPresetId}
-                    onSelect={(id) => setSelectedPresetId(id)}
-                    onCreate={() => setSelectedPresetId(NEW_PRESET_ID)}
+                    selectedId={activePresetId}
+                    workspaceId={workspaceId}
+                    onCreate={() => handleSetSelectedPresetId(NEW_PRESET_ID)}
                   />
                 </TabsContent>
                 <TabsContent
@@ -459,7 +490,7 @@ export function AgentPresetsBuilder() {
             onCreate={async (payload) => {
               const created = await createAgentPreset(payload)
               setOptimisticPreset(created)
-              setSelectedPresetId(created.id)
+              handleSetSelectedPresetId(created.id)
               return created
             }}
             onUpdate={async (presetId, payload) => {
@@ -468,7 +499,7 @@ export function AgentPresetsBuilder() {
                 ...payload,
               })
               setOptimisticPreset(updated)
-              setSelectedPresetId(updated.id)
+              handleSetSelectedPresetId(updated.id)
               return updated
             }}
             onDelete={
@@ -484,9 +515,9 @@ export function AgentPresetsBuilder() {
                         (preset) => preset.id !== selectedPreset.id
                       ) ?? []
                     if (remaining.length > 0) {
-                      setSelectedPresetId(remaining[0].id)
+                      handleSetSelectedPresetId(remaining[0].id)
                     } else {
-                      setSelectedPresetId(NEW_PRESET_ID)
+                      handleSetSelectedPresetId(NEW_PRESET_ID)
                     }
                   }
                 : undefined
@@ -508,12 +539,12 @@ export function AgentPresetsBuilder() {
 function PresetsSidebar({
   presets,
   selectedId,
-  onSelect,
+  workspaceId,
   onCreate,
 }: {
   presets: AgentPresetRead[] | null
   selectedId: string
-  onSelect: (id: string) => void
+  workspaceId: string
   onCreate: () => void
 }) {
   const isCreating = selectedId === NEW_PRESET_ID
@@ -552,8 +583,8 @@ function PresetsSidebar({
               list.map((preset) => (
                 <SidebarItem
                   key={preset.id}
+                  href={`/workspaces/${workspaceId}/agents/presets/${preset.id}`}
                   active={selectedId === preset.id}
-                  onClick={() => onSelect(preset.id)}
                   title={preset.name}
                   description={preset.slug}
                   status={preset.model_name}
@@ -569,23 +600,22 @@ function PresetsSidebar({
 
 function SidebarItem({
   active,
-  onClick,
+  href,
   title,
   description,
   status,
 }: {
   active?: boolean
-  onClick: () => void
+  href: string
   title: string
   description?: string | null
   status?: string | null
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      href={href}
       className={cn(
-        "w-full rounded-md border px-3 py-2.5 text-left transition-colors",
+        "block w-full rounded-md border px-3 py-2.5 text-left transition-colors",
         active
           ? "border-primary bg-primary/10 text-foreground shadow-sm"
           : "border-transparent bg-background text-foreground hover:border-border hover:bg-accent/50"
@@ -615,7 +645,7 @@ function SidebarItem({
           {description}
         </p>
       ) : null}
-    </button>
+    </Link>
   )
 }
 
