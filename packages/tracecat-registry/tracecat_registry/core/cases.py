@@ -29,11 +29,16 @@ from tracecat.cases.schemas import (
     CaseUpdate,
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
+from tracecat.cases.rows.schemas import CaseTableRowLink, CaseTableRowRead
+from tracecat.cases.rows.service import CaseTableRowService
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import CaseTableRow
 from tracecat.auth.users import lookup_user_by_email
 from tracecat.tags.schemas import TagRead
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
+
+MAX_CASE_ROW_LINKS = 50
 
 # Must be imported directly to preserve the udf metadata
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
@@ -736,6 +741,147 @@ async def remove_case_tag(
             raise ValueError(f"Case with ID {case_id} not found")
 
         await service.tags.remove_case_tag(case.id, tag)
+
+
+@registry.register(
+    default_title="Link table row to case",
+    display_group="Cases",
+    description="Link an existing table row to a case.",
+    namespace="core.cases",
+)
+async def link_case_table_row(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to link the row to."),
+    ],
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that owns the row."),
+    ],
+    row_ids: Annotated[
+        list[str],
+        Doc(
+            "One or more table row IDs to link (maximum "
+            f"{MAX_CASE_ROW_LINKS} rows per invocation)."
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    case_uuid = UUID(case_id)
+    table_uuid = UUID(table_id)
+
+    if not row_ids:
+        raise ValueError("At least one row ID must be provided")
+    if len(row_ids) > MAX_CASE_ROW_LINKS:
+        raise ValueError(
+            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be linked at once"
+        )
+
+    unique_row_ids: list[UUID] = []
+    seen: set[UUID] = set()
+    for raw_row_id in row_ids:
+        row_uuid = UUID(raw_row_id)
+        if row_uuid in seen:
+            continue
+        seen.add(row_uuid)
+        unique_row_ids.append(row_uuid)
+
+    async with CaseTableRowService.with_session() as rows_service:
+        cases_service = CasesService(rows_service.session, rows_service.role)
+        case = await cases_service.get_case(case_uuid)
+        if case is None:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        results: list[dict[str, Any]] = []
+        for row_uuid in unique_row_ids:
+            link = await rows_service.link_table_row(
+                case,
+                CaseTableRowLink(table_id=table_uuid, row_id=row_uuid),
+            )
+            linked_row = await rows_service.get_case_table_row(case, link.id)
+            if linked_row is None:
+                linked_row = {
+                    "id": link.id,
+                    "case_id": case_uuid,
+                    "table_id": table_uuid,
+                    "row_id": row_uuid,
+                    "table_name": "",
+                    "row_data": {},
+                    "created_at": link.created_at,
+                    "updated_at": link.updated_at,
+                }
+            results.append(
+                CaseTableRowRead.model_validate(linked_row).model_dump(mode="json")
+            )
+
+    return results
+
+
+@registry.register(
+    default_title="Unlink table row from case",
+    display_group="Cases",
+    description="Remove a linked table row from a case.",
+    namespace="core.cases",
+)
+async def unlink_case_table_row(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to unlink the row from."),
+    ],
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that owns the row."),
+    ],
+    row_ids: Annotated[
+        list[str],
+        Doc(
+            "One or more table row IDs to unlink (maximum "
+            f"{MAX_CASE_ROW_LINKS} rows per invocation)."
+        ),
+    ],
+) -> dict[str, list[str]]:
+    case_uuid = UUID(case_id)
+    table_uuid = UUID(table_id)
+
+    if not row_ids:
+        raise ValueError("At least one row ID must be provided")
+    if len(row_ids) > MAX_CASE_ROW_LINKS:
+        raise ValueError(
+            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be unlinked at once"
+        )
+
+    unique_row_ids: list[UUID] = []
+    seen: set[UUID] = set()
+    for raw_row_id in row_ids:
+        row_uuid = UUID(raw_row_id)
+        if row_uuid in seen:
+            continue
+        seen.add(row_uuid)
+        unique_row_ids.append(row_uuid)
+
+    async with CaseTableRowService.with_session() as rows_service:
+        cases_service = CasesService(rows_service.session, rows_service.role)
+        case = await cases_service.get_case(case_uuid)
+        if case is None:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        unlinked: list[str] = []
+        for row_uuid in unique_row_ids:
+            stmt = select(CaseTableRow).where(
+                CaseTableRow.case_id == case.id,
+                CaseTableRow.table_id == table_uuid,
+                CaseTableRow.row_id == row_uuid,
+            )
+            result = await rows_service.session.exec(stmt)
+            case_table_row = result.first()
+
+            if case_table_row is None:
+                # Skip if not linked (idempotent behavior)
+                continue
+
+            await rows_service.unlink_table_row(case_table_row)
+            unlinked.append(str(row_uuid))
+
+    return {"unlinked": unlinked}
 
 
 @registry.register(
