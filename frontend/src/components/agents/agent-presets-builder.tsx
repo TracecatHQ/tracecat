@@ -88,6 +88,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
+  useChatReadiness,
   useModelProviders,
   useModelProvidersStatus,
   useRegistryActions,
@@ -1765,8 +1766,12 @@ function AgentPresetBuilderChatPane({
   const presetId = preset?.id
   const [createdChatId, setCreatedChatId] = useState<string | null>(null)
 
-  const { providersStatus, isLoading: providersStatusLoading } =
-    useModelProvidersStatus()
+  const {
+    ready: chatReady,
+    loading: chatReadyLoading,
+    reason: chatReadyReason,
+    modelInfo,
+  } = useChatReadiness()
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -1791,29 +1796,10 @@ function AgentPresetBuilderChatPane({
     workspaceId,
   })
 
-  const modelInfo: ModelInfo | null = useMemo(() => {
-    if (!preset) {
-      return null
-    }
-    return {
-      name: preset.model_name,
-      provider: preset.model_provider,
-      baseUrl: preset.base_url ?? null,
-    }
-  }, [preset])
-
-  const providerReady = useMemo(() => {
-    if (!presetId) {
-      return false
-    }
-    const provider = preset?.model_provider ?? ""
-    return providersStatus?.[provider] ?? false
-  }, [providersStatus, preset?.model_provider, presetId])
-
-  const canStartChat = Boolean(presetId && providerReady)
+  const canStartChat = Boolean(presetId && chatReady && modelInfo)
 
   const handleStartChat = async (forceNew = false) => {
-    if (!preset || !presetId || createChatPending || !providerReady) {
+    if (!preset || !presetId || createChatPending || !chatReady || !modelInfo) {
       return
     }
 
@@ -1851,7 +1837,7 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (providersStatusLoading) {
+    if (chatReadyLoading) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -1859,17 +1845,23 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (!providerReady) {
+    if (!chatReady || !modelInfo) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
           <AlertCircle className="size-5 text-amber-500" />
           <p>
-            Configure credentials for{" "}
-            <span className="font-medium">
-              {preset?.model_provider ?? "this provider"}
-            </span>{" "}
-            to enable the builder assistant.
+            {chatReadyReason === "no_model"
+              ? "Select a default model in organization agent settings to enable the builder assistant."
+              : `Configure ${modelInfo?.provider ?? "your model provider"} credentials in organization agent settings to enable the builder assistant.`}
           </p>
+          <Link
+            href="/organization/settings/agent"
+            className="text-xs font-medium text-primary hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Go to agent settings
+          </Link>
         </div>
       )
     }
@@ -1938,7 +1930,7 @@ function AgentPresetBuilderChatPane({
         entityType={"agent_preset_builder"}
         entityId={presetId}
         className="flex-1 min-h-0"
-        placeholder={`Ask ${preset?.name ?? "the assistant"} to refine the system prompt...`}
+        placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
         modelInfo={modelInfo}
       />
     )
