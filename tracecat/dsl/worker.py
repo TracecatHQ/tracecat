@@ -4,7 +4,6 @@ import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from pydantic_ai.durable_exec.temporal import PydanticAIPlugin
 from temporalio import workflow
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
@@ -25,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
@@ -81,7 +81,7 @@ def get_activities() -> list[Callable]:
 
 
 async def main() -> None:
-    client = await get_temporal_client(plugins=[PydanticAIPlugin()])
+    client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
 
     interceptors = []
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
