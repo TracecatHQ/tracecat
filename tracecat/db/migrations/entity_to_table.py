@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -12,8 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.types import Role
+from tracecat.auth.types import Role, system_role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.migrations.type_conversion import field_type_to_sql_type
 from tracecat.db.models import (
     CaseRecord,
     CaseTableRow,
@@ -26,8 +30,6 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate
 from tracecat.tables.service import BaseTablesService
-
-from .type_conversion import field_type_to_sql_type
 
 
 @dataclass(slots=True)
@@ -149,7 +151,7 @@ class EntityToTableMigration(MigrationRunner):
                     Table.owner_id == entity.owner_id,
                     Table.name == sanitized,
                 )
-                result = await self.session.execute(stmt)
+                result = await self.session.exec(stmt)
                 existing = result.scalar_one_or_none()
                 if existing is None:
                     table_name = sanitized
@@ -161,7 +163,7 @@ class EntityToTableMigration(MigrationRunner):
                             Table.owner_id == entity.owner_id,
                             Table.name == candidate_name,
                         )
-                        result = await self.session.execute(stmt)
+                        result = await self.session.exec(stmt)
                         if result.scalar_one_or_none() is None:
                             table_name = candidate_name
                             break
@@ -237,7 +239,7 @@ class EntityToTableMigration(MigrationRunner):
         if workspace_id is not None:
             stmt = stmt.where(Entity.owner_id == workspace_id)
 
-        result = await self.session.execute(stmt)
+        result = await self.session.exec(stmt)
         return list(result.scalars().all())
 
     @staticmethod
@@ -396,7 +398,7 @@ class EntityToTableMigration(MigrationRunner):
 
     async def _migrate_case_links(self, *, entity: Entity, table: Table) -> int:
         stmt = select(CaseRecord).where(CaseRecord.entity_id == entity.id)
-        result = await self.session.execute(stmt)
+        result = await self.session.exec(stmt)
         links = list(result.scalars().all())
 
         if not links:
@@ -405,6 +407,7 @@ class EntityToTableMigration(MigrationRunner):
         created = 0
         for link in links:
             case_table_row = CaseTableRow(
+                owner_id=entity.owner_id,
                 case_id=link.case_id,
                 table_id=table.id,
                 row_id=link.record_id,
@@ -414,3 +417,58 @@ class EntityToTableMigration(MigrationRunner):
 
         await self.session.flush()
         return created
+
+
+async def _run_cli(*, preview: bool, workspace_id: uuid.UUID | None) -> None:
+    migration = EntityToTableMigration()
+    async with get_async_session_context_manager() as session:
+        await migration.initialize(session=session, role=system_role())
+        if preview:
+            previews = await migration.preview(workspace_id=workspace_id)
+            print(f"Entity-to-table preview completed for {len(previews)} entity(ies).")
+            for item in previews:
+                print(
+                    f"- entity={item.entity_key} workspace={item.workspace_id} "
+                    f"fields={item.field_count} records={item.record_count}"
+                )
+        else:
+            results = await migration.run(workspace_id=workspace_id)
+            print(
+                f"Entity-to-table migration completed for {len(results)} entity(ies)."
+            )
+            for item in results:
+                status = "ok" if not item.errors else "errors"
+                print(
+                    f"- entity={item.table_name} table_id={item.table_id} "
+                    f"columns={item.columns_created} rows={item.rows_migrated} "
+                    f"case_links={item.case_links_migrated} status={status}"
+                )
+                for err in item.errors:
+                    print(f"    • {err}")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the entity-to-table migration or preview."
+    )
+    parser.add_argument(
+        "--workspace-id",
+        type=uuid.UUID,
+        default=None,
+        help="Limit the migration to a single workspace ID.",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Show a migration preview without applying changes.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    asyncio.run(_run_cli(preview=args.preview, workspace_id=args.workspace_id))
+
+
+if __name__ == "__main__":
+    main()

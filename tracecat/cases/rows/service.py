@@ -94,6 +94,10 @@ class CaseTableRowService(BaseWorkspaceService):
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
 
+        if params.reverse and params.cursor:
+            page_items = list(page_items)
+            page_items.reverse()
+
         # Group links by table to batch load rows
         links_by_table: dict[uuid.UUID, list[CaseTableRow]] = {}
         table_cache: dict[uuid.UUID, Table] = {}

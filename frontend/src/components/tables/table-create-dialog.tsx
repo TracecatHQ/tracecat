@@ -309,6 +309,10 @@ export function CreateTableDialog({
                                 const enumValues = parseEnumValuesInput(
                                   field.value
                                 )
+                                const currentTags = enumValues.map((val, i) => ({
+                                  id: `${i}`,
+                                  text: val,
+                                }))
                                 return (
                                   <FormItem>
                                     <FormLabel className="sr-only">
@@ -319,14 +323,11 @@ export function CreateTableDialog({
                                     </FormDescription>
                                     <FormControl>
                                       <CustomTagInput
-                                        tags={enumValues.map((val, i) => ({
-                                          id: `${i}`,
-                                          text: val,
-                                        }))}
+                                        tags={currentTags}
                                         setTags={(newTags) => {
                                           const resolvedTags =
                                             typeof newTags === "function"
-                                              ? newTags([])
+                                              ? newTags(currentTags)
                                               : newTags
                                           field.onChange(
                                             resolvedTags

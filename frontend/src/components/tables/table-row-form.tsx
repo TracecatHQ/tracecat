@@ -93,7 +93,7 @@ function jsonInputSchema(column: TableColumnRead) {
 
   if (column.nullable === false) {
     return transformed.refine(
-      (val) => val !== undefined,
+      (val) => val !== undefined && val !== null,
       `${column.name} is required`
     )
   }
