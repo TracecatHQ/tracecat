@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 
 interface ActionSelectProps<T extends FieldValues> {
   field: ControllerRenderProps<T>
@@ -96,7 +97,10 @@ export function ActionSelect<T extends FieldValues>({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="w-full justify-between text-left font-normal h-9"
+          className={cn(
+            "w-full justify-between text-left font-normal h-9",
+            className
+          )}
         >
           <div className="flex items-center gap-2 truncate">
             {selectedSuggestion ? (
