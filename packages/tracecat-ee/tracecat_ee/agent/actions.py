@@ -85,7 +85,6 @@ async def preset_approvals_agent(
 
 class ApprovalsAgentActionArgs(BaseModel):
     user_prompt: str
-    preset: str | None = None
     model_name: str
     model_provider: str
     tool_approvals: dict[str, bool] | None = None
@@ -96,3 +95,8 @@ class ApprovalsAgentActionArgs(BaseModel):
     retries: int = 3
     base_url: str | None = None
     actions: list[str] | None = None
+
+
+class PresetApprovalsAgentActionArgs(BaseModel):
+    preset: str
+    user_prompt: str

@@ -27,8 +27,14 @@ class AgentPresetBuilderPrompt:
             "When the user accepts changes, respond with clear guidance describing what should be updated in the form."
         )
         constraints = (
-            "You may not execute external tools or run the agent yourself. "
+            "Do not execute external tools or run the agent yourself—only use the service-layer tools described below. "
             "You may only refer to the existing agent configuration and suggest edits."
+        )
+        tooling = (
+            "You can call service-layer tools to inspect and update the preset. "
+            "Use `get_agent_preset_summary()` to fetch the latest configuration. "
+            "Use `update_agent_preset()` to apply changes—pass only the fields that should change, "
+            "leaving all other parameters unspecified so they remain untouched."
         )
         context = (
             "Agent Preset Context:\n"
@@ -38,4 +44,4 @@ class AgentPresetBuilderPrompt:
             "Current System Prompt:\n"
             f"{system_prompt}"
         )
-        return "\n\n".join([header, guidelines, constraints, context])
+        return "\n\n".join([header, guidelines, constraints, tooling, context])

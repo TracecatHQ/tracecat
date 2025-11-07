@@ -20,6 +20,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
+    from tracecat.agent.preset.activities import (
+        resolve_agent_preset_config_activity,
+    )
     from tracecat.agent.tools import SimpleToolExecutor
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
@@ -77,6 +80,7 @@ def get_activities() -> list[Callable]:
         agent_activities = AgentActivities(tool_executor=tool_executor)
         activities.extend(agent_activities.get_activities())
         activities.extend(ApprovalManager.get_activities())
+        activities.append(resolve_agent_preset_config_activity)
     return activities
 
 

@@ -11,8 +11,10 @@ import {
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   type MouseEvent,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -29,10 +31,13 @@ import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
+  AgentPresetReadMinimal,
   AgentPresetUpdate,
   ChatEntity,
 } from "@/client"
+import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -78,6 +83,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  useAgentPreset,
   useAgentPresets,
   useCreateAgentPreset,
   useDeleteAgentPreset,
@@ -88,6 +94,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
+  useChatReadiness,
   useModelProviders,
   useModelProvidersStatus,
   useRegistryActions,
@@ -104,7 +111,7 @@ const PRESET_OUTPUT_TYPES = [
   { label: "List of numbers", value: "list[int]" },
 ] as const
 
-const NEW_PRESET_ID = "__new__"
+const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
 
 const agentPresetSchema = z
@@ -215,10 +222,12 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   retries: DEFAULT_RETRIES,
 }
 
-export function AgentPresetsBuilder() {
+export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const activePresetId = presetId ?? NEW_PRESET_ID
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -235,55 +244,52 @@ export function AgentPresetsBuilder() {
   const { deleteAgentPreset, deleteAgentPresetIsPending } =
     useDeleteAgentPreset(workspaceId)
 
-  const [selectedPresetId, setSelectedPresetId] =
-    useState<string>(NEW_PRESET_ID)
-  const [optimisticPreset, setOptimisticPreset] =
-    useState<AgentPresetRead | null>(null)
+  const handleSetSelectedPresetId = useCallback(
+    (nextId: string) => {
+      if (!workspaceId) {
+        return
+      }
+      const normalizedId = nextId?.trim() ? nextId : NEW_PRESET_ID
+      if (normalizedId === activePresetId) {
+        return
+      }
+      router.replace(
+        `/workspaces/${workspaceId}/agents/presets/${normalizedId}`
+      )
+    },
+    [activePresetId, router, workspaceId]
+  )
 
-  const combinedPresets = useMemo(() => {
-    if (!presets) {
-      return optimisticPreset ? [optimisticPreset] : []
+  // Fetch full preset data when a preset is selected (not in create mode)
+  const selectedPresetId =
+    activePresetId === NEW_PRESET_ID ? null : activePresetId
+  const { preset: selectedPreset } = useAgentPreset(
+    workspaceId,
+    selectedPresetId,
+    {
+      enabled: agentPresetsEnabled && !featureFlagsLoading,
     }
+  )
+
+  useEffect(() => {
     if (
-      optimisticPreset &&
-      !presets.some((preset) => preset.id === optimisticPreset.id)
+      !presetId ||
+      presetId === NEW_PRESET_ID ||
+      presetsIsLoading ||
+      !presets
     ) {
-      return [optimisticPreset, ...presets]
-    }
-    return presets
-  }, [optimisticPreset, presets])
-
-  useEffect(() => {
-    if (!presets || presets.length === 0) {
-      setSelectedPresetId(NEW_PRESET_ID)
       return
     }
-
-    if (selectedPresetId === NEW_PRESET_ID) {
+    const presetExists = presets.some((preset) => preset.id === presetId)
+    if (presetExists) {
       return
     }
-
-    const exists = presets.some((preset) => preset.id === selectedPresetId)
-    if (!exists) {
-      setSelectedPresetId(presets[0]?.id ?? NEW_PRESET_ID)
+    if (presets.length > 0) {
+      handleSetSelectedPresetId(presets[0].id)
+    } else {
+      handleSetSelectedPresetId(NEW_PRESET_ID)
     }
-  }, [presets, selectedPresetId])
-
-  useEffect(() => {
-    if (!optimisticPreset || !presets) {
-      return
-    }
-    const synced = presets.some((preset) => preset.id === optimisticPreset.id)
-    if (synced) {
-      setOptimisticPreset(null)
-    }
-  }, [optimisticPreset, presets])
-
-  const selectedPreset =
-    selectedPresetId === NEW_PRESET_ID
-      ? null
-      : (combinedPresets.find((preset) => preset.id === selectedPresetId) ??
-        null)
+  }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
 
   const chatTabDisabled = !selectedPreset
 
@@ -304,6 +310,9 @@ export function AgentPresetsBuilder() {
         value: action.action,
         description: action.description,
         group: action.namespace,
+        icon: getIcon(action.action, {
+          className: "size-6 p-[3px] border-[0.5px]",
+        }),
       }))
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [registryActions])
@@ -355,23 +364,6 @@ export function AgentPresetsBuilder() {
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [modelOptionsByProvider, providers])
 
-  if (featureFlagsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (!agentPresetsEnabled) {
-    return (
-      <div className="flex h-full items-center justify-center px-6">
-        <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Feature not available</AlertTitle>
-          <AlertDescription>
-            Agent presets feature is not enabled for this workspace.
-          </AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
-
   if (presetsIsLoading) {
     return <CenteredSpinner />
   }
@@ -420,10 +412,10 @@ export function AgentPresetsBuilder() {
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
                   <PresetsSidebar
-                    presets={combinedPresets}
-                    selectedId={selectedPresetId}
-                    onSelect={(id) => setSelectedPresetId(id)}
-                    onCreate={() => setSelectedPresetId(NEW_PRESET_ID)}
+                    presets={presets ?? []}
+                    selectedId={activePresetId}
+                    workspaceId={workspaceId}
+                    onCreate={() => handleSetSelectedPresetId(NEW_PRESET_ID)}
                   />
                 </TabsContent>
                 <TabsContent
@@ -431,7 +423,7 @@ export function AgentPresetsBuilder() {
                   className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
                 >
                   <AgentPresetChatPane
-                    preset={selectedPreset}
+                    preset={selectedPreset ?? null}
                     workspaceId={workspaceId}
                   />
                 </TabsContent>
@@ -443,7 +435,7 @@ export function AgentPresetsBuilder() {
         <ResizablePanel defaultSize={50} minSize={34}>
           <AgentPresetForm
             key={selectedPreset?.id ?? NEW_PRESET_ID}
-            preset={selectedPreset}
+            preset={selectedPreset ?? null}
             mode={selectedPreset ? "edit" : "create"}
             actionSuggestions={actionSuggestions}
             namespaceSuggestions={namespaceSuggestions}
@@ -457,8 +449,7 @@ export function AgentPresetsBuilder() {
             isDeleting={deleteAgentPresetIsPending}
             onCreate={async (payload) => {
               const created = await createAgentPreset(payload)
-              setOptimisticPreset(created)
-              setSelectedPresetId(created.id)
+              handleSetSelectedPresetId(created.id)
               return created
             }}
             onUpdate={async (presetId, payload) => {
@@ -466,8 +457,7 @@ export function AgentPresetsBuilder() {
                 presetId,
                 ...payload,
               })
-              setOptimisticPreset(updated)
-              setSelectedPresetId(updated.id)
+              handleSetSelectedPresetId(updated.id)
               return updated
             }}
             onDelete={
@@ -477,15 +467,14 @@ export function AgentPresetsBuilder() {
                       presetId: selectedPreset.id,
                       presetName: selectedPreset.name,
                     })
-                    setOptimisticPreset(null)
                     const remaining =
                       presets?.filter(
                         (preset) => preset.id !== selectedPreset.id
                       ) ?? []
                     if (remaining.length > 0) {
-                      setSelectedPresetId(remaining[0].id)
+                      handleSetSelectedPresetId(remaining[0].id)
                     } else {
-                      setSelectedPresetId(NEW_PRESET_ID)
+                      handleSetSelectedPresetId(NEW_PRESET_ID)
                     }
                   }
                 : undefined
@@ -495,7 +484,7 @@ export function AgentPresetsBuilder() {
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={30} minSize={20}>
           <AgentPresetBuilderChatPane
-            preset={selectedPreset}
+            preset={selectedPreset ?? null}
             workspaceId={workspaceId}
           />
         </ResizablePanel>
@@ -507,16 +496,16 @@ export function AgentPresetsBuilder() {
 function PresetsSidebar({
   presets,
   selectedId,
-  onSelect,
+  workspaceId,
   onCreate,
 }: {
-  presets: AgentPresetRead[] | null
+  presets: AgentPresetReadMinimal[]
   selectedId: string
-  onSelect: (id: string) => void
+  workspaceId: string
   onCreate: () => void
 }) {
   const isCreating = selectedId === NEW_PRESET_ID
-  const list = presets ?? []
+  const list = presets
 
   return (
     <div className="flex h-full flex-col">
@@ -551,11 +540,10 @@ function PresetsSidebar({
               list.map((preset) => (
                 <SidebarItem
                   key={preset.id}
+                  href={`/workspaces/${workspaceId}/agents/presets/${preset.id}`}
                   active={selectedId === preset.id}
-                  onClick={() => onSelect(preset.id)}
                   title={preset.name}
-                  description={preset.slug}
-                  status={preset.model_name}
+                  description={preset.description ?? preset.slug}
                 />
               ))
             )}
@@ -568,23 +556,22 @@ function PresetsSidebar({
 
 function SidebarItem({
   active,
-  onClick,
+  href,
   title,
   description,
   status,
 }: {
   active?: boolean
-  onClick: () => void
+  href: string
   title: string
   description?: string | null
   status?: string | null
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      href={href}
       className={cn(
-        "w-full rounded-md border px-3 py-2.5 text-left transition-colors",
+        "block w-full rounded-md border px-3 py-2.5 text-left transition-colors",
         active
           ? "border-primary bg-primary/10 text-foreground shadow-sm"
           : "border-transparent bg-background text-foreground hover:border-border hover:bg-accent/50"
@@ -614,7 +601,7 @@ function SidebarItem({
           {description}
         </p>
       ) : null}
-    </button>
+    </Link>
   )
 }
 
@@ -1473,82 +1460,93 @@ function AgentPresetForm({
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {toolApprovalFields.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className="rounded-md border px-3 py-3"
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                          <FormField
-                            control={form.control}
-                            name={
-                              `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
-                            }
-                            render={({ field }) => (
-                              <FormItem className="flex-1">
-                                <FormLabel className="text-xs uppercase text-muted-foreground">
-                                  Tool ID
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="core.http_request"
-                                    value={String(field.value ?? "")}
-                                    onChange={field.onChange}
-                                    onBlur={field.onBlur}
-                                    name={field.name}
-                                    ref={field.ref}
-                                    disabled={isSaving}
-                                    list={`agent-tool-options-${index}`}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                                <datalist id={`agent-tool-options-${index}`}>
-                                  {actionSuggestions.map((suggestion) => (
-                                    <option
-                                      key={suggestion.value}
-                                      value={suggestion.value}
-                                    >
-                                      {suggestion.label}
-                                    </option>
-                                  ))}
-                                </datalist>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={
-                              `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
-                            }
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                                <FormControl>
-                                  <Switch
-                                    checked={Boolean(field.value)}
-                                    onCheckedChange={field.onChange}
-                                    disabled={isSaving}
-                                  />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Allow without manual approval
-                                </FormDescription>
-                              </FormItem>
-                            )}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="self-start text-muted-foreground"
-                            onClick={() => removeToolApproval(index)}
-                            disabled={isSaving}
-                            aria-label="Remove approval rule"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
+                    {/* Column headers */}
+                    <div className="grid gap-3 px-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                      <div className="text-xs font-medium uppercase text-muted-foreground">
+                        Tool
                       </div>
-                    ))}
+                      <div className="text-xs font-medium uppercase text-muted-foreground md:text-center">
+                        Manual approval
+                      </div>
+                      <div className="w-10" aria-hidden="true" />
+                    </div>
+
+                    {/* Content rows */}
+                    <div className="space-y-2">
+                      {toolApprovalFields.map((item, index) => {
+                        const approvalSwitchId = `tool-approval-${item.id}-allow`
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
+                          >
+                            <FormField
+                              control={form.control}
+                              name={
+                                `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
+                              }
+                              render={({ field }) => (
+                                <FormItem className="flex-1">
+                                  <FormControl>
+                                    <ActionSelect
+                                      field={field}
+                                      suggestions={actionSuggestions}
+                                      searchKeys={[
+                                        "label",
+                                        "value",
+                                        "description",
+                                        "group",
+                                      ]}
+                                      placeholder="Select an action..."
+                                      disabled={isSaving}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={
+                                `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
+                              }
+                              render={({ field }) => (
+                                <FormItem className="md:justify-self-center">
+                                  <FormControl>
+                                    <div className="flex items-center gap-3 px-3 py-2">
+                                      <Switch
+                                        id={approvalSwitchId}
+                                        checked={Boolean(field.value)}
+                                        onCheckedChange={field.onChange}
+                                        disabled={isSaving}
+                                      />
+                                      <span className="text-sm font-medium min-w-[100px]">
+                                        {field.value
+                                          ? "Required"
+                                          : "Not required"}
+                                      </span>
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="justify-self-start self-start text-muted-foreground md:justify-self-end"
+                              onClick={() => removeToolApproval(index)}
+                              disabled={isSaving}
+                              aria-label="Remove approval rule"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1765,8 +1763,12 @@ function AgentPresetBuilderChatPane({
   const presetId = preset?.id
   const [createdChatId, setCreatedChatId] = useState<string | null>(null)
 
-  const { providersStatus, isLoading: providersStatusLoading } =
-    useModelProvidersStatus()
+  const {
+    ready: chatReady,
+    loading: chatReadyLoading,
+    reason: chatReadyReason,
+    modelInfo,
+  } = useChatReadiness()
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -1791,29 +1793,10 @@ function AgentPresetBuilderChatPane({
     workspaceId,
   })
 
-  const modelInfo: ModelInfo | null = useMemo(() => {
-    if (!preset) {
-      return null
-    }
-    return {
-      name: preset.model_name,
-      provider: preset.model_provider,
-      baseUrl: preset.base_url ?? null,
-    }
-  }, [preset])
-
-  const providerReady = useMemo(() => {
-    if (!presetId) {
-      return false
-    }
-    const provider = preset?.model_provider ?? ""
-    return providersStatus?.[provider] ?? false
-  }, [providersStatus, preset?.model_provider, presetId])
-
-  const canStartChat = Boolean(presetId && providerReady)
+  const canStartChat = Boolean(presetId && chatReady && modelInfo)
 
   const handleStartChat = async (forceNew = false) => {
-    if (!preset || !presetId || createChatPending || !providerReady) {
+    if (!preset || !presetId || createChatPending || !chatReady || !modelInfo) {
       return
     }
 
@@ -1851,7 +1834,7 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (providersStatusLoading) {
+    if (chatReadyLoading) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -1859,17 +1842,23 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (!providerReady) {
+    if (!chatReady || !modelInfo) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
           <AlertCircle className="size-5 text-amber-500" />
           <p>
-            Configure credentials for{" "}
-            <span className="font-medium">
-              {preset?.model_provider ?? "this provider"}
-            </span>{" "}
-            to enable the builder assistant.
+            {chatReadyReason === "no_model"
+              ? "Select a default model in organization agent settings to enable the builder assistant."
+              : `Configure ${modelInfo?.provider ?? "your model provider"} credentials in organization agent settings to enable the builder assistant.`}
           </p>
+          <Link
+            href="/organization/settings/agent"
+            className="text-xs font-medium text-primary hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Go to agent settings
+          </Link>
         </div>
       )
     }
@@ -1935,11 +1924,12 @@ function AgentPresetBuilderChatPane({
       <ChatSessionPane
         chat={chat}
         workspaceId={workspaceId}
-        entityType={"agent_preset_builder"}
+        entityType="agent_preset_builder"
         entityId={presetId}
         className="flex-1 min-h-0"
-        placeholder={`Ask ${preset?.name ?? "the assistant"} to refine the system prompt...`}
+        placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
         modelInfo={modelInfo}
+        toolsEnabled={false}
       />
     )
   }

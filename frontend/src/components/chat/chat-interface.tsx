@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useAgentPresets } from "@/hooks/use-agent-presets"
+import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
 import {
   parseChatError,
   useCreateChat,
@@ -87,10 +87,12 @@ export function ChatInterface({
 
   const presetOptions = presetsEnabled ? (presets ?? []) : []
   const effectivePresetId = chat?.agent_preset_id ?? null
-  const selectedPreset =
-    presetsEnabled && effectivePresetId
-      ? presetOptions.find((preset) => preset.id === effectivePresetId)
-      : undefined
+
+  // Fetch full preset data when a preset is selected
+  const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
+    useAgentPreset(workspaceId, effectivePresetId, {
+      enabled: presetsEnabled && Boolean(effectivePresetId),
+    })
 
   const handlePresetChange = async (nextPresetId: string | null) => {
     if (!selectedChatId) {
@@ -149,7 +151,8 @@ export function ChatInterface({
   const presetMenuLabel = selectedPreset?.name ?? "No preset"
   const presetMenuDisabled =
     !presetsEnabled || !selectedChatId || chatLoading || isUpdating
-  const showPresetSpinner = presetsIsLoading || isUpdating || chatLoading
+  const showPresetSpinner =
+    presetsIsLoading || isUpdating || chatLoading || selectedPresetLoading
   const hasPresetOptions = presetOptions.length > 0
 
   // Show empty state if no chats exist
@@ -301,9 +304,11 @@ export function ChatInterface({
                               <span className="text-sm font-medium">
                                 {preset.name}
                               </span>
-                              <span className="text-xs text-muted-foreground">
-                                {preset.model_provider} · {preset.model_name}
-                              </span>
+                              {preset.description && (
+                                <span className="text-xs text-muted-foreground">
+                                  {preset.description}
+                                </span>
+                              )}
                             </DropdownMenuItem>
                           ))
                         ) : (

@@ -246,6 +246,19 @@ export type AgentPresetRead = {
 }
 
 /**
+ * Minimal API model for reading agent presets in list endpoints.
+ */
+export type AgentPresetReadMinimal = {
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
@@ -6414,7 +6427,7 @@ export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
 }
 
-export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetRead>
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetReadMinimal>
 
 export type AgentPresetsCreateAgentPresetData = {
   requestBody: AgentPresetCreate
@@ -9140,7 +9153,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentPresetRead>
+        200: Array<AgentPresetReadMinimal>
         /**
          * Validation Error
          */

@@ -3464,7 +3464,7 @@ export const agentSetDefaultModel = (
  * List all agent presets for the current workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentPresetRead Successful Response
+ * @returns AgentPresetReadMinimal Successful Response
  * @throws ApiError
  */
 export const agentPresetsListAgentPresets = (

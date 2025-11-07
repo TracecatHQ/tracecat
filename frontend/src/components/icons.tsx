@@ -534,14 +534,14 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
               transform="matrix(.33514 0 0 .78956 188.901 398.936)"
               fill="#283F50"
               stroke="#283F50"
-              stroke-width="4"
-              stroke-linecap="square"
+              strokeWidth="4"
+              strokeLinecap="square"
             />
             <path
               d="M348.42 508.015v17.441-17.441z"
               fill="none"
               stroke="#283F50"
-              stroke-width="4"
+              strokeWidth="4"
             />
             <circle
               r="6.294"
@@ -549,22 +549,22 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
               cx="390.358"
               fill="none"
               stroke="#283F50"
-              stroke-width="4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
             <path
               d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
               fill="none"
               stroke="#283F50"
-              stroke-width="4"
-              stroke-linecap="square"
+              strokeWidth="4"
+              strokeLinecap="square"
             />
             <g stroke="#283F50">
               <path
                 d="M390.45 463.343v61.879-61.88z"
                 fill="none"
-                stroke-width="4"
+                strokeWidth="4"
               />
               <path
                 d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
