@@ -6,6 +6,8 @@ from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import GoogleServiceAccountOAuthProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft import (
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
     AzureManagementCCProvider,
     MicrosoftDefenderEndpointACProvider,
@@ -16,6 +18,8 @@ from tracecat.integrations.providers.microsoft import (
     MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
 )
@@ -34,6 +38,10 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     SentryMCPProvider,
     AzureManagementACProvider,
     AzureManagementCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
     MicrosoftDefenderEndpointACProvider,
     MicrosoftDefenderEndpointCCProvider,
     MicrosoftDefenderXDRACProvider,
