@@ -218,8 +218,10 @@ export function ChatSessionPane({
                         />
                         {parts
                           .filter((part) => part.type === "source-url")
-                          .map((part, index) => (
-                            <SourcesContent key={`${id}-${index}`}>
+                          .map((part, partIdx) => (
+                            <SourcesContent
+                              key={`${id}-${part.type}-${partIdx}`}
+                            >
                               <Source
                                 href={"url" in part ? part.url : "#"}
                                 title={"url" in part ? part.url : "Source"}
@@ -231,7 +233,7 @@ export function ChatSessionPane({
 
                   {parts?.map((part, partIdx) => (
                     <MessagePart
-                      key={`${id}-${partIdx}`}
+                      key={`${id}-${part.type}-${partIdx}`}
                       part={part}
                       partIdx={partIdx}
                       id={id}
