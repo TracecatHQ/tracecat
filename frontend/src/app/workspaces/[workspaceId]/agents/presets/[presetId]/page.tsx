@@ -12,7 +12,11 @@ export default function AgentPresetsPage() {
   }>()
   const router = useRouter()
   const presetId = params?.presetId
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const {
+    isFeatureEnabled,
+    isLoading: featureFlagsLoading,
+    hasFeatureData,
+  } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
 
   useEffect(() => {
@@ -20,10 +24,10 @@ export default function AgentPresetsPage() {
   }, [])
 
   useEffect(() => {
-    if (!featureFlagsLoading && !agentPresetsEnabled) {
+    if (!featureFlagsLoading && hasFeatureData && !agentPresetsEnabled) {
       router.replace("/not-found")
     }
-  }, [agentPresetsEnabled, featureFlagsLoading, router])
+  }, [agentPresetsEnabled, featureFlagsLoading, hasFeatureData, router])
 
   if (featureFlagsLoading || !agentPresetsEnabled) {
     return <CenteredSpinner />
