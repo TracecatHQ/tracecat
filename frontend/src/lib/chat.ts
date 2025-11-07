@@ -156,18 +156,16 @@ const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
  * Maps chat entity types to their query invalidation logic.
  * Each entity type defines how to invalidate related queries when updates occur.
  */
-export const ENTITY_TO_INVALIDATION: Partial<
-  Record<
-    ChatEntity,
-    {
-      predicate: (toolName: string) => boolean
-      handler: (
-        queryClient: QueryClient,
-        workspaceId: string,
-        entityId: string
-      ) => void
-    }
-  >
+export const ENTITY_TO_INVALIDATION: Record<
+  ChatEntity,
+  {
+    predicate: (toolName: string) => boolean
+    handler: (
+      queryClient: QueryClient,
+      workspaceId: string,
+      entityId: string
+    ) => void
+  }
 > = {
   case: {
     predicate: (toolName: string) =>
@@ -185,6 +183,12 @@ export const ENTITY_TO_INVALIDATION: Partial<
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],
       })
+    },
+  },
+  agent_preset: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for agent presets yet; placeholder for future support.
     },
   },
   agent_preset_builder: {
