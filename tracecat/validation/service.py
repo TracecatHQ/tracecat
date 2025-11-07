@@ -194,11 +194,20 @@ async def validate_workspace_integration(
     """
     results: list[SecretValidationResult] = []
 
-    # Skip if we've already checked this key
-    if registry_secret.provider_id in checked_keys:
+    # We de-duplicate checks per provider+grant type combo
+    key_identifier = (
+        f"oauth::{registry_secret.provider_id}::{registry_secret.grant_type}"
+    )
+
+    # Skip validation if this optional integration isn't configured
+    if registry_secret.optional:
         return results
 
-    checked_keys.add(registry_secret.provider_id)
+    # Skip if we've already checked this key
+    if key_identifier in checked_keys:
+        return results
+
+    checked_keys.add(key_identifier)
 
     # Get the integration from the workspace
     key = ProviderKey(
@@ -212,7 +221,7 @@ async def validate_workspace_integration(
         results.append(
             SecretValidationResult(
                 status="error",
-                msg=f"Required OAuth integration {registry_secret.provider_id!r} is not configured",
+                msg=f"Required OAuth integration {registry_secret.provider_id!r} (grant_type: {registry_secret.grant_type}) is not configured",
             )
         )
 
