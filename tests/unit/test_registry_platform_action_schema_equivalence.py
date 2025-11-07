@@ -134,3 +134,35 @@ def test_approvals_agent_validation_equivalence(registry_repo):
 
     with pytest.raises(RegistryValidationError):
         action.validate_args(invalid_args)
+
+
+def test_preset_approvals_agent_validation_equivalence(registry_repo):
+    """Ensure preset approvals args validation matches the registry action."""
+    pytest.importorskip("tracecat_ee.agent.actions")
+
+    from tracecat_ee.agent.actions import PresetApprovalsAgentActionArgs
+
+    try:
+        action = registry_repo.get("ai.preset_approvals_agent")
+    except KeyError:
+        pytest.skip(
+            "ai.preset_approvals_agent action not available (feature flag not enabled)"
+        )
+
+    assert action is not None, "ai.preset_approvals_agent action not found in registry"
+
+    valid_args = {"preset": "security-analyst", "user_prompt": "Test prompt"}
+
+    model_validated = PresetApprovalsAgentActionArgs.model_validate(valid_args)
+    assert model_validated.preset == "security-analyst"
+
+    action_validated = action.validate_args(valid_args)
+    assert action_validated["preset"] == "security-analyst"
+
+    invalid_args = {"user_prompt": "Test prompt"}
+
+    with pytest.raises(ValidationError):
+        PresetApprovalsAgentActionArgs.model_validate(invalid_args)
+
+    with pytest.raises(RegistryValidationError):
+        action.validate_args(invalid_args)

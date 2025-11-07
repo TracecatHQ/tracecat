@@ -7,7 +7,10 @@ import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_ee.agent.actions import ApprovalsAgentActionArgs
+from tracecat_ee.agent.actions import (
+    ApprovalsAgentActionArgs,
+    PresetApprovalsAgentActionArgs,
+)
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -281,6 +284,8 @@ async def validate_registry_action_args(
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
             elif action_name == PlatformAction.AI_APPROVALS_AGENT:
                 validated = ApprovalsAgentActionArgs.model_validate(args)
+            elif action_name == PlatformAction.AI_PRESET_APPROVALS_AGENT:
+                validated = PresetApprovalsAgentActionArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)
