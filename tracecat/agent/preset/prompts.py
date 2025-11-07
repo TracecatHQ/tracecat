@@ -27,7 +27,7 @@ class AgentPresetBuilderPrompt:
             "When the user accepts changes, respond with clear guidance describing what should be updated in the form."
         )
         constraints = (
-            "You may not execute external tools or run the agent yourself. "
+            "Do not execute external tools or run the agent yourself—only use the service-layer tools described below. "
             "You may only refer to the existing agent configuration and suggest edits."
         )
         tooling = (
