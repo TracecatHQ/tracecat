@@ -195,7 +195,10 @@ export const ENTITY_TO_INVALIDATION: Record<
     predicate: (toolName: string) =>
       Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
-      // Invalidate agent presets list for the workspace
+      // Invalidate agent preset detail and workspace list
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
