@@ -68,7 +68,7 @@ services:
 
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -113,7 +113,7 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
@@ -162,7 +162,7 @@ services:
       MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [
