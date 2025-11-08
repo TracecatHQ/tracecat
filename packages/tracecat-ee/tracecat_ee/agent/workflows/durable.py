@@ -122,7 +122,7 @@ class DurableAgentWorkflow:
                 deferred_tool_results=self.approvals.get(),
                 deps=deps,
             )
-            logger.warning("AGENT RUN RESULT", result=result)
+            logger.debug("AGENT RUN RESULT", result=result)
 
             # perf: Can probably early exit here if the result is not a DeferredToolRequests
             messages = result.all_messages()
