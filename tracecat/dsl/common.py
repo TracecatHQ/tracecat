@@ -26,6 +26,7 @@ from temporalio.exceptions import ApplicationError, ChildWorkflowError, FailureE
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Action
+from tracecat.dsl._converter import PydanticPayloadConverter
 from tracecat.dsl.enums import (
     EdgeType,
     FailStrategy,
@@ -62,6 +63,8 @@ from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+
+_memo_payload_converter = PydanticPayloadConverter()
 
 
 class DSLEntrypoint(BaseModel):
@@ -504,43 +507,22 @@ class AgentActionMemo(BaseModel):
         description="The execution stream ID where the agent workflow was spawned.",
     )
 
-    @staticmethod
-    def from_temporal(memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
-        try:
-            action_ref = orjson.loads(memo.fields["action_ref"].data)
-        except Exception as e:
-            logger.warning("Error parsing agent action memo action ref", error=e)
-            action_ref = "unknown_agent_action"
-        try:
-            action_title = orjson.loads(memo.fields["action_title"].data)
-        except Exception as e:
-            logger.warning("Error parsing agent action memo action title", error=e)
-            action_title = "Unknown Agent Action"
-        loop_index = None
-        try:
-            if "loop_index" in memo.fields:
-                loop_index = orjson.loads(memo.fields["loop_index"].data)
-        except Exception as e:
-            logger.warning("Error parsing agent action memo loop index", error=e)
-
-        if "stream_id" in memo.fields:
+    @classmethod
+    def from_temporal(cls, memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
+        data = {}
+        for key, value in memo.fields.items():
+            # Lookup the type of this variable in the current class
             try:
-                stream_id = StreamID(orjson.loads(memo.fields["stream_id"].data))
+                data[key] = _memo_payload_converter.from_payload(value)
             except Exception as e:
                 logger.warning(
-                    "Error parsing agent action memo stream id",
+                    "Error parsing agent action memo field",
                     error=e,
+                    key=key,
+                    value=value,
                 )
-                stream_id = ROOT_STREAM
-        else:
-            stream_id = ROOT_STREAM
-
-        return AgentActionMemo(
-            action_ref=action_ref,
-            action_title=action_title,
-            loop_index=loop_index,
-            stream_id=stream_id,
-        )
+                data[key] = None
+        return cls(**data)
 
 
 class ChildWorkflowMemo(BaseModel):
