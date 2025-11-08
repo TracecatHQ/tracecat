@@ -378,7 +378,9 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       ) : (
                         <Zap className="mr-1 h-3 w-3" />
                       )}
-                      {isAuthCodeGrant ? "Reconnect with OAuth" : "Refresh token"}
+                      {isAuthCodeGrant
+                        ? "Reconnect with OAuth"
+                        : "Refresh token"}
                     </Button>
                     <DeleteIntegrationButton compact />
                   </>
@@ -389,7 +391,9 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       size="sm"
                       className="h-[22px] px-2 py-0 text-xs font-medium"
                       onClick={
-                        isAuthCodeGrant ? handleOAuthConnect : handleTestConnection
+                        isAuthCodeGrant
+                          ? handleOAuthConnect
+                          : handleTestConnection
                       }
                       disabled={!isEnabled || connectOrRefreshIsPending}
                     >
