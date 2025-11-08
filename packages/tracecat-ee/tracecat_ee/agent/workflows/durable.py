@@ -191,7 +191,7 @@ class DurableAgentWorkflow:
             ),
             start_to_close_timeout=timedelta(seconds=120),
         )
-        return RemoteToolset(build_tool_defs_result.tool_definitions)
+        return RemoteToolset(build_tool_defs_result.tool_definitions, role=self.role)
 
     async def _event_stream_handler(
         self,

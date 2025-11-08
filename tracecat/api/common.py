@@ -18,6 +18,7 @@ from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -83,14 +84,19 @@ async def add_temporal_search_attributes():
     """
     client = await get_temporal_client()
     namespace = TEMPORAL__CLUSTER_NAMESPACE
+    attrs = {
+        TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+    }
     try:
+        if is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+            attrs[TemporalSearchAttr.ALIAS.value] = (
+                IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
+            )
         await client.operator_service.add_search_attributes(
             AddSearchAttributesRequest(
-                search_attributes={
-                    TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                    TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                },
+                search_attributes=attrs,
                 namespace=namespace,
             )
         )
@@ -104,11 +110,7 @@ async def add_temporal_search_attributes():
         logger.info(
             "Temporal search attributes added",
             namespace=namespace,
-            search_attributes=[
-                TemporalSearchAttr.TRIGGER_TYPE.value,
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
-                TemporalSearchAttr.WORKSPACE_ID.value,
-            ],
+            search_attributes=list(attrs.keys()),
         )
 
 
