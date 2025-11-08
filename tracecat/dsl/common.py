@@ -511,7 +511,6 @@ class AgentActionMemo(BaseModel):
     def from_temporal(cls, memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
         data = {}
         for key, value in memo.fields.items():
-            # Lookup the type of this variable in the current class
             try:
                 data[key] = _memo_payload_converter.from_payload(value)
             except Exception as e:
