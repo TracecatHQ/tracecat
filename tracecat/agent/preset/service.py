@@ -8,11 +8,11 @@ from typing import cast
 
 from slugify import slugify
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlmodel import desc, select
+from sqlmodel import desc, func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.db.models import AgentPreset
+from tracecat.db.models import AgentPreset, RegistryAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 
@@ -50,6 +50,8 @@ class AgentPresetService(BaseWorkspaceService):
             proposed_slug=params.slug,
             fallback_name=params.name,
         )
+        if params.actions:
+            await self._validate_actions(params.actions)
         preset = AgentPreset(
             owner_id=self.workspace_id,
             name=params.name,
@@ -73,6 +75,18 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
+    async def _validate_actions(self, actions: list[str]) -> None:
+        """Validate that all actions are in the registry."""
+        stmt = select(RegistryAction).where(
+            func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(actions)
+        )
+        result = await self.session.exec(stmt)
+        registry_actions = result.all()
+        if len(registry_actions) != len(actions):
+            raise TracecatValidationError(
+                f"{len(actions)} actions were not found in the registry: {actions}"
+            )
+
     async def update_preset(
         self, preset_id: uuid.UUID, params: AgentPresetUpdate
     ) -> AgentPreset:
@@ -92,6 +106,15 @@ class AgentPresetService(BaseWorkspaceService):
                 exclude_id=preset_id,
             )
 
+        # Validate actions if provided
+        if "actions" in set_fields:
+            actions = set_fields.pop("actions")
+            # Select in RegistryAction actions that are in the list of actions
+            if actions:
+                self.logger.info("Validating actions", actions=actions)
+                await self._validate_actions(actions)
+            # If we reach this point, all actions are valid or was empty
+            preset.actions = actions
         # Update remaining fields
         for field, value in set_fields.items():
             setattr(preset, field, value)
