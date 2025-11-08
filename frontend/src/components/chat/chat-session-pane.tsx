@@ -80,6 +80,7 @@ export interface ChatSessionPaneProps {
   onMessagesChange?: (messages: UIMessage[]) => void
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  autoFocusInput?: boolean
 }
 
 export function ChatSessionPane({
@@ -92,6 +93,7 @@ export function ChatSessionPane({
   onMessagesChange,
   modelInfo,
   toolsEnabled = true,
+  autoFocusInput = false,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -304,13 +306,14 @@ export function ChatSessionPane({
       </div>
       <div className="px-4 pb-4">
         <PromptInput onSubmit={handleSubmit}>
-          <PromptInputBody>
-            <PromptInputTextarea
-              onChange={(event) => setInput(event.target.value)}
-              placeholder={placeholder}
-              value={input}
-            />
-          </PromptInputBody>
+        <PromptInputBody>
+          <PromptInputTextarea
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={placeholder}
+            value={input}
+            autoFocus={autoFocusInput}
+          />
+        </PromptInputBody>
           <PromptInputToolbar>
             {toolsEnabled && (
               <PromptInputTools>
