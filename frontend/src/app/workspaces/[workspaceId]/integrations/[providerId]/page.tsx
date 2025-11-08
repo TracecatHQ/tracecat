@@ -113,6 +113,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const isMCP = isMCPProvider(provider)
   const isCustom = isCustomProvider(provider)
   const requiresConfiguration = Boolean(provider.metadata.requires_config)
+  const isAuthCodeGrant = provider.grant_type === "authorization_code"
   const isSelfConfiguringMCP = isMCP && !requiresConfiguration
 
   // Get active tab from URL query params, default to "overview" or "configuration"
@@ -202,6 +203,18 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     await testConnection(providerId)
   }, [testConnection, providerId])
 
+  const handleRefreshCredentials = useCallback(async () => {
+    if (isAuthCodeGrant) {
+      await handleOAuthConnect()
+    } else {
+      await handleTestConnection()
+    }
+  }, [handleOAuthConnect, handleTestConnection, isAuthCodeGrant])
+
+  const connectOrRefreshIsPending = isAuthCodeGrant
+    ? connectProviderIsPending
+    : testConnectionIsPending
+
   const isEnabled = Boolean(metadata.enabled)
   // Show delete button for custom providers even if not configured, since deletion removes the provider definition
   const showDeleteButton = isConnected || isConfigured || isCustom
@@ -289,15 +302,15 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             </p>
             <div className="mt-2 flex gap-2">
               <Badge variant="secondary" className="whitespace-nowrap">
-                {provider.grant_type === "client_credentials" ? (
-                  <>
-                    <Key className="mr-1 size-3" />
-                    Client credentials
-                  </>
-                ) : (
+                {isAuthCodeGrant ? (
                   <>
                     <User className="mr-1 size-3" />
                     Authorization code
+                  </>
+                ) : (
+                  <>
+                    <Key className="mr-1 size-3" />
+                    Client credentials
                   </>
                 )}
               </Badge>
@@ -308,47 +321,67 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 >
                   {statusStyles[integrationStatus].label}
                 </Badge>
-                {isConnected && provider.grant_type === "authorization_code" ? (
+                {isConnected ? (
                   <>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-[22px] px-2 py-0 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                          disabled={!isEnabled || disconnectProviderIsPending}
-                        >
-                          {disconnectProviderIsPending ? (
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          ) : (
-                            <Unplug className="mr-1 h-3 w-3" />
-                          )}
-                          Disconnect
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Disconnect integration
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to disconnect from{" "}
-                            {metadata.name}? This will remove your
-                            authentication and you'll need to reconnect to use
-                            this integration.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={handleDisconnect}
+                    {isAuthCodeGrant && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-[22px] px-2 py-0 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            disabled={!isEnabled || disconnectProviderIsPending}
                           >
+                            {disconnectProviderIsPending ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <Unplug className="mr-1 h-3 w-3" />
+                            )}
                             Disconnect
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Disconnect integration
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to disconnect from{" "}
+                              {metadata.name}? This will remove your
+                              authentication and you'll need to reconnect to use
+                              this integration.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={handleDisconnect}
+                            >
+                              Disconnect
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-[22px] px-2 py-0 text-xs font-medium"
+                      onClick={handleRefreshCredentials}
+                      disabled={!isEnabled || connectOrRefreshIsPending}
+                    >
+                      {connectOrRefreshIsPending ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : isAuthCodeGrant ? (
+                        <ExternalLink className="mr-1 h-3 w-3" />
+                      ) : (
+                        <Zap className="mr-1 h-3 w-3" />
+                      )}
+                      {isAuthCodeGrant
+                        ? "Reconnect with OAuth"
+                        : "Refresh token"}
+                    </Button>
                     <DeleteIntegrationButton compact />
                   </>
                 ) : isConfigured ? (
@@ -358,26 +391,20 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       size="sm"
                       className="h-[22px] px-2 py-0 text-xs font-medium"
                       onClick={
-                        provider.grant_type === "authorization_code"
+                        isAuthCodeGrant
                           ? handleOAuthConnect
                           : handleTestConnection
                       }
-                      disabled={
-                        !isEnabled ||
-                        connectProviderIsPending ||
-                        testConnectionIsPending
-                      }
+                      disabled={!isEnabled || connectOrRefreshIsPending}
                     >
-                      {connectProviderIsPending || testConnectionIsPending ? (
+                      {connectOrRefreshIsPending ? (
                         <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : provider.grant_type === "authorization_code" ? (
+                      ) : isAuthCodeGrant ? (
                         <ExternalLink className="mr-1 h-3 w-3" />
                       ) : (
                         <Zap className="mr-1 h-3 w-3" />
                       )}
-                      {provider.grant_type === "authorization_code"
-                        ? "Connect with OAuth"
-                        : "Fetch token"}
+                      {isAuthCodeGrant ? "Connect with OAuth" : "Fetch token"}
                     </Button>
                     <DeleteIntegrationButton compact />
                   </>
