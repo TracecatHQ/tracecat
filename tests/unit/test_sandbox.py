@@ -266,7 +266,13 @@ async def test_auth_sandbox_optional_secrets(
         ):
             pass
 
-    assert "Missing secrets: required_secret" in str(exc_info.value)
+    error_message = str(exc_info.value)
+    assert "required_secret" in error_message
+    assert "Missing" in error_message
+    assert {
+        "secret_name": "required_secret",
+        "environment": "default",
+    } in (exc_info.value.detail or [])
 
 
 @pytest.mark.anyio
