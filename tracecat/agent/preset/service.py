@@ -77,14 +77,18 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _validate_actions(self, actions: list[str]) -> None:
         """Validate that all actions are in the registry."""
+        actions_set = set(actions)
         stmt = select(RegistryAction).where(
-            func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(actions)
+            func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
+                actions_set
+            )
         )
         result = await self.session.exec(stmt)
         registry_actions = result.all()
-        if len(registry_actions) != len(actions):
+        available_identifiers = {a.action for a in registry_actions}
+        if missing_actions := actions_set - available_identifiers:
             raise TracecatValidationError(
-                f"{len(actions)} actions were not found in the registry: {actions}"
+                f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
 
     async def update_preset(
