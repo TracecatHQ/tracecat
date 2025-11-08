@@ -19,7 +19,7 @@ from pydantic_ai.tools import (
 )
 from sqlmodel import col, select
 from temporalio import activity, workflow
-from temporalio.client import WorkflowExecution, WorkflowHandle
+from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
 
 from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -93,12 +93,8 @@ class SessionHistoryItem:
 
     execution: WorkflowExecution
     """The workflow execution metadata."""
-    result: AgentOutput | None = None
+    result: AgentOutput
     """The execution result, if available and successful."""
-    error: str | None = None
-    """Error message if the execution failed or result could not be retrieved."""
-    status: str
-    """Execution status (e.g., 'COMPLETED', 'FAILED', 'RUNNING')."""
 
 
 class ApprovalService(BaseWorkspaceService):
@@ -353,26 +349,19 @@ class ApprovalService(BaseWorkspaceService):
             handle = await self.handle(agent_wf_id, run_id=execution.run_id)
 
             # Try to fetch the result
-            result: AgentOutput | None = None
-            error: str | None = None
-            status = execution.status.name if execution.status else "UNKNOWN"
-            if status != "COMPLETED":
+            if execution.status != WorkflowExecutionStatus.COMPLETED:
                 logger.warning(
                     "Workflow is not completed",
                     workflow_id=execution.id,
                     run_id=execution.run_id,
-                    status=status,
                 )
                 continue
 
             result = await handle.result()
-
             history_items.append(
                 SessionHistoryItem(
                     execution=execution,
                     result=result,
-                    error=error,
-                    status=status,
                 )
             )
 
