@@ -115,6 +115,9 @@ class TemporalSearchAttr(StrEnum):
     WORKSPACE_ID = "TracecatWorkspaceId"
     """The `Keyword` Search Attribute for the workspace that owns the workflow execution."""
 
+    ALIAS = "TracecatAlias"
+    """The `Keyword` Search Attribute for a human-friendly workflow alias (e.g., workflow or agent slugs)."""
+
     @cached_property
     def key(self) -> SearchAttributeKey[str]:
         return SearchAttributeKey.for_keyword(self.value)

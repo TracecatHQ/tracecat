@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import (
     ToolCallPart,
@@ -19,13 +19,21 @@ from pydantic_ai.tools import (
 )
 from sqlmodel import col, select
 from temporalio import activity, workflow
+from temporalio.client import WorkflowExecution, WorkflowHandle
 
+from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.schemas import AgentOutput
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.db.models import Approval, User, Workflow
+from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.common import AgentActionMemo
+from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     ApprovalDecisionPayload,
@@ -37,12 +45,25 @@ from tracecat_ee.agent.approvals.schemas import (
     ApprovalUpdate,
 )
 from tracecat_ee.agent.context import AgentContext
+from tracecat_ee.agent.types import AgentWorkflowID
+
+if TYPE_CHECKING:
+    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 
 @dataclass(slots=True)
 class EnrichedApproval:
     approval: Approval
     approved_by: User | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class SessionDescription:
+    start_time: datetime
+    parent_workflow_id: WorkflowID | None
+    root_workflow_id: WorkflowID | None
+    action_ref: str | None
+    action_title: str | None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -64,6 +85,20 @@ class SessionInfo:
     root_workflow_id: uuid.UUID | None = None
     action_ref: str | None = None
     action_title: str | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class SessionHistoryItem:
+    """Represents a single execution in the session history."""
+
+    execution: WorkflowExecution
+    """The workflow execution metadata."""
+    result: AgentOutput | None = None
+    """The execution result, if available and successful."""
+    error: str | None = None
+    """Error message if the execution failed or result could not be retrieved."""
+    status: str
+    """Execution status (e.g., 'COMPLETED', 'FAILED', 'RUNNING')."""
 
 
 class ApprovalService(BaseWorkspaceService):
@@ -224,6 +259,131 @@ class ApprovalService(BaseWorkspaceService):
             res.append(enriched_session)
 
         return res
+
+    async def handle(
+        self,
+        agent_wf_id: AgentWorkflowID,
+        run_id: str | None = None,
+    ) -> WorkflowHandle[DurableAgentWorkflow, AgentOutput]:
+        """Get a workflow handle for an agent workflow.
+
+        Args:
+            agent_wf_id: The agent workflow ID
+            run_id: Optional run ID for a specific execution. If not provided,
+                    gets the handle for the latest/current workflow execution.
+
+        Returns:
+            A workflow handle for the specified workflow/execution
+        """
+        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
+        client = await get_temporal_client()
+        return client.get_workflow_handle_for(
+            DurableAgentWorkflow.run, agent_wf_id, run_id=run_id
+        )
+
+    async def get_session(self, session_id: uuid.UUID) -> SessionDescription | None:
+        """Get a session by ID."""
+
+        # Query workflow executions using the agent session key
+        agent_wf_id = AgentWorkflowID(session_id)
+
+        handle = await self.handle(agent_wf_id)
+        description = await handle.describe()
+        memo = await description.memo()
+        validated_memo = AgentActionMemo.model_validate(memo)
+        parent_id, root_id = None, None
+        try:
+            if description.parent_id:
+                parent_id, _ = exec_id_to_parts(description.parent_id)
+        except Exception as e:
+            logger.warning("Error parsing parent ID", error=e)
+        try:
+            if description.root_id:
+                root_id, _ = exec_id_to_parts(description.root_id)
+        except Exception as e:
+            logger.warning("Error parsing root ID", error=e)
+        return SessionDescription(
+            start_time=description.start_time,
+            parent_workflow_id=parent_id,
+            root_workflow_id=root_id,
+            action_ref=validated_memo.action_ref,
+            action_title=validated_memo.action_title,
+        )
+
+    async def list_session_history(
+        self,
+        session_id: uuid.UUID,
+        limit: int = 5,
+    ) -> list[SessionHistoryItem]:
+        """Query DurableAgentWorkflow executions sharing the same alias and fetch their results."""
+        if limit <= 0:
+            return []
+        # get the alias for the session
+        session = await self.get_session(session_id)
+        if session is None:
+            return []
+        if session.parent_workflow_id is None or session.action_ref is None:
+            logger.warning(
+                "Session parent workflow ID or action ref is missing",
+                session_id=session_id,
+            )
+            return []
+        alias = build_agent_alias(session.parent_workflow_id, session.action_ref)
+
+        query = " AND ".join(
+            [
+                "WorkflowType = 'DurableAgentWorkflow'",
+                f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{str(self.workspace_id)}'",
+                f"{TemporalSearchAttr.ALIAS.value} = '{alias}'",
+            ]
+        )
+
+        page_size = max(1, min(limit, 50))
+        history_items: list[SessionHistoryItem] = []
+        client = await get_temporal_client()
+        async for execution in client.list_workflows(
+            query=query,
+            page_size=page_size,
+        ):
+            if len(history_items) >= limit:
+                break
+            # Get workflow handle for specific execution run
+            agent_wf_id = AgentWorkflowID.from_workflow_id(execution.id)
+            handle = await self.handle(agent_wf_id, run_id=execution.run_id)
+
+            # Try to fetch the result
+            result: AgentOutput | None = None
+            error: str | None = None
+            status = execution.status.name if execution.status else "UNKNOWN"
+            if status != "COMPLETED":
+                logger.warning(
+                    "Workflow is not completed",
+                    workflow_id=execution.id,
+                    run_id=execution.run_id,
+                    status=status,
+                )
+                continue
+
+            result = await handle.result()
+
+            history_items.append(
+                SessionHistoryItem(
+                    execution=execution,
+                    result=result,
+                    error=error,
+                    status=status,
+                )
+            )
+
+        logger.info(
+            "Session history fetched",
+            session_id=session_id,
+            n_items=len(history_items),
+            n_with_results=sum(1 for item in history_items if item.result is not None),
+        )
+        # These are the last n=limit DurableAgentWorkflow executions related to the session
+        return history_items
 
     # UPDATE operations
 

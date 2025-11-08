@@ -10,7 +10,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import (
+    RetryPolicy,
+    SearchAttributePair,
+    TypedSearchAttributes,
+)
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -36,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
     from tracecat import config, identifiers
+    from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
@@ -103,10 +108,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.feature_flags import FeatureFlag, is_feature_enabled
-    from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
+    from tracecat.identifiers.workflow import (
+        WorkflowExecutionID,
+        WorkflowID,
+        exec_id_to_parts,
+    )
     from tracecat.logger import logger
     from tracecat.validation.schemas import DSLValidationResult
-    from tracecat.workflow.executions.enums import TriggerType
+    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
     from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -119,6 +128,36 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
+
+
+def _inherit_search_attributes_with_alias(
+    base_attrs: TypedSearchAttributes | None,
+    alias: str,
+) -> TypedSearchAttributes:
+    pairs: list[SearchAttributePair[Any]] = [
+        TemporalSearchAttr.ALIAS.create_pair(alias)
+    ]
+    if base_attrs:
+        pairs.extend(
+            p
+            for p in base_attrs.search_attributes
+            if p.key != TemporalSearchAttr.ALIAS.key
+        )
+    return TypedSearchAttributes(search_attributes=pairs)
+
+
+def _build_agent_child_search_attributes(
+    info: workflow.Info,
+    action_ref: str,
+) -> TypedSearchAttributes:
+    try:
+        parent_wf_id, _ = exec_id_to_parts(info.workflow_id)
+    except ValueError as e:
+        raise RuntimeError(
+            f"Malformed workflow ID when building agent child search attributes: {info.workflow_id}"
+        ) from e
+    alias = build_agent_alias(parent_wf_id, action_ref)
+    return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
 
 
 @workflow.defn
@@ -541,7 +580,8 @@ class DSLWorkflow:
                     )
                 case PlatformAction.AI_APPROVALS_AGENT:
                     logger.info("Executing approvals agent", task=task)
-                    if not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
+                    if not approvals_enabled:
                         raise ApplicationError(
                             "Approvals AI agent feature is not enabled.",
                             non_retryable=True,
@@ -554,6 +594,11 @@ class DSLWorkflow:
                     )
                     action_args = ApprovalsAgentActionArgs(**evaluated_args)
                     wf_info = workflow.info()
+                    child_search_attributes = (
+                        _build_agent_child_search_attributes(wf_info, task.ref)
+                        if approvals_enabled
+                        else wf_info.typed_search_attributes
+                    )
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
@@ -582,17 +627,17 @@ class DSLWorkflow:
                         task_queue=wf_info.task_queue,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
-                        search_attributes=wf_info.typed_search_attributes,
+                        search_attributes=child_search_attributes,
                         memo=AgentActionMemo(
                             action_ref=task.ref,
                             action_title=task.title,
-                            loop_index=None,
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_APPROVALS_AGENT:
                     logger.info("Executing preset approvals agent", task=task)
-                    if not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
+                    if not approvals_enabled:
                         raise ApplicationError(
                             "Approvals AI agent feature is not enabled.",
                             non_retryable=True,
@@ -613,6 +658,11 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                     )
                     wf_info = workflow.info()
+                    child_search_attributes = (
+                        _build_agent_child_search_attributes(wf_info, task.ref)
+                        if approvals_enabled
+                        else wf_info.typed_search_attributes
+                    )
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
@@ -630,11 +680,10 @@ class DSLWorkflow:
                         task_queue=wf_info.task_queue,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
-                        search_attributes=wf_info.typed_search_attributes,
+                        search_attributes=child_search_attributes,
                         memo=AgentActionMemo(
                             action_ref=task.ref,
                             action_title=task.title,
-                            loop_index=None,
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
