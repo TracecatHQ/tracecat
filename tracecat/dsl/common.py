@@ -509,7 +509,7 @@ class AgentActionMemo(BaseModel):
 
     @classmethod
     def from_temporal(cls, memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
-        data = {}
+        data: dict[str, Any] = {}
         for key, value in memo.fields.items():
             try:
                 data[key] = _memo_payload_converter.from_payload(value)
@@ -520,7 +520,10 @@ class AgentActionMemo(BaseModel):
                     key=key,
                     value=value,
                 )
-                data[key] = None
+        if not data.get("action_ref"):
+            data["action_ref"] = "unknown_agent_action"
+        if not data.get("stream_id"):
+            data["stream_id"] = ROOT_STREAM
         return cls(**data)
 
 
