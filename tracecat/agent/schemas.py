@@ -15,6 +15,7 @@ from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import DeferredToolResults
 
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -37,6 +38,10 @@ class RunAgentArgs(BaseModel):
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
+    deferred_tool_results: DeferredToolResults | None = None
+    """Results for deferred tool calls from a previous run (CE handshake)."""
+    is_continuation: bool = False
+    """If True, do not emit a new user message; continue prior run with deferred results."""
 
 
 class ModelConfig(BaseModel):

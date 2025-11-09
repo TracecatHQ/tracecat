@@ -5,15 +5,23 @@ import {
   type ChatStatus,
   getToolName,
   isToolUIPart,
+  type ToolUIPart,
   type UIDataTypes,
   type UIMessage,
   type UIMessagePart,
   type UITools,
 } from "ai"
-import { CopyIcon, HammerIcon, RefreshCcwIcon } from "lucide-react"
+import {
+  CheckIcon,
+  CopyIcon,
+  HammerIcon,
+  PencilIcon,
+  RefreshCcwIcon,
+  XIcon,
+} from "lucide-react"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ChatEntity, ChatReadVercel } from "@/client"
+import type { ApprovalDecision, ChatEntity, ChatReadVercel } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -54,6 +62,8 @@ import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { getIcon } from "@/components/icons"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -61,7 +71,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useVercelChat } from "@/hooks/use-chat"
+import {
+  type ApprovalCard,
+  makeContinueMessage,
+  useVercelChat,
+} from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
@@ -119,9 +133,129 @@ export function ChatSessionPane({
       modelInfo,
     })
 
+  const handleSubmitApprovals = useCallback(
+    async (decisionPayload: ApprovalDecision[]) => {
+      if (!decisionPayload.length) return
+      console.log("decisionPayload", decisionPayload)
+      try {
+        clearError()
+        await sendMessage(makeContinueMessage(decisionPayload))
+      } catch (error) {
+        console.error("Failed to submit approvals", error)
+        toast({
+          variant: "destructive",
+          title: "Approval submission failed",
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        })
+        throw error
+      }
+    },
+    [clearError, sendMessage]
+  )
+
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
+
+  // Helper function to compute visible parts for a message, filtering out
+  // duplicate tool cards when a later message contains a completed tool
+  // with the same toolCallId, and merging args from earlier messages into
+  // output parts in the current message
+  function computeVisibleParts(
+    orderedParts: UIMessagePart<UIDataTypes, UITools>[] | undefined,
+    msgIndex: number,
+    allMessages: UIMessage[]
+  ): UIMessagePart<UIDataTypes, UITools>[] | undefined {
+    if (!orderedParts) return orderedParts
+
+    // First pass: collect args from earlier messages
+    // These args will be merged into output parts in the current message
+    const argsMap = new Map<string, unknown>()
+    for (const earlier of allMessages.slice(0, msgIndex)) {
+      for (const p of earlier.parts || []) {
+        if (
+          isToolUIPart(p) &&
+          (p.state === "input-streaming" || p.state === "input-available") &&
+          p.input !== undefined
+        ) {
+          argsMap.set(p.toolCallId, p.input)
+        }
+      }
+    }
+    console.log("argsMap from earlier messages", argsMap)
+
+    // Second pass: collect toolCallIds that are completed in any later message
+    // This helps us identify which tool invocations in the current message
+    // should be hidden because they're completed downstream
+    const toolCallOutputParts = new Set<string>()
+    for (const later of allMessages.slice(msgIndex + 1)) {
+      for (const p of later.parts || []) {
+        if (
+          isToolUIPart(p) &&
+          (p.state === "output-available" || p.state === "output-error")
+        ) {
+          toolCallOutputParts.add(p.toolCallId)
+        }
+      }
+    }
+    console.log("completedLater", toolCallOutputParts)
+
+    // Third pass: filter and reconstruct visible parts
+    return orderedParts
+      .filter(
+        (p) =>
+          // Hide input-only parts if a later completion exists
+          !(
+            isToolUIPart(p) &&
+            (p.state === "input-streaming" || p.state === "input-available") &&
+            toolCallOutputParts.has(p.toolCallId)
+          )
+      )
+      .map((p) => {
+        // If this is a tool output part with a toolCallId that had args from an earlier message,
+        // merge those args into this part
+        if (
+          isToolUIPart(p) &&
+          (p.state === "output-available" || p.state === "output-error") &&
+          argsMap.has(p.toolCallId)
+        ) {
+          const input = argsMap.get(p.toolCallId)
+          const newPart: ToolUIPart<UITools> = {
+            ...p,
+            input,
+          }
+          console.log("merging args into output part", newPart)
+          return newPart
+        }
+        return p
+      })
+  }
+
+  // Pre-compute visible parts for all messages to avoid calling hooks in loops
+  const messagesWithVisibleParts = useMemo(() => {
+    return messages.map((message, msgIndex) => {
+      const orderedParts = message.parts?.some(
+        (part) => part.type === "data-approval-request"
+      )
+        ? [
+            ...message.parts.filter(
+              (part) => part.type === "data-approval-request"
+            ),
+            ...message.parts.filter(
+              (part) => part.type !== "data-approval-request"
+            ),
+          ]
+        : message.parts
+
+      const visibleParts = computeVisibleParts(orderedParts, msgIndex, messages)
+
+      return {
+        ...message,
+        visibleParts,
+      }
+    })
+  }, [messages])
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -202,23 +336,24 @@ export function ChatSessionPane({
                 <AlertDescription>{lastError}</AlertDescription>
               </Alert>
             )}
-            {messages.map(({ id, role, parts }) => {
+            {messagesWithVisibleParts.map(({ id, role, visibleParts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages[messages.length - 1].id
-
               return (
                 <div key={id} className="group relative">
                   {role === "assistant" &&
-                    parts?.filter((part) => part.type === "source-url").length >
-                      0 && (
+                    visibleParts &&
+                    visibleParts.filter((part) => part.type === "source-url")
+                      .length > 0 && (
                       <Sources>
                         <SourcesTrigger
                           count={
-                            parts.filter((part) => part.type === "source-url")
-                              .length
+                            visibleParts.filter(
+                              (part) => part.type === "source-url"
+                            ).length
                           }
                         />
-                        {parts
+                        {visibleParts
                           .filter((part) => part.type === "source-url")
                           .map((part, partIdx) => (
                             <SourcesContent
@@ -233,7 +368,7 @@ export function ChatSessionPane({
                       </Sources>
                     )}
 
-                  {parts?.map((part, partIdx) => (
+                  {visibleParts?.map((part, partIdx) => (
                     <MessagePart
                       key={`${id}-${part.type}-${partIdx}`}
                       part={part}
@@ -242,51 +377,55 @@ export function ChatSessionPane({
                       role={role}
                       status={status}
                       isLastMessage={isLastMessage}
+                      onSubmitApprovals={handleSubmitApprovals}
                     />
                   ))}
-                  {role === "assistant" && parts.length > 0 && (
-                    // Render response actions for assistant messages and reveal them on hover for older messages.
-                    <Actions
-                      className={cn(
-                        // Apply a smooth transition so the actions fade in and out gracefully.
-                        "transition-opacity duration-200 ease-out",
-                        // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                        !isLastMessage &&
-                          "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                      )}
-                    >
-                      {parts.some((part) => part.type === "text") && (
-                        <Action
-                          size="sm"
-                          onClick={() => {
-                            const assistantText = getAssistantText(parts)
-                            if (assistantText.length > 0) {
-                              navigator.clipboard.writeText(assistantText)
-                              toast({
-                                title: "Copied to clipboard",
-                                description:
-                                  "The assistant's response has been copied to your clipboard.",
-                              })
-                            }
-                          }}
-                          label="Copy"
-                          tooltip="Copy"
-                        >
-                          <CopyIcon className="size-3" />
-                        </Action>
-                      )}
-                      {isLastMessage && (
-                        <Action
-                          size="sm"
-                          onClick={() => regenerate()}
-                          label="Retry"
-                          tooltip="Retry"
-                        >
-                          <RefreshCcwIcon className="size-3" />
-                        </Action>
-                      )}
-                    </Actions>
-                  )}
+                  {role === "assistant" &&
+                    visibleParts &&
+                    visibleParts.length > 0 && (
+                      // Render response actions for assistant messages and reveal them on hover for older messages.
+                      <Actions
+                        className={cn(
+                          // Apply a smooth transition so the actions fade in and out gracefully.
+                          "transition-opacity duration-200 ease-out",
+                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                          !isLastMessage &&
+                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                        )}
+                      >
+                        {visibleParts.some((part) => part.type === "text") && (
+                          <Action
+                            size="sm"
+                            onClick={() => {
+                              const assistantText =
+                                getAssistantText(visibleParts)
+                              if (assistantText.length > 0) {
+                                navigator.clipboard.writeText(assistantText)
+                                toast({
+                                  title: "Copied to clipboard",
+                                  description:
+                                    "The assistant's response has been copied to your clipboard.",
+                                })
+                              }
+                            }}
+                            label="Copy"
+                            tooltip="Copy"
+                          >
+                            <CopyIcon className="size-3" />
+                          </Action>
+                        )}
+                        {isLastMessage && (
+                          <Action
+                            size="sm"
+                            onClick={() => regenerate()}
+                            label="Retry"
+                            tooltip="Retry"
+                          >
+                            <RefreshCcwIcon className="size-3" />
+                          </Action>
+                        )}
+                      </Actions>
+                    )}
                 </div>
               )
             })}
@@ -306,14 +445,14 @@ export function ChatSessionPane({
       </div>
       <div className="px-4 pb-4">
         <PromptInput onSubmit={handleSubmit}>
-        <PromptInputBody>
-          <PromptInputTextarea
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={placeholder}
-            value={input}
-            autoFocus={autoFocusInput}
-          />
-        </PromptInputBody>
+          <PromptInputBody>
+            <PromptInputTextarea
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={placeholder}
+              value={input}
+              autoFocus={autoFocusInput}
+            />
+          </PromptInputBody>
           <PromptInputToolbar>
             {toolsEnabled && (
               <PromptInputTools>
@@ -364,6 +503,7 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
   partIdx: number
@@ -371,7 +511,22 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === "data-approval-request") {
+    const payload = (part as { data?: unknown }).data
+    const approvals: ApprovalCard[] = Array.isArray(payload)
+      ? (payload.filter(Boolean) as ApprovalCard[])
+      : []
+    return (
+      <ApprovalRequestPart
+        key={`${id}-${partIdx}`}
+        approvals={approvals}
+        onSubmit={onSubmitApprovals}
+      />
+    )
+  }
+
   if (part.type === "text") {
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
@@ -435,4 +590,271 @@ export function MessagePart({
   }
 
   return null
+}
+
+type DecisionState = {
+  action: ApprovalDecision["action"] | undefined
+  reason?: string
+  overrideArgs?: string
+}
+
+function ApprovalRequestPart({
+  approvals,
+  onSubmit,
+}: {
+  approvals: ApprovalCard[]
+  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+}) {
+  const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setDecisions({})
+  }, [approvals.map((a) => a.tool_call_id).join(":")])
+
+  const readyToSubmit =
+    approvals.length > 0 &&
+    approvals.every((approval) => decisions[approval.tool_call_id]?.action)
+
+  const setDecision = useCallback(
+    (toolCallId: string, update: Partial<DecisionState>) => {
+      setDecisions((prev) => ({
+        ...prev,
+        [toolCallId]: {
+          ...prev[toolCallId],
+          ...update,
+        },
+      }))
+    },
+    []
+  )
+
+  const handleSubmit = useCallback(async () => {
+    if (!onSubmit || !readyToSubmit) {
+      toast({
+        title: "Pending decisions",
+        description: "Choose an action for each tool before continuing.",
+      })
+      return
+    }
+
+    const payload: ApprovalDecision[] = []
+    for (const approval of approvals) {
+      const decision = decisions[approval.tool_call_id]
+      if (!decision?.action) {
+        toast({
+          title: "Missing decision",
+          description: `Select an action for ${approval.tool_name}.`,
+        })
+        return
+      }
+      if (decision.action === "approve") {
+        payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
+      } else if (decision.action === "override") {
+        try {
+          const parsed = decision.overrideArgs
+            ? JSON.parse(decision.overrideArgs)
+            : {}
+          payload.push({
+            tool_call_id: approval.tool_call_id,
+            action: "override",
+            override_args: parsed,
+          })
+        } catch {
+          toast({
+            variant: "destructive",
+            title: "Invalid JSON",
+            description: `Fix override args for ${approval.tool_name} and try again.`,
+          })
+          return
+        }
+      } else if (decision.action === "deny") {
+        payload.push({
+          tool_call_id: approval.tool_call_id,
+          action: "deny",
+          reason: decision.reason ?? "",
+        })
+      }
+    }
+
+    try {
+      setSubmitting(true)
+      await onSubmit(payload)
+      toast({
+        title: "Approvals submitted",
+        description: "The agent will resume after processing.",
+      })
+      setDecisions({})
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [approvals, decisions, onSubmit, readyToSubmit])
+
+  const disabled = !onSubmit
+
+  if (!approvals.length) {
+    return null
+  }
+
+  return (
+    <div className="mt-4 space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
+      <div>
+        <p className="text-sm font-medium">Approvals required</p>
+        <p className="text-xs text-muted-foreground">
+          Review and approve each tool call to continue.
+        </p>
+      </div>
+      <div className="space-y-3">
+        {approvals.map((approval) => {
+          const actionId = approval.tool_name.replaceAll("__", ".")
+          const decision = decisions[approval.tool_call_id]
+          const argsPreview = formatArgs(approval.args)
+          return (
+            <div
+              key={actionId}
+              className="space-y-3 rounded-md border border-border/60 bg-background p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1">
+                    {getIcon(actionId, {
+                      className: "size-4 p-[3px]",
+                    })}
+                    <p className="text-sm font-semibold">{actionId}</p>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "approve" ? "default" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "approve",
+                        reason: undefined,
+                        overrideArgs: undefined,
+                      })
+                    }
+                    className="h-7 rounded-lg"
+                  >
+                    <CheckIcon className="mr-1 size-3" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "override" ? "default" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "override",
+                        reason: undefined,
+                      })
+                    }
+                    className="h-7 rounded-lg"
+                  >
+                    <PencilIcon className="mr-1 size-3" />
+                    Approve + change
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "deny" ? "destructive" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "deny",
+                        overrideArgs: undefined,
+                      })
+                    }
+                    className="h-7 rounded-lg"
+                  >
+                    <XIcon className="mr-1 size-3" />
+                    Deny
+                  </Button>
+                </div>
+              </div>
+              <pre className="max-h-64 overflow-auto rounded bg-muted/60 p-3 text-xs">
+                {argsPreview}
+              </pre>
+              {decision?.action === "override" && (
+                <Textarea
+                  className="text-xs"
+                  rows={4}
+                  spellCheck={false}
+                  value={decision.overrideArgs ?? ""}
+                  onChange={(event) =>
+                    setDecision(approval.tool_call_id, {
+                      ...decision,
+                      overrideArgs: event.target.value,
+                    })
+                  }
+                  placeholder={argsPreview}
+                  disabled={disabled || submitting}
+                />
+              )}
+              {decision?.action === "deny" && (
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  value={decision.reason ?? ""}
+                  onChange={(event) =>
+                    setDecision(approval.tool_call_id, {
+                      ...decision,
+                      reason: event.target.value,
+                    })
+                  }
+                  placeholder="Share a short reason"
+                  disabled={disabled || submitting}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={handleSubmit}
+          disabled={disabled || submitting || !readyToSubmit}
+        >
+          {submitting ? "Submitting..." : "Submit decisions"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={submitting}
+          onClick={() => setDecisions({})}
+        >
+          Reset
+        </Button>
+      </div>
+      {disabled && (
+        <p className="text-xs text-muted-foreground">
+          Approval submission is not available in this context.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function formatArgs(args: unknown): string {
+  if (args == null) return "{}"
+  if (typeof args === "string") {
+    try {
+      return JSON.stringify(JSON.parse(args), null, 2)
+    } catch {
+      return args
+    }
+  }
+  try {
+    return JSON.stringify(args, null, 2)
+  } catch {
+    return String(args)
+  }
 }

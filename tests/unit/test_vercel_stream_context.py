@@ -23,6 +23,7 @@ from pydantic_ai.messages import (
 )
 
 from tracecat.agent.adapter.vercel import (
+    DataEventPayload,
     ReasoningDeltaEventPayload,
     ReasoningEndEventPayload,
     ReasoningStartEventPayload,
@@ -329,6 +330,36 @@ async def test_tool_execution_success():
     assert frames[3].toolCallId == "call_123"
     # Content is serialized as JSON string
     assert "results" in frames[3].output
+
+
+@pytest.mark.anyio
+async def test_data_event_emitted_before_tool_parts():
+    """Ensure queued data parts stream before subsequent tool sections."""
+    ctx = VercelStreamContext(message_id="msg_test")
+    ctx.enqueue_data_event(
+        DataEventPayload(
+            type="data-approval-request",
+            data=[{"toolCallId": "call_approve", "toolName": "search"}],
+        )
+    )
+
+    events = [
+        PartStartEvent(
+            index=0,
+            part=ToolCallPart(
+                tool_name="search",
+                tool_call_id="call_approve",
+                args={"query": "test"},
+            ),
+        ),
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert len(frames) >= 2
+    assert isinstance(frames[0], DataEventPayload)
+    assert frames[0].type == "data-approval-request"
+    assert isinstance(frames[1], ToolInputStartEventPayload)
 
 
 @pytest.mark.anyio
