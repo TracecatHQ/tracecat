@@ -330,9 +330,10 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
                       const fullValue = isObject
                         ? JSON.stringify(cellValue)
                         : String(cellValue || "")
-                      const displayValue = fullValue.length > 100
-                        ? fullValue.substring(0, 97) + "..."
-                        : fullValue
+                      const displayValue =
+                        fullValue.length > 100
+                          ? fullValue.substring(0, 97) + "..."
+                          : fullValue
 
                       return (
                         <TableCell
