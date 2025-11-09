@@ -89,6 +89,7 @@ class ToolApprovalPayload(BaseModel):
     tool_call_id: str
     tool_name: str
     args: dict[str, Any] | str | None = None
+    history: list[str] = Field(default_factory=list)
 
 
 class PersistApprovalsActivityInputs(BaseModel):

@@ -9,6 +9,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 
+from tracecat.agent.approvals.enums import ApprovalRecommendationVerdict
 from tracecat.agent.stream.common import get_stream_headers
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
@@ -22,7 +23,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
-from tracecat_ee.agent.approvals.schemas import ApprovalRead
+from tracecat_ee.agent.approvals.schemas import ApprovalRead, ApprovalRecommendation
 from tracecat_ee.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,
@@ -134,17 +135,52 @@ async def list_agent_sessions(
         execution = executions_by_id[enriched_session.id]
 
         # Transform approval enrichments to API response format
-        approval_reads = [
-            ApprovalRead(
-                approved_by=UserReadMinimal.model_validate(
+        approval_reads: list[ApprovalRead] = []
+        for enriched in enriched_session.approvals:
+            approval_record = enriched.approval
+            approved_by_user = (
+                UserReadMinimal.model_validate(
                     enriched.approved_by, from_attributes=True
                 )
                 if enriched.approved_by
-                else None,
-                **enriched.approval.model_dump(exclude={"approved_by"}),
+                else None
             )
-            for enriched in enriched_session.approvals
-        ]
+            verdict_raw = approval_record.recommendation_verdict
+            verdict_value: ApprovalRecommendationVerdict | None = None
+            if verdict_raw:
+                try:
+                    verdict_value = ApprovalRecommendationVerdict(verdict_raw)
+                except ValueError:
+                    verdict_value = None
+            recommendation_data = ApprovalRecommendation(
+                verdict=verdict_value,
+                reason=approval_record.recommendation_reason,
+                source=approval_record.recommendation_source,
+            )
+            recommendation_value = (
+                recommendation_data
+                if recommendation_data.model_dump(exclude_none=True)
+                else None
+            )
+
+            approval_reads.append(
+                ApprovalRead(
+                    id=approval_record.id,
+                    session_id=approval_record.session_id,
+                    tool_call_id=approval_record.tool_call_id,
+                    tool_name=approval_record.tool_name,
+                    status=approval_record.status,
+                    reason=approval_record.reason,
+                    tool_call_args=approval_record.tool_call_args,
+                    decision=approval_record.decision,
+                    approved_by=approved_by_user,
+                    history=approval_record.history or [],
+                    recommendation=recommendation_value,
+                    approved_at=approval_record.approved_at,
+                    created_at=approval_record.created_at,
+                    updated_at=approval_record.updated_at,
+                )
+            )
 
         # Create workflow summaries if workflows exist
         parent_summary = (

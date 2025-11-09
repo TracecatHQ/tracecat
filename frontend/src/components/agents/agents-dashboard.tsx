@@ -1,17 +1,19 @@
 "use client"
 
+import type { JSONSchema7 } from "json-schema"
 import {
   AlertTriangleIcon,
   BoxIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
   Leaf,
+  MoreHorizontal,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useMemo, useState } from "react"
-import type { ApprovalRead, UserReadMinimal } from "@/client"
-import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import type { UserReadMinimal } from "@/client"
+import { agentSubmitAgentApprovals } from "@/client"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -24,15 +26,44 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
+import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/components/ui/use-toast"
 import UserAvatar from "@/components/user-avatar"
-import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
+import type {
+  AgentApprovalDecisionPayload,
+  AgentSessionWithStatus,
+  AgentStatusTone,
+} from "@/lib/agents"
 import {
   compareAgentStatusPriority,
   getAgentStatusMetadata,
 } from "@/lib/agents"
+import { getRecommendationDisplay } from "@/lib/approval-recommendations"
 import { User } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
 import { executionId as splitExecutionId } from "@/lib/event-history"
+import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { cn, reconstructActionType, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -52,6 +83,57 @@ const toneBadgeClasses: Record<AgentStatusTone, string> = {
   neutral: "bg-muted text-muted-foreground border border-border/60",
 }
 
+const APPROVAL_VALUE_SCHEMA: JSONSchema7 = {
+  oneOf: [
+    { type: "boolean" },
+    {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["tool-approved"],
+        },
+        override_args: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["tool-denied"],
+        },
+        message: {
+          type: "string",
+        },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  ],
+}
+
+const approvalValueValidator = jsonSchemaToZod(APPROVAL_VALUE_SCHEMA)
+
+type DecisionType = "approve" | "override" | "deny"
+
+type DecisionFormState = {
+  decision: DecisionType
+  overrideArgs: string
+  message: string
+}
+
+const createDefaultDecisionState = (): DecisionFormState => ({
+  decision: "approve",
+  overrideArgs: "",
+  message: "",
+})
+
 type AgentsBoardProps = {
   sessions?: AgentSessionWithStatus[]
   isLoading: boolean
@@ -65,10 +147,6 @@ export function AgentsBoard({
   error,
   onRetry,
 }: AgentsBoardProps) {
-  const [dialogSession, setDialogSession] =
-    useState<AgentSessionWithStatus | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
-
   const groupedSessions = useMemo(() => {
     if (!sessions || sessions.length === 0) {
       return []
@@ -175,27 +253,13 @@ export function AgentsBoard({
                 <AgentSessionCard
                   key={session.id}
                   session={session}
-                  onReviewApprovals={() => {
-                    setDialogSession(session)
-                    setDialogOpen(true)
-                  }}
+                  onRefresh={onRetry}
                 />
               ))}
             </div>
           </CollapsibleSection>
         )
       })}
-      <AgentApprovalsDialog
-        session={dialogSession}
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open)
-          if (!open) {
-            setDialogSession(null)
-          }
-        }}
-        onSubmitted={onRetry}
-      />
     </div>
   )
 }
@@ -277,40 +341,259 @@ function normalizePayload(raw: unknown): {
 
 function AgentSessionCard({
   session,
-  onReviewApprovals,
+  onRefresh,
 }: {
   session: AgentSessionWithStatus
-  onReviewApprovals?: (session: AgentSessionWithStatus) => void
+  onRefresh?: () => void
 }) {
   const workspaceId = useWorkspaceId()
   const createdAt = new Date(session.created_at)
-  const [expandedApprovals, setExpandedApprovals] = useState<Set<string>>(
+  const { toast } = useToast()
+  const [expandedCompleted, setExpandedCompleted] = useState<Set<string>>(
     new Set()
   )
+  const [expandedPending, setExpandedPending] = useState<Set<string>>(new Set())
+  const [showReviewDrawer, setShowReviewDrawer] = useState(false)
+  const [formState, setFormState] = useState<Record<string, DecisionFormState>>(
+    {}
+  )
+  const [formError, setFormError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const toggleApprovalExpanded = (approvalId: string) => {
-    setExpandedApprovals((prev) => {
+  const toggleCompletedExpanded = (approvalId: string, open?: boolean) => {
+    setExpandedCompleted((prev) => {
       const next = new Set(prev)
-      if (next.has(approvalId)) {
-        next.delete(approvalId)
-      } else {
+      const shouldOpen = open ?? !next.has(approvalId)
+      if (shouldOpen) {
         next.add(approvalId)
+      } else {
+        next.delete(approvalId)
       }
       return next
     })
   }
+
+  const togglePendingExpanded = (toolCallId: string, open?: boolean) => {
+    setExpandedPending((prev) => {
+      const next = new Set(prev)
+      const shouldOpen = open ?? !next.has(toolCallId)
+      if (shouldOpen) {
+        next.add(toolCallId)
+      } else {
+        next.delete(toolCallId)
+      }
+      return next
+    })
+  }
+
+  const handleCopySessionId = async () => {
+    try {
+      await navigator.clipboard.writeText(session.id)
+      toast({
+        title: "Session ID copied",
+        description: "The session identifier is now in your clipboard.",
+      })
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Unable to copy the session ID. Please try again.",
+      })
+    }
+  }
+
   const humanizeActionRef = (ref: string): string =>
     ref
       .replace(/[_-]+/g, " ")
       .replace(/\s+/g, " ")
       .trim()
       .replace(/\b\w/g, (char) => char.toUpperCase())
-  const pendingApprovals =
-    session.pendingApprovalCount > 0
-      ? (session.approvals?.filter(
-          (approval) => approval.status === "pending"
-        ) ?? [])
-      : []
+
+  const pendingApprovals = useMemo(
+    () =>
+      session.pendingApprovalCount > 0
+        ? (session.approvals?.filter(
+            (approval) => approval.status === "pending"
+          ) ?? [])
+        : [],
+    [session.approvals, session.pendingApprovalCount]
+  )
+
+  useEffect(() => {
+    if (showReviewDrawer) {
+      setExpandedPending(
+        new Set(pendingApprovals.map((approval) => approval.tool_call_id))
+      )
+      setFormState((prev) => {
+        let changed = false
+        const next: Record<string, DecisionFormState> = {}
+        for (const approval of pendingApprovals) {
+          const existing = prev[approval.tool_call_id]
+          if (existing) {
+            next[approval.tool_call_id] = existing
+          } else {
+            next[approval.tool_call_id] = createDefaultDecisionState()
+            changed = true
+          }
+        }
+        if (Object.keys(prev).length !== Object.keys(next).length) {
+          changed = true
+        }
+        return changed ? next : prev
+      })
+    } else {
+      setFormError(null)
+      setFormState({})
+      setExpandedPending(new Set())
+    }
+  }, [showReviewDrawer, pendingApprovals])
+
+  useEffect(() => {
+    if (pendingApprovals.length === 0 && showReviewDrawer) {
+      setShowReviewDrawer(false)
+      setFormState({})
+      setFormError(null)
+      setExpandedPending(new Set())
+    }
+  }, [pendingApprovals.length, showReviewDrawer])
+
+  const updateFormState = useCallback(
+    (
+      toolCallId: string,
+      updater: (state: DecisionFormState) => DecisionFormState
+    ) => {
+      setFormState((prev) => {
+        const current = prev[toolCallId] ?? createDefaultDecisionState()
+        const nextState = updater(current)
+        if (
+          current.decision === nextState.decision &&
+          current.overrideArgs === nextState.overrideArgs &&
+          current.message === nextState.message
+        ) {
+          return prev
+        }
+        return {
+          ...prev,
+          [toolCallId]: nextState,
+        }
+      })
+    },
+    []
+  )
+
+  const handleDecisionChange = useCallback(
+    (toolCallId: string, decision: DecisionType) => {
+      updateFormState(toolCallId, (current) => ({
+        ...current,
+        decision,
+      }))
+    },
+    [updateFormState]
+  )
+
+  const handleOverrideChange = useCallback(
+    (toolCallId: string, value: string) => {
+      updateFormState(toolCallId, (current) => ({
+        ...current,
+        overrideArgs: value,
+      }))
+    },
+    [updateFormState]
+  )
+
+  const handleMessageChange = useCallback(
+    (toolCallId: string, value: string) => {
+      updateFormState(toolCallId, (current) => ({
+        ...current,
+        message: value,
+      }))
+    },
+    [updateFormState]
+  )
+
+  const handleSubmit = async () => {
+    if (!workspaceId) {
+      setFormError("Workspace context is required to submit approvals.")
+      return
+    }
+    if (!pendingApprovals.length) {
+      setFormError("There are no pending approvals to submit.")
+      return
+    }
+
+    const approvalsPayload: Record<string, AgentApprovalDecisionPayload> = {}
+
+    for (const approval of pendingApprovals) {
+      const state = formState[approval.tool_call_id]
+      if (!state) {
+        setFormError("Please review all pending approvals before submitting.")
+        return
+      }
+
+      let value: AgentApprovalDecisionPayload
+      if (state.decision === "approve") {
+        value = true
+      } else if (state.decision === "override") {
+        const trimmed = state.overrideArgs.trim()
+        let overrideArgs: Record<string, unknown> | undefined
+        if (trimmed.length > 0) {
+          try {
+            overrideArgs = JSON.parse(trimmed)
+          } catch {
+            setFormError(
+              `Override args for tool ${approval.tool_call_id} must be valid JSON.`
+            )
+            return
+          }
+        }
+        value = {
+          kind: "tool-approved",
+          override_args: overrideArgs,
+        }
+      } else {
+        const message = state.message.trim()
+        value =
+          message.length > 0
+            ? { kind: "tool-denied", message }
+            : { kind: "tool-denied" }
+      }
+
+      const validation = approvalValueValidator.safeParse(value)
+      if (!validation.success) {
+        setFormError(
+          `Approval payload for tool ${approval.tool_call_id} is invalid: ${validation.error.message}`
+        )
+        return
+      }
+
+      approvalsPayload[approval.tool_call_id] = validation.data
+    }
+
+    setIsSubmitting(true)
+    setFormError(null)
+    try {
+      await agentSubmitAgentApprovals({
+        workspaceId,
+        sessionId: session.id,
+        requestBody: {
+          approvals: approvalsPayload,
+        },
+      })
+      toast({
+        title: "Approvals submitted",
+        description: "The agent will resume once the workflow processes them.",
+      })
+      setShowReviewDrawer(false)
+      setFormState({})
+      setSelectedApprovalId(null)
+      setExpandedPending(new Set())
+      onRefresh?.()
+    } catch (error) {
+      console.error("Failed to submit approvals", error)
+      setFormError("Failed to submit approvals. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const completedApprovals =
     session.approvals?.filter((approval) => approval.status !== "pending") ?? []
@@ -365,7 +648,6 @@ function AgentSessionCard({
       workflowId: session.parent_id,
       executionId: session.parent_run_id,
     },
-    // Only include root workflow if it's different from parent workflow
     ...(rootWorkflowSummary
       ? [
           {
@@ -397,6 +679,18 @@ function AgentSessionCard({
       }
     })
 
+  const maxPreviewApprovals = 2
+  const approvalsToDisplay = showReviewDrawer
+    ? pendingApprovals
+    : pendingApprovals.slice(0, maxPreviewApprovals)
+  const hasHiddenApprovals =
+    !showReviewDrawer && pendingApprovals.length > approvalsToDisplay.length
+  const toggleLabel = showReviewDrawer
+    ? "Hide approvals"
+    : hasHiddenApprovals
+      ? `See all ${pendingApprovals.length}`
+      : "Expand approvals"
+
   return (
     <div className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm transition hover:border-border">
       <div className="flex flex-col gap-2">
@@ -407,31 +701,41 @@ function AgentSessionCard({
               {sessionActionLabel ?? `Session ${session.id.slice(0, 8)}`}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{createdAt.toLocaleString()}</span>
-            <span aria-hidden="true">•</span>
-            <span>{shortTimeAgo(createdAt)}</span>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              >
+                <MoreHorizontal className="size-4" />
+                <span className="sr-only">Session actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel>Session actions</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={handleCopySessionId}>
+                Copy session ID
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <span className="text-foreground/65">Session ID:</span>
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-              {session.id}
-            </code>
-          </span>
-          {session.pendingApprovalCount > 0 && (
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-xs font-medium",
-                toneBadgeClasses[session.statusTone]
-              )}
-            >
-              {session.pendingApprovalCount} pending approval
-              {session.pendingApprovalCount > 1 ? "s" : ""}
-            </span>
-          )}
+          <span>{createdAt.toLocaleString()}</span>
+          <span aria-hidden="true">•</span>
+          <span>{shortTimeAgo(createdAt)}</span>
         </div>
+        {session.pendingApprovalCount > 0 && (
+          <span
+            className={cn(
+              "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium",
+              toneBadgeClasses[session.statusTone]
+            )}
+          >
+            {session.pendingApprovalCount} pending approval
+            {session.pendingApprovalCount > 1 ? "s" : ""}
+          </span>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {workflowLinks.map((detail, index) => (
             <span key={detail.label} className="flex items-center gap-2">
@@ -518,10 +822,10 @@ function AgentSessionCard({
                     key={approval.id}
                     onClick={() => {
                       if (hasExpandableContent) {
-                        toggleApprovalExpanded(approval.id)
+                        toggleCompletedExpanded(approval.id)
                       }
                     }}
-                    className="w-full text-left flex items-start gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 transition-colors hover:bg-muted/30 disabled:opacity-50"
+                    className="flex w-full items-start gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 disabled:opacity-50"
                     disabled={!hasExpandableContent}
                   >
                     {approverUser ? (
@@ -536,7 +840,7 @@ function AgentSessionCard({
                         ?
                       </div>
                     )}
-                    <div className="flex min-w-0 w-full flex-col gap-0.5">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex min-w-0 items-start justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {getIcon(actionTypeKey, {
@@ -548,14 +852,14 @@ function AgentSessionCard({
                         </div>
                         {hasExpandableContent ? (
                           <Collapsible
-                            open={expandedApprovals.has(approval.id)}
-                            onOpenChange={() =>
-                              toggleApprovalExpanded(approval.id)
+                            open={expandedCompleted.has(approval.id)}
+                            onOpenChange={(value) =>
+                              toggleCompletedExpanded(approval.id, value)
                             }
                           >
                             <CollapsibleTrigger
                               onClick={(e) => e.stopPropagation()}
-                              className="flex shrink-0 text-[11px] font-medium text-muted-foreground/80 hover:text-muted-foreground transition-colors"
+                              className="flex shrink-0 text-[11px] font-medium text-muted-foreground/80 transition-colors hover:text-muted-foreground"
                             >
                               <ChevronDownIcon className="size-3.5 transition-transform data-[state=open]:rotate-180" />
                             </CollapsibleTrigger>
@@ -575,9 +879,9 @@ function AgentSessionCard({
                       </span>
                       {hasExpandableContent ? (
                         <Collapsible
-                          open={expandedApprovals.has(approval.id)}
-                          onOpenChange={() =>
-                            toggleApprovalExpanded(approval.id)
+                          open={expandedCompleted.has(approval.id)}
+                          onOpenChange={(value) =>
+                            toggleCompletedExpanded(approval.id, value)
                           }
                         >
                           <CollapsibleContent
@@ -628,36 +932,297 @@ function AgentSessionCard({
           </div>
         )}
         {pendingApprovals.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-700">
-            <div className="flex flex-wrap gap-2">
-              {pendingApprovals.map((approval: ApprovalRead) => {
-                const actionTypeKey = approval.tool_name
-                  ? reconstructActionType(approval.tool_name)
-                  : "unknown"
+          <div className="flex flex-col gap-2 rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                Pending approvals
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {toggleLabel}
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setShowReviewDrawer((prev) => !prev)}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  aria-expanded={showReviewDrawer}
+                  aria-label={
+                    showReviewDrawer ? "Collapse approvals" : "Expand approvals"
+                  }
+                >
+                  <ChevronDownIcon
+                    className={cn(
+                      "size-3 transition-transform",
+                      showReviewDrawer ? "rotate-180" : "rotate-0"
+                    )}
+                  />
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              {approvalsToDisplay.map((approval) => {
+                const recommendationDisplay = getRecommendationDisplay(
+                  approval.recommendation?.verdict
+                )
+                const reason = approval.recommendation?.reason?.trim() ?? ""
                 const toolLabel = approval.tool_name
-                  ? actionTypeKey
+                  ? reconstructActionType(approval.tool_name)
                   : "Unknown tool"
+                const isExpanded = expandedPending.has(approval.tool_call_id)
+                const state =
+                  formState[approval.tool_call_id] ??
+                  createDefaultDecisionState()
+                const showRecommendationCallout =
+                  recommendationDisplay.verdict !== "unknown"
+                const argsData = approval.tool_call_args
+                let parsedArgs: unknown = argsData
+                if (typeof argsData === "string") {
+                  try {
+                    parsedArgs = JSON.parse(argsData)
+                  } catch {
+                    parsedArgs = argsData
+                  }
+                }
+
                 return (
-                  <span
+                  <div
                     key={approval.id}
-                    className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium"
+                    className="rounded-md border border-dashed border-amber-200/70 bg-white/60 px-3 py-2"
                   >
-                    {getIcon(actionTypeKey, {
-                      className: "size-5 shrink-0",
-                    })}
-                    <span>Awaiting {toolLabel}</span>
-                  </span>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {getIcon(toolLabel, {
+                          className: "size-4 text-muted-foreground/70",
+                        })}
+                        <span className="text-xs font-semibold text-foreground">
+                          {toolLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger asChild>
+                            <div
+                              className="inline-flex cursor-help items-center gap-2 rounded-md border border-muted-foreground/30 bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground"
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <recommendationDisplay.icon
+                                className={cn(
+                                  "size-3",
+                                  recommendationDisplay.iconClassName
+                                )}
+                              />
+                              {recommendationDisplay.label}
+                            </div>
+                          </HoverCardTrigger>
+                          <HoverCardContent className="w-72 space-y-2 text-[11px] leading-snug">
+                            <p className="font-medium text-foreground">
+                              {recommendationDisplay.label}
+                            </p>
+                            <p>{reason || recommendationDisplay.description}</p>
+                            {approval.recommendation?.source ? (
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                                Source: {approval.recommendation.source}
+                              </p>
+                            ) : null}
+                          </HoverCardContent>
+                        </HoverCard>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            togglePendingExpanded(approval.tool_call_id)
+                          }
+                          aria-label={
+                            isExpanded
+                              ? "Collapse approval details"
+                              : "Expand approval details"
+                          }
+                          aria-expanded={isExpanded}
+                        >
+                          <ChevronDownIcon
+                            className={cn(
+                              "size-3 transition-transform",
+                              isExpanded ? "rotate-180" : "rotate-0"
+                            )}
+                          />
+                        </Button>
+                      </div>
+                    </div>
+                    {isExpanded ? (
+                      <ScrollArea className="mt-3 max-h-72 pr-2">
+                        <div className="space-y-3 text-xs text-muted-foreground">
+                          {showRecommendationCallout ? (
+                            <Alert className="border-amber-200 bg-amber-50/80 text-amber-900">
+                              <AlertTitle className="flex items-center gap-2 text-sm font-semibold">
+                                <recommendationDisplay.icon
+                                  className={cn(
+                                    "size-4",
+                                    recommendationDisplay.iconClassName
+                                  )}
+                                />
+                                AI recommends{" "}
+                                {recommendationDisplay.label.toLowerCase()}
+                              </AlertTitle>
+                              <AlertDescription>
+                                {reason || recommendationDisplay.description}
+                              </AlertDescription>
+                            </Alert>
+                          ) : null}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
+                              Arguments
+                            </span>
+                            <JsonViewWithControls
+                              src={parsedArgs}
+                              defaultExpanded
+                              defaultTab="nested"
+                              showControls={false}
+                              className="text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
+                              Recent context
+                            </span>
+                            {approval.history && approval.history.length > 0 ? (
+                              <ul className="space-y-1 text-[11px] leading-snug text-muted-foreground">
+                                {approval.history.map((entry, index) => (
+                                  <li
+                                    key={`${approval.id}-history-${index}`}
+                                    className="flex gap-2"
+                                  >
+                                    <span className="text-muted-foreground/60">
+                                      {index + 1}.
+                                    </span>
+                                    <span className="flex-1">{entry}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-[11px] italic text-muted-foreground/70">
+                                No recent agent outputs available for this
+                                approval.
+                              </p>
+                            )}
+                          </div>
+                          {showReviewDrawer ? (
+                            <div className="space-y-3">
+                              <div className="flex flex-col gap-1.5">
+                                <Label className="text-xs text-muted-foreground">
+                                  Decision
+                                </Label>
+                                <Select
+                                  value={state.decision}
+                                  onValueChange={(value) =>
+                                    handleDecisionChange(
+                                      approval.tool_call_id,
+                                      value as DecisionType
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 w-fit min-w-[200px] text-xs">
+                                    <SelectValue placeholder="Select an action" />
+                                  </SelectTrigger>
+                                  <SelectContent className="min-w-[200px]">
+                                    <SelectItem value="approve">
+                                      Approve
+                                    </SelectItem>
+                                    <SelectItem value="override">
+                                      Approve with overrides
+                                    </SelectItem>
+                                    <SelectItem value="deny">Deny</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {state.decision === "override" ? (
+                                <div className="flex flex-col gap-1.5">
+                                  <Label className="text-xs text-muted-foreground">
+                                    Override arguments (JSON)
+                                  </Label>
+                                  <Textarea
+                                    value={state.overrideArgs}
+                                    className="min-h-[96px] text-xs font-mono"
+                                    placeholder='e.g. { "channel": "general" }'
+                                    onChange={(event) =>
+                                      handleOverrideChange(
+                                        approval.tool_call_id,
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </div>
+                              ) : null}
+                              {state.decision === "deny" ? (
+                                <div className="flex flex-col gap-1.5">
+                                  <Label className="text-xs text-muted-foreground">
+                                    Optional reason
+                                  </Label>
+                                  <Textarea
+                                    value={state.message}
+                                    className="min-h-[72px] text-xs"
+                                    placeholder="Let the agent know why this call is denied."
+                                    onChange={(event) =>
+                                      handleMessageChange(
+                                        approval.tool_call_id,
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </ScrollArea>
+                    ) : null}
+                  </div>
                 )
               })}
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => onReviewApprovals?.(session)}
-              className="shrink-0"
-            >
-              Review approvals
-            </Button>
+            {hasHiddenApprovals ? (
+              <p className="text-[11px] text-muted-foreground">
+                Showing first {approvalsToDisplay.length} of{" "}
+                {pendingApprovals.length}. Select "See all" to review
+                everything.
+              </p>
+            ) : null}
+            {showReviewDrawer && formError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {formError}
+              </div>
+            ) : null}
+            {showReviewDrawer ? (
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setShowReviewDrawer(false)
+                    setFormState({})
+                    setFormError(null)
+                    setSelectedApprovalId(null)
+                    setExpandedPending(new Set())
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || pendingApprovals.length === 0}
+                >
+                  {isSubmitting ? "Submitting..." : "Submit decisions"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

@@ -56,6 +56,16 @@ import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
 
+function isApprovalRecommendationResult(
+  value: unknown
+): value is { recommendations: unknown[] } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+  const candidate = value as { recommendations?: unknown }
+  return Array.isArray(candidate.recommendations)
+}
+
 export function ActionEventPane({
   execution,
   type,
@@ -211,7 +221,11 @@ export function SuccessEvent({
         />
       )
     case "result":
-      return (
+      return isApprovalRecommendationResult(event.action_result) ? (
+        <div className="rounded-md border border-dashed border-muted/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Approval manager output is captured in the approvals panel.
+        </div>
+      ) : (
         <JsonViewWithControls
           src={event.action_result}
           defaultExpanded={defaultExpanded}
@@ -302,6 +316,9 @@ function ActionEventContent({
     default: {
       const showSessionTabs =
         type === "result" && !!session && !action_error && !streamIdPlaceholder
+      const isRecommendationResult =
+        type === "result" &&
+        isApprovalRecommendationResult(actionEvent.action_result)
 
       if (showSessionTabs && session) {
         return (
@@ -340,12 +357,18 @@ function ActionEventContent({
               <ActionSessionStream session={session} />
             </TabsContent>
             <TabsContent value="result" className="mt-1">
-              <JsonViewWithControls
-                src={actionEvent.action_result}
-                defaultExpanded={true}
-                defaultTab="nested"
-                copyPrefix={`ACTIONS.${eventRef}.result`}
-              />
+              {isRecommendationResult ? (
+                <div className="rounded-md border border-dashed border-muted/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Approval manager output is visible in the approvals panel.
+                </div>
+              ) : (
+                <JsonViewWithControls
+                  src={actionEvent.action_result}
+                  defaultExpanded={true}
+                  defaultTab="nested"
+                  copyPrefix={`ACTIONS.${eventRef}.result`}
+                />
+              )}
             </TabsContent>
           </Tabs>
         )

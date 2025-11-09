@@ -195,6 +195,22 @@ class AgentManagementService(BaseService):
             return self.settings_service.get_value(setting)
         return None
 
+    async def get_approval_manager_preset_id(self) -> uuid.UUID | None:
+        """Return the configured approval manager preset identifier, if any."""
+        setting = await self.settings_service.get_org_setting(
+            "agent_approval_manager_preset_id"
+        )
+        if not setting:
+            return None
+        value = self.settings_service.get_value(setting)
+        if not value:
+            return None
+        try:
+            return uuid.UUID(str(value))
+        except (TypeError, ValueError):
+            logger.warning("Invalid approval manager preset identifier", preset=value)
+            return None
+
     @contextlib.asynccontextmanager
     async def with_model_config(self) -> AsyncIterator[ModelConfig]:
         """Get the platform-specific secrets for the selected model."""

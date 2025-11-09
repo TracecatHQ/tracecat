@@ -19,6 +19,7 @@ import {
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
   type AgentSettingsRead,
+  type AgentSettingsUpdate,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
@@ -4573,6 +4574,36 @@ export function useIntegrationProvider({
 }
 
 // Agent hooks
+export function useAgentSettings() {
+  const {
+    data: agentSettings,
+    isLoading: agentSettingsIsLoading,
+    error: agentSettingsError,
+  } = useQuery<AgentSettingsRead, TracecatApiError>({
+    queryKey: ["agent-settings"],
+    queryFn: async () => await settingsGetAgentSettings(),
+    retry: retryHandler,
+  })
+
+  return { agentSettings, agentSettingsIsLoading, agentSettingsError }
+}
+
+export function useUpdateAgentSettings() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateAgentSettings,
+    isPending: updateAgentSettingsIsPending,
+  } = useMutation<void, TracecatApiError, AgentSettingsUpdate>({
+    mutationFn: async (payload) =>
+      await settingsUpdateAgentSettings({ requestBody: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-settings"] })
+    },
+  })
+
+  return { updateAgentSettings, updateAgentSettingsIsPending }
+}
+
 interface UseAgentSessionsOptions {
   enabled?: boolean
   autoRefresh?: boolean

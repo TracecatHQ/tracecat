@@ -24,7 +24,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
-from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.enums import (
+    ApprovalRecommendationVerdict,
+    ApprovalStatus,
+)
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
@@ -1348,6 +1351,24 @@ class Approval(Resource, table=True):
         default=None,
         sa_column=Column(JSONB),
         description="Tool call arguments captured at approval request time",
+    )
+    history: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+        description="Recent agent outputs or message identifiers providing context for the approval",
+    )
+    recommendation_verdict: ApprovalRecommendationVerdict | None = Field(
+        default=None,
+        sa_column=Column(String(16)),
+        description="Suggested verdict from the approval manager (approve/reject/hold)",
+    )
+    recommendation_reason: str | None = Field(
+        default=None,
+        description="Human-readable rationale provided by the approval manager",
+    )
+    recommendation_source: str | None = Field(
+        default=None,
+        description="Identifier for the approval manager preset that generated the recommendation",
     )
     status: ApprovalStatus = Field(
         default=ApprovalStatus.PENDING,

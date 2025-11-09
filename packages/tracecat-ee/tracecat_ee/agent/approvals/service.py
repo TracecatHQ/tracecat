@@ -8,9 +8,8 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai.messages import (
-    ToolCallPart,
-)
+from pydantic import BaseModel
+from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import (
     DeferredToolApprovalResult,
     DeferredToolResults,
@@ -22,13 +21,20 @@ from temporalio import activity, workflow
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
 
 from tracecat.agent.aliases import build_agent_alias
-from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.enums import (
+    ApprovalRecommendationVerdict,
+    ApprovalStatus,
+)
+from tracecat.agent.runtime import run_agent
 from tracecat.agent.schemas import AgentOutput
+from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
+from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.models import Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
@@ -42,6 +48,7 @@ from tracecat_ee.agent.activities import (
 )
 from tracecat_ee.agent.approvals.schemas import (
     ApprovalCreate,
+    ApprovalRecommendation,
     ApprovalUpdate,
 )
 from tracecat_ee.agent.context import AgentContext
@@ -97,6 +104,11 @@ class SessionHistoryItem:
     """The execution result, if available and successful."""
 
 
+class GenerateApprovalRecommendationsActivityInputs(BaseModel):
+    role: Role
+    session_id: uuid.UUID
+
+
 class ApprovalService(BaseWorkspaceService):
     """Service for managing agent approval records.
 
@@ -109,6 +121,24 @@ class ApprovalService(BaseWorkspaceService):
 
     # CREATE operations
 
+    @staticmethod
+    def _apply_recommendation(
+        approval: Approval, recommendation: ApprovalRecommendation | None
+    ) -> None:
+        if recommendation is None:
+            approval.recommendation_verdict = None
+            approval.recommendation_reason = None
+            approval.recommendation_source = None
+            return
+
+        approval.recommendation_verdict = (
+            recommendation.verdict.value
+            if isinstance(recommendation.verdict, ApprovalRecommendationVerdict)
+            else recommendation.verdict
+        )
+        approval.recommendation_reason = recommendation.reason
+        approval.recommendation_source = recommendation.source
+
     async def create_approval(self, params: ApprovalCreate) -> Approval:
         """Create a single approval record."""
         approval = Approval(
@@ -118,7 +148,9 @@ class ApprovalService(BaseWorkspaceService):
             tool_name=params.tool_name,
             status=ApprovalStatus.PENDING,
             tool_call_args=params.tool_call_args,
+            history=(params.history or [])[:5],
         )
+        self._apply_recommendation(approval, params.recommendation)
         self.session.add(approval)
         await self.session.commit()
         await self.session.refresh(approval)
@@ -140,7 +172,9 @@ class ApprovalService(BaseWorkspaceService):
                 tool_name=params.tool_name,
                 status=ApprovalStatus.PENDING,
                 tool_call_args=params.tool_call_args,
+                history=(params.history or [])[:5],
             )
+            self._apply_recommendation(approval, params.recommendation)
             self.session.add(approval)
             records.append(approval)
 
@@ -380,8 +414,24 @@ class ApprovalService(BaseWorkspaceService):
         self, approval: Approval, params: ApprovalUpdate
     ) -> Approval:
         """Update a single approval record."""
-        for key, value in params.model_dump(exclude_unset=True).items():
+        data = params.model_dump(exclude_unset=True)
+        history = data.pop("history", None)
+        recommendation_marker = "recommendation" in data
+        recommendation_payload = data.pop("recommendation", None)
+
+        for key, value in data.items():
             setattr(approval, key, value)
+
+        if history is not None:
+            approval.history = (history or [])[:5]
+
+        if recommendation_marker:
+            recommendation = (
+                ApprovalRecommendation.model_validate(recommendation_payload)
+                if recommendation_payload is not None
+                else None
+            )
+            self._apply_recommendation(approval, recommendation)
 
         await self.session.commit()
         await self.session.refresh(approval)
@@ -397,8 +447,24 @@ class ApprovalService(BaseWorkspaceService):
         records: list[Approval] = []
         for approval_id, params in updates.items():
             approval = await self.get_approval(approval_id)
-            for key, value in params.model_dump(exclude_unset=True).items():
+            data = params.model_dump(exclude_unset=True)
+            history = data.pop("history", None)
+            recommendation_marker = "recommendation" in data
+            recommendation_payload = data.pop("recommendation", None)
+
+            for key, value in data.items():
                 setattr(approval, key, value)
+
+            if history is not None:
+                approval.history = (history or [])[:5]
+
+            if recommendation_marker:
+                recommendation = (
+                    ApprovalRecommendation.model_validate(recommendation_payload)
+                    if recommendation_payload is not None
+                    else None
+                )
+                self._apply_recommendation(approval, recommendation)
             records.append(approval)
 
         await self.session.commit()
@@ -471,6 +537,7 @@ class ApprovalManager:
                 tool_call_id=approval.tool_call_id,
                 tool_name=approval.tool_name,
                 args=approval.args,
+                history=[],
             )
             for approval in approvals
         ]
@@ -483,6 +550,16 @@ class ApprovalManager:
                 approvals=approval_payloads,
             ),
             start_to_close_timeout=timedelta(seconds=30),
+        )
+
+    async def generate_recommendations(self) -> None:
+        await workflow.execute_activity(
+            ApprovalManager.generate_approval_recommendations,
+            arg=GenerateApprovalRecommendationsActivityInputs(
+                role=self.role,
+                session_id=self.session_id,
+            ),
+            start_to_close_timeout=timedelta(seconds=120),
         )
 
     def get(self) -> DeferredToolResults | None:
@@ -595,7 +672,6 @@ class ApprovalManager:
             )
         self._approved_by = None
 
-    @staticmethod
     @activity.defn
     async def apply_approval_decisions(
         input: ApplyApprovalResultsActivityInputs,
@@ -659,6 +735,229 @@ class ApprovalManager:
 
     @staticmethod
     @activity.defn
+    async def generate_approval_recommendations(
+        input: GenerateApprovalRecommendationsActivityInputs,
+    ) -> None:
+        async with ApprovalService.with_session(role=input.role) as approval_service:
+            approvals = await approval_service.list_approvals_for_session(
+                input.session_id
+            )
+            if not approvals:
+                logger.info(
+                    "No approvals available for recommendation generation",
+                    session_id=input.session_id,
+                )
+                return
+
+            approvals_payload = [
+                {
+                    "tool_call_id": approval.tool_call_id,
+                    "tool_name": approval.tool_name,
+                    "history": approval.history[:5],
+                    "args": approval.tool_call_args,
+                }
+                for approval in approvals
+            ]
+
+            agent_output = None
+            preset = None
+            async with AgentManagementService.with_session(
+                role=input.role
+            ) as agent_service:
+                preset_id = await agent_service.get_approval_manager_preset_id()
+                if not preset_id:
+                    logger.info(
+                        "Approval manager preset not configured; skipping recommendation generation",
+                        session_id=input.session_id,
+                    )
+                    return
+                if agent_service.presets is None:
+                    logger.warning(
+                        "Agent preset service unavailable for approval recommendations",
+                        session_id=input.session_id,
+                    )
+                    return
+                try:
+                    preset = await agent_service.presets.get_preset(preset_id)
+                except TracecatNotFoundError:
+                    logger.warning(
+                        "Configured approval manager preset not found",
+                        preset_id=str(preset_id),
+                        session_id=input.session_id,
+                    )
+                    return
+
+                async with agent_service.with_preset_config(
+                    preset_id=preset_id
+                ) as preset_config:
+                    prompt = ApprovalManager._build_recommendation_prompt(
+                        approvals_payload
+                    )
+                    role_token = ctx_role.set(input.role)
+                    session_token = ctx_session_id.set(input.session_id)
+                    try:
+                        agent_output = await run_agent(
+                            user_prompt=prompt,
+                            model_name=preset_config.model_name,
+                            model_provider=preset_config.model_provider,
+                            actions=preset_config.actions,
+                            namespaces=preset_config.namespaces,
+                            tool_approvals=preset_config.tool_approvals,
+                            mcp_server_url=preset_config.mcp_server_url,
+                            mcp_server_headers=preset_config.mcp_server_headers,
+                            instructions=preset_config.instructions,
+                            output_type=preset_config.output_type,
+                            model_settings=preset_config.model_settings,
+                            base_url=preset_config.base_url,
+                            retries=preset_config.retries,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive guard
+                        logger.warning(
+                            "Approval manager agent execution failed",
+                            error=str(exc),
+                            session_id=input.session_id,
+                        )
+                        return
+                    finally:
+                        ctx_role.reset(role_token)
+                        ctx_session_id.reset(session_token)
+
+            if agent_output is None or preset is None:
+                return
+
+            recommendations = ApprovalManager._parse_recommendations(
+                agent_output.output
+            )
+            if not recommendations:
+                logger.info(
+                    "Approval manager returned no structured recommendations",
+                    session_id=input.session_id,
+                )
+                return
+
+            recommendation_source = preset.slug or str(preset.id)
+            for approval in approvals:
+                rec = recommendations.get(approval.tool_call_id)
+                if not rec:
+                    continue
+                verdict_value = rec.get("verdict")
+                if isinstance(verdict_value, str):
+                    try:
+                        verdict_value = ApprovalRecommendationVerdict(verdict_value)
+                    except ValueError:
+                        verdict_value = None
+                recommendation_model = ApprovalRecommendation(
+                    verdict=verdict_value,
+                    reason=rec.get("reason"),
+                    source=rec.get("source") or recommendation_source,
+                )
+                await approval_service.update_approval(
+                    approval,
+                    ApprovalUpdate(
+                        history=approval.history[:5],
+                        recommendation=recommendation_model,
+                    ),
+                )
+
+    @staticmethod
+    def _build_recommendation_prompt(approvals: list[dict[str, Any]]) -> str:
+        header = (
+            "You are Tracecat's approval manager. For each pending tool call:\n"
+            "- Read the tool name, arguments, and any recent history that follows.\n"
+            "- Infer intent and potential risk even if history is empty—use tool metadata and arguments.\n"
+            "- Choose one verdict: approve (safe, low-risk), reject (dangerous, policy violation, or malformed), "
+            "or hold (uncertain, needs human review).\n"
+            "- Always provide a short, actionable reason that references the tool call (never say 'no context').\n"
+            "Return strictly JSON in the form:\n"
+            '{"recommendations":[{"tool_call_id":"...",'
+            '"verdict":"approve|reject|hold","reason":"..."}]}'
+        )
+        entries: list[str] = []
+        for approval in approvals:
+            args_repr = (
+                json.dumps(approval["args"], indent=2, sort_keys=True)
+                if approval["args"] is not None
+                else "null"
+            )
+            history = approval.get("history") or []
+            history_section = (
+                "\n".join(f"    - {item}" for item in history)
+                if history
+                else "    (no previous outputs in history)"
+            )
+            entries.append(
+                "\n".join(
+                    [
+                        f"- tool_call_id: {approval['tool_call_id']}",
+                        f"  tool_name: {approval['tool_name']}",
+                        "  args:",
+                        "\n".join(f"    {line}" for line in args_repr.splitlines()),
+                        "  history:",
+                        history_section,
+                    ]
+                )
+            )
+        return f"{header}\n\nPending approvals:\n" + "\n".join(entries)
+
+    @staticmethod
+    def _parse_recommendations(payload: Any) -> dict[str, dict[str, Any]]:
+        if payload is None:
+            return {}
+        data = payload
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return {}
+        if isinstance(data, dict):
+            recommendations = data.get("recommendations")
+            if recommendations is None and "tool_call_id" in data:
+                recommendations = [data]
+        elif isinstance(data, list):
+            recommendations = data
+        else:
+            return {}
+
+        if not isinstance(recommendations, list):
+            return {}
+
+        result: dict[str, dict[str, Any]] = {}
+        for entry in recommendations:
+            if not isinstance(entry, dict):
+                continue
+            tool_call_id = entry.get("tool_call_id")
+            if not tool_call_id or not isinstance(tool_call_id, str):
+                continue
+            verdict = entry.get("verdict", entry.get("action"))
+            normalized_verdict = ApprovalRecommendationVerdict.HOLD.value
+            if isinstance(verdict, str):
+                normalized = verdict.strip().lower()
+                if normalized in {"approve", "approved"}:
+                    normalized_verdict = ApprovalRecommendationVerdict.APPROVE.value
+                elif normalized in {"reject", "rejected", "deny", "denied"}:
+                    normalized_verdict = ApprovalRecommendationVerdict.REJECT.value
+                elif normalized in {"hold", "pending"}:
+                    normalized_verdict = ApprovalRecommendationVerdict.HOLD.value
+            reason_value = entry.get("reason")
+            if isinstance(reason_value, str):
+                stripped_reason = reason_value.strip()
+                if not stripped_reason:
+                    reason_value = f"Reason missing in model output; manual review required for {tool_call_id}."
+                elif "no context" in stripped_reason.lower():
+                    reason_value = f"Context limited; review tool call {tool_call_id} before proceeding."
+                else:
+                    reason_value = stripped_reason
+            else:
+                reason_value = None
+            result[tool_call_id] = {
+                "verdict": normalized_verdict,
+                "reason": reason_value,
+                "source": entry.get("source"),
+            }
+        return result
+
+    @staticmethod
+    @activity.defn
     async def record_approval_requests(
         input: PersistApprovalsActivityInputs,
     ) -> None:
@@ -690,10 +989,12 @@ class ApprovalManager:
                         except (json.JSONDecodeError, ValueError):
                             # Store as-is if not valid JSON
                             approval_args = {"raw_args": payload.args}
+                history = (payload.history or [])[:5]
 
                 if existing:
                     # TODO: Do we need this path?
                     # Update existing record and reset to pending state
+                    existing.approved_at = None
                     await service.update_approval(
                         existing,
                         ApprovalUpdate(
@@ -703,11 +1004,10 @@ class ApprovalManager:
                             reason=None,
                             approved_by=None,
                             decision=None,
+                            history=history,
+                            recommendation=None,
                         ),
                     )
-                    # Reset approved_at manually
-                    existing.approved_at = None
-                    await service.session.commit()
                 else:
                     # Create new approval record
                     await service.create_approval(
@@ -716,5 +1016,7 @@ class ApprovalManager:
                             tool_call_id=payload.tool_call_id,
                             tool_name=payload.tool_name,
                             tool_call_args=approval_args,
+                            history=history,
+                            recommendation=None,
                         )
                     )
