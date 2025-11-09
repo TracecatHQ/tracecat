@@ -306,14 +306,14 @@ export function ChatSessionPane({
       </div>
       <div className="px-4 pb-4">
         <PromptInput onSubmit={handleSubmit}>
-        <PromptInputBody>
-          <PromptInputTextarea
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={placeholder}
-            value={input}
-            autoFocus={autoFocusInput}
-          />
-        </PromptInputBody>
+          <PromptInputBody>
+            <PromptInputTextarea
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={placeholder}
+              value={input}
+              autoFocus={autoFocusInput}
+            />
+          </PromptInputBody>
           <PromptInputToolbar>
             {toolsEnabled && (
               <PromptInputTools>
