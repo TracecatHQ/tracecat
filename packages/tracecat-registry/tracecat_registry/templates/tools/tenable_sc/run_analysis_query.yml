@@ -1,18 +1,18 @@
 type: action
 definition:
-  title: Get vulnerability details
-  description: Retrieve Tenable Security Center vulnerability analysis results for a scan.
+  title: Run analysis query
+  description: Execute a Tenable Security Center analysis query (e.g. vuln details for a scan).
   display_group: Tenable Security Center
   doc_url: https://docs.tenable.com/security-center/api/Analysis.htm
   namespace: tools.tenable_sc
-  name: get_vulnerability_details
+  name: run_analysis_query
   secrets:
     - name: tenable_sc
       keys: ["TENABLE_SC_ACCESS_KEY", "TENABLE_SC_SECRET_KEY"]
   expects:
     scan_id:
       type: int
-      description: ID of the scan whose vulnerability details to retrieve.
+      description: ID of the scan whose results the query should evaluate.
     analysis_type:
       type: str
       description: Analysis type to pass to the Analysis API.
@@ -57,7 +57,7 @@ definition:
       description: Whether to verify TLS certificates when calling the API.
       default: true
   steps:
-    - ref: get_vulnerabilities
+    - ref: run_analysis
       action: core.http_request
       args:
         url: ${{ inputs.base_url || VARS.tenable_sc.base_url }}/rest/analysis
@@ -76,4 +76,4 @@ definition:
           startOffset: ${{ inputs.start_offset }}
           endOffset: ${{ inputs.end_offset }}
           view: ${{ inputs.view }}
-  returns: ${{ steps.get_vulnerabilities.result.data }}
+  returns: ${{ steps.run_analysis.result.data }}
