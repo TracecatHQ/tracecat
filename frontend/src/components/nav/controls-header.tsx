@@ -10,6 +10,7 @@ import {
   PanelRight,
   PenLine,
   Plus,
+  SlidersHorizontal,
   Trash2,
   User,
   X,
@@ -150,6 +151,10 @@ function TablesActions() {
       <CreateTableDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   )
+}
+
+function IntegrationsActions() {
+  return <CreateCustomProviderDialog />
 }
 
 function CasesActions() {
@@ -509,6 +514,26 @@ function CasesSelectionActionsBar() {
   )
 }
 
+function AgentsActions() {
+  const workspaceId = useWorkspaceId()
+
+  if (!workspaceId) {
+    return null
+  }
+
+  return (
+    <Button asChild size="sm" variant="outline" className="h-7 bg-white">
+      <Link
+        href={`/workspaces/${workspaceId}/agents/presets`}
+        className="flex items-center gap-1.5"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Manage presets
+      </Link>
+    </Button>
+  )
+}
+
 function MembersActions() {
   const { workspace } = useWorkspaceDetails()
 
@@ -741,6 +766,19 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/agents")) {
+    if (pagePath.startsWith("/agents/presets")) {
+      return {
+        title: <AgentsBreadcrumb workspaceId={workspaceId} />,
+      }
+    }
+
+    return {
+      title: "Agents",
+      actions: <AgentsActions />,
+    }
+  }
+
   if (pagePath.startsWith("/cases")) {
     if (
       pagePath === "/cases/custom-fields" ||
@@ -806,6 +844,7 @@ function getPageConfig(
 
     return {
       title: "Integrations",
+      actions: <IntegrationsActions />,
     }
   }
 

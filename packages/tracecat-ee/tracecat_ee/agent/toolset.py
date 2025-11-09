@@ -7,6 +7,7 @@ from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 from pydantic_ai.toolsets.external import TOOL_SCHEMA_VALIDATOR
 from temporalio import workflow
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat_ee.agent.activities import AgentActivities, InvokeToolArgs
@@ -22,8 +23,15 @@ class RemoteToolset(AbstractToolset[AgentDepsT]):
     tool_defs: list[ToolDefinition]
     _id: str | None
 
-    def __init__(self, tool_defs: list[ToolDefinition], *, id: str | None = None):
+    def __init__(
+        self,
+        tool_defs: list[ToolDefinition],
+        *,
+        role: Role,
+        id: str | None = None,
+    ):
         self.tool_defs = tool_defs
+        self.role = role
         self._id = id
 
     def __repr__(self) -> str:
@@ -68,6 +76,12 @@ class RemoteToolset(AbstractToolset[AgentDepsT]):
         if approval_required and not ctx.tool_call_approved:
             raise ApprovalRequired
 
+        role = self.role or ctx_role.get()
+        if role is None:
+            raise UserError(
+                "Remote tool execution requires a role context, but none was found"
+            )
+
         result = await workflow.execute_activity_method(
             AgentActivities.invoke_tool,
             args=(
@@ -77,7 +91,7 @@ class RemoteToolset(AbstractToolset[AgentDepsT]):
                     tool_call_id=tool.tool_def.name,
                 ),
                 AgentContext.get(),
-                ctx_role.get(),
+                role,
             ),
             start_to_close_timeout=timedelta(seconds=60),
         )

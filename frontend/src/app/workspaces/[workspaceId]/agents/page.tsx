@@ -22,7 +22,7 @@ export default function AgentsPage() {
   }, [])
 
   useEffect(() => {
-    if (!agentFeatureEnabled) {
+    if (!featureFlagsLoading && !agentFeatureEnabled) {
       router.replace("/not-found")
     }
   }, [agentFeatureEnabled, featureFlagsLoading, router])

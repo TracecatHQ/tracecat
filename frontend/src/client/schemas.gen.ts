@@ -752,6 +752,613 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentPreset = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "agent-preset",
+      title: "Component Id",
+      default: "agent-preset",
+    },
+  },
+  type: "object",
+  title: "AgentPreset",
+} as const
+
+export const $AgentPresetCreate = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider", "name"],
+  title: "AgentPresetCreate",
+  description: "Payload for creating a new agent preset.",
+} as const
+
+export const $AgentPresetRead = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetRead",
+  description: "API model for reading agent presets.",
+} as const
+
+export const $AgentPresetReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "description",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetReadMinimal",
+  description: "Minimal API model for reading agent presets in list endpoints.",
+} as const
+
+export const $AgentPresetUpdate = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider"],
+  title: "AgentPresetUpdate",
+  description: "Payload for updating an existing agent preset.",
+} as const
+
 export const $AgentSessionRead = {
   properties: {
     id: {
@@ -4108,6 +4715,19 @@ export const $ChatCreate = {
       title: "Tools",
       description: "Tools available to the agent for this chat",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Optional agent preset to use for the chat session",
+    },
   },
   type: "object",
   required: ["title", "entity_type", "entity_id"],
@@ -4117,7 +4737,7 @@ export const $ChatCreate = {
 
 export const $ChatEntity = {
   type: "string",
-  enum: ["case"],
+  enum: ["case", "agent_preset", "agent_preset_builder"],
   title: "ChatEntity",
   description: "The type of entity associated with a chat.",
 } as const
@@ -4192,6 +4812,19 @@ export const $ChatRead = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4279,6 +4912,19 @@ export const $ChatReadMinimal = {
       title: "Tools",
       description: "Tools available to the agent",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -4356,6 +5002,19 @@ export const $ChatReadVercel = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4436,6 +5095,20 @@ export const $ChatUpdate = {
       ],
       title: "Title",
       description: "Chat title",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "Agent preset to use for the chat session (set to null for default instructions)",
     },
   },
   type: "object",
@@ -4873,6 +5546,105 @@ export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[WorkflowReadMinimal]",
+} as const
+
+export const $CustomOAuthProviderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 3,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
+    authorization_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Authorization Endpoint",
+      description: "OAuth authorization endpoint URL",
+    },
+    token_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Token Endpoint",
+      description: "OAuth token endpoint URL",
+    },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "Default OAuth scopes to request",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 3,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+      description: "Optional custom identifier for the provider",
+    },
+    client_id: {
+      type: "string",
+      maxLength: 512,
+      minLength: 1,
+      title: "Client Id",
+      description: "OAuth client identifier",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "grant_type",
+    "authorization_endpoint",
+    "token_endpoint",
+    "client_id",
+  ],
+  title: "CustomOAuthProviderCreate",
+  description: "Request payload for creating a custom OAuth provider.",
 } as const
 
 export const $DSLConfig_Input = {
@@ -5459,12 +6231,16 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/WorkflowAlias",
     },
+    {
+      $ref: "#/components/schemas/AgentPreset",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
     propertyName: "component_id",
     mapping: {
       "action-type": "#/components/schemas/ActionType",
+      "agent-preset": "#/components/schemas/AgentPreset",
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
@@ -6357,6 +7133,7 @@ export const $FeatureFlag = {
     "git-sync",
     "agent-sandbox",
     "agent-approvals",
+    "agent-presets",
     "case-durations",
     "case-tasks",
   ],

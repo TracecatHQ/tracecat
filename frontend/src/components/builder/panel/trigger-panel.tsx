@@ -670,7 +670,7 @@ export function WebhookControls({
                     ) : (
                       <>
                         <SaveIcon className="size-3" />
-                        <span>Save</span>
+                        <span>Save allowlist</span>
                       </>
                     )}
                   </Button>
@@ -689,6 +689,17 @@ export function WebhookControls({
                 />
               </FormControl>
               <FormMessage className="text-xs" />
+              <FormDescription className="text-xs">
+                Press{" "}
+                <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
+                  Enter ↵
+                </kbd>{" "}
+                to add a new entry and the{" "}
+                <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
+                  Save allowlist
+                </kbd>{" "}
+                button at the corner of this input field to save your changes.
+              </FormDescription>
             </FormItem>
           )}
         />

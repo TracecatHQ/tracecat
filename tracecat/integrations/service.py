@@ -3,12 +3,15 @@
 import os
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from typing import cast
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from pydantic import SecretStr
+from slugify import slugify
 from sqlmodel import and_, or_, select
 
-from tracecat.db.models import OAuthIntegration
+from tracecat.db.models import OAuthIntegration, WorkspaceOAuthProvider
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers import get_provider_class
@@ -16,9 +19,16 @@ from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
+    CustomOAuthProviderMixin,
     MCPAuthProvider,
 )
-from tracecat.integrations.schemas import ProviderConfig, ProviderKey
+from tracecat.integrations.schemas import (
+    CustomOAuthProviderCreate,
+    ProviderConfig,
+    ProviderKey,
+    ProviderMetadata,
+    ProviderScopes,
+)
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 
@@ -47,6 +57,194 @@ class IntegrationService(BaseWorkspaceService):
                 f"{field_name} must include a hostname: {endpoint}"
             )
         return endpoint
+
+    @staticmethod
+    def _normalize_scopes(scopes: list[str] | None) -> list[str]:
+        """Normalize scopes by trimming whitespace and removing duplicates."""
+        if not scopes:
+            return []
+        normalized: list[str] = []
+        for scope in scopes:
+            value = scope.strip()
+            if value and value not in normalized:
+                normalized.append(value)
+        return normalized
+
+    async def _provider_identifier_taken(
+        self, provider_id: str, grant_type: OAuthGrantType
+    ) -> bool:
+        """Check whether a provider identifier conflicts with existing providers."""
+        if get_provider_class(ProviderKey(id=provider_id, grant_type=grant_type)):
+            return True
+
+        statement = select(WorkspaceOAuthProvider).where(
+            WorkspaceOAuthProvider.owner_id == self.workspace_id,
+            WorkspaceOAuthProvider.provider_id == provider_id,
+            WorkspaceOAuthProvider.grant_type == grant_type,
+        )
+        result = await self.session.exec(statement)
+        return result.first() is not None
+
+    async def _generate_custom_provider_id(
+        self, *, name: str, requested_id: str | None, grant_type: OAuthGrantType
+    ) -> str:
+        """Generate a unique provider identifier for a custom provider."""
+        base_source = requested_id or name
+        slug = slugify(base_source, separator="-") or uuid4().hex
+        if not slug.startswith("custom-"):
+            slug = f"custom-{slug}"
+
+        candidate = slug
+        suffix = 1
+        while await self._provider_identifier_taken(candidate, grant_type):
+            candidate = f"{slug}-{suffix}"
+            suffix += 1
+        return candidate
+
+    async def list_custom_providers(self) -> Sequence[WorkspaceOAuthProvider]:
+        """List all custom OAuth providers for the current workspace."""
+        statement = select(WorkspaceOAuthProvider).where(
+            WorkspaceOAuthProvider.owner_id == self.workspace_id
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def get_custom_provider(
+        self, *, provider_key: ProviderKey
+    ) -> WorkspaceOAuthProvider | None:
+        """Fetch a custom provider definition for the workspace."""
+        statement = select(WorkspaceOAuthProvider).where(
+            WorkspaceOAuthProvider.owner_id == self.workspace_id,
+            WorkspaceOAuthProvider.provider_id == provider_key.id,
+            WorkspaceOAuthProvider.grant_type == provider_key.grant_type,
+        )
+        result = await self.session.exec(statement)
+        return result.first()
+
+    @staticmethod
+    def _build_custom_provider_class(
+        provider: WorkspaceOAuthProvider,
+    ) -> type[BaseOAuthProvider]:
+        """Construct a dynamic provider class for a custom provider definition."""
+        base_cls: type[BaseOAuthProvider]
+        if provider.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
+            base_cls = AuthorizationCodeOAuthProvider
+        else:
+            base_cls = ClientCredentialsOAuthProvider
+
+        metadata = ProviderMetadata(
+            id=provider.provider_id,
+            name=provider.name,
+            description=provider.description
+            or f"Custom provider {provider.provider_id}",
+            logo_url=None,
+            setup_instructions=None,
+            requires_config=True,
+            setup_steps=[],
+            enabled=True,
+            api_docs_url=None,
+            setup_guide_url=None,
+            troubleshooting_url=None,
+        )
+
+        provider_scopes = ProviderScopes(default=list(provider.scopes or []))
+
+        attrs = {
+            "__module__": __name__,
+            "id": provider.provider_id,
+            "metadata": metadata,
+            "scopes": provider_scopes,
+            "default_authorization_endpoint": provider.authorization_endpoint,
+            "default_token_endpoint": provider.token_endpoint,
+            "authorization_endpoint_help": None,
+            "token_endpoint_help": None,
+        }
+
+        class_name = f"CustomProvider_{provider.id.hex}"
+        return cast(
+            type[BaseOAuthProvider],
+            type(class_name, (CustomOAuthProviderMixin, base_cls), attrs),
+        )
+
+    async def resolve_provider_impl(
+        self, *, provider_key: ProviderKey
+    ) -> type[BaseOAuthProvider] | None:
+        """Resolve a provider implementation from registry or workspace custom providers."""
+        provider_impl = get_provider_class(provider_key)
+        if provider_impl is not None:
+            return provider_impl
+
+        custom_provider = await self.get_custom_provider(provider_key=provider_key)
+        if custom_provider is None:
+            return None
+        return self._build_custom_provider_class(custom_provider)
+
+    async def create_custom_provider(
+        self, *, params: CustomOAuthProviderCreate
+    ) -> WorkspaceOAuthProvider:
+        """Create a new custom OAuth provider for the workspace."""
+        provider_id = await self._generate_custom_provider_id(
+            name=params.name,
+            requested_id=params.provider_id,
+            grant_type=params.grant_type,
+        )
+        authorization_endpoint = self._validate_https_endpoint(
+            params.authorization_endpoint, field_name="authorization_endpoint"
+        )
+        token_endpoint = self._validate_https_endpoint(
+            params.token_endpoint, field_name="token_endpoint"
+        )
+        scopes = self._normalize_scopes(params.scopes)
+
+        provider = WorkspaceOAuthProvider(
+            owner_id=self.workspace_id,
+            provider_id=provider_id,
+            name=params.name.strip(),
+            description=params.description,
+            grant_type=params.grant_type,
+            authorization_endpoint=authorization_endpoint
+            or params.authorization_endpoint,
+            token_endpoint=token_endpoint or params.token_endpoint,
+            scopes=scopes,
+        )
+
+        self.session.add(provider)
+        await self.session.commit()
+        await self.session.refresh(provider)
+
+        await self.store_provider_config(
+            provider_key=ProviderKey(id=provider_id, grant_type=params.grant_type),
+            client_id=params.client_id,
+            client_secret=params.client_secret,
+            authorization_endpoint=provider.authorization_endpoint,
+            token_endpoint=provider.token_endpoint,
+            requested_scopes=scopes,
+        )
+
+        self.logger.info(
+            "Created custom OAuth provider",
+            provider_id=provider_id,
+            grant_type=params.grant_type,
+        )
+
+        return provider
+
+    async def delete_custom_provider(self, *, provider_key: ProviderKey) -> bool:
+        """Delete a custom OAuth provider definition."""
+        custom_provider = await self.get_custom_provider(provider_key=provider_key)
+        if custom_provider is None:
+            return False
+
+        await self.session.delete(custom_provider)
+        await self.session.commit()
+
+        self.logger.info(
+            "Deleted custom OAuth provider",
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            workspace_id=self.workspace_id,
+        )
+        return True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -257,8 +455,19 @@ class IntegrationService(BaseWorkspaceService):
 
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
+        # Capture provider info before deleting
+        provider_key = ProviderKey(
+            id=integration.provider_id, grant_type=integration.grant_type
+        )
+        is_custom_provider = integration.provider_id.startswith("custom-")
+
+        # Delete the integration record
         await self.session.delete(integration)
         await self.session.commit()
+
+        # If this is a custom provider, also delete the custom provider definition
+        if is_custom_provider:
+            await self.delete_custom_provider(provider_key=provider_key)
 
     async def refresh_token_if_needed(
         self, integration: OAuthIntegration
@@ -297,10 +506,10 @@ class IntegrationService(BaseWorkspaceService):
     ) -> BaseOAuthProvider | None:
         # Get provider class from registry
         key = ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
-        provider_impl = get_provider_class(key)
+        provider_impl = await self.resolve_provider_impl(provider_key=key)
         if not provider_impl:
             self.logger.error(
-                "Provider not found in registry",
+                "Provider not found",
                 provider=integration.provider_id,
             )
             return None
@@ -531,7 +740,8 @@ class IntegrationService(BaseWorkspaceService):
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
 
-        provider_impl = get_provider_class(provider_key)
+        provider_impl = await self.resolve_provider_impl(provider_key=provider_key)
+        normalized_scopes = self._normalize_scopes(requested_scopes)
         resolved_authorization, resolved_token = self._determine_endpoints(
             provider_impl,
             configured_authorization=authorization_endpoint,
@@ -540,14 +750,12 @@ class IntegrationService(BaseWorkspaceService):
 
         if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration with client credentials (patch operation)
-            if not any(
-                (
-                    client_id,
-                    client_secret,
-                    authorization_endpoint,
-                    token_endpoint,
-                    requested_scopes,
-                )
+            if (
+                client_id is None
+                and client_secret is None
+                and authorization_endpoint is None
+                and token_endpoint is None
+                and requested_scopes is None
             ):
                 return integration
 
@@ -573,7 +781,9 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             if requested_scopes is not None:
-                integration.requested_scopes = " ".join(requested_scopes)
+                integration.requested_scopes = (
+                    " ".join(normalized_scopes) if normalized_scopes else ""
+                )
 
             self.session.add(integration)
             await self.session.commit()
@@ -612,9 +822,13 @@ class IntegrationService(BaseWorkspaceService):
                     resolved_token,
                     field_name="token_endpoint",
                 ),
-                requested_scopes=" ".join(requested_scopes)
-                if requested_scopes
-                else None,
+                requested_scopes=(
+                    " ".join(normalized_scopes)
+                    if requested_scopes is not None
+                    else None
+                )
+                if normalized_scopes
+                else ("" if requested_scopes is not None else None),
             )
 
             self.session.add(integration)

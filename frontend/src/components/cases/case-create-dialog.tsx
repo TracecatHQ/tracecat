@@ -23,7 +23,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -121,7 +120,7 @@ export function CreateCaseDialog({
         <DialogHeader>
           <DialogTitle>Create new case</DialogTitle>
           <DialogDescription>
-            Create a new case to track and manage security incidents or issues.
+            Create a new case to track and manage incidents and issues.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -139,9 +138,6 @@ export function CreateCaseDialog({
                       value={field.value ?? ""}
                     />
                   </FormControl>
-                  <FormDescription>
-                    A concise summary of the case.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -161,9 +157,6 @@ export function CreateCaseDialog({
                       value={field.value ?? ""}
                     />
                   </FormControl>
-                  <FormDescription>
-                    Provide details about the incident or issue.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

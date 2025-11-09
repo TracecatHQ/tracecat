@@ -79,6 +79,9 @@ export interface ChatSessionPaneProps {
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
   modelInfo: ModelInfo
+  toolsEnabled?: boolean
+  /** Autofocus the prompt input when the pane mounts. */
+  autoFocusInput?: boolean
 }
 
 export function ChatSessionPane({
@@ -90,6 +93,8 @@ export function ChatSessionPane({
   placeholder = "Ask your question...",
   onMessagesChange,
   modelInfo,
+  toolsEnabled = true,
+  autoFocusInput = false,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -216,8 +221,10 @@ export function ChatSessionPane({
                         />
                         {parts
                           .filter((part) => part.type === "source-url")
-                          .map((part, index) => (
-                            <SourcesContent key={`${id}-${index}`}>
+                          .map((part, partIdx) => (
+                            <SourcesContent
+                              key={`${id}-${part.type}-${partIdx}`}
+                            >
                               <Source
                                 href={"url" in part ? part.url : "#"}
                                 title={"url" in part ? part.url : "Source"}
@@ -229,7 +236,7 @@ export function ChatSessionPane({
 
                   {parts?.map((part, partIdx) => (
                     <MessagePart
-                      key={`${id}-${partIdx}`}
+                      key={`${id}-${part.type}-${partIdx}`}
                       part={part}
                       partIdx={partIdx}
                       id={id}
@@ -305,42 +312,47 @@ export function ChatSessionPane({
               onChange={(event) => setInput(event.target.value)}
               placeholder={placeholder}
               value={input}
+              autoFocus={autoFocusInput}
             />
           </PromptInputBody>
           <PromptInputToolbar>
-            <PromptInputTools>
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <PromptInputButton
-                      aria-label="Configure tools"
-                      size="sm"
-                      onClick={() => setToolsDialogOpen(true)}
-                      className="h-7 gap-1 px-2"
-                      variant="ghost"
-                    >
-                      <HammerIcon className="size-4" />
-                      <span className="text-xs">Tools</span>
-                    </PromptInputButton>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    Configure tools for the agent
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </PromptInputTools>
+            {toolsEnabled && (
+              <PromptInputTools>
+                <TooltipProvider delayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PromptInputButton
+                        aria-label="Configure tools"
+                        size="sm"
+                        onClick={() => setToolsDialogOpen(true)}
+                        className="h-7 gap-1 px-2"
+                        variant="ghost"
+                      >
+                        <HammerIcon className="size-4" />
+                        <span className="text-xs">Tools</span>
+                      </PromptInputButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      Configure tools for the agent
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </PromptInputTools>
+            )}
             <PromptInputSubmit
               disabled={!input && !status}
               status={status}
-              className="text-muted-foreground/80"
+              className="ml-auto text-muted-foreground/80"
             />
           </PromptInputToolbar>
         </PromptInput>
-        <ChatToolsDialog
-          chatId={chat.id}
-          open={toolsDialogOpen}
-          onOpenChange={setToolsDialogOpen}
-        />
+        {toolsEnabled && (
+          <ChatToolsDialog
+            chatId={chat.id}
+            open={toolsDialogOpen}
+            onOpenChange={setToolsDialogOpen}
+          />
+        )}
       </div>
     </div>
   )

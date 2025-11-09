@@ -27,6 +27,18 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentPresetsCreateAgentPresetData,
+  AgentPresetsCreateAgentPresetResponse,
+  AgentPresetsDeleteAgentPresetData,
+  AgentPresetsDeleteAgentPresetResponse,
+  AgentPresetsGetAgentPresetBySlugData,
+  AgentPresetsGetAgentPresetBySlugResponse,
+  AgentPresetsGetAgentPresetData,
+  AgentPresetsGetAgentPresetResponse,
+  AgentPresetsListAgentPresetsData,
+  AgentPresetsListAgentPresetsResponse,
+  AgentPresetsUpdateAgentPresetData,
+  AgentPresetsUpdateAgentPresetResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
   AgentStreamAgentSessionData,
@@ -267,6 +279,8 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
+  ProvidersCreateCustomProviderData,
+  ProvidersCreateCustomProviderResponse,
   ProvidersGetProviderData,
   ProvidersGetProviderResponse,
   ProvidersListProvidersData,
@@ -3448,6 +3462,166 @@ export const agentSetDefaultModel = (
     url: "/agent/default-model",
     query: {
       model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Presets
+ * List all agent presets for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentPresetReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresets = (
+  data: AgentPresetsListAgentPresetsData
+): CancelablePromise<AgentPresetsListAgentPresetsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Agent Preset
+ * Create a new agent preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsCreateAgentPreset = (
+  data: AgentPresetsCreateAgentPresetData
+): CancelablePromise<AgentPresetsCreateAgentPresetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/presets",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Preset
+ * Retrieve an agent preset by ID.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns AgentPresetRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsGetAgentPreset = (
+  data: AgentPresetsGetAgentPresetData
+): CancelablePromise<AgentPresetsGetAgentPresetResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/{preset_id}",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Agent Preset
+ * Update an existing agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsUpdateAgentPreset = (
+  data: AgentPresetsUpdateAgentPresetData
+): CancelablePromise<AgentPresetsUpdateAgentPresetResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/presets/{preset_id}",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Agent Preset
+ * Delete an agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsDeleteAgentPreset = (
+  data: AgentPresetsDeleteAgentPresetData
+): CancelablePromise<AgentPresetsDeleteAgentPresetResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/presets/{preset_id}",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Preset By Slug
+ * Retrieve an agent preset by slug.
+ * @param data The data for the request.
+ * @param data.slug
+ * @param data.workspaceId
+ * @returns AgentPresetRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsGetAgentPresetBySlug = (
+  data: AgentPresetsGetAgentPresetBySlugData
+): CancelablePromise<AgentPresetsGetAgentPresetBySlugResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/by-slug/{slug}",
+    path: {
+      slug: data.slug,
+    },
+    query: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -6831,6 +7005,31 @@ export const integrationsTestConnection = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Custom Provider
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ProviderReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const providersCreateCustomProvider = (
+  data: ProvidersCreateCustomProviderData
+): CancelablePromise<ProvidersCreateCustomProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/providers",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

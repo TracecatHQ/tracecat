@@ -161,7 +161,11 @@ export function CaseTaskDialog({
                 <FormItem>
                   <FormLabel>Title</FormLabel>
                   <FormControl>
-                    <Input placeholder="Task title" {...field} />
+                    <Input
+                      className="text-xs"
+                      placeholder="Short description of the task..."
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -176,7 +180,8 @@ export function CaseTaskDialog({
                   <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Task description"
+                      className="text-xs"
+                      placeholder="Detailed description of the task..."
                       rows={3}
                       {...field}
                     />

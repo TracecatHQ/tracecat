@@ -183,6 +183,108 @@ export type AgentOutput = {
   trace_id?: string | null
 }
 
+export type AgentPreset = {
+  component_id?: "agent-preset"
+}
+
+/**
+ * Payload for creating a new agent preset.
+ */
+export type AgentPresetCreate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name: string
+  slug?: string | null
+}
+
+/**
+ * API model for reading agent presets.
+ */
+export type AgentPresetRead = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Minimal API model for reading agent presets in list endpoints.
+ */
+export type AgentPresetReadMinimal = {
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Payload for updating an existing agent preset.
+ */
+export type AgentPresetUpdate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name?: string | null
+  slug?: string | null
+}
+
 export type AgentSessionRead = {
   id: string
   created_at: string
@@ -1348,12 +1450,16 @@ export type ChatCreate = {
    * Tools available to the agent for this chat
    */
   tools?: Array<string> | null
+  /**
+   * Optional agent preset to use for the chat session
+   */
+  agent_preset_id?: string | null
 }
 
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "agent_preset" | "agent_preset_builder"
 
 /**
  * Model for chat metadata with a single message.
@@ -1397,6 +1503,10 @@ export type ChatRead = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
   /**
    * When the chat was created
    */
@@ -1444,6 +1554,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1486,6 +1600,10 @@ export type ChatReadVercel = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1515,6 +1633,10 @@ export type ChatUpdate = {
    * Chat title
    */
   title?: string | null
+  /**
+   * Agent preset to use for the chat session (set to null for default instructions)
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -1682,6 +1804,39 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
    * Estimated total count from table statistics
    */
   total_estimate?: number | null
+}
+
+/**
+ * Request payload for creating a custom OAuth provider.
+ */
+export type CustomOAuthProviderCreate = {
+  name: string
+  description?: string | null
+  grant_type: OAuthGrantType
+  /**
+   * OAuth authorization endpoint URL
+   */
+  authorization_endpoint: string
+  /**
+   * OAuth token endpoint URL
+   */
+  token_endpoint: string
+  /**
+   * Default OAuth scopes to request
+   */
+  scopes?: Array<string> | null
+  /**
+   * Optional custom identifier for the provider
+   */
+  provider_id?: string | null
+  /**
+   * OAuth client identifier
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
 }
 
 /**
@@ -1909,6 +2064,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentPreset
 
 export type EditorFunctionRead = {
   name: string
@@ -2120,6 +2276,7 @@ export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
   | "agent-approvals"
+  | "agent-presets"
   | "case-durations"
   | "case-tasks"
 
@@ -6348,6 +6505,48 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentPresetsListAgentPresetsData = {
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetReadMinimal>
+
+export type AgentPresetsCreateAgentPresetData = {
+  requestBody: AgentPresetCreate
+  workspaceId: string
+}
+
+export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsGetAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsUpdateAgentPresetData = {
+  presetId: string
+  requestBody: AgentPresetUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsDeleteAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsDeleteAgentPresetResponse = void
+
+export type AgentPresetsGetAgentPresetBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
 export type AgentListAgentSessionsData = {
   workspaceId: string
 }
@@ -7378,6 +7577,13 @@ export type IntegrationsTestConnectionData = {
 
 export type IntegrationsTestConnectionResponse =
   IntegrationTestConnectionResponse
+
+export type ProvidersCreateCustomProviderData = {
+  requestBody: CustomOAuthProviderCreate
+  workspaceId: string
+}
+
+export type ProvidersCreateCustomProviderResponse = ProviderReadMinimal
 
 export type ProvidersListProvidersData = {
   workspaceId: string
@@ -9068,6 +9274,90 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets": {
+    get: {
+      req: AgentPresetsListAgentPresetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsCreateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentPresetsUpdateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsDeleteAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/by-slug/{slug}": {
+    get: {
+      req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
         /**
          * Validation Error
          */
@@ -10822,6 +11112,19 @@ export type $OpenApiTs = {
     }
   }
   "/providers": {
+    post: {
+      req: ProvidersCreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ProviderReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: ProvidersListProvidersData
       res: {

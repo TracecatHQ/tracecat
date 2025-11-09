@@ -16,7 +16,6 @@ class ToolCallPrompt(BaseModel):
     """Prompt to add to instructions to enable tool calling capabilities in Tracecat."""
 
     tools: list[Tool]
-    fixed_arguments: dict[str, dict[str, Any]] | None = None
 
     def _serialize_tool_names(self, tools: list[Tool]) -> str:
         return "\n".join(f"- {tool.name}: {tool.description}" for tool in tools)
@@ -24,14 +23,6 @@ class ToolCallPrompt(BaseModel):
     @property
     def prompt(self) -> str:
         """Build the prompt for the tool call agent."""
-        fixed_arguments_text = ""
-        if self.fixed_arguments:
-            fixed_arguments_text = textwrap.dedent(f"""
-            <FixedArguments description="The following tools have been configured with fixed arguments that will be automatically applied">
-             {"\n".join(f"<tool tool_name={action}>\n{yaml.safe_dump(args)}\n</tool>" for action, args in self.fixed_arguments.items())}
-            </FixedArguments>
-            """)
-
         tools_text = ""
         if self.tools:
             tools_text = textwrap.dedent(f"""
@@ -64,10 +55,7 @@ class ToolCallPrompt(BaseModel):
 
             <ToolCallingOverride>
             - You might see a tool call being overridden in the message history. Do not panic, this is normal behavior - just carry on with your task.
-            - Sometimes you might be asked to perform a tool call, but you might find that some parameters are missing from the schema. If so, you might find that it's a fixed argument that the USER has passed in. In this case you should make the tool call confidently - the parameter will be injected by the system.
             </ToolCallingOverride>
-
-            {fixed_arguments_text}
 
             <CurrentDate>
             {datetime.now().isoformat()}

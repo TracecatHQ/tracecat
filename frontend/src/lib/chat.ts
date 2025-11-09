@@ -28,7 +28,11 @@ export function isModelMessage(value: unknown): value is ModelMessage {
 }
 
 export function isChatEntity(value: unknown): value is ChatEntity {
-  return value === "case"
+  return (
+    value === "case" ||
+    value === "agent_preset" ||
+    value === "agent_preset_builder"
+  )
 }
 
 const streamEventKinds = [
@@ -142,10 +146,10 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   }
 }
 
-const CASE_UPDATE_ACTIONS = new Set([
-  "core__cases__update_case",
-  "core__cases__create_comment",
-])
+const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
+  case: ["core__cases__update_case", "core__cases__create_comment"],
+  agent_preset_builder: ["update_agent_preset"],
+}
 
 // mapping from chatentity to
 /**
@@ -164,7 +168,8 @@ export const ENTITY_TO_INVALIDATION: Record<
   }
 > = {
   case: {
-    predicate: (toolName: string) => CASE_UPDATE_ACTIONS.has(toolName),
+    predicate: (toolName: string) =>
+      Boolean(UPDATE_ON_ACTIONS.case?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
       // Invalidate specific case query
       queryClient.invalidateQueries({ queryKey: ["case", entityId] })
@@ -180,11 +185,31 @@ export const ENTITY_TO_INVALIDATION: Record<
       })
     },
   },
+  agent_preset: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for agent presets yet; placeholder for future support.
+    },
+  },
+  agent_preset_builder: {
+    predicate: (toolName: string) =>
+      Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
+    handler: (queryClient, workspaceId, entityId) => {
+      // Invalidate agent preset detail and workspace list
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset", workspaceId, entityId],
+      })
+    },
+  },
 }
 
 export type ModelInfo = {
   name: string
   provider: string
+  baseUrl?: string | null
 }
 
 /**

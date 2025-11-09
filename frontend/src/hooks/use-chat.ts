@@ -1,5 +1,10 @@
 import * as aiSdk from "@ai-sdk/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { useMemo, useState } from "react"
 import {
@@ -98,21 +103,30 @@ export function useCreateChat(workspaceId: string) {
 }
 
 // Hook for listing chats
-export function useListChats({
-  workspaceId,
-  entityType,
-  entityId,
-  limit = 50,
-}: {
-  workspaceId: string
-  entityType?: ChatEntity
-  entityId?: string
-  limit?: number
-}) {
+export function useListChats(
+  {
+    workspaceId,
+    entityType,
+    entityId,
+    limit = 50,
+  }: {
+    workspaceId: string
+    entityType?: ChatEntity
+    entityId?: string
+    limit?: number
+  },
+  options?: { enabled?: boolean }
+): {
+  chats: ChatRead[] | undefined
+  chatsLoading: boolean
+  chatsError: Error | null
+  refetchChats: UseQueryResult<ChatRead[], Error>["refetch"]
+} {
   const {
     data: chats,
     isLoading: chatsLoading,
     error: chatsError,
+    refetch,
   } = useQuery<ChatRead[]>({
     queryKey: ["chats", workspaceId, entityType, entityId, limit],
     queryFn: () =>
@@ -122,9 +136,10 @@ export function useListChats({
         entityId: entityId || null,
         limit,
       }),
+    enabled: options?.enabled ?? true,
   })
 
-  return { chats, chatsLoading, chatsError }
+  return { chats, chatsLoading, chatsError, refetchChats: refetch }
 }
 
 // Hook for getting a single chat
@@ -167,6 +182,9 @@ export function useUpdateChat(workspaceId: string) {
       // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({
         queryKey: ["chats", workspaceId],
@@ -242,6 +260,10 @@ export function useVercelChat({
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
           message: messages[messages.length - 1],
+        }
+        const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
+        if (baseUrl != null) {
+          reqBody.base_url = baseUrl
         }
         return {
           body: reqBody,

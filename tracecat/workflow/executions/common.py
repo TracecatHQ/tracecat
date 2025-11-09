@@ -78,6 +78,7 @@ UTILITY_ACTIONS = {
     "validate_action_activity",
     "parse_wait_until_activity",
     "evaluate_single_expression_activity",
+    "resolve_agent_preset_config_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
     InteractionService.create_interaction_activity.__name__,

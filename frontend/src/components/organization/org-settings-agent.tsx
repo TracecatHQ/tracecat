@@ -40,21 +40,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import {
   useAgentDefaultModel,
   useAgentModels,
   useDeleteProviderCredentials,
   useModelProvidersStatus,
-  useOrgAgentSettings,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
 
 const agentFormSchema = z.object({
   default_model: z.string().optional(),
-  agent_case_chat_prompt: z.string().optional(),
-  agent_case_chat_inject_content: z.boolean().optional(),
 })
 
 type AgentFormValues = z.infer<typeof agentFormSchema>
@@ -293,186 +288,6 @@ function ProviderCredentialsSection() {
 }
 
 /**
- * Subcomponent that handles case chat prompt configuration
- */
-function CaseChatPromptSection() {
-  const {
-    agentSettings,
-    agentSettingsIsLoading,
-    agentSettingsError,
-    updateAgentSettings,
-    updateAgentSettingsIsPending,
-  } = useOrgAgentSettings()
-
-  const form = useForm<AgentFormValues>({
-    resolver: zodResolver(agentFormSchema),
-    values: {
-      agent_case_chat_prompt: agentSettings?.agent_case_chat_prompt || "",
-    },
-  })
-
-  const onSubmit = async (data: AgentFormValues) => {
-    if (data.agent_case_chat_prompt === undefined) return
-
-    try {
-      await updateAgentSettings({
-        requestBody: {
-          agent_case_chat_prompt: data.agent_case_chat_prompt,
-        },
-      })
-    } catch (err) {
-      console.error("Failed to update case chat prompt:", err)
-    }
-  }
-
-  if (agentSettingsIsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (agentSettingsError) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading agent settings: ${agentSettingsError instanceof Error ? agentSettingsError.message : "Unknown error"}`}
-      />
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Case chat agent prompt</h3>
-      <p className="text-sm text-muted-foreground">
-        Configure default instructions to guide AI agent behavior in case chat.
-      </p>
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="agent_case_chat_prompt"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Organization prompt</FormLabel>
-                <FormControl>
-                  <Textarea
-                    placeholder="Enter default instructions for case chat agents..."
-                    className="min-h-[120px]"
-                    {...field}
-                    value={field.value ?? ""}
-                  />
-                </FormControl>
-                <FormDescription>
-                  These instructions are prepended to the instructions provided
-                  by users when starting case chat.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Button type="submit" disabled={updateAgentSettingsIsPending}>
-            {updateAgentSettingsIsPending
-              ? "Updating..."
-              : "Update case chat prompt"}
-          </Button>
-        </form>
-      </Form>
-    </div>
-  )
-}
-
-/**
- * Subcomponent that handles case content injection toggle
- */
-function CaseContentInjectionSection() {
-  const {
-    agentSettings,
-    agentSettingsIsLoading,
-    agentSettingsError,
-    updateAgentSettings,
-    updateAgentSettingsIsPending,
-  } = useOrgAgentSettings()
-
-  const form = useForm<AgentFormValues>({
-    resolver: zodResolver(agentFormSchema),
-    values: {
-      agent_case_chat_inject_content:
-        agentSettings?.agent_case_chat_inject_content || false,
-    },
-  })
-
-  const onSubmit = async (data: AgentFormValues) => {
-    if (data.agent_case_chat_inject_content === undefined) return
-
-    try {
-      await updateAgentSettings({
-        requestBody: {
-          agent_case_chat_inject_content: data.agent_case_chat_inject_content,
-        },
-      })
-    } catch (err) {
-      console.error("Failed to update case content injection setting:", err)
-    }
-  }
-
-  if (agentSettingsIsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (agentSettingsError) {
-    return (
-      <AlertNotification
-        level="error"
-        message="Failed to load agent settings."
-      />
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Case content injection</h3>
-      <p className="text-sm text-muted-foreground">
-        When enabled, case information will be automatically injected into agent
-        prompts for case chat conversations. This eliminates the need to
-        manually call the get_case() action.
-      </p>
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="agent_case_chat_inject_content"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <FormLabel>Auto-inject case content</FormLabel>
-                  <FormDescription>
-                    Automatically include case details in chat conversations
-                  </FormDescription>
-                </div>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Button type="submit" disabled={updateAgentSettingsIsPending}>
-            {updateAgentSettingsIsPending
-              ? "Updating..."
-              : "Update injection setting"}
-          </Button>
-        </form>
-      </Form>
-    </div>
-  )
-}
-
-/**
  * Main form component that coordinates the subcomponents and handles form submission
  */
 export function OrgSettingsAgentForm() {
@@ -525,10 +340,6 @@ export function OrgSettingsAgentForm() {
       </Form>
 
       <ProviderCredentialsSection />
-
-      <CaseChatPromptSection />
-
-      <CaseContentInjectionSection />
     </div>
   )
 }

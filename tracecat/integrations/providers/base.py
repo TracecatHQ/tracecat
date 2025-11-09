@@ -1,7 +1,9 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
 import asyncio
+import json
 from abc import ABC
+from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
 from urllib.parse import urlparse
 
@@ -82,6 +84,17 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
             raise ValueError(
                 f"OAuth endpoint domain {hostname} does not match expected domain {expected_domain}"
             )
+
+
+class CustomOAuthProviderMixin:
+    """Mixin for dynamically created custom OAuth providers."""
+
+    _include_in_registry: ClassVar[bool] = False
+    config_model: ClassVar[type[BaseModel] | None] = None
+
+    @classmethod
+    def schema(cls) -> dict[str, Any] | None:  # pragma: no cover - trivial override
+        return None
 
 
 class BaseOAuthProvider(ABC):
@@ -494,6 +507,77 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
                 error=str(e),
             )
             raise
+
+
+class ServiceAccountOAuthProvider(ClientCredentialsOAuthProvider):
+    """Base provider for service account style OAuth flows.
+
+    Service accounts typically use a JSON key containing a private key to mint JWT
+    assertions rather than client secrets issued by an authorization server. This
+    base class loads and validates the JSON payload while allowing subclasses to
+    implement provider-specific token acquisition.
+    """
+
+    def __init__(
+        self,
+        *,
+        subject: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._service_account_info: dict[str, Any] | None = None
+        self._service_account_subject: str | None = subject
+        super().__init__(**kwargs)
+
+    @property
+    def service_account_info(self) -> dict[str, Any]:
+        if self._service_account_info is None:
+            raise ValueError("Service account credentials have not been loaded.")
+        return self._service_account_info
+
+    @property
+    def service_account_subject(self) -> str | None:
+        return self._service_account_subject
+
+    def _resolve_client_credentials(
+        self, client_id: str | None, client_secret: str | None
+    ) -> ClientCredentials:
+        info = self._load_service_account_info(client_secret)
+        derived_client_id = self._derive_client_id(info, client_id)
+        self._service_account_info = info
+        return ClientCredentials(client_id=derived_client_id, client_secret=None)
+
+    def _load_service_account_info(self, client_secret: str | None) -> dict[str, Any]:
+        if client_secret is None or not client_secret.strip():
+            raise ValueError(
+                "Service account credentials (JSON) are required for this provider."
+            )
+        try:
+            parsed = json.loads(client_secret)
+        except JSONDecodeError as exc:
+            raise ValueError("Service account credentials must be valid JSON.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Service account credentials must be a JSON object.")
+
+        subject = self._extract_subject(parsed)
+        if subject and self._service_account_subject is None:
+            self._service_account_subject = subject
+
+        return parsed
+
+    def _extract_subject(self, info: dict[str, Any]) -> str | None:
+        subject = info.get("subject")
+        if subject is None:
+            return None
+        return str(subject).strip() or None
+
+    def _derive_client_id(
+        self, info: dict[str, Any], configured_client_id: str | None
+    ) -> str:
+        if configured_client_id is None or not configured_client_id.strip():
+            raise ValueError(
+                "Client ID (typically the service account email) is required."
+            )
+        return configured_client_id.strip()
 
 
 class MCPAuthProvider(AuthorizationCodeOAuthProvider):

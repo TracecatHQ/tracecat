@@ -96,6 +96,7 @@ import {
   type IntegrationReadMinimal,
   type IntegrationUpdate,
   integrationsConnectProvider,
+  integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
   integrationsGetIntegration,
   integrationsListIntegrations,
@@ -264,6 +265,10 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
+import {
+  type CustomOAuthProviderCreateRequest,
+  providersCreateCustomProvider,
+} from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
@@ -4166,6 +4171,66 @@ export function useIntegrations(workspaceId: string) {
   }
 }
 
+type CreateCustomProviderParams = Omit<
+  CustomOAuthProviderCreateRequest,
+  "provider_id"
+> & {
+  provider_id?: string | null
+}
+
+export function useCreateCustomProvider(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createCustomProvider,
+    isPending: createCustomProviderIsPending,
+    error: createCustomProviderError,
+  } = useMutation({
+    mutationFn: async (params: CreateCustomProviderParams) => {
+      const cleanScopes = params.scopes
+        ?.map((scope) => scope.trim())
+        .filter(Boolean)
+      const payload: CustomOAuthProviderCreateRequest = {
+        ...params,
+        name: params.name.trim(),
+        description: params.description?.trim() || undefined,
+        authorization_endpoint: params.authorization_endpoint.trim(),
+        token_endpoint: params.token_endpoint.trim(),
+        client_id: params.client_id.trim(),
+        client_secret: params.client_secret?.trim() || undefined,
+        scopes: cleanScopes ?? [],
+        provider_id: params.provider_id?.trim() || undefined,
+      }
+
+      return await providersCreateCustomProvider({
+        workspaceId,
+        requestBody: payload,
+      })
+    },
+    onSuccess: (provider) => {
+      queryClient.invalidateQueries({ queryKey: ["providers", workspaceId] })
+      toast({
+        title: "Provider created",
+        description: `Added ${provider.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to create custom provider:", error)
+      toast({
+        title: "Failed to create provider",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createCustomProvider,
+    createCustomProviderIsPending,
+    createCustomProviderError,
+  }
+}
+
 export function useIntegrationProvider({
   providerId,
   workspaceId,
@@ -4291,6 +4356,42 @@ export function useIntegrationProvider({
     },
   })
 
+  const {
+    mutateAsync: deleteIntegration,
+    isPending: deleteIntegrationIsPending,
+    error: deleteIntegrationError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsDeleteIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId, grantType],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
+      })
+      toast({
+        title: "Connection deleted",
+        description: "Removed integration configuration",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to delete integration:", error)
+      toast({
+        title: "Failed to delete",
+        description: `Could not delete integration: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
   // Test connection for client credentials providers
   const {
     mutateAsync: testConnection,
@@ -4345,6 +4446,9 @@ export function useIntegrationProvider({
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
+    deleteIntegration,
+    deleteIntegrationIsPending,
+    deleteIntegrationError,
     testConnection,
     testConnectionIsPending,
     testConnectionError,
@@ -4680,11 +4784,20 @@ export function useDeleteProviderCredentials() {
  *  modelInfo – model info (if any)
  */
 
-export function useChatReadiness() {
+interface ChatReadinessOptions {
+  modelOverride?: {
+    name: string
+    provider: string
+    baseUrl?: string | null
+  }
+}
+
+export function useChatReadiness(options?: ChatReadinessOptions) {
   const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
   const { models, modelsLoading } = useAgentModels()
   const { providersStatus, isLoading: statusLoading } =
     useModelProvidersStatus()
+  const modelOverride = options?.modelOverride
 
   const loading = defaultModelLoading || modelsLoading || statusLoading
 
@@ -4692,6 +4805,29 @@ export function useChatReadiness() {
     return {
       ready: false,
       loading: true,
+    }
+  }
+
+  if (modelOverride) {
+    const modelInfo: ModelInfo = {
+      name: modelOverride.name,
+      provider: modelOverride.provider,
+      baseUrl: modelOverride.baseUrl ?? null,
+    }
+    const hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
+    if (!hasOverrideCreds) {
+      return {
+        ready: false,
+        loading: false,
+        reason: "no_credentials",
+        modelInfo,
+      }
+    }
+
+    return {
+      ready: true,
+      loading: false,
+      modelInfo,
     }
   }
 
@@ -4720,6 +4856,7 @@ export function useChatReadiness() {
   const modelInfo: ModelInfo = {
     name: defaultModel,
     provider: providerId,
+    baseUrl: null,
   }
   if (!hasCreds) {
     return {

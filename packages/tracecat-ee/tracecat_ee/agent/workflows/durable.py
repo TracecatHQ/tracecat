@@ -122,7 +122,7 @@ class DurableAgentWorkflow:
                 deferred_tool_results=self.approvals.get(),
                 deps=deps,
             )
-            logger.warning("AGENT RUN RESULT", result=result)
+            logger.debug("AGENT RUN RESULT", result=result)
 
             # perf: Can probably early exit here if the result is not a DeferredToolRequests
             messages = result.all_messages()
@@ -191,7 +191,7 @@ class DurableAgentWorkflow:
             ),
             start_to_close_timeout=timedelta(seconds=120),
         )
-        return RemoteToolset(build_tool_defs_result.tool_definitions)
+        return RemoteToolset(build_tool_defs_result.tool_definitions, role=self.role)
 
     async def _event_stream_handler(
         self,

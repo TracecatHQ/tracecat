@@ -9,7 +9,13 @@ from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
 
 if TYPE_CHECKING:
+    from pydantic_ai.tools import Tool as _PATool
+
     from tracecat.agent.stream.writers import StreamWriter
+
+    CustomToolList = list[_PATool[Any]]
+else:  # pragma: no cover - runtime type hint fallback to appease pydantic
+    CustomToolList = list[Any]
 
 
 class StreamKey(str):
@@ -74,7 +80,6 @@ class AgentConfig:
     # Tools
     actions: list[str] | None = None
     namespaces: list[str] | None = None
-    fixed_arguments: dict[str, dict[str, Any]] | None = None
     tool_approvals: dict[str, bool] | None = None
     # MCP
     mcp_server_url: str | None = None
@@ -82,3 +87,4 @@ class AgentConfig:
     model_settings: dict[str, Any] | None = None
     retries: int = 3
     deps_type: type[Any] | None = None
+    custom_tools: CustomToolList | None = None

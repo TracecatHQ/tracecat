@@ -7,3 +7,13 @@ import type { ProviderRead } from "@/client"
 export function isMCPProvider(provider: ProviderRead): boolean {
   return provider.metadata.id.endsWith("_mcp")
 }
+
+/**
+ * Check if a provider is a custom workspace OAuth provider.
+ * Custom providers follow the naming convention of starting with "custom-".
+ * This is enforced by the backend when creating custom providers.
+ */
+export function isCustomProvider(provider: ProviderRead): boolean {
+  const providerId = provider.metadata.id
+  return typeof providerId === "string" && providerId.startsWith("custom-")
+}
