@@ -786,6 +786,11 @@ function AgentPresetChatPane({
       )
     }
 
+    const shouldAutoFocusInput =
+      Boolean(createdChatId) &&
+      createdChatId === activeChatId &&
+      (chat.messages?.length ?? 0) === 0
+
     return (
       <ChatSessionPane
         chat={chat}
@@ -796,6 +801,7 @@ function AgentPresetChatPane({
         placeholder={`Talk to ${preset.name}...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
+        autoFocusInput={shouldAutoFocusInput}
       />
     )
   }
@@ -1882,7 +1888,10 @@ function AgentPresetBuilderChatPane({
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
           <MessageCircle className="size-5 text-muted-foreground" />
-          <p>Ask the assistant for prompt suggestions to get started.</p>
+          <p>
+            Ask the assistant for prompt, tool, or approval suggestions to get
+            started.
+          </p>
           <Button
             size="sm"
             onClick={() => void handleStartChat()}
@@ -1930,6 +1939,11 @@ function AgentPresetBuilderChatPane({
         placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
+        autoFocusInput={
+          Boolean(createdChatId) &&
+          createdChatId === activeChatId &&
+          (chat.messages?.length ?? 0) === 0
+        }
       />
     )
   }
@@ -1940,7 +1954,8 @@ function AgentPresetBuilderChatPane({
         <div>
           <h3 className="text-sm font-semibold">Builder assistant</h3>
           <p className="text-xs text-muted-foreground">
-            Get help drafting or refining this agent&apos;s system prompt.
+            Get help drafting or refining this agent&apos;s system prompt,
+            allowed tools, and approval rules.
           </p>
         </div>
         <div className="flex items-center gap-2">

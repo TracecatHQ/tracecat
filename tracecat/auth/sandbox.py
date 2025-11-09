@@ -162,7 +162,7 @@ class AuthSandbox:
             missing_secrets = unique_req_secret_names - defined_req_secret_names
             logger.error("Missing secrets", missing_secrets=missing_secrets)
             raise TracecatCredentialsError(
-                f"Missing secrets: {', '.join(missing_secrets)}",
+                f"Missing workspace secrets: {', '.join(missing_secrets)}.",
                 detail=[
                     {"secret_name": name, "environment": self._environment}
                     for name in missing_secrets
