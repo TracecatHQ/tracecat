@@ -584,7 +584,6 @@ function AgentSessionCard({
       })
       setShowReviewDrawer(false)
       setFormState({})
-      setSelectedApprovalId(null)
       setExpandedPending(new Set())
       onRefresh?.()
     } catch (error) {
@@ -1204,10 +1203,12 @@ function AgentSessionCard({
                   disabled={isSubmitting}
                   onClick={() => {
                     setShowReviewDrawer(false)
-                    setFormState({})
-                    setFormError(null)
-                    setSelectedApprovalId(null)
-                    setExpandedPending(new Set())
+      setFormState({})
+      setFormError(null)
+      setExpandedPending(new Set())
+        setFormState({})
+        setFormError(null)
+        setExpandedPending(new Set())
                   }}
                 >
                   Cancel
