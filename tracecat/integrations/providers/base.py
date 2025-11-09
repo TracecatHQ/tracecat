@@ -86,6 +86,17 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
             )
 
 
+class CustomOAuthProviderMixin:
+    """Mixin for dynamically created custom OAuth providers."""
+
+    _include_in_registry: ClassVar[bool] = False
+    config_model: ClassVar[type[BaseModel] | None] = None
+
+    @classmethod
+    def schema(cls) -> dict[str, Any] | None:  # pragma: no cover - trivial override
+        return None
+
+
 class BaseOAuthProvider(ABC):
     """Base OAuth provider containing logic common to all OAuth 2.0 providers."""
 

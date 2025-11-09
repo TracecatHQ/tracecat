@@ -20,11 +20,12 @@ from tracecat.integrations.dependencies import (
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
-from tracecat.integrations.providers import all_providers, get_provider_class
+from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
 )
 from tracecat.integrations.schemas import (
+    CustomOAuthProviderCreate,
     IntegrationOAuthCallback,
     IntegrationOAuthConnect,
     IntegrationRead,
@@ -101,10 +102,15 @@ async def oauth_callback(
 
     # Overwrite role with workspace context from validated state
     # This is always authorization code
+    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    ctx_role.set(role)
+
+    # Create service to resolve provider (including custom providers)
+    svc = IntegrationService(session, role=role)
     key = ProviderKey(
         id=oauth_state_db.provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
     )
-    provider_impl = get_provider_class(key)
+    provider_impl = await svc.resolve_provider_impl(provider_key=key)
     if provider_impl is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -116,17 +122,11 @@ async def oauth_callback(
             detail="OAuth 2.0 Authorization code grant is not supported for this provider",
         )
 
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
-    ctx_role.set(role)
-
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
     await session.commit()
 
     # Exchange code for tokens
-    svc = IntegrationService(session, role=role)
-    # The grant type is AC
-    key = ProviderKey(id=provider_impl.id, grant_type=provider_impl.grant_type)
     integration = await svc.get_integration(provider_key=key)
 
     provider_config = (
@@ -480,7 +480,13 @@ async def delete_integration(
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
+
+    # For custom providers, delete the provider definition even if no integration exists
     if integration is None:
+        if provider_info.key.id.startswith("custom-"):
+            # Delete the custom provider definition if it exists
+            await svc.delete_custom_provider(provider_key=provider_info.key)
+            return
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{provider_info.key} integration not found",
@@ -613,6 +619,51 @@ async def update_integration(
 # Provider discovery endpoints
 
 
+@providers_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_custom_provider(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: CustomOAuthProviderCreate,
+) -> ProviderReadMinimal:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        provider = await svc.create_custom_provider(params=params)
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint on custom provider create",
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    integration = await svc.get_integration(
+        provider_key=ProviderKey(
+            id=provider.provider_id, grant_type=provider.grant_type
+        )
+    )
+
+    return ProviderReadMinimal(
+        id=provider.provider_id,
+        name=provider.name,
+        description=provider.description or "Custom OAuth provider",
+        requires_config=True,
+        integration_status=integration.status
+        if integration
+        else IntegrationStatus.NOT_CONFIGURED,
+        enabled=True,
+        grant_type=provider.grant_type,
+    )
+
+
 @providers_router.get("")
 async def list_providers(
     role: WorkspaceUserRole,
@@ -637,6 +688,24 @@ async def list_providers(
             grant_type=provider_impl.grant_type,
         )
         items.append(item)
+
+    for custom_provider in await svc.list_custom_providers():
+        integration = existing.get(
+            (custom_provider.provider_id, custom_provider.grant_type)
+        )
+        items.append(
+            ProviderReadMinimal(
+                id=custom_provider.provider_id,
+                name=custom_provider.name,
+                description=custom_provider.description or "Custom OAuth provider",
+                requires_config=True,
+                integration_status=integration.status
+                if integration
+                else IntegrationStatus.NOT_CONFIGURED,
+                enabled=True,
+                grant_type=custom_provider.grant_type,
+            )
+        )
 
     return items
 

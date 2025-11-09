@@ -1,0 +1,118 @@
+"""Tools exposed to the agent preset builder assistant."""
+
+from __future__ import annotations
+
+import uuid
+from contextlib import asynccontextmanager
+from typing import Any
+
+from pydantic import BaseModel, Field
+from pydantic_ai import ModelRetry
+from pydantic_ai.tools import Tool
+from sqlmodel import col, func, or_, select
+
+from tracecat.agent.preset.schemas import AgentPresetUpdate
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import RegistryAction
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.logger import logger
+
+AGENT_PRESET_BUILDER_TOOL_NAMES = [
+    "get_agent_preset_summary",
+    "update_agent_preset",
+]
+
+
+@asynccontextmanager
+async def _preset_service():
+    role = ctx_role.get()
+    if role is None:
+        raise TracecatAuthorizationError(
+            "Agent preset builder tools require an authenticated workspace role",
+        )
+
+    async with AgentPresetService.with_session(role=role) as service:
+        yield service
+
+
+class ListAvailableActions(BaseModel):
+    query: str = Field(
+        ...,
+        description="The query to search for actions.",
+        min_length=1,
+        max_length=100,
+    )
+
+
+def build_agent_preset_builder_tools(
+    preset_id: uuid.UUID,
+) -> list[Tool[Any]]:
+    """Create tool instances bound to a specific preset ID."""
+
+    async def get_agent_preset_summary() -> dict[str, Any]:
+        """Return the latest configuration for this agent preset, including tools and approval rules."""
+
+        async with _preset_service() as service:
+            preset = await service.get_preset(preset_id)
+        return preset.model_dump(mode="json")
+
+    async def list_available_actions(
+        params: ListAvailableActions,
+    ) -> list[dict[str, str]]:
+        """Return the list of available actions in the registry."""
+        # Do naive contains + ilike search on the name column
+        async with get_async_session_context_manager() as session:
+            stmt = select(RegistryAction).where(
+                # TODO: Workspace RLS
+                or_(
+                    # Namespace and name are covered by the concat search below
+                    func.concat(
+                        RegistryAction.namespace, ".", RegistryAction.name
+                    ).ilike(f"%{params.query}%"),
+                    col(RegistryAction.description).ilike(f"%{params.query}%"),
+                )
+            )
+            result = await session.exec(stmt)
+            actions = result.all()
+            logger.info(
+                "Listed available actions",
+                query_term=params.query,
+                actions=actions,
+                count=len(actions),
+            )
+            return [
+                {"action_id": ra.action, "description": ra.description}
+                for ra in actions
+            ]
+
+    async def update_agent_preset(
+        params: AgentPresetUpdate,
+    ) -> dict[str, Any]:
+        """Patch selected fields on the agent preset and return the updated record.
+
+        Only include fields you want to change - omit unchanged fields so they remain untouched.
+        Supported fields include:
+        - `instructions`: system prompt text.
+        - `actions`: list of allowed tool/action identifiers.
+        - `namespaces`: optional namespaces to scope dynamic tool discovery.
+        - `tool_approvals`: map of `{tool_name: bool}` where `true` means auto-run with no approval and `false` requires manual approval.
+        """
+
+        if not params.model_fields_set:
+            raise ValueError("Provide at least one field to update.")
+
+        async with _preset_service() as service:
+            try:
+                updated = await service.update_preset(preset_id, params)
+            except TracecatValidationError as error:
+                # Surface builder validation issues to the model as retryable errors.
+                raise ModelRetry(str(error)) from error
+        return updated.model_dump(mode="json")
+
+    return [
+        Tool(get_agent_preset_summary, name="Read agent preset", takes_ctx=False),
+        Tool(update_agent_preset, name="Update agent preset", takes_ctx=False),
+        Tool(list_available_actions, name="List available tools", takes_ctx=False),
+    ]

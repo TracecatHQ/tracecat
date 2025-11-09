@@ -7,7 +7,10 @@ import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_ee.agent.actions import ApprovalsAgentActionArgs
+from tracecat_ee.agent.actions import (
+    ApprovalsAgentActionArgs,
+    PresetApprovalsAgentActionArgs,
+)
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -191,11 +194,20 @@ async def validate_workspace_integration(
     """
     results: list[SecretValidationResult] = []
 
-    # Skip if we've already checked this key
-    if registry_secret.provider_id in checked_keys:
+    # We de-duplicate checks per provider+grant type combo
+    key_identifier = (
+        f"oauth::{registry_secret.provider_id}::{registry_secret.grant_type}"
+    )
+
+    # Skip validation if this optional integration isn't configured
+    if registry_secret.optional:
         return results
 
-    checked_keys.add(registry_secret.provider_id)
+    # Skip if we've already checked this key
+    if key_identifier in checked_keys:
+        return results
+
+    checked_keys.add(key_identifier)
 
     # Get the integration from the workspace
     key = ProviderKey(
@@ -209,7 +221,7 @@ async def validate_workspace_integration(
         results.append(
             SecretValidationResult(
                 status="error",
-                msg=f"Required OAuth integration {registry_secret.provider_id!r} is not configured",
+                msg=f"Required OAuth integration {registry_secret.provider_id!r} (grant_type: {registry_secret.grant_type}) is not configured",
             )
         )
 
@@ -281,6 +293,8 @@ async def validate_registry_action_args(
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
             elif action_name == PlatformAction.AI_APPROVALS_AGENT:
                 validated = ApprovalsAgentActionArgs.model_validate(args)
+            elif action_name == PlatformAction.AI_PRESET_APPROVALS_AGENT:
+                validated = PresetApprovalsAgentActionArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)

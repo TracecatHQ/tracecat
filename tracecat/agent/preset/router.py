@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
+    AgentPresetReadMinimal,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -28,16 +29,16 @@ WorkspaceEditorRole = Annotated[
 ]
 
 
-@router.get("", response_model=list[AgentPresetRead])
+@router.get("", response_model=list[AgentPresetReadMinimal])
 async def list_agent_presets(
     *,
     role: WorkspaceEditorRole,
     session: AsyncDBSession,
-) -> list[AgentPresetRead]:
+) -> list[AgentPresetReadMinimal]:
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    return [AgentPresetRead.model_validate(preset) for preset in presets]
+    return [AgentPresetReadMinimal.model_validate(preset) for preset in presets]
 
 
 @router.post(

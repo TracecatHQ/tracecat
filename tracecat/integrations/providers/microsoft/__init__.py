@@ -1,6 +1,14 @@
+from tracecat.integrations.providers.microsoft.azure.loganalytics import (
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+)
 from tracecat.integrations.providers.microsoft.azure.provider import (
     AzureManagementACProvider,
     AzureManagementCCProvider,
+)
+from tracecat.integrations.providers.microsoft.azure.sentinel import (
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
 )
 from tracecat.integrations.providers.microsoft.defender.endpoint import (
     MicrosoftDefenderEndpointACProvider,
@@ -26,6 +34,10 @@ from tracecat.integrations.providers.microsoft.graph.teams import (
 __all__ = [
     "AzureManagementACProvider",
     "AzureManagementCCProvider",
+    "MicrosoftSentinelACProvider",
+    "MicrosoftSentinelCCProvider",
+    "AzureLogAnalyticsACProvider",
+    "AzureLogAnalyticsCCProvider",
     "MicrosoftDefenderEndpointACProvider",
     "MicrosoftDefenderEndpointCCProvider",
     "MicrosoftDefenderXDRACProvider",

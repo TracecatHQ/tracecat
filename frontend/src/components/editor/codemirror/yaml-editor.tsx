@@ -369,7 +369,7 @@ export const YamlStyledEditor = React.forwardRef<
           <span>{fieldState.error.message ?? "Invalid YAML"}</span>
         </div>
       )}
-      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border shadow-sm">
+      <div className="relative rounded-md border-[0.5px] border-border shadow-sm">
         <CodeMirror
           value={buffer}
           height="auto"
@@ -524,7 +524,25 @@ const yamlEditorTheme = EditorView.theme({
     whiteSpace: "pre !important",
   },
   ".cm-scroller": {
+    maxHeight: "800px",
+    overflow: "auto",
     overflowX: "auto",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+  },
+  ".cm-scroller::-webkit-scrollbar": {
+    display: "none",
+  },
+  ".cm-editor": {
+    overflow: "visible",
+  },
+  ".cm-tooltip": {
+    zIndex: "60",
+    position: "fixed",
+  },
+  ".cm-tooltip-autocomplete": {
+    zIndex: "60",
+    position: "fixed",
   },
   ".cm-diagnostic-error": {
     borderBottom: "2px wavy #ef4444",

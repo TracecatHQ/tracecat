@@ -246,6 +246,19 @@ export type AgentPresetRead = {
 }
 
 /**
+ * Minimal API model for reading agent presets in list endpoints.
+ */
+export type AgentPresetReadMinimal = {
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
@@ -1394,6 +1407,10 @@ export type ChatCreate = {
    * Tools available to the agent for this chat
    */
   tools?: Array<string> | null
+  /**
+   * Optional agent preset to use for the chat session
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -1444,6 +1461,10 @@ export type ChatRead = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1490,6 +1511,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1532,6 +1557,10 @@ export type ChatReadVercel = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1561,6 +1590,10 @@ export type ChatUpdate = {
    * Chat title
    */
   title?: string | null
+  /**
+   * Agent preset to use for the chat session (set to null for default instructions)
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -1704,6 +1737,39 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
    * Estimated total count from table statistics
    */
   total_estimate?: number | null
+}
+
+/**
+ * Request payload for creating a custom OAuth provider.
+ */
+export type CustomOAuthProviderCreate = {
+  name: string
+  description?: string | null
+  grant_type: OAuthGrantType
+  /**
+   * OAuth authorization endpoint URL
+   */
+  authorization_endpoint: string
+  /**
+   * OAuth token endpoint URL
+   */
+  token_endpoint: string
+  /**
+   * Default OAuth scopes to request
+   */
+  scopes?: Array<string> | null
+  /**
+   * Optional custom identifier for the provider
+   */
+  provider_id?: string | null
+  /**
+   * OAuth client identifier
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
 }
 
 /**
@@ -6393,7 +6459,7 @@ export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
 }
 
-export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetRead>
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetReadMinimal>
 
 export type AgentPresetsCreateAgentPresetData = {
   requestBody: AgentPresetCreate
@@ -7415,6 +7481,13 @@ export type IntegrationsTestConnectionData = {
 
 export type IntegrationsTestConnectionResponse =
   IntegrationTestConnectionResponse
+
+export type ProvidersCreateCustomProviderData = {
+  requestBody: CustomOAuthProviderCreate
+  workspaceId: string
+}
+
+export type ProvidersCreateCustomProviderResponse = ProviderReadMinimal
 
 export type ProvidersListProvidersData = {
   workspaceId: string
@@ -9119,7 +9192,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentPresetRead>
+        200: Array<AgentPresetReadMinimal>
         /**
          * Validation Error
          */
@@ -10889,6 +10962,19 @@ export type $OpenApiTs = {
     }
   }
   "/providers": {
+    post: {
+      req: ProvidersCreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ProviderReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: ProvidersListProvidersData
       res: {

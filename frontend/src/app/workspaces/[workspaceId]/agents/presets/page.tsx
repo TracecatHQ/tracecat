@@ -1,33 +1,14 @@
-"use client"
+import { redirect } from "next/navigation"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
-import { AgentPresetsBuilder } from "@/components/agents/agent-presets-builder"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
-
-export default function AgentPresetsPage() {
-  const router = useRouter()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
-
-  useEffect(() => {
-    document.title = "Agent Presets"
-  }, [])
-
-  useEffect(() => {
-    if (!featureFlagsLoading && !agentPresetsEnabled) {
-      router.replace("/not-found")
-    }
-  }, [agentPresetsEnabled, featureFlagsLoading, router])
-
-  if (featureFlagsLoading || !agentPresetsEnabled) {
-    return <CenteredSpinner />
+export default async function AgentsPresetsPage({
+  params,
+}: {
+  params: Promise<{ workspaceId: string; presetId?: string }>
+}) {
+  const { workspaceId, presetId } = await params
+  const basePath = `/workspaces/${workspaceId}/agents/presets`
+  if (presetId) {
+    return redirect(`${basePath}/${presetId}`)
   }
-
-  return (
-    <div className="h-full">
-      <AgentPresetsBuilder />
-    </div>
-  )
+  return redirect(`${basePath}/new`)
 }

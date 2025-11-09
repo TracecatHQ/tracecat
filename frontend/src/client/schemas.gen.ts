@@ -1125,6 +1125,62 @@ export const $AgentPresetRead = {
   description: "API model for reading agent presets.",
 } as const
 
+export const $AgentPresetReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "description",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetReadMinimal",
+  description: "Minimal API model for reading agent presets in list endpoints.",
+} as const
+
 export const $AgentPresetUpdate = {
   properties: {
     description: {
@@ -4599,6 +4655,19 @@ export const $ChatCreate = {
       title: "Tools",
       description: "Tools available to the agent for this chat",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Optional agent preset to use for the chat session",
+    },
   },
   type: "object",
   required: ["title", "entity_type", "entity_id"],
@@ -4683,6 +4752,19 @@ export const $ChatRead = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4770,6 +4852,19 @@ export const $ChatReadMinimal = {
       title: "Tools",
       description: "Tools available to the agent",
     },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -4847,6 +4942,19 @@ export const $ChatReadVercel = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
     },
     created_at: {
       type: "string",
@@ -4927,6 +5035,20 @@ export const $ChatUpdate = {
       ],
       title: "Title",
       description: "Chat title",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "Agent preset to use for the chat session (set to null for default instructions)",
     },
   },
   type: "object",
@@ -5301,6 +5423,105 @@ export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[WorkflowReadMinimal]",
+} as const
+
+export const $CustomOAuthProviderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 3,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
+    authorization_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Authorization Endpoint",
+      description: "OAuth authorization endpoint URL",
+    },
+    token_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Token Endpoint",
+      description: "OAuth token endpoint URL",
+    },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "Default OAuth scopes to request",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 3,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+      description: "Optional custom identifier for the provider",
+    },
+    client_id: {
+      type: "string",
+      maxLength: 512,
+      minLength: 1,
+      title: "Client Id",
+      description: "OAuth client identifier",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "grant_type",
+    "authorization_endpoint",
+    "token_endpoint",
+    "client_id",
+  ],
+  title: "CustomOAuthProviderCreate",
+  description: "Request payload for creating a custom OAuth provider.",
 } as const
 
 export const $DSLConfig_Input = {

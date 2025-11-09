@@ -164,6 +164,10 @@ class Workspace(Resource, table=True):
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    oauth_providers: list["WorkspaceOAuthProvider"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
     # Custom entities owned by this workspace
     entities: list["Entity"] = Relationship(
         back_populates="owner",
@@ -1438,6 +1442,10 @@ class AgentPreset(Resource, table=True):
         sa_column=Column(JSONB),
         description="Tool approval requirements by tool name",
     )
+    chats: list["Chat"] = Relationship(
+        back_populates="agent_preset",
+        sa_relationship_kwargs={"cascade": "save-update"},
+    )
     mcp_server_url: str | None = Field(
         default=None,
         max_length=500,
@@ -1680,6 +1688,79 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
             return IntegrationStatus.NOT_CONFIGURED
 
 
+class WorkspaceOAuthProvider(SQLModel, TimestampMixin, table=True):
+    """Custom OAuth providers defined within a workspace."""
+
+    __tablename__: str = "oauth_provider"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "provider_id",
+            "grant_type",
+            name="uq_oauth_provider_owner_provider_grant_type",
+        ),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("workspace.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    provider_id: str = Field(
+        ...,
+        description="Unique identifier for the custom OAuth provider",
+        index=True,
+    )
+    name: str = Field(
+        ...,
+        description="Display name for the custom provider",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional description for the custom provider",
+    )
+    grant_type: OAuthGrantType = Field(
+        ...,
+        description="OAuth grant type supported by this provider",
+    )
+    authorization_endpoint: str = Field(
+        ...,
+        sa_column=Column(
+            Text,
+            nullable=False,
+        ),
+        description="Default OAuth authorization endpoint for this provider",
+    )
+    token_endpoint: str = Field(
+        ...,
+        sa_column=Column(
+            Text,
+            nullable=False,
+        ),
+        description="Default OAuth token endpoint for this provider",
+    )
+    scopes: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            JSONB,
+            nullable=False,
+            server_default=text("'[]'::jsonb"),
+        ),
+        description="Default OAuth scopes requested by this provider",
+    )
+
+    owner: Workspace = Relationship(back_populates="oauth_providers")
+
+
 class OAuthStateDB(SQLModel, TimestampMixin, table=True):
     """Store OAuth state parameters for CSRF protection during OAuth flows."""
 
@@ -1753,6 +1834,15 @@ class Chat(Resource, table=True):
         sa_column=Column(JSONB),
         description="The tools available to the agent for this chat.",
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID,
+            ForeignKey("agent_preset.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        description="Optional agent preset used for this chat session.",
+    )
     last_stream_id: str | None = Field(
         default=None,
         sa_column=Column(String(length=128), nullable=True),
@@ -1767,6 +1857,10 @@ class Chat(Resource, table=True):
             "cascade": "all, delete",
             "order_by": "ChatMessage.created_at.asc()",
         },
+    )
+    agent_preset: AgentPreset | None = Relationship(
+        back_populates="chats",
+        sa_relationship_kwargs={"lazy": "joined"},
     )
 
 

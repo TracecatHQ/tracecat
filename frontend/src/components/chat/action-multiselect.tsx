@@ -30,7 +30,10 @@ export function ActionMultiselect<T extends FieldValues>({
 }: ActionMultiselectProps<T>) {
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
-  const selectedActions: string[] = field.value || []
+  const selectedActions = useMemo<string[]>(() => {
+    // Normalize the field value so downstream consumers always receive an array.
+    return Array.isArray(field.value) ? field.value : []
+  }, [field.value])
 
   // Search and filter functionality
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -145,18 +148,22 @@ export function ActionMultiselect<T extends FieldValues>({
                   >
                     <Checkbox
                       checked={isSelected}
-                      onCheckedChange={(checked) =>
-                        checked
-                          ? field.onChange([
-                              ...(field.value || []),
-                              suggestion.value,
-                            ])
-                          : field.onChange(
-                              field.value?.filter(
-                                (value: string) => value !== suggestion.value
-                              )
-                            )
-                      }
+                      onCheckedChange={(checked) => {
+                        const currentSelections = Array.isArray(field.value)
+                          ? field.value
+                          : []
+                        if (checked === true) {
+                          field.onChange([
+                            ...currentSelections,
+                            suggestion.value,
+                          ])
+                          return
+                        }
+                        const nextSelections = currentSelections.filter(
+                          (value: string) => value !== suggestion.value
+                        )
+                        field.onChange(nextSelections)
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       className="mt-1 border-input"
                     />
@@ -222,13 +229,15 @@ export function ActionMultiselect<T extends FieldValues>({
                       {suggestion.label}
                     </span>
                     <Button
-                      onClick={() =>
-                        field.onChange(
-                          field.value?.filter(
-                            (value: string) => value !== actionId
-                          )
+                      onClick={() => {
+                        const currentSelections = Array.isArray(field.value)
+                          ? field.value
+                          : []
+                        const nextSelections = currentSelections.filter(
+                          (value: string) => value !== actionId
                         )
-                      }
+                        field.onChange(nextSelections)
+                      }}
                       variant="ghost"
                       size="icon"
                       className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6"

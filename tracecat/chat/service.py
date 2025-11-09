@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
+from tracecat.agent.builder.tools import build_agent_preset_builder_tools
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
@@ -21,6 +22,7 @@ from tracecat.chat.schemas import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ChatUpdate,
     VercelChatRequest,
 )
 from tracecat.chat.tools import get_default_tools
@@ -42,10 +44,15 @@ class ChatService(BaseWorkspaceService):
         entity_type: str,
         entity_id: uuid.UUID,
         tools: list[str] | None = None,
+        agent_preset_id: uuid.UUID | None = None,
     ) -> Chat:
         """Create a new chat associated with an entity."""
         if self.role.user_id is None:
             raise ValueError("User ID is required")
+
+        if agent_preset_id:
+            preset_service = AgentPresetService(self.session, self.role)
+            await preset_service.get_preset(agent_preset_id)
 
         chat = Chat(
             title=title,
@@ -54,6 +61,7 @@ class ChatService(BaseWorkspaceService):
             entity_id=entity_id,
             owner_id=self.workspace_id,
             tools=tools or get_default_tools(entity_type),
+            agent_preset_id=agent_preset_id,
         )
 
         self.session.add(chat)
@@ -145,20 +153,43 @@ class ChatService(BaseWorkspaceService):
         chat_entity = ChatEntity(chat.entity_type)
 
         if chat_entity is ChatEntity.CASE:
-            instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-            async with agent_svc.with_model_config() as model_config:
-                config = AgentConfig(
-                    instructions=instructions,
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
-                    actions=chat.tools,
-                )
-                args = RunAgentArgs(
-                    user_prompt=user_prompt,
-                    session_id=chat_id,
-                    config=config,
-                )
-                await executor.start(args)
+            entity_instructions = await self._chat_entity_to_prompt(
+                chat.entity_type, chat
+            )
+            if chat.agent_preset_id:
+                # Get chat entity instructions to append to preset
+                async with agent_svc.with_preset_config(
+                    preset_id=chat.agent_preset_id
+                ) as preset_config:
+                    # Combine preset instructions with entity-specific instructions
+                    combined_instructions = (
+                        f"{preset_config.instructions}\n\n{entity_instructions}"
+                        if preset_config.instructions
+                        else entity_instructions
+                    )
+                    config = replace(preset_config, instructions=combined_instructions)
+                    if not config.actions and chat.tools:
+                        config.actions = chat.tools
+                    args = RunAgentArgs(
+                        user_prompt=user_prompt,
+                        session_id=chat_id,
+                        config=config,
+                    )
+                    await executor.start(args)
+            else:
+                async with agent_svc.with_model_config() as model_config:
+                    config = AgentConfig(
+                        instructions=entity_instructions,
+                        model_name=model_config.name,
+                        model_provider=model_config.provider,
+                        actions=chat.tools,
+                    )
+                    args = RunAgentArgs(
+                        user_prompt=user_prompt,
+                        session_id=chat_id,
+                        config=config,
+                    )
+                    await executor.start(args)
         elif chat_entity is ChatEntity.AGENT_PRESET:
             async with agent_svc.with_preset_config(
                 preset_id=chat.entity_id
@@ -175,19 +206,27 @@ class ChatService(BaseWorkspaceService):
                 await executor.start(args)
         elif chat_entity is ChatEntity.AGENT_PRESET_BUILDER:
             instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-            async with agent_svc.with_model_config() as model_config:
-                config = AgentConfig(
-                    instructions=instructions,
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
-                    actions=None,
-                )
-                args = RunAgentArgs(
-                    user_prompt=user_prompt,
-                    session_id=chat_id,
-                    config=config,
-                )
-                await executor.start(args)
+            tools = build_agent_preset_builder_tools(chat.entity_id)
+            try:
+                async with agent_svc.with_model_config() as model_config:
+                    config = AgentConfig(
+                        instructions=instructions,
+                        model_name=model_config.name,
+                        model_provider=model_config.provider,
+                        actions=None,
+                        custom_tools=tools,
+                    )
+                    args = RunAgentArgs(
+                        user_prompt=user_prompt,
+                        session_id=chat_id,
+                        config=config,
+                    )
+                    await executor.start(args)
+            except TracecatNotFoundError as exc:
+                raise ValueError(
+                    "Agent preset builder requires a default AI model with valid provider credentials. "
+                    "Configure the default model in Organization settings before chatting."
+                ) from exc
         else:
             raise ValueError(
                 f"Unsupported chat entity type: {chat.entity_type}. Expected one of: {list(ChatEntity)}"
@@ -238,21 +277,34 @@ class ChatService(BaseWorkspaceService):
     async def update_chat(
         self,
         chat: Chat,
-        *,
-        tools: list[str] | None = None,
-        title: str | None = None,
+        params: ChatUpdate,
     ) -> Chat:
         """Update chat properties."""
-        # Update fields if provided
-        if tools is not None:
-            chat.tools = tools
-        if title is not None:
-            chat.title = title
+        set_fields = params.model_dump(exclude_unset=True)
 
+        if "agent_preset_id" in set_fields:
+            preset_id = set_fields.pop("agent_preset_id")
+            if preset_id is not None:
+                preset_service = AgentPresetService(self.session, self.role)
+                # Raises TracecatNotFoundError if preset not found
+                await preset_service.get_preset(preset_id)
+            chat.agent_preset_id = preset_id
+
+        # Update remaining fields if provided
+        for field, value in set_fields.items():
+            setattr(chat, field, value)
         self.session.add(chat)
         await self.session.commit()
         await self.session.refresh(chat)
 
+        return chat
+
+    async def update_chat_last_stream_id(self, chat: Chat, last_stream_id: str) -> Chat:
+        """Update the last stream ID for a chat."""
+        chat.last_stream_id = last_stream_id
+        self.session.add(chat)
+        await self.session.commit()
+        await self.session.refresh(chat)
         return chat
 
     async def append_message(

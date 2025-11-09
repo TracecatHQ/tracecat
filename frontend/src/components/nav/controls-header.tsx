@@ -46,6 +46,7 @@ import {
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
 import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
+import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
@@ -234,6 +235,10 @@ function TablesActions() {
       />
     </>
   )
+}
+
+function IntegrationsActions() {
+  return <CreateCustomProviderDialog />
 }
 
 function CasesActions() {
@@ -1080,6 +1085,7 @@ function getPageConfig(
 
     return {
       title: "Integrations",
+      actions: <IntegrationsActions />,
     }
   }
 

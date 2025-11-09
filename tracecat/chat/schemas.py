@@ -14,7 +14,7 @@ from tracecat.agent.types import ModelMessageTA
 from tracecat.chat.enums import ChatEntity
 
 if TYPE_CHECKING:
-    from tracecat.db.models import ChatMessage as DBChatMessage
+    from tracecat.db import models
 
 
 class BasicChatRequest(BaseModel):
@@ -96,6 +96,10 @@ class ChatCreate(BaseModel):
         description="Tools available to the agent for this chat",
         max_length=50,
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional agent preset to use for the chat session",
+    )
 
 
 class ChatReadMinimal(BaseModel):
@@ -109,6 +113,10 @@ class ChatReadMinimal(BaseModel):
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
     tools: list[str] = Field(..., description="Tools available to the agent")
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Agent preset associated with the chat, if any",
+    )
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
     last_stream_id: str | None = Field(
@@ -142,6 +150,10 @@ class ChatUpdate(BaseModel):
     title: str | None = Field(
         default=None, description="Chat title", min_length=1, max_length=200
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Agent preset to use for the chat session (set to null for default instructions)",
+    )
 
 
 class ChatMessage(BaseModel):
@@ -151,7 +163,7 @@ class ChatMessage(BaseModel):
     message: ModelMessage = Field(..., description="The message from the chat")
 
     @classmethod
-    def from_db(cls, value: DBChatMessage) -> ChatMessage:
+    def from_db(cls, value: models.ChatMessage) -> ChatMessage:
         return cls(
             id=str(value.id),
             message=ModelMessageTA.validate_python(value.data),
