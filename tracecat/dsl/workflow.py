@@ -91,7 +91,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
+        NormalizeTriggerInputsActivityInputs,
         ValidateTriggerInputsActivityInputs,
+        normalize_trigger_inputs_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -362,6 +364,16 @@ class DSLWorkflow:
         try:
             validation_result = await self._validate_trigger_inputs(trigger_inputs)
             logger.info("Trigger inputs are valid", validation_result=validation_result)
+            # Apply defaults from expects schema to trigger inputs
+
+            trigger_inputs = await workflow.execute_local_activity(
+                normalize_trigger_inputs_activity,
+                arg=NormalizeTriggerInputsActivityInputs(
+                    dsl=self.dsl, trigger_inputs=trigger_inputs
+                ),
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
         except ValidationError as e:
             logger.error("Failed to validate trigger inputs", error=e.errors())
             raise ApplicationError(

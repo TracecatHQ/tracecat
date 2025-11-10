@@ -5,7 +5,10 @@ from temporalio import activity
 
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import TriggerInputs
-from tracecat.expressions.expectations import ExpectedField, create_expectation_model
+from tracecat.expressions.expectations import (
+    ExpectedField,
+    create_expectation_model,
+)
 from tracecat.logger import logger
 from tracecat.validation.schemas import DSLValidationResult, ValidationDetail
 
@@ -47,6 +50,34 @@ def validate_trigger_inputs(
     return DSLValidationResult(status="success", msg="Trigger inputs are valid.")
 
 
+def normalize_trigger_inputs(
+    dsl: DSLInput,
+    payload: TriggerInputs | None = None,
+    *,
+    model_name: str = "TriggerInputsNormalizer",
+) -> TriggerInputs:
+    """Apply defaults from the DSL `entrypoint.expects` to trigger inputs.
+
+    Returns a new dict with defaults filled where not provided.
+    If no expects schema is present, returns the original payload or `{}`.
+    """
+    if not dsl.entrypoint.expects:
+        return dict(payload or {})
+
+    expects_schema = {
+        field_name: ExpectedField.model_validate(field_schema)
+        for field_name, field_schema in dsl.entrypoint.expects.items()
+    }
+
+    if not isinstance(payload, dict):
+        payload = {}
+
+    # Build a pydantic model from schema and dump with defaults applied
+    validator = create_expectation_model(expects_schema, model_name=model_name)
+    model = validator(**payload)
+    return model.model_dump(mode="json")
+
+
 class ValidateTriggerInputsActivityInputs(BaseModel):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
     dsl: DSLInput
@@ -61,3 +92,17 @@ async def validate_trigger_inputs_activity(
         inputs.dsl, inputs.trigger_inputs, raise_exceptions=True
     )
     return res
+
+
+class NormalizeTriggerInputsActivityInputs(BaseModel):
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    dsl: DSLInput
+    trigger_inputs: TriggerInputs
+
+
+@activity.defn
+def normalize_trigger_inputs_activity(
+    inputs: NormalizeTriggerInputsActivityInputs,
+) -> TriggerInputs:
+    """Return trigger inputs with defaults applied according to DSL expects."""
+    return normalize_trigger_inputs(inputs.dsl, inputs.trigger_inputs)
