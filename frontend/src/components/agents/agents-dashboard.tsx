@@ -553,11 +553,13 @@ function AgentSessionCard({
                               toggleApprovalExpanded(approval.id)
                             }
                           >
-                            <CollapsibleTrigger
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex shrink-0 text-[11px] font-medium text-muted-foreground/80 hover:text-muted-foreground transition-colors"
-                            >
-                              <ChevronDownIcon className="size-3.5 transition-transform data-[state=open]:rotate-180" />
+                            <CollapsibleTrigger asChild>
+                              <span
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex shrink-0 text-[11px] font-medium text-muted-foreground/80 hover:text-muted-foreground transition-colors"
+                              >
+                                <ChevronDownIcon className="size-3.5 transition-transform data-[state=open]:rotate-180" />
+                              </span>
                             </CollapsibleTrigger>
                           </Collapsible>
                         ) : null}
