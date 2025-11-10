@@ -1,8 +1,8 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { AgentsBoard } from "@/components/agents/agents-dashboard"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useAgentSessions } from "@/lib/hooks"
@@ -10,25 +10,33 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function AgentsPage() {
   const workspaceId = useWorkspaceId()
-  const router = useRouter()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentFeatureEnabled = isFeatureEnabled("agent-approvals")
+  const agentApprovalsEnabled = isFeatureEnabled("agent-approvals")
+  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
 
   const { sessions, sessionsIsLoading, sessionsError, refetchSessions } =
-    useAgentSessions({ workspaceId }, { enabled: agentFeatureEnabled })
+    useAgentSessions({ workspaceId }, { enabled: agentsFeatureEnabled })
 
   useEffect(() => {
     document.title = "Agents"
   }, [])
 
-  useEffect(() => {
-    if (!featureFlagsLoading && !agentFeatureEnabled) {
-      router.replace("/not-found")
-    }
-  }, [agentFeatureEnabled, featureFlagsLoading, router])
-
-  if (featureFlagsLoading || !agentFeatureEnabled) {
+  if (featureFlagsLoading) {
     return <CenteredSpinner />
+  }
+
+  if (!agentsFeatureEnabled) {
+    return (
+      <div className="size-full overflow-auto">
+        <div className="mx-auto flex w-full h-full max-w-3xl flex-1 items-center justify-center py-12">
+          <FeatureFlagEmptyState
+            title="Enterprise only"
+            description="Advanced AI agents (human-in-the-loop and subagents) are only available on enterprise plans."
+          />
+        </div>
+      </div>
+    )
   }
 
   return (
