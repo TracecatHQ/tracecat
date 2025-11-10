@@ -12,7 +12,6 @@ from pydantic_ai.messages import (
     AgentStreamEvent,
     ModelMessage,
     ModelRequest,
-    ToolCallPart,
 )
 from pydantic_ai.tools import (
     DeferredToolRequests,
@@ -138,7 +137,7 @@ class DurableAgentWorkflow:
                     # If there are approvals, we need to wait for the tool results
                     if approvals:
                         await self.approvals.prepare(approvals)
-                        await self._run_approval_manager(approvals)
+                        await self.approvals.generate_recommendations()
                         # Wait for the approval results
                         await self.approvals.wait()
                         logger.info(
@@ -194,25 +193,6 @@ class DurableAgentWorkflow:
             start_to_close_timeout=timedelta(seconds=120),
         )
         return RemoteToolset(build_tool_defs_result.tool_definitions, role=self.role)
-
-    async def _run_approval_manager(
-        self,
-        approvals: list[ToolCallPart],
-    ) -> None:
-        """Invoke the approval manager agent to generate recommendations."""
-        logger.info(
-            "Approval manager hook triggered",
-            approval_count=len(approvals),
-            session_id=self.session_id,
-        )
-        try:
-            await self.approvals.generate_recommendations()
-        except Exception as exc:
-            logger.warning(
-                "Approval manager recommendation generation failed",
-                error=str(exc),
-                session_id=self.session_id,
-            )
 
     async def _event_stream_handler(
         self,
