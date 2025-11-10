@@ -1203,12 +1203,12 @@ function AgentSessionCard({
                   disabled={isSubmitting}
                   onClick={() => {
                     setShowReviewDrawer(false)
-      setFormState({})
-      setFormError(null)
-      setExpandedPending(new Set())
-        setFormState({})
-        setFormError(null)
-        setExpandedPending(new Set())
+                    setFormState({})
+                    setFormError(null)
+                    setExpandedPending(new Set())
+                    setFormState({})
+                    setFormError(null)
+                    setExpandedPending(new Set())
                   }}
                 >
                   Cancel
