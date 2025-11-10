@@ -583,10 +583,6 @@ function ApprovalRequestPart({
     try {
       setSubmitting(true)
       await onSubmit(payload)
-      toast({
-        title: "Approvals submitted",
-        description: "The agent will resume after processing.",
-      })
       setDecisions({})
     } catch (error) {
       console.error(error)
