@@ -644,6 +644,10 @@ function ApprovalRequestPart({
                         overrideArgs: undefined,
                       })
                     }
+                    className={cn(
+                      decision?.action === "approve" &&
+                        "bg-green-500/80 hover:bg-green-600/80"
+                    )}
                   >
                     <CheckIcon className="mr-1 size-3" />
                     Approve
@@ -660,6 +664,10 @@ function ApprovalRequestPart({
                         reason: undefined,
                       })
                     }
+                    className={cn(
+                      decision?.action === "override" &&
+                        "bg-green-500/80 hover:bg-green-600/80"
+                    )}
                   >
                     <PencilIcon className="mr-1 size-3" />
                     Approve + change
@@ -717,20 +725,22 @@ function ApprovalRequestPart({
           )
         })}
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={handleSubmit}
-          disabled={disabled || submitting || !readyToSubmit}
-        >
-          {submitting ? "Submitting..." : "Submit decisions"}
-        </Button>
+      <div className="flex flex-wrap justify-end gap-2">
         <Button
           type="button"
           variant="ghost"
           disabled={submitting}
           onClick={() => setDecisions({})}
+          className="h-7 px-2 text-muted-foreground/80"
         >
           Reset
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          disabled={disabled || submitting || !readyToSubmit}
+          className="h-7 px-2"
+        >
+          {submitting ? "Submitting..." : "Submit"}
         </Button>
       </div>
       {disabled && (
