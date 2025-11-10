@@ -92,11 +92,7 @@ import { parseISODuration } from "@/lib/time"
 import { undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab =
-  | "comments"
-  | "activity"
-  | "attachments"
-  | "payload"
+type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true
