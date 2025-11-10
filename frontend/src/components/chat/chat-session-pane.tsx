@@ -59,6 +59,7 @@ import {
 } from "@/components/ai-elements/tool"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { getIcon } from "@/components/icons"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -598,11 +599,10 @@ function ApprovalRequestPart({
   }
 
   return (
-    <div className="mt-4 space-y-4 rounded-lg border border-border/60 bg-muted/30 p-4">
+    <div className="space-y-4">
       <div>
-        <p className="text-sm font-medium">Approvals required</p>
-        <p className="text-xs text-muted-foreground">
-          Review and approve each tool call to continue.
+        <p className="text-xs font-medium uppercase text-muted-foreground">
+          Approvals required
         </p>
       </div>
       <div className="space-y-3">
@@ -624,7 +624,13 @@ function ApprovalRequestPart({
                     <p className="text-sm font-semibold">{actionId}</p>
                   </div>
                 </div>
-                <div className="flex gap-1">
+                <JsonViewWithControls
+                  src={approval.args}
+                  className="max-h-64"
+                  showControls={false}
+                  defaultExpanded
+                />
+                <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
                   <Button
                     size="sm"
                     variant={
@@ -638,7 +644,6 @@ function ApprovalRequestPart({
                         overrideArgs: undefined,
                       })
                     }
-                    className="h-7 rounded-lg"
                   >
                     <CheckIcon className="mr-1 size-3" />
                     Approve
@@ -655,7 +660,6 @@ function ApprovalRequestPart({
                         reason: undefined,
                       })
                     }
-                    className="h-7 rounded-lg"
                   >
                     <PencilIcon className="mr-1 size-3" />
                     Approve + change
@@ -672,16 +676,12 @@ function ApprovalRequestPart({
                         overrideArgs: undefined,
                       })
                     }
-                    className="h-7 rounded-lg"
                   >
                     <XIcon className="mr-1 size-3" />
                     Deny
                   </Button>
                 </div>
               </div>
-              <pre className="max-h-64 overflow-auto rounded bg-muted/60 p-3 text-xs">
-                {argsPreview}
-              </pre>
               {decision?.action === "override" && (
                 <Textarea
                   className="text-xs"
