@@ -99,7 +99,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
 
         result: ExecutorResult = None
         new_messages: list[ModelRequest | ModelResponse] | None = None
-        message: ModelResponse | None = None
+        approval_message: ModelResponse | None = None
 
         try:
             agent = await self._factory(args.config)
@@ -119,28 +119,16 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             new_messages = result.new_messages()
 
             match result.output:
+                # Immediately stream the approval request message to the client
                 case DeferredToolRequests(approvals=approvals) if approvals:
-                    message = ModelResponse(
+                    approval_message = ModelResponse(
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        await self.deps.stream_writer.stream.append(message)
+                        await self.deps.stream_writer.stream.append(approval_message)
                     except Exception as e:
                         logger.warning(
                             "Failed to stream approval request",
-                            error=str(e),
-                            session_id=args.session_id,
-                        )
-                    try:
-                        if self.deps.message_store:
-                            await self.deps.message_store.store(
-                                args.session_id,
-                                [message],
-                                kind=MessageKind.APPROVAL_REQUEST,
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to persist approval-request marker message",
                             error=str(e),
                             session_id=args.session_id,
                         )
@@ -161,7 +149,14 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             # Ensure we always close the stream so the client stops waiting.
             await self.deps.stream_writer.stream.done()
 
-        if new_messages and self.deps.message_store:
-            await self.deps.message_store.store(args.session_id, new_messages)
+        if store := self.deps.message_store:
+            if new_messages:
+                await store.store(args.session_id, new_messages)
+            if approval_message:
+                await store.store(
+                    args.session_id,
+                    [approval_message],
+                    kind=MessageKind.APPROVAL_REQUEST,
+                )
 
         return result

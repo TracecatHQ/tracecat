@@ -690,6 +690,9 @@ class VercelStreamContext:
     pending_data_events: list[DataEventPayload] = dataclasses.field(
         default_factory=list
     )
+    # Cache approval data for continuation reconstruction
+    approval_tool_name: dict[str, str] = dataclasses.field(default_factory=dict)
+    approval_input: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def _create_part_state(
         self,
@@ -869,9 +872,11 @@ class VercelStreamContext:
             if tool_call_id is not None and not self.tool_input_emitted.get(
                 tool_call_id, False
             ):
-                # Best-effort tool name and input payload
-                tool_name = getattr(event.result, "tool_name", "tool")
-                input_payload: Any = {}
+                # Use cached approval data if available, otherwise best-effort fallback
+                tool_name = self.approval_tool_name.get(
+                    tool_call_id, getattr(event.result, "tool_name", "tool")
+                )
+                input_payload: Any = self.approval_input.get(tool_call_id, {})
                 yield ToolInputAvailableEventPayload(
                     toolCallId=tool_call_id,
                     toolName=str(tool_name),
@@ -1212,6 +1217,29 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     if approval_payload := _extract_approval_payload_from_message(
                         message
                     ):
+                        # Finalize any open tool parts involved in approvals so
+                        # the UI receives tool-input-available before the approval card.
+                        try:
+                            for call in approval_payload:
+                                # Cache original data for continuation reconstruction
+                                context.approval_tool_name[call.tool_call_id] = (
+                                    call.tool_name
+                                )
+                                context.approval_input[call.tool_call_id] = (
+                                    call.args_as_dict()
+                                )
+                                # If the tool part is open in this stream, finalize it now
+                                if call.tool_call_id in context.tool_index:
+                                    index = context.tool_index[call.tool_call_id]
+                                    for (
+                                        end_evt
+                                    ) in context.collect_current_part_end_events(
+                                        index=index
+                                    ):
+                                        yield format_sse(end_evt)
+                        except Exception:
+                            # Best-effort only; do not abort streaming on cache/finalize errors
+                            pass
                         context.enqueue_data_event(
                             DataEventPayload(
                                 type=APPROVAL_DATA_PART_TYPE,

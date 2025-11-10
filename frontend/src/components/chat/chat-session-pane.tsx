@@ -5,7 +5,6 @@ import {
   type ChatStatus,
   getToolName,
   isToolUIPart,
-  type ToolUIPart,
   type UIDataTypes,
   type UIMessage,
   type UIMessagePart,
@@ -81,6 +80,7 @@ import {
   ENTITY_TO_INVALIDATION,
   getAssistantText,
   toUIMessage,
+  transformMessages,
 } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
@@ -158,104 +158,10 @@ export function ChatSessionPane({
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
-  // Helper function to compute visible parts for a message, filtering out
-  // duplicate tool cards when a later message contains a completed tool
-  // with the same toolCallId, and merging args from earlier messages into
-  // output parts in the current message
-  function computeVisibleParts(
-    orderedParts: UIMessagePart<UIDataTypes, UITools>[] | undefined,
-    msgIndex: number,
-    allMessages: UIMessage[]
-  ): UIMessagePart<UIDataTypes, UITools>[] | undefined {
-    if (!orderedParts) return orderedParts
-
-    // First pass: collect args from earlier messages
-    // These args will be merged into output parts in the current message
-    const argsMap = new Map<string, unknown>()
-    for (const earlier of allMessages.slice(0, msgIndex)) {
-      for (const p of earlier.parts || []) {
-        if (
-          isToolUIPart(p) &&
-          (p.state === "input-streaming" || p.state === "input-available") &&
-          p.input !== undefined
-        ) {
-          argsMap.set(p.toolCallId, p.input)
-        }
-      }
-    }
-    console.log("argsMap from earlier messages", argsMap)
-
-    // Second pass: collect toolCallIds that are completed in any later message
-    // This helps us identify which tool invocations in the current message
-    // should be hidden because they're completed downstream
-    const toolCallOutputParts = new Set<string>()
-    for (const later of allMessages.slice(msgIndex + 1)) {
-      for (const p of later.parts || []) {
-        if (
-          isToolUIPart(p) &&
-          (p.state === "output-available" || p.state === "output-error")
-        ) {
-          toolCallOutputParts.add(p.toolCallId)
-        }
-      }
-    }
-    console.log("completedLater", toolCallOutputParts)
-
-    // Third pass: filter and reconstruct visible parts
-    return orderedParts
-      .filter(
-        (p) =>
-          // Hide input-only parts if a later completion exists
-          !(
-            isToolUIPart(p) &&
-            (p.state === "input-streaming" || p.state === "input-available") &&
-            toolCallOutputParts.has(p.toolCallId)
-          )
-      )
-      .map((p) => {
-        // If this is a tool output part with a toolCallId that had args from an earlier message,
-        // merge those args into this part
-        if (
-          isToolUIPart(p) &&
-          (p.state === "output-available" || p.state === "output-error") &&
-          argsMap.has(p.toolCallId)
-        ) {
-          const input = argsMap.get(p.toolCallId)
-          const newPart: ToolUIPart<UITools> = {
-            ...p,
-            input,
-          }
-          console.log("merging args into output part", newPart)
-          return newPart
-        }
-        return p
-      })
-  }
-
-  // Pre-compute visible parts for all messages to avoid calling hooks in loops
-  const messagesWithVisibleParts = useMemo(() => {
-    return messages.map((message, msgIndex) => {
-      const orderedParts = message.parts?.some(
-        (part) => part.type === "data-approval-request"
-      )
-        ? [
-            ...message.parts.filter(
-              (part) => part.type === "data-approval-request"
-            ),
-            ...message.parts.filter(
-              (part) => part.type !== "data-approval-request"
-            ),
-          ]
-        : message.parts
-
-      const visibleParts = computeVisibleParts(orderedParts, msgIndex, messages)
-
-      return {
-        ...message,
-        visibleParts,
-      }
-    })
-  }, [messages])
+  const transformedMessages = useMemo(
+    () => transformMessages(messages),
+    [messages]
+  )
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -336,24 +242,23 @@ export function ChatSessionPane({
                 <AlertDescription>{lastError}</AlertDescription>
               </Alert>
             )}
-            {messagesWithVisibleParts.map(({ id, role, visibleParts }) => {
+            {transformedMessages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages[messages.length - 1].id
               return (
                 <div key={id} className="group relative">
                   {role === "assistant" &&
-                    visibleParts &&
-                    visibleParts.filter((part) => part.type === "source-url")
-                      .length > 0 && (
+                    parts &&
+                    parts.filter((part) => part.type === "source-url").length >
+                      0 && (
                       <Sources>
                         <SourcesTrigger
                           count={
-                            visibleParts.filter(
-                              (part) => part.type === "source-url"
-                            ).length
+                            parts.filter((part) => part.type === "source-url")
+                              .length
                           }
                         />
-                        {visibleParts
+                        {parts
                           .filter((part) => part.type === "source-url")
                           .map((part, partIdx) => (
                             <SourcesContent
@@ -368,7 +273,7 @@ export function ChatSessionPane({
                       </Sources>
                     )}
 
-                  {visibleParts?.map((part, partIdx) => (
+                  {parts?.map((part, partIdx) => (
                     <MessagePart
                       key={`${id}-${part.type}-${partIdx}`}
                       part={part}
@@ -380,52 +285,49 @@ export function ChatSessionPane({
                       onSubmitApprovals={handleSubmitApprovals}
                     />
                   ))}
-                  {role === "assistant" &&
-                    visibleParts &&
-                    visibleParts.length > 0 && (
-                      // Render response actions for assistant messages and reveal them on hover for older messages.
-                      <Actions
-                        className={cn(
-                          // Apply a smooth transition so the actions fade in and out gracefully.
-                          "transition-opacity duration-200 ease-out",
-                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                          !isLastMessage &&
-                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        )}
-                      >
-                        {visibleParts.some((part) => part.type === "text") && (
-                          <Action
-                            size="sm"
-                            onClick={() => {
-                              const assistantText =
-                                getAssistantText(visibleParts)
-                              if (assistantText.length > 0) {
-                                navigator.clipboard.writeText(assistantText)
-                                toast({
-                                  title: "Copied to clipboard",
-                                  description:
-                                    "The assistant's response has been copied to your clipboard.",
-                                })
-                              }
-                            }}
-                            label="Copy"
-                            tooltip="Copy"
-                          >
-                            <CopyIcon className="size-3" />
-                          </Action>
-                        )}
-                        {isLastMessage && (
-                          <Action
-                            size="sm"
-                            onClick={() => regenerate()}
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        )}
-                      </Actions>
-                    )}
+                  {role === "assistant" && parts && parts.length > 0 && (
+                    // Render response actions for assistant messages and reveal them on hover for older messages.
+                    <Actions
+                      className={cn(
+                        // Apply a smooth transition so the actions fade in and out gracefully.
+                        "transition-opacity duration-200 ease-out",
+                        // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                        !isLastMessage &&
+                          "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                      )}
+                    >
+                      {parts.some((part) => part.type === "text") && (
+                        <Action
+                          size="sm"
+                          onClick={() => {
+                            const assistantText = getAssistantText(parts)
+                            if (assistantText.length > 0) {
+                              navigator.clipboard.writeText(assistantText)
+                              toast({
+                                title: "Copied to clipboard",
+                                description:
+                                  "The assistant's response has been copied to your clipboard.",
+                              })
+                            }
+                          }}
+                          label="Copy"
+                          tooltip="Copy"
+                        >
+                          <CopyIcon className="size-3" />
+                        </Action>
+                      )}
+                      {isLastMessage && (
+                        <Action
+                          size="sm"
+                          onClick={() => regenerate()}
+                          label="Retry"
+                          tooltip="Retry"
+                        >
+                          <RefreshCcwIcon className="size-3" />
+                        </Action>
+                      )}
+                    </Actions>
+                  )}
                 </div>
               )
             })}
