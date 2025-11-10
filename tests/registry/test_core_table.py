@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+import sqlalchemy as sa
 from asyncpg import DuplicateTableError
 from sqlalchemy.exc import ProgrammingError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -28,6 +29,24 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
+
+
+def _information_schema_columns_select(schema_name: str, table_name: str) -> sa.Select:
+    columns_table = sa.table(
+        "columns",
+        sa.column("table_schema"),
+        sa.column("table_name"),
+        sa.column("column_name"),
+        sa.column("data_type"),
+        sa.column("ordinal_position"),
+        schema="information_schema",
+    )
+    return (
+        sa.select(columns_table.c.column_name, columns_table.c.data_type)
+        .where(columns_table.c.table_schema == schema_name)
+        .where(columns_table.c.table_name == table_name)
+        .order_by(columns_table.c.ordinal_position)
+    )
 
 
 @pytest.fixture
@@ -1007,8 +1026,7 @@ class TestCoreTableIntegration:
             assert result["name"] == "integration_test_table"
             assert "id" in result
 
-            # Now verify the columns were actually created in the database
-            # Use TablesService.with_session() to access the same committed data
+            # Now verify the columns metadata reflects our inputs
             async with TablesService.with_session(role=svc_admin_role) as service:
                 tables = await service.list_tables()
 
@@ -1024,33 +1042,39 @@ class TestCoreTableIntegration:
                 # Get the table with columns
                 table_with_columns = await service.get_table(test_table.id)
 
-                # Verify all columns were created
+                # Verify all columns were created (metadata)
                 assert len(table_with_columns.columns) == 4
 
-                # Check each column
-                column_names = {col.name for col in table_with_columns.columns}
-                assert "username" in column_names
-                assert "email" in column_names
-                assert "age" in column_names
-                assert "metadata" in column_names
+                column_by_name = {col.name: col for col in table_with_columns.columns}
+                username_column = column_by_name["username"]
+                assert SqlType(username_column.type) is SqlType.TEXT
+                assert username_column.nullable is False
 
-                # Verify column properties
-                for col in table_with_columns.columns:
-                    if col.name == "username":
-                        assert col.type == SqlType.TEXT.value
-                        assert col.nullable is False
-                    elif col.name == "email":
-                        assert col.type == SqlType.TEXT.value
-                        assert col.nullable is True
-                    elif col.name == "age":
-                        assert col.type == SqlType.INTEGER.value
-                        assert col.nullable is True
-                        assert (
-                            col.default == "0"
-                        )  # Default values are stored as strings
-                    elif col.name == "metadata":
-                        assert col.type == SqlType.JSONB.value
-                        assert col.nullable is True
+                email_column = column_by_name["email"]
+                assert SqlType(email_column.type) is SqlType.TEXT
+                assert email_column.nullable is True
+
+                age_column = column_by_name["age"]
+                assert SqlType(age_column.type) is SqlType.INTEGER
+                assert age_column.nullable is True
+                assert age_column.default == "0"  # stored as SQL literal string
+
+                metadata_column = column_by_name["metadata"]
+                assert SqlType(metadata_column.type) is SqlType.JSONB
+                assert metadata_column.nullable is True
+
+                # Physical storage should use a JSONB payload column alongside metadata columns
+                schema_name = service._get_schema_name()
+                table_name = service._sanitize_identifier(result["name"])
+                stmt = _information_schema_columns_select(schema_name, table_name)
+                rows = (await service.session.exec(stmt)).all()
+                physical_columns = [(row.column_name, row.data_type) for row in rows]
+                assert physical_columns == [
+                    ("id", "uuid"),
+                    ("created_at", "timestamp with time zone"),
+                    ("updated_at", "timestamp with time zone"),
+                    ("data", "jsonb"),
+                ]
 
             # Test that we can insert data into the table with the created columns
             inserted_row = await insert_row(
@@ -1090,6 +1114,18 @@ class TestCoreTableIntegration:
 
                 table_names = {table.name for table in tables}
                 assert "empty_table" in table_names
+
+                schema_name = service._get_schema_name()
+                table_name = service._sanitize_identifier(result["name"])
+                stmt = _information_schema_columns_select(schema_name, table_name)
+                rows = (await service.session.exec(stmt)).all()
+                physical_columns = [(row.column_name, row.data_type) for row in rows]
+                assert physical_columns == [
+                    ("id", "uuid"),
+                    ("created_at", "timestamp with time zone"),
+                    ("updated_at", "timestamp with time zone"),
+                    ("data", "jsonb"),
+                ]
         finally:
             ctx_role.reset(token)
 
