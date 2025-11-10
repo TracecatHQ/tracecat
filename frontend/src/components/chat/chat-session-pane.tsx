@@ -612,7 +612,7 @@ function ApprovalRequestPart({
           const argsPreview = formatArgs(approval.args)
           return (
             <div
-              key={actionId}
+              key={approval.tool_call_id}
               className="space-y-3 rounded-md border border-border/60 bg-background p-3"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">

@@ -1210,10 +1210,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                 case StreamDelta(event=agent_event):
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        logger.warning("STREAMDELTA", msg=msg)
                         yield format_sse(msg)
                 case StreamMessage(message=message):
-                    logger.warning("STREAMMESSAGE", message=message)
                     if approval_payload := _extract_approval_payload_from_message(
                         message
                     ):

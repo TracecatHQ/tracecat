@@ -81,7 +81,15 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
 
     async def _start_agent(self, args: RunAgentArgs) -> ExecutorResult:
         # Fire-and-forget execution using the agent function directly
-        logger.info("Starting streaming agent", args=args)
+        logger.info(
+            "Starting streaming agent",
+            session_id=args.session_id,
+            max_requests=args.max_requests,
+            max_tool_calls=args.max_tool_calls,
+            is_continuation=args.is_continuation,
+            model_name=args.config.model_name,
+            model_provider=args.config.model_provider,
+        )
 
         if self.deps.message_store:
             message_history = await self.deps.message_store.load(args.session_id)
