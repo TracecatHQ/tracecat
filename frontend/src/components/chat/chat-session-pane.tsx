@@ -94,6 +94,7 @@ export interface ChatSessionPaneProps {
   onMessagesChange?: (messages: UIMessage[]) => void
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
 }
 

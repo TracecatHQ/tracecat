@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: Create active scan
+  description: Create a Tenable Security Center scan using an existing policy and set of assets or targets.
+  display_group: Tenable Security Center
+  doc_url: https://docs.tenable.com/security-center/api/Scan.htm
+  namespace: tools.tenable_sc
+  name: create_active_scan
+  secrets:
+    - name: tenable_sc
+      keys: ["TENABLE_SC_ACCESS_KEY", "TENABLE_SC_SECRET_KEY"]
+  expects:
+    name:
+      type: str
+      description: Name of the scan to create.
+    description:
+      type: str | None
+      description: Optional scan description shown in Tenable Security Center.
+      default: null
+    repository_id:
+      type: int
+      description: Repository ID targeted by the scan.
+    scan_type:
+      type: str
+      description: Scan type (e.g. policy, discovery, agent).
+      default: policy
+    policy_id:
+      type: int | None
+      description: Policy ID to associate with the scan (required for policy scans).
+      default: null
+    asset_ids:
+      type: list[int]
+      description: Asset object IDs that the scan should target.
+      default: []
+    ip_list:
+      type: str | None
+      description: Comma-separated list of additional targets/IP ranges.
+      default: null
+    credentials:
+      type: list[dict[str, Any]]
+      description: Credential objects to use for authenticated scanning.
+      default: []
+    base_url:
+      type: str | None
+      description: Tenable Security Center base URL (e.g. https://security-center.example.com).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify TLS certificates when calling the API.
+      default: true
+  steps:
+    - ref: build_scan_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
+          repository_id: ${{ inputs.repository_id }}
+          scan_type: ${{ inputs.scan_type }}
+          policy_id: ${{ inputs.policy_id }}
+          asset_ids: ${{ inputs.asset_ids }}
+          ip_list: ${{ inputs.ip_list }}
+          credentials: ${{ inputs.credentials }}
+        script: |
+          def main(name, description, repository_id, scan_type, policy_id, asset_ids, ip_list, credentials):
+              payload = {
+                  "name": name,
+                  "description": description or "",
+                  "repository": {"id": repository_id},
+                  "type": scan_type,
+                  "assets": [{"id": asset_id} for asset_id in (asset_ids or [])],
+                  "ipList": ip_list or "",
+                  "credentials": credentials or [],
+              }
+              if policy_id:
+                  payload["policy"] = {"id": policy_id}
+              return payload
+    - ref: create_scan
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.tenable_sc.base_url }}/rest/scan
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Content-Type: application/json
+          x-apikey: "accesskey=${{ SECRETS.tenable_sc.TENABLE_SC_ACCESS_KEY }}; secretkey=${{ SECRETS.tenable_sc.TENABLE_SC_SECRET_KEY }};"
+        payload: ${{ steps.build_scan_payload.result }}
+  returns: ${{ steps.create_scan.result.data }}
