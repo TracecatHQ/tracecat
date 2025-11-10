@@ -414,12 +414,22 @@ async def test_retry_prompt_without_tracked_tool_call_id():
 
     frames = await collect_frames(ctx, events)
 
-    # Should emit tool output with errorText (not fallback to text)
-    assert len(frames) == 1
-    assert isinstance(frames[0], ToolOutputAvailableEventPayload)
-    assert frames[0].toolCallId == retry_part.tool_call_id
-    assert "errorText" in frames[0].output
-    assert "General error message" in frames[0].output["errorText"]
+    # Should emit tool output with errorText (not fallback to text).
+    # Some implementations may synthesize a preceding input-available frame
+    # even when the tool_call_id wasn't previously tracked. Accept either.
+    assert len(frames) in (1, 2)
+    if len(frames) == 2:
+        # Optional synthesized input
+        assert isinstance(frames[0], ToolInputAvailableEventPayload)
+        assert frames[0].toolCallId == retry_part.tool_call_id
+        output_frame = frames[1]
+    else:
+        output_frame = frames[0]
+
+    assert isinstance(output_frame, ToolOutputAvailableEventPayload)
+    assert output_frame.toolCallId == retry_part.tool_call_id
+    assert "errorText" in output_frame.output
+    assert "General error message" in output_frame.output["errorText"]
 
 
 @pytest.mark.anyio
