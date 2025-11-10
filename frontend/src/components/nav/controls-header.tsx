@@ -37,6 +37,7 @@ import {
   CasesViewToggle,
 } from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
+import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import {
   FolderViewToggle,
   ViewMode,
@@ -742,6 +743,26 @@ function IntegrationBreadcrumb({
           <BreadcrumbPage className="font-semibold">
             {provider?.metadata.name || providerId}
           </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function AgentsBreadcrumb({ workspaceId }: { workspaceId: string }) {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">Presets</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
