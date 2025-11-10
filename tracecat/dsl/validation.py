@@ -51,8 +51,8 @@ def validate_trigger_inputs(
 
 
 def normalize_trigger_inputs(
-    dsl: DSLInput,
-    payload: TriggerInputs | None = None,
+    input_schema: dict[str, ExpectedField],
+    payload: TriggerInputs,
     *,
     model_name: str = "TriggerInputsNormalizer",
 ) -> TriggerInputs:
@@ -62,12 +62,12 @@ def normalize_trigger_inputs(
     If no expects schema is present, returns the original payload or `{}`.
     """
     # If there's no expects schema or the payload is not a dict, return the original payload
-    if not dsl.entrypoint.expects or not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not input_schema:
         return payload
 
     expects_schema = {
         field_name: ExpectedField.model_validate(field_schema)
-        for field_name, field_schema in dsl.entrypoint.expects.items()
+        for field_name, field_schema in input_schema.items()
     }
     # Build a pydantic model from schema and dump with defaults applied
     validator = create_expectation_model(expects_schema, model_name=model_name)
@@ -93,7 +93,7 @@ async def validate_trigger_inputs_activity(
 
 class NormalizeTriggerInputsActivityInputs(BaseModel):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
-    dsl: DSLInput
+    input_schema: dict[str, ExpectedField]
     trigger_inputs: TriggerInputs
 
 
@@ -102,4 +102,4 @@ def normalize_trigger_inputs_activity(
     inputs: NormalizeTriggerInputsActivityInputs,
 ) -> TriggerInputs:
     """Return trigger inputs with defaults applied according to DSL expects."""
-    return normalize_trigger_inputs(inputs.dsl, inputs.trigger_inputs)
+    return normalize_trigger_inputs(inputs.input_schema, inputs.trigger_inputs)

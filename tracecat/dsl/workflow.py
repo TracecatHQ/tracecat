@@ -364,16 +364,6 @@ class DSLWorkflow:
         try:
             validation_result = await self._validate_trigger_inputs(trigger_inputs)
             logger.info("Trigger inputs are valid", validation_result=validation_result)
-            # Apply defaults from expects schema to trigger inputs
-
-            trigger_inputs = await workflow.execute_local_activity(
-                normalize_trigger_inputs_activity,
-                arg=NormalizeTriggerInputsActivityInputs(
-                    dsl=self.dsl, trigger_inputs=trigger_inputs
-                ),
-                start_to_close_timeout=self.start_to_close_timeout,
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
         except ValidationError as e:
             logger.error("Failed to validate trigger inputs", error=e.errors())
             raise ApplicationError(
@@ -384,6 +374,25 @@ class DSLWorkflow:
                 non_retryable=True,
                 type=e.__class__.__name__,
             ) from e
+
+        # Apply defaults from expects schema to trigger inputs
+        if input_schema := self.dsl.entrypoint.expects:
+            try:
+                trigger_inputs = await workflow.execute_local_activity(
+                    normalize_trigger_inputs_activity,
+                    arg=NormalizeTriggerInputsActivityInputs(
+                        input_schema=input_schema, trigger_inputs=trigger_inputs
+                    ),
+                    start_to_close_timeout=self.start_to_close_timeout,
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+            except Exception as e:
+                logger.error("Failed to normalize trigger inputs", error=e)
+                raise ApplicationError(
+                    "Failed to normalize trigger inputs",
+                    non_retryable=True,
+                    type=e.__class__.__name__,
+                ) from e
 
         # Prepare user facing context
 
