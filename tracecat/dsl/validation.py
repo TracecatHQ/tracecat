@@ -61,17 +61,14 @@ def normalize_trigger_inputs(
     Returns a new dict with defaults filled where not provided.
     If no expects schema is present, returns the original payload or `{}`.
     """
-    if not dsl.entrypoint.expects:
-        return dict(payload or {})
+    # If there's no expects schema or the payload is not a dict, return the original payload
+    if not dsl.entrypoint.expects or not isinstance(payload, dict):
+        return payload
 
     expects_schema = {
         field_name: ExpectedField.model_validate(field_schema)
         for field_name, field_schema in dsl.entrypoint.expects.items()
     }
-
-    if not isinstance(payload, dict):
-        payload = {}
-
     # Build a pydantic model from schema and dump with defaults applied
     validator = create_expectation_model(expects_schema, model_name=model_name)
     model = validator(**payload)
