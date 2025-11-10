@@ -143,7 +143,8 @@ export function TableImportTableDialog({
               : undefined
         form.setError("file", {
           type: "manual",
-          message: detail && detail !== "{}" ? detail : "Failed to import table",
+          message:
+            detail && detail !== "{}" ? detail : "Failed to import table",
         })
       } else {
         console.error("Unexpected error importing table:", error)
