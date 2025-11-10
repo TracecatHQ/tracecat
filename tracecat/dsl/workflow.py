@@ -361,21 +361,7 @@ class DSLWorkflow:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = args.trigger_inputs or {}
 
-        try:
-            validation_result = await self._validate_trigger_inputs(trigger_inputs)
-            logger.info("Trigger inputs are valid", validation_result=validation_result)
-        except ValidationError as e:
-            logger.error("Failed to validate trigger inputs", error=e.errors())
-            raise ApplicationError(
-                (
-                    "Failed to validate trigger inputs"
-                    f"\n\n{json.dumps(e.errors(), indent=2)}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-
-        # Apply defaults from expects schema to trigger inputs
+        # Validate and apply defaults from input schema to trigger inputs
         if input_schema := self.dsl.entrypoint.expects:
             try:
                 trigger_inputs = await workflow.execute_local_activity(
@@ -386,8 +372,22 @@ class DSLWorkflow:
                     start_to_close_timeout=self.start_to_close_timeout,
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
+            except ValidationError as e:
+                errs = e.errors()
+                logger.error("Validation error in trigger inputs", errors=errs)
+                raise ApplicationError(
+                    "Failed to validate trigger inputs",
+                    (
+                        "Failed to validate trigger inputs"
+                        f"\n\n{json.dumps(e.errors(), indent=2)}"
+                    ),
+                    non_retryable=True,
+                    type=e.__class__.__name__,
+                ) from e
             except Exception as e:
-                logger.error("Failed to normalize trigger inputs", error=e)
+                logger.error(
+                    "Unexpected error when normalizing trigger inputs", error=e
+                )
                 raise ApplicationError(
                     "Failed to normalize trigger inputs",
                     non_retryable=True,
@@ -395,7 +395,6 @@ class DSLWorkflow:
                 ) from e
 
         # Prepare user facing context
-
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.TRIGGER: trigger_inputs,
