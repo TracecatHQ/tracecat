@@ -165,7 +165,7 @@ class ChatService(BaseWorkspaceService):
                 yield config
         elif chat_entity is ChatEntity.AGENT_PRESET_BUILDER:
             instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-            tools = build_agent_preset_builder_tools(chat.entity_id)
+            tools = await build_agent_preset_builder_tools(chat.entity_id)
             try:
                 async with agent_svc.with_model_config() as model_config:
                     yield AgentConfig(
