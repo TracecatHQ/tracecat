@@ -227,26 +227,6 @@ class ChatService(BaseWorkspaceService):
                     d.tool_call_id: d.to_deferred_result() for d in decisions
                 }
                 deferred_tool_results = DeferredToolResults(approvals=approvals_map)
-
-                # Log a simple summary (non-fatal on error)
-                # try:
-                #     summary_lines = []
-                #     for d in decisions:
-                #         if d.action == "approve":
-                #             summary_lines.append(f"approve {d.tool_call_id}")
-                #         elif d.action == "override":
-                #             summary_lines.append(f"override {d.tool_call_id}")
-                #         else:
-                #             summary_lines.append(f"deny {d.tool_call_id}")
-                #     summary = "Approvals: " + ", ".join(summary_lines)
-                #     decision_msg = ModelResponse(parts=[TextPart(content=summary)])
-                #     await self.append_message(
-                #         chat_id, decision_msg, kind=MessageKind.APPROVAL_DECISION
-                #     )
-                # except Exception:
-                #     # Non-fatal: continue even if logging the decision fails
-                #     pass
-
             case VercelChatRequest(message=ui_message):
                 # Convert Vercel UI messages to pydantic-ai messages
                 [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
