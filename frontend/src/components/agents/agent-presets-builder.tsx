@@ -404,7 +404,11 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                     <Bot className="mr-1.5 h-3.5 w-3.5" />
                     Agents
                   </TabsTrigger>
-                  <TabsTrigger value="chat" disabled={chatTabDisabled} disableUnderline>
+                  <TabsTrigger
+                    value="chat"
+                    disabled={chatTabDisabled}
+                    disableUnderline
+                  >
                     <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
                     Live chat
                   </TabsTrigger>
@@ -515,7 +519,9 @@ function PresetsSidebar({
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <p className="text-xs text-muted-foreground">{list.length} agents saved</p>
+          <p className="text-xs text-muted-foreground">
+            {list.length} agents saved
+          </p>
         </div>
         <Button
           size="sm"
