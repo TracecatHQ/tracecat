@@ -25,6 +25,7 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.schemas import ApprovalRecommendation
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
@@ -1358,6 +1359,11 @@ class Approval(Resource, table=True):
         default=None,
         nullable=True,
         description="Optional reason for approval decision",
+    )
+    recommendation: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Approval recommendation stored as JSONB",
     )
     decision: bool | dict[str, Any] | None = Field(
         default=None,

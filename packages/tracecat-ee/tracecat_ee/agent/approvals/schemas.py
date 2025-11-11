@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.schemas import ApprovalRecommendation
 from tracecat.auth.schemas import UserReadMinimal
 
 
@@ -33,6 +34,7 @@ class ApprovalUpdate(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     decision: bool | dict[str, Any] | None = None
     approved_by: UUID4 | None = None
+    recommendation: ApprovalRecommendation | None = None
 
 
 class ApprovalRead(BaseModel):
@@ -50,3 +52,5 @@ class ApprovalRead(BaseModel):
     approved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    recommendation: ApprovalRecommendation | None = None
+    history: list[dict[str, Any]] | None = None

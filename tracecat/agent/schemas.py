@@ -17,6 +17,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.approvals.enums import ApprovalRecommendationVerdict
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
@@ -146,6 +147,12 @@ class AgentOutput(BaseModel):
     usage: RunUsage
     session_id: uuid.UUID
     trace_id: str | None = None
+
+
+class ApprovalRecommendation(BaseModel):
+    verdict: ApprovalRecommendationVerdict
+    reason: str | None = None
+    generated_by: str | None = None
 
 
 class ExecuteToolCallArgs(BaseModel):

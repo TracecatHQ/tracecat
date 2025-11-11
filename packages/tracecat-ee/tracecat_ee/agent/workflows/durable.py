@@ -137,6 +137,7 @@ class DurableAgentWorkflow:
                     # If there are approvals, we need to wait for the tool results
                     if approvals:
                         await self.approvals.prepare(approvals)
+                        await self.approvals.generate_recommendations()
                         # Wait for the approval results
                         await self.approvals.wait()
                         logger.info(

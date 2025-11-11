@@ -111,6 +111,11 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     decisions: list[ApprovalDecisionPayload]
 
 
+class GenerateApprovalRecommendationsActivityInputs(BaseModel):
+    role: Role
+    session_id: uuid.UUID
+
+
 class AgentActivities:
     """Activities for agent execution with optional Redis streaming."""
 

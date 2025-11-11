@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ClockPlus,
   Flag,
@@ -12,6 +13,7 @@ import {
   PenLine,
   Plus,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -75,6 +77,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -94,6 +97,7 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -103,6 +107,7 @@ import {
   useGetCase,
   useGetTable,
   useIntegrationProvider,
+  useOrgAgentSettings,
   useUpdateCase,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
@@ -563,20 +568,178 @@ function CasesSelectionActionsBar() {
 function AgentsActions() {
   const workspaceId = useWorkspaceId()
 
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
+    workspaceId,
+    {
+      enabled: Boolean(workspaceId),
+    }
+  )
+  const {
+    agentSettings,
+    agentSettingsIsLoading,
+    agentSettingsError,
+    updateAgentSettings,
+    updateAgentSettingsIsPending,
+  } = useOrgAgentSettings()
+
   if (!workspaceId) {
     return null
   }
 
+  const hasPresets = Array.isArray(presets) && presets.length > 0
+  const managerError = presetsError ?? agentSettingsError ?? null
+  const buildErrorMessage = (error: unknown, fallback: string) => {
+    if (!error || typeof error !== "object") {
+      return fallback
+    }
+    const maybeError = error as { message?: unknown; body?: unknown }
+    const detail =
+      typeof maybeError.body === "object" &&
+      maybeError.body !== null &&
+      "detail" in maybeError.body &&
+      typeof (maybeError.body as { detail?: unknown }).detail === "string"
+        ? String((maybeError.body as { detail: unknown }).detail)
+        : undefined
+    if (detail) {
+      return detail
+    }
+    if (typeof maybeError.message === "string") {
+      return maybeError.message
+    }
+    return fallback
+  }
+  const errorMessage = buildErrorMessage(
+    managerError,
+    "Failed to load approval manager presets"
+  )
+  const selectedPresetId =
+    agentSettings?.agent_approval_manager_preset_id ?? null
+  const selectedPreset = presets?.find(
+    (preset) => preset.id === selectedPresetId
+  )
+  const managerButtonLabel = selectedPreset?.name ?? "Approval manager"
+  const isLoading = presetsIsLoading || agentSettingsIsLoading
+  const isSavingPreset = updateAgentSettingsIsPending
+
+  const handleSelectPreset = async (
+    presetId: string | null,
+    presetName?: string
+  ) => {
+    try {
+      await updateAgentSettings({
+        requestBody: {
+          agent_approval_manager_preset_id: presetId,
+        },
+      })
+      toast({
+        title: presetId
+          ? "Approval manager updated"
+          : "Approval manager cleared",
+        description: presetId
+          ? `Using ${presetName ?? "selected preset"} for approval recommendations.`
+          : "Approvals will no longer receive automatic recommendations.",
+      })
+    } catch (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? error)
+          : "An unexpected error occurred."
+      toast({
+        title: "Failed to update approval manager",
+        description: message,
+      })
+    }
+  }
+
   return (
-    <Button asChild size="sm" variant="outline" className="h-7 bg-white">
-      <Link
-        href={`/workspaces/${workspaceId}/agents/presets`}
-        className="flex items-center gap-1.5"
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-        Manage presets
-      </Link>
-    </Button>
+    <div className="flex items-center gap-2">
+      <Button asChild size="sm" variant="outline" className="h-7 bg-white">
+        <Link
+          href={`/workspaces/${workspaceId}/agents/presets`}
+          className="flex items-center gap-1.5"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Manage presets
+        </Link>
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 bg-white"
+            disabled={isLoading || isSavingPreset}
+          >
+            <span className="flex items-center gap-1.5">
+              {isSavingPreset ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {managerButtonLabel}
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuLabel>Select a preset</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-3">
+              <Spinner className="size-4" />
+            </div>
+          ) : managerError ? (
+            <DropdownMenuItem disabled className="text-destructive">
+              {errorMessage}
+            </DropdownMenuItem>
+          ) : hasPresets ? (
+            (presets ?? []).map((preset) => {
+              const isSelected = preset.id === selectedPresetId
+              return (
+                <DropdownMenuItem
+                  key={preset.id}
+                  disabled={isSavingPreset}
+                  className="flex items-center justify-between gap-2"
+                  onSelect={async () => {
+                    if (isSelected) {
+                      return
+                    }
+                    await handleSelectPreset(preset.id, preset.name)
+                  }}
+                >
+                  <span className="flex flex-col items-start gap-0.5 pr-4">
+                    <span className="text-xs font-medium text-foreground">
+                      {preset.name}
+                    </span>
+                    {preset.description ? (
+                      <span className="text-[10px] text-muted-foreground">
+                        {preset.description}
+                      </span>
+                    ) : null}
+                  </span>
+                  {isSelected ? (
+                    <Check className="size-3 text-primary" />
+                  ) : null}
+                </DropdownMenuItem>
+              )
+            })
+          ) : (
+            <DropdownMenuItem disabled>No presets yet</DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!selectedPresetId || isSavingPreset}
+            onSelect={async () => {
+              if (!selectedPresetId) {
+                return
+              }
+              await handleSelectPreset(null)
+            }}
+          >
+            Clear selection
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
