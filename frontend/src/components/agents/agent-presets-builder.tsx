@@ -514,13 +514,13 @@ function PresetsSidebar({
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <p className="text-xs text-muted-foreground">
-            {list.length} agents saved
+            {list.length} agents
           </p>
         </div>
         <Button
           size="sm"
           onClick={onCreate}
-          variant={isCreating ? "default" : "secondary"}
+          variant="ghost"
         >
           <Plus className="mr-2 size-4" />
           New
