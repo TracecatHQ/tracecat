@@ -21,19 +21,13 @@ import {
   useRef,
   useState,
 } from "react"
-import {
-  type Control,
-  type FieldPath,
-  useFieldArray,
-  useForm,
-} from "react-hook-form"
+import { type Control, useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetReadMinimal,
   AgentPresetUpdate,
-  ChatEntity,
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -338,9 +332,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
 
   const modelOptionsByProvider = useMemo(() => {
     if (!models) {
-      return {} as Record<string, { label: string; value: string }[]>
+      return {}
     }
-    const grouped = {} as Record<string, { label: string; value: string }[]>
+    const grouped: Record<string, { label: string; value: string }[]> = {}
     for (const [key, config] of Object.entries(models)) {
       const provider = config.provider
       if (!grouped[provider]) {
@@ -627,7 +621,7 @@ function AgentPresetChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_preset" as ChatEntity,
+      entityType: "agent_preset",
       entityId: preset?.id,
       limit: 1,
     },
@@ -679,7 +673,7 @@ function AgentPresetChatPane({
     try {
       const newChat = await createChat({
         title: `${preset.name} chat`,
-        entity_type: "agent_preset" as ChatEntity,
+        entity_type: "agent_preset",
         entity_id: preset.id,
         tools: preset.actions ?? undefined,
       })
@@ -1495,9 +1489,7 @@ function AgentPresetForm({
                           >
                             <FormField
                               control={form.control}
-                              name={
-                                `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
-                              }
+                              name={`toolApprovals.${index}.tool`}
                               render={({ field }) => (
                                 <FormItem className="flex-1">
                                   <FormControl>
@@ -1520,9 +1512,7 @@ function AgentPresetForm({
                             />
                             <FormField
                               control={form.control}
-                              name={
-                                `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
-                              }
+                              name={`toolApprovals.${index}.allow`}
                               render={({ field }) => (
                                 <FormItem className="md:justify-self-center">
                                   <FormControl>
@@ -1686,9 +1676,7 @@ function KeyValueFieldArray({
             >
               <FormField
                 control={control}
-                name={
-                  `${name}.${index}.key` as FieldPath<AgentPresetFormValues>
-                }
+                name={`${name}.${index}.key`}
                 render={({ field: innerField }) => (
                   <FormItem>
                     <FormLabel className="text-xs uppercase text-muted-foreground">
@@ -1712,9 +1700,7 @@ function KeyValueFieldArray({
               />
               <FormField
                 control={control}
-                name={
-                  `${name}.${index}.value` as FieldPath<AgentPresetFormValues>
-                }
+                name={`${name}.${index}.value`}
                 render={({ field: innerField }) => (
                   <FormItem>
                     <FormLabel className="text-xs uppercase text-muted-foreground">
@@ -1785,7 +1771,7 @@ function AgentPresetBuilderChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_preset_builder" as ChatEntity,
+      entityType: "agent_preset_builder",
       entityId: presetId ?? undefined,
       limit: 1,
     },
@@ -1819,7 +1805,7 @@ function AgentPresetBuilderChatPane({
     try {
       const newChat = await createChat({
         title: `${preset.name} builder assistant`,
-        entity_type: "agent_preset_builder" as ChatEntity,
+        entity_type: "agent_preset_builder",
         entity_id: presetId,
       })
       setCreatedChatId(newChat.id)
@@ -2098,7 +2084,7 @@ function toToolApprovalMap(
 
 function keyValueArrayToRecord<T = string>(
   entries: KeyValueFormValue[],
-  transform: (value: string) => T = (value) => value as unknown as T
+  transform: (value: string) => T = (value) => value as T
 ): Record<string, T> | null {
   const result: Record<string, T> = {}
   for (const entry of entries) {
