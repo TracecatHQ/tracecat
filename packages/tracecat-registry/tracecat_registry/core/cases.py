@@ -31,7 +31,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
-from tracecat.tags.schemas import TagRead
+from tracecat.tags.schemas import TagRead, TagCreate
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
 
@@ -703,13 +703,23 @@ async def add_case_tag(
         str,
         Doc("The tag identifier (ID or ref) to add to the case."),
     ],
+    create_if_missing: Annotated[
+        bool,
+        Doc("If true, create the tag if it does not exist."),
+    ] = False,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
-        tag_obj = await service.tags.add_case_tag(case.id, tag)
+        try:
+            tag_obj = await service.tags.add_case_tag(case.id, tag)
+        except NoResultFound:
+            if not create_if_missing:
+                raise
+            created_tag = await service.tags.create_tag(TagCreate(name=tag))
+            tag_obj = await service.tags.add_case_tag(case.id, created_tag.ref)
 
     return TagRead.model_validate(tag_obj, from_attributes=True).model_dump(mode="json")
 
