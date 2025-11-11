@@ -399,9 +399,13 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
               className="flex h-full flex-col"
             >
               <div className="px-3 pt-3">
-                <TabsList className="grid h-9 w-full grid-cols-2">
-                  <TabsTrigger value="presets">Presets</TabsTrigger>
-                  <TabsTrigger value="chat" disabled={chatTabDisabled}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="presets" disableUnderline>
+                    <Bot className="mr-1.5 h-3.5 w-3.5" />
+                    Agents
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" disabled={chatTabDisabled} disableUnderline>
+                    <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
                     Live chat
                   </TabsTrigger>
                 </TabsList>
@@ -511,10 +515,7 @@ function PresetsSidebar({
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <h2 className="text-sm font-semibold tracking-tight">
-            Agent presets
-          </h2>
-          <p className="text-xs text-muted-foreground">{list.length} saved</p>
+          <p className="text-xs text-muted-foreground">{list.length} agents saved</p>
         </div>
         <Button
           size="sm"
@@ -810,7 +811,6 @@ function AgentPresetChatPane({
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <h3 className="text-sm font-semibold">Interactive session</h3>
           <p className="text-xs text-muted-foreground">
             {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
           </p>
@@ -1936,7 +1936,7 @@ function AgentPresetBuilderChatPane({
         entityType="agent_preset_builder"
         entityId={presetId}
         className="flex-1 min-h-0"
-        placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
+        placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
         autoFocusInput={
@@ -1953,10 +1953,6 @@ function AgentPresetBuilderChatPane({
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <h3 className="text-sm font-semibold">Builder assistant</h3>
-          <p className="text-xs text-muted-foreground">
-            Get help drafting or refining this agent&apos;s system prompt,
-            allowed tools, and approval rules.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
