@@ -1,3 +1,3 @@
 """Tracecat is open source AI automation platform for mission critical workflows."""
 
-__version__ = "0.48.3"
+__version__ = "0.49.0"
