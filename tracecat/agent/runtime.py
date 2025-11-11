@@ -7,6 +7,7 @@ from typing import Any
 from langfuse import observe
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.tools import DeferredToolResults
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
@@ -30,6 +31,8 @@ async def run_agent_sync(
     user_prompt: str,
     max_requests: int,
     max_tools_calls: int | None = None,
+    *,
+    deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentOutput:
     """Run an agent synchronously."""
 
@@ -44,7 +47,11 @@ async def run_agent_sync(
 
     start_time = default_timer()
     usage = UsageLimits(request_limit=max_requests, tool_calls_limit=max_tools_calls)
-    result = await agent.run(user_prompt, usage_limits=usage)
+    result = await agent.run(
+        user_prompt,
+        usage_limits=usage,
+        deferred_tool_results=deferred_tool_results,
+    )
     end_time = default_timer()
     return AgentOutput(
         output=try_parse_json(result.output),
@@ -72,6 +79,7 @@ async def run_agent(
     max_requests: int = 20,
     retries: int = 3,
     base_url: str | None = None,
+    deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -173,6 +181,7 @@ async def run_agent(
             ),
             max_requests=max_requests,
             max_tool_calls=max_tool_calls,
+            deferred_tool_results=deferred_tool_results,
         )
         handle = await executor.start(args)
         result = await handle.result()

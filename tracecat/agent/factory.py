@@ -6,6 +6,7 @@ from typing import Any
 from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai.tools import DeferredToolRequests
 
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
@@ -85,11 +86,18 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         )
         toolsets = [mcp_server]
 
+    output_type_for_agent: type[Any] | list[type[Any]]
+    # If any tool requires approval, include DeferredToolRequests in output types
+    if any(tool.requires_approval for tool in agent_tools):
+        output_type_for_agent = [_output_type, DeferredToolRequests]
+    else:
+        output_type_for_agent = _output_type
+
     model = get_model(config.model_name, config.model_provider, config.base_url)
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=_output_type,
+        output_type=output_type_for_agent,
         model_settings=_model_settings,
         retries=config.retries,
         instrument=True,

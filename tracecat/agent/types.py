@@ -8,6 +8,8 @@ from pydantic import TypeAdapter
 from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
 
+from tracecat.chat.enums import MessageKind
+
 if TYPE_CHECKING:
     from pydantic_ai.tools import Tool as _PATool
 
@@ -41,7 +43,11 @@ class MessageStore(Protocol):
     async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
 
     async def store(
-        self, session_id: uuid.UUID, messages: list[ModelMessage]
+        self,
+        session_id: uuid.UUID,
+        messages: list[ModelMessage],
+        *,
+        kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None: ...
 
 

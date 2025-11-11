@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Discriminator, Field
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.types import ModelMessageTA
@@ -52,7 +53,7 @@ class BasicChatRequest(BaseModel):
 class VercelChatRequest(BaseModel):
     """Vercel AI SDK format request with structured UI messages."""
 
-    format: Literal["vercel"] = Field(default="vercel", frozen=True)
+    kind: Literal["vercel"] = Field(default="vercel", frozen=True)
     message: vercel.UIMessage = Field(
         ..., description="User message in Vercel UI format"
     )
@@ -65,10 +66,6 @@ class VercelChatRequest(BaseModel):
         description="Optional base URL for the model provider",
         max_length=500,
     )
-
-
-# Union type for chat requests - supports both simple and Vercel formats
-ChatRequest = Annotated[BasicChatRequest | VercelChatRequest, Discriminator("format")]
 
 
 class ChatResponse(BaseModel):
@@ -168,3 +165,55 @@ class ChatMessage(BaseModel):
             id=str(value.id),
             message=ModelMessageTA.validate_python(value.data),
         )
+
+
+# --- Approvals (CE Handshake) -------------------------------------------------
+
+
+class ApprovalItem(BaseModel):
+    """Single pending approval request for a tool call."""
+
+    tool_call_id: str = Field(..., description="The unique tool call ID")
+    tool_name: str = Field(..., description="Fully-qualified tool name")
+    args: dict[str, Any] | str | None = Field(
+        default=None, description="Original args proposed by the model"
+    )
+
+
+class AwaitingApproval(BaseModel):
+    """Normalized API envelope when a run is awaiting approvals."""
+
+    status: Literal["awaiting_approval"] = Field(default="awaiting_approval")
+    session_id: uuid.UUID
+    items: list[ApprovalItem]
+
+
+class ApprovalDecision(BaseModel):
+    """Operator decision for a pending approval."""
+
+    tool_call_id: str
+    action: Literal["approve", "override", "deny"]
+    override_args: dict[str, Any] | None = None
+    reason: str | None = None
+
+    def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
+        match self.action:
+            case "approve":
+                return True
+            case "override":
+                return ToolApproved(override_args=self.override_args or {})
+            case "deny":
+                return ToolDenied(message=self.reason or "The tool call was denied.")
+        # Fallback shouldn't be hit due to Literal typing
+        return False
+
+
+class ContinueRunRequest(BaseModel):
+    """Payload to continue a CE run after collecting approvals."""
+
+    kind: Literal["continue"] = Field(default="continue", frozen=True)
+    decisions: list[ApprovalDecision]
+
+
+# Union type for chat requests - supports both simple and Vercel formats
+ChatRequest = Annotated[VercelChatRequest | ContinueRunRequest, Discriminator("kind")]
