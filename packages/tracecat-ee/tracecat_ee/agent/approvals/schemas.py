@@ -12,13 +12,22 @@ from tracecat.agent.approvals.enums import (
     ApprovalRecommendationVerdict,
     ApprovalStatus,
 )
+from tracecat.agent.schemas import AgentOutput
 from tracecat.auth.schemas import UserReadMinimal
+
+
+class SessionHistoryItem(BaseModel):
+    """Represents a single execution in the session history."""
+
+    execution_id: str = Field(..., description="The workflow execution ID")
+    result: AgentOutput = Field(..., description="The execution result")
 
 
 class ApprovalRecommendation(BaseModel):
     verdict: ApprovalRecommendationVerdict | None = None
     reason: str | None = None
-    source: str | None = None
+    generated_by: str | None = None
+    tool_call_id: str | None = None
 
 
 class ApprovalCreate(BaseModel):
@@ -28,7 +37,7 @@ class ApprovalCreate(BaseModel):
     tool_call_id: str
     tool_name: str
     tool_call_args: dict[str, Any] | None = None
-    history: list[str] = Field(default_factory=list)
+    history: list[SessionHistoryItem]
     recommendation: ApprovalRecommendation | None = None
 
 
@@ -44,7 +53,9 @@ class ApprovalUpdate(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     decision: bool | dict[str, Any] | None = None
     approved_by: UUID4 | None = None
-    history: list[str] = Field(default_factory=list)
+    history: list[SessionHistoryItem] | None = (
+        None  # Optional - set to None to skip updating
+    )
     recommendation: ApprovalRecommendation | None = None
 
 
@@ -60,7 +71,7 @@ class ApprovalRead(BaseModel):
     tool_call_args: dict[str, Any] | None
     decision: bool | dict[str, Any] | None
     approved_by: UserReadMinimal | None = None
-    history: list[str] = Field(default_factory=list)
+    history: list[SessionHistoryItem]
     recommendation: ApprovalRecommendation | None = None
     approved_at: datetime | None
     created_at: datetime

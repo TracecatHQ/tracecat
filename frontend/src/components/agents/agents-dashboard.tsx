@@ -134,6 +134,56 @@ const createDefaultDecisionState = (): DecisionFormState => ({
   message: "",
 })
 
+const summarizeHistoryEntry = (entry: unknown): string => {
+  if (typeof entry === "string") {
+    return entry
+  }
+  if (entry && typeof entry === "object") {
+    const maybeExecution = (entry as { execution?: unknown }).execution
+    const maybeResult = (entry as { result?: unknown }).result
+
+    const parts: string[] = []
+    if (
+      maybeExecution &&
+      typeof maybeExecution === "object" &&
+      maybeExecution !== null
+    ) {
+      const execution = maybeExecution as {
+        run_id?: string
+        status?: string
+      }
+      const execBits: string[] = []
+      if (execution.run_id) {
+        execBits.push(`Run ${execution.run_id}`)
+      }
+      if (execution.status) {
+        execBits.push(`Status ${execution.status}`)
+      }
+      if (execBits.length > 0) {
+        parts.push(execBits.join(" • "))
+      }
+    }
+
+    if (maybeResult && typeof maybeResult === "object") {
+      const result = maybeResult as { output?: unknown }
+      if (typeof result.output === "string") {
+        parts.push(result.output)
+      } else if (result.output !== undefined) {
+        try {
+          parts.push(JSON.stringify(result.output))
+        } catch {
+          parts.push(String(result.output))
+        }
+      }
+    }
+
+    if (parts.length > 0) {
+      return parts.join(" • ")
+    }
+  }
+  return String(entry ?? "")
+}
+
 type AgentsBoardProps = {
   sessions?: AgentSessionWithStatus[]
   isLoading: boolean
@@ -353,7 +403,6 @@ function AgentSessionCard({
     new Set()
   )
   const [expandedPending, setExpandedPending] = useState<Set<string>>(new Set())
-  const [showReviewDrawer, setShowReviewDrawer] = useState(false)
   const [formState, setFormState] = useState<Record<string, DecisionFormState>>(
     {}
   )
@@ -419,42 +468,37 @@ function AgentSessionCard({
   )
 
   useEffect(() => {
-    if (showReviewDrawer) {
-      setExpandedPending(
-        new Set(pendingApprovals.map((approval) => approval.tool_call_id))
-      )
-      setFormState((prev) => {
-        let changed = false
-        const next: Record<string, DecisionFormState> = {}
-        for (const approval of pendingApprovals) {
-          const existing = prev[approval.tool_call_id]
-          if (existing) {
-            next[approval.tool_call_id] = existing
-          } else {
-            next[approval.tool_call_id] = createDefaultDecisionState()
-            changed = true
-          }
-        }
-        if (Object.keys(prev).length !== Object.keys(next).length) {
+    setFormState((prev) => {
+      const next: Record<string, DecisionFormState> = {}
+      let changed = false
+      for (const approval of pendingApprovals) {
+        const existing = prev[approval.tool_call_id]
+        if (existing) {
+          next[approval.tool_call_id] = existing
+        } else {
+          next[approval.tool_call_id] = createDefaultDecisionState()
           changed = true
         }
-        return changed ? next : prev
-      })
-    } else {
+      }
+      if (Object.keys(prev).length !== Object.keys(next).length) {
+        changed = true
+      }
+      return changed ? next : prev
+    })
+    const validIds = new Set(
+      pendingApprovals.map((approval) => approval.tool_call_id)
+    )
+    setExpandedPending((prev) => {
+      if (prev.size === 0) {
+        return prev
+      }
+      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+    if (pendingApprovals.length === 0) {
       setFormError(null)
-      setFormState({})
-      setExpandedPending(new Set())
     }
-  }, [showReviewDrawer, pendingApprovals])
-
-  useEffect(() => {
-    if (pendingApprovals.length === 0 && showReviewDrawer) {
-      setShowReviewDrawer(false)
-      setFormState({})
-      setFormError(null)
-      setExpandedPending(new Set())
-    }
-  }, [pendingApprovals.length, showReviewDrawer])
+  }, [pendingApprovals])
 
   const updateFormState = useCallback(
     (
@@ -486,6 +530,15 @@ function AgentSessionCard({
         ...current,
         decision,
       }))
+      setExpandedPending((prev) => {
+        const next = new Set(prev)
+        if (decision === "override" || decision === "deny") {
+          next.add(toolCallId)
+        } else {
+          next.delete(toolCallId)
+        }
+        return next
+      })
     },
     [updateFormState]
   )
@@ -582,7 +635,6 @@ function AgentSessionCard({
         title: "Approvals submitted",
         description: "The agent will resume once the workflow processes them.",
       })
-      setShowReviewDrawer(false)
       setFormState({})
       setExpandedPending(new Set())
       onRefresh?.()
@@ -678,17 +730,7 @@ function AgentSessionCard({
       }
     })
 
-  const maxPreviewApprovals = 2
-  const approvalsToDisplay = showReviewDrawer
-    ? pendingApprovals
-    : pendingApprovals.slice(0, maxPreviewApprovals)
-  const hasHiddenApprovals =
-    !showReviewDrawer && pendingApprovals.length > approvalsToDisplay.length
-  const toggleLabel = showReviewDrawer
-    ? "Hide approvals"
-    : hasHiddenApprovals
-      ? `See all ${pendingApprovals.length}`
-      : "Expand approvals"
+  const approvalsToDisplay = pendingApprovals
 
   return (
     <div className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm transition hover:border-border">
@@ -931,33 +973,14 @@ function AgentSessionCard({
           </div>
         )}
         {pendingApprovals.length > 0 && (
-          <div className="flex flex-col gap-2 rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2">
+          <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
                 Pending approvals
               </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {toggleLabel}
-                </span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setShowReviewDrawer((prev) => !prev)}
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  aria-expanded={showReviewDrawer}
-                  aria-label={
-                    showReviewDrawer ? "Collapse approvals" : "Expand approvals"
-                  }
-                >
-                  <ChevronDownIcon
-                    className={cn(
-                      "size-3 transition-transform",
-                      showReviewDrawer ? "rotate-180" : "rotate-0"
-                    )}
-                  />
-                </Button>
-              </div>
+              <span className="text-xs font-medium text-muted-foreground">
+                {pendingApprovals.length} total
+              </span>
             </div>
             <div className="flex flex-col gap-2">
               {approvalsToDisplay.map((approval) => {
@@ -987,9 +1010,9 @@ function AgentSessionCard({
                 return (
                   <div
                     key={approval.id}
-                    className="rounded-md border border-dashed border-amber-200/70 bg-white/60 px-3 py-2"
+                    className="rounded-md border border-border/60 bg-background px-3 py-2 shadow-sm dark:bg-slate-950"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex items-center gap-2">
                         {getIcon(toolLabel, {
                           className: "size-4 text-muted-foreground/70",
@@ -998,11 +1021,14 @@ function AgentSessionCard({
                           {toolLabel}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                         <HoverCard openDelay={100} closeDelay={100}>
                           <HoverCardTrigger asChild>
                             <div
-                              className="inline-flex cursor-help items-center gap-2 rounded-md border border-muted-foreground/30 bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground"
+                              className={cn(
+                                "cursor-help",
+                                recommendationDisplay.badgeClassName
+                              )}
                               role="button"
                               tabIndex={0}
                             >
@@ -1020,13 +1046,44 @@ function AgentSessionCard({
                               {recommendationDisplay.label}
                             </p>
                             <p>{reason || recommendationDisplay.description}</p>
-                            {approval.recommendation?.source ? (
+                            {approval.recommendation?.generated_by ? (
                               <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                                Source: {approval.recommendation.source}
+                                Source: {approval.recommendation.generated_by}
                               </p>
                             ) : null}
                           </HoverCardContent>
                         </HoverCard>
+                        <div className="flex items-center">
+                          <Label
+                            htmlFor={`decision-${approval.tool_call_id}`}
+                            className="sr-only"
+                          >
+                            Decision for {toolLabel}
+                          </Label>
+                          <Select
+                            value={state.decision}
+                            onValueChange={(value) =>
+                              handleDecisionChange(
+                                approval.tool_call_id,
+                                value as DecisionType
+                              )
+                            }
+                          >
+                            <SelectTrigger
+                              id={`decision-${approval.tool_call_id}`}
+                              className="h-8 min-w-[160px] text-xs"
+                            >
+                              <SelectValue placeholder="Select an action" />
+                            </SelectTrigger>
+                            <SelectContent className="min-w-[180px]">
+                              <SelectItem value="approve">Approve</SelectItem>
+                              <SelectItem value="override">
+                                Approve with overrides
+                              </SelectItem>
+                              <SelectItem value="deny">Deny</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <Button
                           size="icon"
                           variant="ghost"
@@ -1054,8 +1111,18 @@ function AgentSessionCard({
                       <ScrollArea className="mt-3 max-h-72 pr-2">
                         <div className="space-y-3 text-xs text-muted-foreground">
                           {showRecommendationCallout ? (
-                            <Alert className="border-amber-200 bg-amber-50/80 text-amber-900">
-                              <AlertTitle className="flex items-center gap-2 text-sm font-semibold">
+                            <Alert
+                              className={cn(
+                                recommendationDisplay.surfaceClassName,
+                                "border-l-4 pl-8"
+                              )}
+                            >
+                              <AlertTitle
+                                className={cn(
+                                  "flex items-center gap-2 text-sm font-semibold",
+                                  recommendationDisplay.accentTextClassName
+                                )}
+                              >
                                 <recommendationDisplay.icon
                                   className={cn(
                                     "size-4",
@@ -1065,7 +1132,7 @@ function AgentSessionCard({
                                 AI recommends{" "}
                                 {recommendationDisplay.label.toLowerCase()}
                               </AlertTitle>
-                              <AlertDescription>
+                              <AlertDescription className="text-xs text-muted-foreground">
                                 {reason || recommendationDisplay.description}
                               </AlertDescription>
                             </Alert>
@@ -1096,7 +1163,9 @@ function AgentSessionCard({
                                     <span className="text-muted-foreground/60">
                                       {index + 1}.
                                     </span>
-                                    <span className="flex-1">{entry}</span>
+                                    <span className="flex-1">
+                                      {summarizeHistoryEntry(entry)}
+                                    </span>
                                   </li>
                                 ))}
                               </ul>
@@ -1107,73 +1176,44 @@ function AgentSessionCard({
                               </p>
                             )}
                           </div>
-                          {showReviewDrawer ? (
-                            <div className="space-y-3">
+                          <div className="space-y-3">
+                            {state.decision === "override" ? (
                               <div className="flex flex-col gap-1.5">
                                 <Label className="text-xs text-muted-foreground">
-                                  Decision
+                                  Override arguments (JSON)
                                 </Label>
-                                <Select
-                                  value={state.decision}
-                                  onValueChange={(value) =>
-                                    handleDecisionChange(
+                                <Textarea
+                                  value={state.overrideArgs}
+                                  className="min-h-[96px] text-xs font-mono"
+                                  placeholder='e.g. { "channel": "general" }'
+                                  onChange={(event) =>
+                                    handleOverrideChange(
                                       approval.tool_call_id,
-                                      value as DecisionType
+                                      event.target.value
                                     )
                                   }
-                                >
-                                  <SelectTrigger className="h-8 w-fit min-w-[200px] text-xs">
-                                    <SelectValue placeholder="Select an action" />
-                                  </SelectTrigger>
-                                  <SelectContent className="min-w-[200px]">
-                                    <SelectItem value="approve">
-                                      Approve
-                                    </SelectItem>
-                                    <SelectItem value="override">
-                                      Approve with overrides
-                                    </SelectItem>
-                                    <SelectItem value="deny">Deny</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                />
                               </div>
-                              {state.decision === "override" ? (
-                                <div className="flex flex-col gap-1.5">
-                                  <Label className="text-xs text-muted-foreground">
-                                    Override arguments (JSON)
-                                  </Label>
-                                  <Textarea
-                                    value={state.overrideArgs}
-                                    className="min-h-[96px] text-xs font-mono"
-                                    placeholder='e.g. { "channel": "general" }'
-                                    onChange={(event) =>
-                                      handleOverrideChange(
-                                        approval.tool_call_id,
-                                        event.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ) : null}
-                              {state.decision === "deny" ? (
-                                <div className="flex flex-col gap-1.5">
-                                  <Label className="text-xs text-muted-foreground">
-                                    Optional reason
-                                  </Label>
-                                  <Textarea
-                                    value={state.message}
-                                    className="min-h-[72px] text-xs"
-                                    placeholder="Let the agent know why this call is denied."
-                                    onChange={(event) =>
-                                      handleMessageChange(
-                                        approval.tool_call_id,
-                                        event.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
+                            ) : null}
+                            {state.decision === "deny" ? (
+                              <div className="flex flex-col gap-1.5">
+                                <Label className="text-xs text-muted-foreground">
+                                  Optional reason
+                                </Label>
+                                <Textarea
+                                  value={state.message}
+                                  className="min-h-[72px] text-xs"
+                                  placeholder="Let the agent know why this call is denied."
+                                  onChange={(event) =>
+                                    handleMessageChange(
+                                      approval.tool_call_id,
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </ScrollArea>
                     ) : null}
@@ -1181,49 +1221,22 @@ function AgentSessionCard({
                 )
               })}
             </div>
-            {hasHiddenApprovals ? (
-              <p className="text-[11px] text-muted-foreground">
-                Showing first {approvalsToDisplay.length} of{" "}
-                {pendingApprovals.length}. Select "See all" to review
-                everything.
-              </p>
-            ) : null}
-            {showReviewDrawer && formError ? (
+            {formError ? (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 {formError}
               </div>
             ) : null}
-            {showReviewDrawer ? (
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setShowReviewDrawer(false)
-                    setFormState({})
-                    setFormError(null)
-                    setExpandedPending(new Set())
-                    setFormState({})
-                    setFormError(null)
-                    setExpandedPending(new Set())
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || pendingApprovals.length === 0}
-                >
-                  {isSubmitting ? "Submitting..." : "Submit decisions"}
-                </Button>
-              </div>
-            ) : null}
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                onClick={handleSubmit}
+                disabled={isSubmitting || pendingApprovals.length === 0}
+              >
+                {isSubmitting ? "Submitting..." : "Submit decisions"}
+              </Button>
+            </div>
           </div>
         )}
       </div>

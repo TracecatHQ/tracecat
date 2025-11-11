@@ -16,9 +16,10 @@ from pydantic_ai.tools import (
     ToolApproved,
     ToolDenied,
 )
+from pydantic_core import to_json
 from sqlmodel import col, select
 from temporalio import activity, workflow
-from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 
 from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import (
@@ -50,6 +51,7 @@ from tracecat_ee.agent.approvals.schemas import (
     ApprovalCreate,
     ApprovalRecommendation,
     ApprovalUpdate,
+    SessionHistoryItem,
 )
 from tracecat_ee.agent.context import AgentContext
 from tracecat_ee.agent.types import AgentWorkflowID
@@ -58,10 +60,43 @@ if TYPE_CHECKING:
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 
+def _normalize_history(
+    history: list[SessionHistoryItem] | None,
+) -> list[dict[str, Any]] | None:
+    """Convert SessionHistoryItem models to serializable dicts for database storage."""
+    if not history:
+        return None
+
+    normalized: list[dict[str, Any]] = []
+    for item in history:
+        result_dict = (
+            item.result.model_dump(mode="json")
+            if hasattr(item.result, "model_dump")
+            else item.result
+        )
+        normalized.append(
+            {
+                "execution_id": item.execution_id,
+                "run_id": getattr(item, "run_id", None),
+                "status": getattr(item, "status", None),
+                "result": result_dict,
+            }
+        )
+    return normalized
+
+
 @dataclass(slots=True)
 class EnrichedApproval:
     approval: Approval
     approved_by: User | None = None
+
+
+@dataclass(slots=True)
+class ApprovalWithHistory:
+    tool_call_id: str
+    tool_name: str
+    history: list[SessionHistoryItem]
+    args: dict[str, Any]
 
 
 @dataclass(slots=True, kw_only=True)
@@ -92,16 +127,6 @@ class SessionInfo:
     root_workflow_id: uuid.UUID | None = None
     action_ref: str | None = None
     action_title: str | None = None
-
-
-@dataclass(slots=True, kw_only=True)
-class SessionHistoryItem:
-    """Represents a single execution in the session history."""
-
-    execution: WorkflowExecution
-    """The workflow execution metadata."""
-    result: AgentOutput
-    """The execution result, if available and successful."""
 
 
 class GenerateApprovalRecommendationsActivityInputs(BaseModel):
@@ -137,10 +162,15 @@ class ApprovalService(BaseWorkspaceService):
             else recommendation.verdict
         )
         approval.recommendation_reason = recommendation.reason
-        approval.recommendation_source = recommendation.source
+        approval.recommendation_source = recommendation.generated_by
 
     async def create_approval(self, params: ApprovalCreate) -> Approval:
         """Create a single approval record."""
+
+        history_source = params.history
+        if not history_source:
+            history_source = await self.list_session_history(params.session_id)
+
         approval = Approval(
             owner_id=self.workspace_id,
             session_id=params.session_id,
@@ -148,7 +178,7 @@ class ApprovalService(BaseWorkspaceService):
             tool_name=params.tool_name,
             status=ApprovalStatus.PENDING,
             tool_call_args=params.tool_call_args,
-            history=(params.history or [])[:5],
+            history=_normalize_history(history_source) or [],
         )
         self._apply_recommendation(approval, params.recommendation)
         self.session.add(approval)
@@ -165,6 +195,10 @@ class ApprovalService(BaseWorkspaceService):
 
         records: list[Approval] = []
         for params in approvals:
+            history_source = params.history
+            if history_source is None:
+                history_source = await self.list_session_history(params.session_id)
+            normalized_history = _normalize_history(history_source) or []
             approval = Approval(
                 owner_id=self.workspace_id,
                 session_id=params.session_id,
@@ -172,7 +206,7 @@ class ApprovalService(BaseWorkspaceService):
                 tool_name=params.tool_name,
                 status=ApprovalStatus.PENDING,
                 tool_call_args=params.tool_call_args,
-                history=(params.history or [])[:5],
+                history=normalized_history,
             )
             self._apply_recommendation(approval, params.recommendation)
             self.session.add(approval)
@@ -394,17 +428,11 @@ class ApprovalService(BaseWorkspaceService):
             result = await handle.result()
             history_items.append(
                 SessionHistoryItem(
-                    execution=execution,
+                    execution_id=execution.id,
                     result=result,
                 )
             )
 
-        logger.info(
-            "Session history fetched",
-            session_id=session_id,
-            n_items=len(history_items),
-            n_with_results=sum(1 for item in history_items if item.result is not None),
-        )
         # These are the last n=limit DurableAgentWorkflow executions related to the session
         return history_items
 
@@ -423,7 +451,7 @@ class ApprovalService(BaseWorkspaceService):
             setattr(approval, key, value)
 
         if history is not None:
-            approval.history = (history or [])[:5]
+            approval.history = history
 
         if recommendation_marker:
             recommendation = (
@@ -456,7 +484,7 @@ class ApprovalService(BaseWorkspaceService):
                 setattr(approval, key, value)
 
             if history is not None:
-                approval.history = (history or [])[:5]
+                approval.history = history
 
             if recommendation_marker:
                 recommendation = (
@@ -701,6 +729,7 @@ class ApprovalManager:
                             tool_call_id=decision.tool_call_id,
                             tool_name="unknown",
                             tool_call_args=None,
+                            history=[],
                         )
                     )
 
@@ -750,12 +779,12 @@ class ApprovalManager:
                 return
 
             approvals_payload = [
-                {
-                    "tool_call_id": approval.tool_call_id,
-                    "tool_name": approval.tool_name,
-                    "history": approval.history[:5],
-                    "args": approval.tool_call_args,
-                }
+                ApprovalWithHistory(
+                    tool_call_id=approval.tool_call_id,
+                    tool_name=approval.tool_name,
+                    history=approval.history,
+                    args=approval.tool_call_args,
+                )
                 for approval in approvals
             ]
 
@@ -793,6 +822,7 @@ class ApprovalManager:
                     prompt = ApprovalManager._build_recommendation_prompt(
                         approvals_payload
                     )
+                    logger.info(f"Approval manager prompt {prompt}")
                     role_token = ctx_role.set(input.role)
                     session_token = ctx_session_id.set(input.session_id)
                     try:
@@ -806,7 +836,7 @@ class ApprovalManager:
                             mcp_server_url=preset_config.mcp_server_url,
                             mcp_server_headers=preset_config.mcp_server_headers,
                             instructions=preset_config.instructions,
-                            output_type=preset_config.output_type,
+                            output_type=ApprovalRecommendation.model_json_schema(),
                             model_settings=preset_config.model_settings,
                             base_url=preset_config.base_url,
                             retries=preset_config.retries,
@@ -832,12 +862,23 @@ class ApprovalManager:
                 logger.info(
                     "Approval manager returned no structured recommendations",
                     session_id=input.session_id,
+                    raw_output=agent_output.output,
+                    raw_output_type=type(agent_output.output).__name__,
                 )
                 return
 
             recommendation_source = preset.slug or str(preset.id)
+
+            # If there's a single recommendation without tool_call_id, apply it to all approvals
+            # Otherwise, match by tool_call_id
+            single_recommendation = None
+            if len(recommendations) == 1 and None in recommendations:
+                single_recommendation = recommendations[None]
+
             for approval in approvals:
-                rec = recommendations.get(approval.tool_call_id)
+                rec = (
+                    recommendations.get(approval.tool_call_id) or single_recommendation
+                )
                 if not rec:
                     continue
                 verdict_value = rec.get("verdict")
@@ -849,49 +890,43 @@ class ApprovalManager:
                 recommendation_model = ApprovalRecommendation(
                     verdict=verdict_value,
                     reason=rec.get("reason"),
-                    source=rec.get("source") or recommendation_source,
+                    generated_by=rec.get("generated_by") or recommendation_source,
+                    tool_call_id=rec.get("tool_call_id") or approval.tool_call_id,
                 )
                 await approval_service.update_approval(
                     approval,
                     ApprovalUpdate(
-                        history=approval.history[:5],
                         recommendation=recommendation_model,
                     ),
                 )
 
     @staticmethod
-    def _build_recommendation_prompt(approvals: list[dict[str, Any]]) -> str:
+    def _build_recommendation_prompt(approvals: list[ApprovalWithHistory]) -> str:
         header = (
             "You are Tracecat's approval manager. For each pending tool call:\n"
             "- Read the tool name, arguments, and any recent history that follows.\n"
-            "- Infer intent and potential risk even if history is empty—use tool metadata and arguments.\n"
+            "- Infer intent and potential risk only if history is nonempty.\n"
             "- Choose one verdict: approve (safe, low-risk), reject (dangerous, policy violation, or malformed), "
             "or hold (uncertain, needs human review).\n"
             "- Always provide a short, actionable reason that references the tool call (never say 'no context').\n"
-            "Return strictly JSON in the form:\n"
-            '{"recommendations":[{"tool_call_id":"...",'
-            '"verdict":"approve|reject|hold","reason":"..."}]}'
         )
         entries: list[str] = []
         for approval in approvals:
-            args_repr = (
-                json.dumps(approval["args"], indent=2, sort_keys=True)
-                if approval["args"] is not None
-                else "null"
-            )
-            history = approval.get("history") or []
-            history_section = (
-                "\n".join(f"    - {item}" for item in history)
-                if history
-                else "    (no previous outputs in history)"
-            )
+            if approval.history:
+                history_lines = []
+                for item in approval.history:
+                    history_lines.append(
+                        f"result={to_json(item.result.message_history, indent=2)}"
+                    )
+
+                history_section = "\n".join(history_lines)
+            else:
+                history_section = "    (no previous outputs in history)"
             entries.append(
                 "\n".join(
                     [
-                        f"- tool_call_id: {approval['tool_call_id']}",
-                        f"  tool_name: {approval['tool_name']}",
-                        "  args:",
-                        "\n".join(f"    {line}" for line in args_repr.splitlines()),
+                        f" tool_call_id: {approval.tool_call_id}",
+                        f"  tool_name: {approval.tool_name}",
                         "  history:",
                         history_section,
                     ]
@@ -911,8 +946,10 @@ class ApprovalManager:
                 return {}
         if isinstance(data, dict):
             recommendations = data.get("recommendations")
-            if recommendations is None and "tool_call_id" in data:
-                recommendations = [data]
+            if recommendations is None:
+                # Check if this is a single recommendation (has verdict/action key)
+                if "verdict" in data or "action" in data or "tool_call_id" in data:
+                    recommendations = [data]
         elif isinstance(data, list):
             recommendations = data
         else:
@@ -926,7 +963,12 @@ class ApprovalManager:
             if not isinstance(entry, dict):
                 continue
             tool_call_id = entry.get("tool_call_id")
-            if not tool_call_id or not isinstance(tool_call_id, str):
+            # If there's no tool_call_id and only one recommendation, allow it to pass through
+            # (it will be matched to the single pending approval)
+            if not tool_call_id and len(recommendations) > 1:
+                # Multiple recommendations without tool_call_id - can't match them
+                continue
+            if not isinstance(tool_call_id, str) and tool_call_id is not None:
                 continue
             verdict = entry.get("verdict", entry.get("action"))
             normalized_verdict = ApprovalRecommendationVerdict.HOLD.value
@@ -950,9 +992,11 @@ class ApprovalManager:
             else:
                 reason_value = None
             result[tool_call_id] = {
+                "tool_call_id": tool_call_id,
                 "verdict": normalized_verdict,
                 "reason": reason_value,
                 "source": entry.get("source"),
+                "generated_by": entry.get("generated_by"),
             }
         return result
 
@@ -989,7 +1033,6 @@ class ApprovalManager:
                         except (json.JSONDecodeError, ValueError):
                             # Store as-is if not valid JSON
                             approval_args = {"raw_args": payload.args}
-                history = (payload.history or [])[:5]
 
                 if existing:
                     # TODO: Do we need this path?
@@ -1004,11 +1047,15 @@ class ApprovalManager:
                             reason=None,
                             approved_by=None,
                             decision=None,
-                            history=history,
                             recommendation=None,
                         ),
                     )
                 else:
+                    history_source = payload.history
+                    if history_source is None:
+                        history_source = await service.list_session_history(
+                            input.session_id
+                        )
                     # Create new approval record
                     await service.create_approval(
                         ApprovalCreate(
@@ -1016,7 +1063,7 @@ class ApprovalManager:
                             tool_call_id=payload.tool_call_id,
                             tool_name=payload.tool_name,
                             tool_call_args=approval_args,
-                            history=history,
+                            history=history_source,
                             recommendation=None,
                         )
                     )

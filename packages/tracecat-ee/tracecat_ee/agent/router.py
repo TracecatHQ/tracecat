@@ -136,7 +136,9 @@ async def list_agent_sessions(
 
         # Transform approval enrichments to API response format
         approval_reads: list[ApprovalRead] = []
-        for enriched in enriched_session.approvals:
+        for enriched in (
+            enriched_session.approvals
+        ):  # All approvals in session share the same history
             approval_record = enriched.approval
             approved_by_user = (
                 UserReadMinimal.model_validate(
@@ -155,7 +157,7 @@ async def list_agent_sessions(
             recommendation_data = ApprovalRecommendation(
                 verdict=verdict_value,
                 reason=approval_record.recommendation_reason,
-                source=approval_record.recommendation_source,
+                generated_by=approval_record.recommendation_source,
             )
             recommendation_value = (
                 recommendation_data

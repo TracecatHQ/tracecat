@@ -22,6 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
+from tracecat_ee.agent.approvals.schemas import SessionHistoryItem
 
 from tracecat import config
 from tracecat.agent.approvals.enums import (
@@ -1352,10 +1353,10 @@ class Approval(Resource, table=True):
         sa_column=Column(JSONB),
         description="Tool call arguments captured at approval request time",
     )
-    history: list[str] = Field(
+    history: list[SessionHistoryItem] = Field(
         default_factory=list,
-        sa_column=Column(JSONB, nullable=False, server_default=text("'[]'::jsonb")),
-        description="Recent agent outputs or message identifiers providing context for the approval",
+        sa_column=Column(JSONB),
+        description="Recent agent outputs providing context for the approval",
     )
     recommendation_verdict: ApprovalRecommendationVerdict | None = Field(
         default=None,

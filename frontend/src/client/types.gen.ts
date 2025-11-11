@@ -429,7 +429,7 @@ export type ApprovalRead = {
       }
     | null
   approved_by?: UserReadMinimal | null
-  history?: Array<string>
+  history: Array<SessionHistoryItem>
   recommendation?: ApprovalRecommendation | null
   approved_at: string | null
   created_at: string
@@ -439,7 +439,8 @@ export type ApprovalRead = {
 export type ApprovalRecommendation = {
   verdict?: ApprovalRecommendationVerdict | null
   reason?: string | null
-  source?: string | null
+  generated_by?: string | null
+  tool_call_id?: string | null
 }
 
 /**
@@ -3895,6 +3896,20 @@ export type Select = {
   component_id?: "select"
   options?: Array<string> | null
   multiple?: boolean
+}
+
+/**
+ * Represents a single execution in the session history.
+ */
+export type SessionHistoryItem = {
+  /**
+   * The workflow execution ID
+   */
+  execution_id: string
+  /**
+   * The execution result
+   */
+  result: AgentOutput
 }
 
 export type SessionRead = {

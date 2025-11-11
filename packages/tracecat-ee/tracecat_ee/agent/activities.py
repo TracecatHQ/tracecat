@@ -40,6 +40,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.enums import PlatformAction
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
+from tracecat_ee.agent.approvals.schemas import SessionHistoryItem
 from tracecat_ee.agent.context import AgentContext
 
 
@@ -89,7 +90,7 @@ class ToolApprovalPayload(BaseModel):
     tool_call_id: str
     tool_name: str
     args: dict[str, Any] | str | None = None
-    history: list[str] = Field(default_factory=list)
+    history: list[SessionHistoryItem] = Field(default_factory=list)
 
 
 class PersistApprovalsActivityInputs(BaseModel):
