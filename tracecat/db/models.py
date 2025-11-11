@@ -25,7 +25,6 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.schemas import ApprovalRecommendation
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
