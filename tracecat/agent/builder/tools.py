@@ -60,9 +60,11 @@ async def build_agent_preset_builder_tools(
         """Return the latest configuration for this agent preset, including tools and approval rules."""
 
         async with _preset_service() as service:
-            if preset := await service.get_preset(preset_id):
-                return preset.model_dump(mode="json")
-        raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
+            if not (preset := await service.get_preset(preset_id)):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{preset_id}' not found"
+                )
+        return preset.model_dump(mode="json")
 
     async def list_available_agent_tools(
         params: ListAvailableActions,
