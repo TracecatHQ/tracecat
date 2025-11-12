@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Create adversary
+  description: Create a new Caldera adversary profile.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#adversaries
+  namespace: tools.caldera
+  name: create_adversary
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    name:
+      type: str
+      description: Name for the adversary.
+    description:
+      type: str
+      description: Description of the adversary.
+    atomic_ordering:
+      type: list[str]
+      description: Ordered list of ability IDs for the adversary playbook.
+      default: []
+    tags:
+      type: list[str]
+      description: Optional tags to assign.
+      default: []
+    plugin:
+      type: str
+      description: Plugin that owns the adversary.
+      default: stockpile
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: generate_adversary_id
+      action: core.script.run_python
+      args:
+        script: |
+          import uuid
+
+          def main():
+              return str(uuid.uuid4())
+    - ref: create_adversary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/adversaries
+        method: POST
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+        payload:
+          adversary_id: ${{ steps.generate_adversary_id.result }}
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
+          atomic_ordering: ${{ inputs.atomic_ordering }}
+          tags: ${{ inputs.tags }}
+          plugin: ${{ inputs.plugin }}
+  returns: ${{ steps.create_adversary.result.data }}

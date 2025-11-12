@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get operation
+  description: Retrieve a Caldera operation by ID.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  namespace: tools.caldera
+  name: get_operation
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    operation_id:
+      type: str
+      description: Operation ID to fetch.
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: get_operation
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/operations/${{ inputs.operation_id }}
+        method: GET
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.get_operation.result.data }}

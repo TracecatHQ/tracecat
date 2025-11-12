@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List operation links
+  description: List links for a specific Caldera operation.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  namespace: tools.caldera
+  name: list_operation_links
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    operation_id:
+      type: str
+      description: Operation ID to inspect.
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: list_operation_links
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/operations/${{ inputs.operation_id }}/links
+        method: GET
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.list_operation_links.result.data }}
