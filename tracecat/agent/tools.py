@@ -108,7 +108,6 @@ async def call_tracecat_action(
     context = create_default_execution_context()
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = ws_vars
-    logger.warning("Context", context=context)
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
     args = eval_templated_object(args, operand=context)
