@@ -685,6 +685,11 @@ class ApprovalManager:
             approvals = await approval_service.list_approvals_for_session(
                 input.session_id
             )
+
+            # Filter out approvals that already have recommendations (e.g., from retries)
+            approvals = [
+                approval for approval in approvals if approval.recommendation is None
+            ]
             history = []
             if approvals:
                 try:
@@ -803,6 +808,12 @@ class ApprovalManager:
                         ctx_role.set(input.role)
                         ctx_session_id.set(input.session_id)
                         try:
+                            # Thinking is not supported for structured outputs
+                            approval_model_settings = preset_config.model_settings or {}
+                            approval_model_settings["anthropic_thinking"] = {
+                                "type": "disabled"
+                            }
+
                             agent_output = await run_agent(
                                 user_prompt=prompt,
                                 model_name=preset_config.model_name,
@@ -814,7 +825,7 @@ class ApprovalManager:
                                 mcp_server_headers=preset_config.mcp_server_headers,
                                 instructions=preset_config.instructions,
                                 output_type=ApprovalRecommendation.model_json_schema(),
-                                model_settings=preset_config.model_settings,
+                                model_settings=approval_model_settings,
                                 base_url=preset_config.base_url,
                                 retries=preset_config.retries,
                             )

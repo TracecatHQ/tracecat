@@ -39,6 +39,7 @@ import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -97,6 +98,7 @@ import {
   useChatReadiness,
   useModelProviders,
   useModelProvidersStatus,
+  useOrgAgentSettings,
   useRegistryActions,
 } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
@@ -930,6 +932,10 @@ function AgentPresetForm({
   const outputTypeKind = form.watch("outputTypeKind")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
+  const { agentSettings } = useOrgAgentSettings()
+  const isApprovalManager =
+    preset?.id === agentSettings?.agent_approval_manager_preset_id
+
   useEffect(() => {
     if (mode === "create" && !slugEditedRef.current) {
       form.setValue("slug", slugify(watchedName ?? "", "-"), {
@@ -1292,6 +1298,12 @@ function AgentPresetForm({
                   </FormItem>
                 )}
               />
+              {isApprovalManager && (
+                <AlertNotification
+                  level="info"
+                  message="Output schemas are disabled for presets in use as approval managers"
+                />
+              )}
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -1303,7 +1315,7 @@ function AgentPresetForm({
                         <Select
                           value={field.value}
                           onValueChange={field.onChange}
-                          disabled={isSaving}
+                          disabled={isSaving || isApprovalManager}
                         >
                           <SelectTrigger>
                             <SelectValue />
@@ -1338,7 +1350,7 @@ function AgentPresetForm({
                           <Select
                             value={field.value ?? ""}
                             onValueChange={field.onChange}
-                            disabled={isSaving}
+                            disabled={isSaving || isApprovalManager}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select type" />
@@ -1374,7 +1386,7 @@ function AgentPresetForm({
                           rows={8}
                           className="font-mono text-xs"
                           {...field}
-                          disabled={isSaving}
+                          disabled={isSaving || isApprovalManager}
                         />
                       </FormControl>
                       <FormDescription>
