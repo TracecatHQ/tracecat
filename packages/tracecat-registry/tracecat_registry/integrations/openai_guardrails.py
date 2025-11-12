@@ -90,9 +90,9 @@ def check_all(
         result = func(client, prompt, config.model_copy(deep=True))
         results.append(result)
 
-    # Check for tripwires or execution failures
-    tripwires_triggered = any(r.tripwire_triggered for r in results)
-    execution_failed = any(r.execution_failed for r in results)
+    # Count tripwires and execution failures for accurate reporting
+    tripwires_triggered = sum(1 for r in results if r.tripwire_triggered)
+    execution_failed = sum(1 for r in results if r.execution_failed)
 
     return GuardrailCheckAllResult(
         prompt=prompt,

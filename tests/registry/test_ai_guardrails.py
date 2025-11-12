@@ -1,96 +1,128 @@
 """Tests for OpenAI Guardrails integration."""
 
+from collections.abc import Callable
+
 import pytest
+from guardrails.types import GuardrailResult
 from tracecat_registry.integrations.openai_guardrails import check_all
 
-requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
+GuardrailOverride = dict[str, tuple[bool, bool]]
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_basic_safe_prompt():
+@pytest.fixture
+def mock_guardrail_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[GuardrailOverride | None], None]:
+    """Patch OpenAI client and guardrail check fns to return deterministic results."""
+
+    def _build_result(
+        guardrail_name: str,
+        *,
+        triggered: bool = False,
+        failed: bool = False,
+        prompt: str | None = None,
+    ) -> GuardrailResult:
+        return GuardrailResult(
+            tripwire_triggered=triggered,
+            execution_failed=failed,
+            info={
+                "guardrail_name": guardrail_name,
+                "prompt": prompt,
+            },
+        )
+
+    def _mock(overrides: GuardrailOverride | None = None) -> None:
+        overrides = overrides or {}
+
+        def _stub(guardrail_name: str):
+            def _runner(client, prompt, config):
+                triggered, failed = overrides.get(guardrail_name, (False, False))
+                return _build_result(
+                    guardrail_name,
+                    triggered=triggered,
+                    failed=failed,
+                    prompt=prompt,
+                )
+
+            return _runner
+
+        module_path = "tracecat_registry.integrations.openai_guardrails"
+        monkeypatch.setattr(f"{module_path}.moderation", _stub("Moderation"))
+        monkeypatch.setattr(f"{module_path}.pii", _stub("Contains PII"))
+        monkeypatch.setattr(f"{module_path}.jailbreak", _stub("Jailbreak"))
+        monkeypatch.setattr(f"{module_path}.nsfw_content", _stub("NSFW Text"))
+        monkeypatch.setattr(
+            f"{module_path}.secrets.get",
+            lambda key: "test-openai-key" if key == "OPENAI_API_KEY" else None,
+        )
+
+        class DummyOpenAI:
+            def __init__(self, *args, **kwargs):
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(f"{module_path}.OpenAI", DummyOpenAI)
+
+    return _mock
+
+
+def test_check_all_basic_safe_prompt(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with a safe, benign prompt."""
+    mock_guardrail_checks()
     prompt = "Hello, how are you today? I hope you're having a great day."
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
         confidence_threshold=0.7,
     )
 
-    # Verify structure
     assert isinstance(result, dict)
-    assert "prompt" in result
-    assert "summary" in result
-    assert "results" in result
-
-    # Verify prompt is returned
     assert result["prompt"] == prompt
+    assert result["tripwires_triggered"] == 0
+    assert result["execution_failed"] == 0
 
-    # Verify summary structure
-    summary = result["summary"]
-    assert isinstance(summary, dict)
-    assert "total_checks" in summary
-    assert "tripwires_triggered" in summary
-    assert "failed_checks" in summary
-    assert summary["total_checks"] == 4  # Moderation, PII, Jailbreak, NSFW
-
-    # Verify results structure
-    results = result["results"]
-    assert isinstance(results, list)
-    assert len(results) == 4
-
-    # Verify each guardrail result structure
-    for guardrail_result in results:
-        assert isinstance(guardrail_result, dict)
-        assert "guardrail_name" in guardrail_result
-        assert "tripwire_triggered" in guardrail_result
-        assert "execution_failed" in guardrail_result
-        assert "info" in guardrail_result
-        assert isinstance(guardrail_result["guardrail_name"], str)
-        assert isinstance(guardrail_result["tripwire_triggered"], bool)
-        assert isinstance(guardrail_result["execution_failed"], bool)
-        assert isinstance(guardrail_result["info"], dict)
-
-    # For a safe prompt, tripwires should not be triggered
-    # (though this depends on the actual guardrail behavior)
-    assert isinstance(summary["tripwires_triggered"], list)
-    assert isinstance(summary["failed_checks"], list)
+    guardrail_results = result["results"]
+    assert isinstance(guardrail_results, list)
+    assert len(guardrail_results) == 4
+    assert all(isinstance(gr, GuardrailResult) for gr in guardrail_results)
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_with_pii_prompt():
+def test_check_all_with_pii_prompt(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with a prompt that might contain PII."""
+    mock_guardrail_checks({"Contains PII": (True, False)})
     prompt = "My email is john.doe@example.com and my phone number is 555-1234."
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
         confidence_threshold=0.7,
     )
 
-    # Verify structure
     assert isinstance(result, dict)
     assert result["prompt"] == prompt
+    assert result["tripwires_triggered"] == 1
 
-    # Check if PII guardrail was triggered
     pii_result = next(
-        (r for r in result["results"] if r["guardrail_name"] == "Contains PII"),
+        (r for r in result["results"] if r.info["guardrail_name"] == "Contains PII"),
         None,
     )
     assert pii_result is not None
-    assert isinstance(pii_result["tripwire_triggered"], bool)
-    assert isinstance(pii_result["execution_failed"], bool)
+    assert pii_result.tripwire_triggered is True
+    assert pii_result.execution_failed is False
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_with_custom_model():
+def test_check_all_with_custom_model(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with a custom model name."""
+    mock_guardrail_checks()
     prompt = "This is a test prompt."
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
         confidence_threshold=0.8,
@@ -98,16 +130,17 @@ async def test_check_all_with_custom_model():
 
     assert isinstance(result, dict)
     assert result["prompt"] == prompt
-    assert result["summary"]["total_checks"] == 4
+    assert len(result["results"]) == 4
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_with_custom_confidence_threshold():
+def test_check_all_with_custom_confidence_threshold(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with a custom confidence threshold."""
+    mock_guardrail_checks()
     prompt = "This is a test prompt."
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
         confidence_threshold=0.5,
@@ -115,54 +148,56 @@ async def test_check_all_with_custom_confidence_threshold():
 
     assert isinstance(result, dict)
     assert result["prompt"] == prompt
-    assert result["summary"]["total_checks"] == 4
+    assert len(result["results"]) == 4
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_guardrail_names():
+def test_check_all_guardrail_names(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test that all expected guardrail names are present."""
+    mock_guardrail_checks()
     prompt = "This is a test prompt."
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
     )
 
-    guardrail_names = [r["guardrail_name"] for r in result["results"]]
+    guardrail_names = [r.info["guardrail_name"] for r in result["results"]]
     expected_names = ["Moderation", "Contains PII", "Jailbreak", "NSFW Text"]
 
     assert set(guardrail_names) == set(expected_names)
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_empty_prompt():
+def test_check_all_empty_prompt(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with an empty prompt."""
+    mock_guardrail_checks()
     prompt = ""
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
     )
 
     assert isinstance(result, dict)
     assert result["prompt"] == ""
-    assert result["summary"]["total_checks"] == 4
+    assert len(result["results"]) == 4
 
 
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_check_all_long_prompt():
+def test_check_all_long_prompt(
+    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+):
     """Test guardrails with a long prompt."""
+    mock_guardrail_checks()
     prompt = "This is a very long prompt. " * 100
 
-    result = await check_all(
+    result = check_all(
         prompt=prompt,
         model_name="gpt-5-nano-2025-08-07",
     )
 
     assert isinstance(result, dict)
     assert result["prompt"] == prompt
-    assert result["summary"]["total_checks"] == 4
     assert len(result["results"]) == 4
