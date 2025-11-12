@@ -730,16 +730,14 @@ class ApprovalManager:
                     session_id=input.session_id,
                 )
                 return
-            try:
-                preset = await agent_service.presets.get_preset(preset_id)
-            except TracecatNotFoundError:
+            preset = await agent_service.presets.get_preset(preset_id)
+            if not preset:
                 logger.warning(
                     "Configured approval manager preset not found",
                     preset_id=str(preset_id),
                     session_id=input.session_id,
                 )
                 return
-
             try:
                 async with agent_service.with_preset_config(
                     preset_id=preset_id
