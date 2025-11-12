@@ -59,7 +59,10 @@ class ChatService(BaseWorkspaceService):
 
         if agent_preset_id:
             preset_service = AgentPresetService(self.session, self.role)
-            await preset_service.get_preset(agent_preset_id)
+            if not await preset_service.get_preset(agent_preset_id):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{agent_preset_id}' not found"
+                )
 
         chat = Chat(
             title=title,
@@ -102,7 +105,10 @@ class ChatService(BaseWorkspaceService):
             return CaseCopilotPrompts(case=case).instructions
         if entity_type == ChatEntity.AGENT_PRESET_BUILDER:
             agent_preset_service = AgentPresetService(self.session, self.role)
-            preset = await agent_preset_service.get_preset(chat.entity_id)
+            if not (preset := await agent_preset_service.get_preset(chat.entity_id)):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{chat.entity_id}' not found"
+                )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
         else:

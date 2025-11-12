@@ -17,7 +17,11 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryAction
-from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 
 AGENT_PRESET_BUILDER_TOOL_NAMES = [
@@ -56,8 +60,9 @@ async def build_agent_preset_builder_tools(
         """Return the latest configuration for this agent preset, including tools and approval rules."""
 
         async with _preset_service() as service:
-            preset = await service.get_preset(preset_id)
-        return preset.model_dump(mode="json")
+            if preset := await service.get_preset(preset_id):
+                return preset.model_dump(mode="json")
+        raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
 
     async def list_available_agent_tools(
         params: ListAvailableActions,
@@ -105,8 +110,12 @@ async def build_agent_preset_builder_tools(
             raise ValueError("Provide at least one field to update.")
 
         async with _preset_service() as service:
+            if not (preset := await service.get_preset(preset_id)):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{preset_id}' not found"
+                )
             try:
-                updated = await service.update_preset(preset_id, params)
+                updated = await service.update_preset(preset, params)
             except TracecatValidationError as error:
                 # Surface builder validation issues to the model as retryable errors.
                 raise ModelRetry(str(error)) from error
