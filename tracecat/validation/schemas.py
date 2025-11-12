@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Any, Literal, TypedDict
 
 import orjson
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 from pydantic_core import to_jsonable_python
 
@@ -30,6 +30,11 @@ class ValidationDetail:
             cls(type=f"pydantic.{err['type']}", msg=err["msg"], loc=err["loc"])
             for err in err.errors(include_input=False, include_url=False)
         ]
+
+
+ValidationDetailListTA: TypeAdapter[list[ValidationDetail]] = TypeAdapter(
+    list[ValidationDetail]
+)
 
 
 class ValidationResultType(StrEnum):
