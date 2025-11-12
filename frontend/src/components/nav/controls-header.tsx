@@ -621,14 +621,12 @@ function AgentsActions() {
   const isLoading = presetsIsLoading || agentSettingsIsLoading
   const isSavingPreset = updateAgentSettingsIsPending
 
-  const handleSelectPreset = async (
-    presetId: string | null,
-  ) => {
-      await updateAgentSettings({
-        requestBody: {
-          agent_approval_manager_preset_id: presetId,
-        },
-      })
+  const handleSelectPreset = async (presetId: string | null) => {
+    await updateAgentSettings({
+      requestBody: {
+        agent_approval_manager_preset_id: presetId,
+      },
+    })
   }
 
   return (
