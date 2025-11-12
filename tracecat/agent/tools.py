@@ -110,8 +110,8 @@ async def call_tracecat_action(
     context[ExprContext.VARS] = ws_vars
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
-    args = eval_templated_object(args, operand=context)
     try:
+        args = eval_templated_object(args, operand=context)
         with secrets_manager.env_sandbox(flattened_secrets):
             # Call directly based on action type
             if bound_action.is_template:
