@@ -13,10 +13,15 @@ from sqlmodel import col, func, or_, select
 
 from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.tools import build_agent_tools
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryAction
-from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 
 AGENT_PRESET_BUILDER_TOOL_NAMES = [
@@ -46,7 +51,7 @@ class ListAvailableActions(BaseModel):
     )
 
 
-def build_agent_preset_builder_tools(
+async def build_agent_preset_builder_tools(
     preset_id: uuid.UUID,
 ) -> list[Tool[Any]]:
     """Create tool instances bound to a specific preset ID."""
@@ -55,10 +60,13 @@ def build_agent_preset_builder_tools(
         """Return the latest configuration for this agent preset, including tools and approval rules."""
 
         async with _preset_service() as service:
-            preset = await service.get_preset(preset_id)
+            if not (preset := await service.get_preset(preset_id)):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{preset_id}' not found"
+                )
         return preset.model_dump(mode="json")
 
-    async def list_available_actions(
+    async def list_available_agent_tools(
         params: ListAvailableActions,
     ) -> list[dict[str, str]]:
         """Return the list of available actions in the registry."""
@@ -104,15 +112,31 @@ def build_agent_preset_builder_tools(
             raise ValueError("Provide at least one field to update.")
 
         async with _preset_service() as service:
+            if not (preset := await service.get_preset(preset_id)):
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{preset_id}' not found"
+                )
             try:
-                updated = await service.update_preset(preset_id, params)
+                updated = await service.update_preset(preset, params)
             except TracecatValidationError as error:
                 # Surface builder validation issues to the model as retryable errors.
                 raise ModelRetry(str(error)) from error
         return updated.model_dump(mode="json")
 
+    # Tracecat tools
+    build_tools_result = await build_agent_tools(
+        actions=[
+            "core.table.download",
+            "core.table.list_tables",
+            "core.table.get_table_metadata",
+            "tools.exa.answer",
+        ]
+    )
+
     return [
-        Tool(get_agent_preset_summary, name="Read agent preset", takes_ctx=False),
-        Tool(update_agent_preset, name="Update agent preset", takes_ctx=False),
-        Tool(list_available_actions, name="List available tools", takes_ctx=False),
+        # Tool names must match ^[a-zA-Z0-9_-]{1,128}$ for some providers (e.g. Anthropic)
+        Tool(get_agent_preset_summary),
+        Tool(update_agent_preset),
+        Tool(list_available_agent_tools),
+        *build_tools_result.tools,
     ]

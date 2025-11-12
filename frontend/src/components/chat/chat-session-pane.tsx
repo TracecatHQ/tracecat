@@ -10,10 +10,17 @@ import {
   type UIMessagePart,
   type UITools,
 } from "ai"
-import { CopyIcon, HammerIcon, RefreshCcwIcon } from "lucide-react"
+import {
+  CheckIcon,
+  CopyIcon,
+  HammerIcon,
+  PencilIcon,
+  RefreshCcwIcon,
+  XIcon,
+} from "lucide-react"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ChatEntity, ChatReadVercel } from "@/client"
+import type { ApprovalDecision, ChatEntity, ChatReadVercel } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -52,8 +59,11 @@ import {
 } from "@/components/ai-elements/tool"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { getIcon } from "@/components/icons"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -61,12 +71,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useVercelChat } from "@/hooks/use-chat"
+import {
+  type ApprovalCard,
+  makeContinueMessage,
+  useVercelChat,
+} from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
   getAssistantText,
   toUIMessage,
+  transformMessages,
 } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
@@ -120,9 +135,35 @@ export function ChatSessionPane({
       modelInfo,
     })
 
+  const handleSubmitApprovals = useCallback(
+    async (decisionPayload: ApprovalDecision[]) => {
+      if (!decisionPayload.length) return
+      console.log("decisionPayload", decisionPayload)
+      try {
+        clearError()
+        await sendMessage(makeContinueMessage(decisionPayload))
+      } catch (error) {
+        console.error("Failed to submit approvals", error)
+        toast({
+          variant: "destructive",
+          title: "Approval submission failed",
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        })
+        throw error
+      }
+    },
+    [clearError, sendMessage]
+  )
+
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
+
+  const transformedMessages = useMemo(
+    () => transformMessages(messages),
+    [messages]
+  )
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -203,14 +244,14 @@ export function ChatSessionPane({
                 <AlertDescription>{lastError}</AlertDescription>
               </Alert>
             )}
-            {messages.map(({ id, role, parts }) => {
+            {transformedMessages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages[messages.length - 1].id
-
               return (
                 <div key={id} className="group relative">
                   {role === "assistant" &&
-                    parts?.filter((part) => part.type === "source-url").length >
+                    parts &&
+                    parts.filter((part) => part.type === "source-url").length >
                       0 && (
                       <Sources>
                         <SourcesTrigger
@@ -243,9 +284,10 @@ export function ChatSessionPane({
                       role={role}
                       status={status}
                       isLastMessage={isLastMessage}
+                      onSubmitApprovals={handleSubmitApprovals}
                     />
                   ))}
-                  {role === "assistant" && parts.length > 0 && (
+                  {role === "assistant" && parts && parts.length > 0 && (
                     // Render response actions for assistant messages and reveal them on hover for older messages.
                     <Actions
                       className={cn(
@@ -365,6 +407,7 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
   partIdx: number
@@ -372,7 +415,22 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === "data-approval-request") {
+    const payload = (part as { data?: unknown }).data
+    const approvals: ApprovalCard[] = Array.isArray(payload)
+      ? (payload.filter(Boolean) as ApprovalCard[])
+      : []
+    return (
+      <ApprovalRequestPart
+        key={`${id}-${partIdx}`}
+        approvals={approvals}
+        onSubmit={onSubmitApprovals}
+      />
+    )
+  }
+
   if (part.type === "text") {
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
@@ -436,4 +494,276 @@ export function MessagePart({
   }
 
   return null
+}
+
+type DecisionState = {
+  action: ApprovalDecision["action"] | undefined
+  reason?: string
+  overrideArgs?: string
+}
+
+function ApprovalRequestPart({
+  approvals,
+  onSubmit,
+}: {
+  approvals: ApprovalCard[]
+  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+}) {
+  const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setDecisions({})
+  }, [approvals.map((a) => a.tool_call_id).join(":")])
+
+  const readyToSubmit =
+    approvals.length > 0 &&
+    approvals.every((approval) => decisions[approval.tool_call_id]?.action)
+
+  const setDecision = useCallback(
+    (toolCallId: string, update: Partial<DecisionState>) => {
+      setDecisions((prev) => ({
+        ...prev,
+        [toolCallId]: {
+          ...prev[toolCallId],
+          ...update,
+        },
+      }))
+    },
+    []
+  )
+
+  const handleSubmit = useCallback(async () => {
+    if (!onSubmit || !readyToSubmit) {
+      toast({
+        title: "Pending decisions",
+        description: "Choose an action for each tool before continuing.",
+      })
+      return
+    }
+
+    const payload: ApprovalDecision[] = []
+    for (const approval of approvals) {
+      const decision = decisions[approval.tool_call_id]
+      if (!decision?.action) {
+        toast({
+          title: "Missing decision",
+          description: `Select an action for ${approval.tool_name}.`,
+        })
+        return
+      }
+      if (decision.action === "approve") {
+        payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
+      } else if (decision.action === "override") {
+        try {
+          const parsed = decision.overrideArgs
+            ? JSON.parse(decision.overrideArgs)
+            : {}
+          payload.push({
+            tool_call_id: approval.tool_call_id,
+            action: "override",
+            override_args: parsed,
+          })
+        } catch {
+          toast({
+            variant: "destructive",
+            title: "Invalid JSON",
+            description: `Fix override args for ${approval.tool_name} and try again.`,
+          })
+          return
+        }
+      } else if (decision.action === "deny") {
+        payload.push({
+          tool_call_id: approval.tool_call_id,
+          action: "deny",
+          reason: decision.reason ?? "",
+        })
+      }
+    }
+
+    try {
+      setSubmitting(true)
+      await onSubmit(payload)
+      setDecisions({})
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [approvals, decisions, onSubmit, readyToSubmit])
+
+  const disabled = !onSubmit
+
+  if (!approvals.length) {
+    return null
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs font-medium uppercase text-muted-foreground">
+          Approvals required
+        </p>
+      </div>
+      <div className="space-y-3">
+        {approvals.map((approval) => {
+          const actionId = approval.tool_name.replaceAll("__", ".")
+          const decision = decisions[approval.tool_call_id]
+          const argsPreview = formatArgs(approval.args)
+          return (
+            <div
+              key={approval.tool_call_id}
+              className="space-y-3 rounded-md border border-border/60 bg-background p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1">
+                    {getIcon(actionId, {
+                      className: "size-4 p-[3px]",
+                    })}
+                    <p className="text-sm font-semibold">{actionId}</p>
+                  </div>
+                </div>
+                <JsonViewWithControls
+                  src={approval.args}
+                  className="max-h-64"
+                  showControls={false}
+                  defaultExpanded
+                />
+                <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "approve" ? "default" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "approve",
+                        reason: undefined,
+                        overrideArgs: undefined,
+                      })
+                    }
+                    className={cn(
+                      decision?.action === "approve" &&
+                        "bg-green-500/80 hover:bg-green-600/80"
+                    )}
+                  >
+                    <CheckIcon className="mr-1 size-3" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "override" ? "default" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "override",
+                        reason: undefined,
+                      })
+                    }
+                    className={cn(
+                      decision?.action === "override" &&
+                        "bg-green-500/80 hover:bg-green-600/80"
+                    )}
+                  >
+                    <PencilIcon className="mr-1 size-3" />
+                    Approve + change
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={
+                      decision?.action === "deny" ? "destructive" : "outline"
+                    }
+                    disabled={disabled || submitting}
+                    onClick={() =>
+                      setDecision(approval.tool_call_id, {
+                        action: "deny",
+                        overrideArgs: undefined,
+                      })
+                    }
+                  >
+                    <XIcon className="mr-1 size-3" />
+                    Deny
+                  </Button>
+                </div>
+              </div>
+              {decision?.action === "override" && (
+                <Textarea
+                  className="text-xs"
+                  rows={4}
+                  spellCheck={false}
+                  value={decision.overrideArgs ?? ""}
+                  onChange={(event) =>
+                    setDecision(approval.tool_call_id, {
+                      ...decision,
+                      overrideArgs: event.target.value,
+                    })
+                  }
+                  placeholder={argsPreview}
+                  disabled={disabled || submitting}
+                />
+              )}
+              {decision?.action === "deny" && (
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  value={decision.reason ?? ""}
+                  onChange={(event) =>
+                    setDecision(approval.tool_call_id, {
+                      ...decision,
+                      reason: event.target.value,
+                    })
+                  }
+                  placeholder="Share a short reason"
+                  disabled={disabled || submitting}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={submitting}
+          onClick={() => setDecisions({})}
+          className="h-7 px-2 text-muted-foreground/80"
+        >
+          Reset
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          disabled={disabled || submitting || !readyToSubmit}
+          className="h-7 px-2"
+        >
+          {submitting ? "Submitting..." : "Submit"}
+        </Button>
+      </div>
+      {disabled && (
+        <p className="text-xs text-muted-foreground">
+          Approval submission is not available in this context.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function formatArgs(args: unknown): string {
+  if (args == null) return "{}"
+  if (typeof args === "string") {
+    try {
+      return JSON.stringify(JSON.parse(args), null, 2)
+    } catch {
+      return args
+    }
+  }
+  try {
+    return JSON.stringify(args, null, 2)
+  } catch {
+    return String(args)
+  }
 }
