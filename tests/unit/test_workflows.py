@@ -5171,3 +5171,70 @@ async def test_workflow_trigger_defaults(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_trigger_validation_error_details(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """Ensure trigger validation errors surface field-level details to callers."""
+
+    invalid_trigger_data = {"default_number": "not-an-int"}
+    test_name = f"{test_workflow_trigger_validation_error_details.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Workflow trigger validation",
+        description="Test that trigger validation errors propagate details",
+        entrypoint=DSLEntrypoint(
+            ref="a",
+            expects={
+                "default_field": ExpectedField(type="str", default="default_value"),
+                "default_number": ExpectedField(type="int", default=42),
+            },
+        ),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            ),
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=invalid_trigger_data,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Failed to validate trigger inputs" in str(cause)
+
+    details = cause.details
+    if isinstance(details, list | tuple):
+        detail_messages = [str(d) for d in details]
+    elif details is None:
+        detail_messages = []
+    else:
+        detail_messages = [str(details)]
+
+    assert detail_messages, "Trigger validation error should include details"
+    combined_details = "\n".join(detail_messages)
+    assert "default_number" in combined_details
+    assert "valid integer" in combined_details or '"type": "int' in combined_details
