@@ -400,7 +400,6 @@ class DSLWorkflow:
                         )
                         raise ApplicationError(
                             "Failed to normalize trigger inputs",
-                            details,
                             non_retryable=True,
                             type=e.__class__.__name__,
                         ) from cause
