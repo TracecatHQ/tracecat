@@ -371,8 +371,10 @@ class ChatService(BaseWorkspaceService):
             preset_id = set_fields.pop("agent_preset_id")
             if preset_id is not None:
                 preset_service = AgentPresetService(self.session, self.role)
-                # Raises TracecatNotFoundError if preset not found
-                await preset_service.get_preset(preset_id)
+                if not await preset_service.get_preset(preset_id):
+                    raise TracecatNotFoundError(
+                        f"Agent preset with ID '{preset_id}' not found"
+                    )
             chat.agent_preset_id = preset_id
 
         # Update remaining fields if provided

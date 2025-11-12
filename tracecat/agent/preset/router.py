@@ -14,6 +14,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatValidationError
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
@@ -53,8 +54,14 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create a new agent preset."""
     service = AgentPresetService(session, role=role)
-    preset = await service.create_preset(params)
-    return AgentPresetRead.model_validate(preset)
+    try:
+        preset = await service.create_preset(params)
+        return AgentPresetRead.model_validate(preset)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
