@@ -506,22 +506,15 @@ function PresetsSidebar({
   workspaceId: string
   onCreate: () => void
 }) {
-  const isCreating = selectedId === NEW_PRESET_ID
   const list = presets
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <p className="text-xs text-muted-foreground">
-            {list.length} agents
-          </p>
+          <p className="text-xs text-muted-foreground">{list.length} agents</p>
         </div>
-        <Button
-          size="sm"
-          onClick={onCreate}
-          variant="ghost"
-        >
+        <Button size="sm" onClick={onCreate} variant="ghost">
           <Plus className="mr-2 size-4" />
           New
         </Button>
