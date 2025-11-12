@@ -29,11 +29,9 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.types import Task
-from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
-from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -709,12 +707,6 @@ class WorkflowExecutionsService:
 
         Note: This method blocks until the workflow execution completes.
         """
-        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
-        if validation_result.status == "error":
-            logger.error(validation_result.msg, detail=validation_result.detail)
-            raise TracecatValidationError(
-                validation_result.msg, detail=validation_result.detail
-            )
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
