@@ -349,7 +349,7 @@ function isEmptyObjectOrArray(value: unknown): boolean {
     return value.length === 0
   }
   if (value && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>).length === 0
+    return Object.keys(value).length === 0
   }
   return false
 }

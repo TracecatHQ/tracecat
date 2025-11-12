@@ -262,10 +262,12 @@ export type AgentPresetReadMinimal = {
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
+  name?: string | null
+  slug?: string | null
   description?: string | null
   instructions?: string | null
-  model_name: string
-  model_provider: string
+  model_name?: string | null
+  model_provider?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -280,9 +282,7 @@ export type AgentPresetUpdate = {
   model_settings?: {
     [key: string]: unknown
   } | null
-  retries?: number
-  name?: string | null
-  slug?: string | null
+  retries?: number | null
 }
 
 export type AgentSessionRead = {
