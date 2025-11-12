@@ -1183,6 +1183,32 @@ export const $AgentPresetReadMinimal = {
 
 export const $AgentPresetUpdate = {
   properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
     description: {
       anyOf: [
         {
@@ -1207,15 +1233,29 @@ export const $AgentPresetUpdate = {
       title: "Instructions",
     },
     model_name: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Name",
     },
     model_provider: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Provider",
     },
     base_url: {
@@ -1321,40 +1361,19 @@ export const $AgentPresetUpdate = {
       title: "Model Settings",
     },
     retries: {
-      type: "integer",
-      minimum: 0,
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Retries",
-      default: 3,
-    },
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 120,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-    },
-    slug: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 160,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Slug",
     },
   },
   type: "object",
-  required: ["model_name", "model_provider"],
   title: "AgentPresetUpdate",
   description: "Payload for updating an existing agent preset.",
 } as const

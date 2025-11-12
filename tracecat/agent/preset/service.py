@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import cast
 
 from slugify import slugify
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import desc, func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
@@ -33,16 +32,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.exec(stmt)
         return result.all()
 
-    async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset:
-        """Retrieve a single preset by its identifier."""
-
-        return await self._get_preset_model(preset_id)
-
-    async def get_preset_by_slug(self, slug: str) -> AgentPreset:
-        """Retrieve a preset by its slug."""
-
-        return await self._get_preset_model_by_slug(slug)
-
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
 
@@ -54,8 +43,8 @@ class AgentPresetService(BaseWorkspaceService):
             await self._validate_actions(params.actions)
         preset = AgentPreset(
             owner_id=self.workspace_id,
-            name=params.name,
             slug=slug,
+            name=params.name,
             description=params.description,
             instructions=params.instructions,
             model_name=params.model_name,
@@ -92,10 +81,9 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
     async def update_preset(
-        self, preset_id: uuid.UUID, params: AgentPresetUpdate
+        self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
-        preset = await self._get_preset_model(preset_id)
         set_fields = params.model_dump(exclude_unset=True)
 
         # Handle name first as it may be needed for slug fallback
@@ -107,18 +95,17 @@ class AgentPresetService(BaseWorkspaceService):
             preset.slug = await self._normalize_and_validate_slug(
                 proposed_slug=set_fields.pop("slug"),
                 fallback_name=preset.name,
-                exclude_id=preset_id,
+                exclude_id=preset.id,
             )
 
         # Validate actions if provided
         if "actions" in set_fields:
-            actions = set_fields.pop("actions")
             # Select in RegistryAction actions that are in the list of actions
-            if actions:
-                self.logger.info("Validating actions", actions=actions)
+            if actions := set_fields.pop("actions"):
                 await self._validate_actions(actions)
             # If we reach this point, all actions are valid or was empty
             preset.actions = actions
+
         # Update remaining fields
         for field, value in set_fields.items():
             setattr(preset, field, value)
@@ -128,24 +115,22 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    async def delete_preset(self, preset_id: uuid.UUID) -> None:
+    async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
-
-        preset = await self._get_preset_model(preset_id)
         await self.session.delete(preset)
         await self.session.commit()
 
-    async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
-        """Resolve the agent configuration for a preset by ID."""
-
-        preset = await self._get_preset_model(preset_id)
-        return self._preset_to_agent_config(preset)
-
     async def get_agent_config_by_slug(self, slug: str) -> AgentConfig:
         """Resolve the agent configuration for a preset by slug."""
+        if preset := await self.get_preset_by_slug(slug):
+            return self._preset_to_agent_config(preset)
+        raise TracecatNotFoundError(f"Agent preset with slug '{slug}' not found")
 
-        preset = await self._get_preset_model_by_slug(slug)
-        return self._preset_to_agent_config(preset)
+    async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
+        """Resolve the agent configuration for a preset by ID."""
+        if preset := await self.get_preset(preset_id):
+            return self._preset_to_agent_config(preset)
+        raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
 
     async def resolve_agent_preset_config(
         self,
@@ -187,61 +172,23 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return slug
 
-    async def _get_preset_model(self, preset_id: uuid.UUID) -> AgentPreset:
+    async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
         stmt = select(AgentPreset).where(
             AgentPreset.owner_id == self.workspace_id,
             AgentPreset.id == preset_id,
         )
         result = await self.session.exec(stmt)
-        try:
-            return result.one()
-        except MultipleResultsFound as e:
-            self.logger.error(
-                "Multiple agent presets found",
-                preset_id=preset_id,
-                owner_id=self.workspace_id,
-            )
-            raise TracecatNotFoundError(
-                "Multiple agent presets found when searching by ID"
-            ) from e
-        except NoResultFound as e:
-            self.logger.error(
-                "Agent preset not found",
-                preset_id=preset_id,
-                owner_id=self.workspace_id,
-            )
-            raise TracecatNotFoundError(
-                f"Agent preset {preset_id} not found in this workspace"
-            ) from e
+        return result.first()
 
-    async def _get_preset_model_by_slug(self, slug: str) -> AgentPreset:
+    async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
         stmt = select(AgentPreset).where(
             AgentPreset.owner_id == self.workspace_id,
             AgentPreset.slug == slug,
         )
         result = await self.session.exec(stmt)
-        try:
-            return result.one()
-        except MultipleResultsFound as e:
-            self.logger.error(
-                "Multiple agent presets found",
-                slug=slug,
-                owner_id=self.workspace_id,
-            )
-            raise TracecatNotFoundError(
-                f"Multiple agent presets found with slug '{slug}'"
-            ) from e
-        except NoResultFound as e:
-            self.logger.error(
-                "Agent preset not found",
-                slug=slug,
-                owner_id=self.workspace_id,
-            )
-            raise TracecatNotFoundError(
-                f"Agent preset '{slug}' not found in this workspace"
-            ) from e
+        return result.first()
 
     def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
         return AgentConfig(
