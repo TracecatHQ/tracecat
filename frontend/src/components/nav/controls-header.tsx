@@ -623,32 +623,12 @@ function AgentsActions() {
 
   const handleSelectPreset = async (
     presetId: string | null,
-    presetName?: string
   ) => {
-    try {
       await updateAgentSettings({
         requestBody: {
           agent_approval_manager_preset_id: presetId,
         },
       })
-      toast({
-        title: presetId
-          ? "Approval manager updated"
-          : "Approval manager cleared",
-        description: presetId
-          ? `Using ${presetName ?? "selected preset"} for approval recommendations.`
-          : "Approvals will no longer receive automatic recommendations.",
-      })
-    } catch (error) {
-      const message =
-        typeof error === "object" && error && "message" in error
-          ? String((error as { message?: unknown }).message ?? error)
-          : "An unexpected error occurred."
-      toast({
-        title: "Failed to update approval manager",
-        description: message,
-      })
-    }
   }
 
   return (
@@ -703,7 +683,7 @@ function AgentsActions() {
                     if (isSelected) {
                       return
                     }
-                    await handleSelectPreset(preset.id, preset.name)
+                    await handleSelectPreset(preset.id)
                   }}
                 >
                   <span className="flex flex-col items-start gap-0.5 pr-4">

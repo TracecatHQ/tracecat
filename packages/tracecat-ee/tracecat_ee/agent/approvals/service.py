@@ -35,7 +35,7 @@ from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.models import Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
@@ -191,7 +191,7 @@ class ApprovalService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.one_or_none()
 
-    async def list_approvals_by_session(
+    async def list_approvals_for_session(
         self, session_id: uuid.UUID
     ) -> Sequence[Approval]:
         """List all approvals for a given session."""
@@ -682,10 +682,23 @@ class ApprovalManager:
         input: GenerateApprovalRecommendationsActivityInputs,
     ) -> None:
         async with ApprovalService.with_session(role=input.role) as approval_service:
-            approvals = await approval_service.list_approvals_by_session(
+            approvals = await approval_service.list_approvals_for_session(
                 input.session_id
             )
-            history = await approval_service.list_session_history(input.session_id)
+            history = []
+            if approvals:
+                try:
+                    history = await approval_service.list_session_history(
+                        input.session_id
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to fetch session history for approval recommendations",
+                        session_id=input.session_id,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+
             approval_items = [
                 ApprovalItem(
                     tool_call_id=approval.tool_call_id,
@@ -721,112 +734,139 @@ class ApprovalManager:
                     session_id=input.session_id,
                 )
                 return
-            async with agent_service.with_preset_config(
-                preset_id=preset_id
-            ) as preset_config:
-                for approval_item in approval_items:
-                    header = (
-                        "You are Tracecat's approval manager. For each pending tool call:\n"
-                        "- Read the tool name, arguments, and any recent history that follows.\n"
-                        "- Choose one verdict: approve (safe, low-risk), reject (dangerous, policy violation, or malformed), "
-                        "or manual (uncertain, needs human review).\n"
-                        "- Always provide a short, actionable reason that references the tool call (never say 'no context').\n"
-                    )
-                    # Extract message history from the list of SessionHistoryItem
-                    message_parts = []
-                    for history_item in approval_item.history:
-                        if history_item.result and history_item.result.message_history:
-                            for msg in history_item.result.message_history:
-                                if hasattr(msg, "parts"):
-                                    for part in msg.parts:
-                                        # Extract user prompts
-                                        if isinstance(part, UserPromptPart):
-                                            message_parts.append(
-                                                f"User: {part.content}"
-                                            )
 
-                                        # Extract model text responses
-                                        elif isinstance(part, TextPart):
-                                            message_parts.append(
-                                                f"Assistant: {part.content}"
-                                            )
-
-                                        # Extract tool call info
-                                        elif isinstance(part, ToolCallPart):
-                                            message_parts.append(
-                                                f"Tool Call: {part.tool_name} with args {part.args}"
-                                            )
-
-                                        # Extract tool return results (especially errors)
-                                        elif isinstance(part, ToolReturnPart):
-                                            if isinstance(part.content, dict):
-                                                # For retry/error messages
-                                                if part.content.get("type") == "retry":
-                                                    message_parts.append(
-                                                        f"Tool Error ({part.tool_name}): {part.content.get('retry_message', '')}"
-                                                    )
-                                                else:
-                                                    message_parts.append(
-                                                        f"Tool Result ({part.tool_name}): {str(part.content)[:100]}"
-                                                    )
-
-                    history_text = (
-                        "\n".join(message_parts)
-                        if message_parts
-                        else "No recent history"
-                    )
-                    prompt = header
-                    prompt += f"- Tool name: {approval_item.tool_name}\n"
-                    prompt += f"- Tool arguments: {json.dumps(approval_item.args, indent=2)}\n"
-                    prompt += f"- Tool history: {history_text}\n"
-                    ctx_role.set(input.role)
-                    ctx_session_id.set(input.session_id)
-                    try:
-                        agent_output = await run_agent(
-                            user_prompt=prompt,
-                            model_name=preset_config.model_name,
-                            model_provider=preset_config.model_provider,
-                            actions=preset_config.actions,
-                            namespaces=preset_config.namespaces,
-                            tool_approvals=preset_config.tool_approvals,
-                            mcp_server_url=preset_config.mcp_server_url,
-                            mcp_server_headers=preset_config.mcp_server_headers,
-                            instructions=preset_config.instructions,
-                            output_type=ApprovalRecommendation.model_json_schema(),
-                            model_settings=preset_config.model_settings,
-                            base_url=preset_config.base_url,
-                            retries=preset_config.retries,
+            try:
+                async with agent_service.with_preset_config(
+                    preset_id=preset_id
+                ) as preset_config:
+                    for approval_item in approval_items:
+                        header = (
+                            "You are Tracecat's approval manager. For each pending tool call:\n"
+                            "- Read the tool name, arguments, and any recent history that follows.\n"
+                            "- Choose one verdict: approve (safe, low-risk), reject (dangerous, policy violation, or malformed), "
+                            "or manual (uncertain, needs human review).\n"
+                            "- Always provide a short, actionable reason that references the tool call (never say 'no context').\n"
                         )
-                    except Exception as exc:
-                        logger.warning(
-                            "Approval manager agent execution failed",
-                            error=str(exc),
-                            session_id=input.session_id,
-                            tool_call_id=approval_item.tool_call_id,
-                        )
-                        continue
+                        # Extract message history from the list of SessionHistoryItem
+                        message_parts = []
+                        for history_item in approval_item.history:
+                            if (
+                                history_item.result
+                                and history_item.result.message_history
+                            ):
+                                for msg in history_item.result.message_history:
+                                    if hasattr(msg, "parts"):
+                                        for part in msg.parts:
+                                            # Extract user prompts
+                                            if isinstance(part, UserPromptPart):
+                                                message_parts.append(
+                                                    f"User: {part.content}"
+                                                )
 
-                    # Fetch and update the approval
-                    async with ApprovalService.with_session(
-                        role=input.role
-                    ) as approval_service:
-                        approval = (
-                            await approval_service.get_approval_by_session_and_tool(
+                                            # Extract model text responses
+                                            elif isinstance(part, TextPart):
+                                                message_parts.append(
+                                                    f"Assistant: {part.content}"
+                                                )
+
+                                            # Extract tool call info
+                                            elif isinstance(part, ToolCallPart):
+                                                message_parts.append(
+                                                    f"Tool Call: {part.tool_name} with args {part.args}"
+                                                )
+
+                                            # Extract tool return results (especially errors)
+                                            elif isinstance(part, ToolReturnPart):
+                                                if isinstance(part.content, dict):
+                                                    # For retry/error messages
+                                                    if (
+                                                        part.content.get("type")
+                                                        == "retry"
+                                                    ):
+                                                        message_parts.append(
+                                                            f"Tool Error ({part.tool_name}): {part.content.get('retry_message', '')}"
+                                                        )
+                                                    else:
+                                                        message_parts.append(
+                                                            f"Tool Result ({part.tool_name}): {str(part.content)[:100]}"
+                                                        )
+
+                        history_text = (
+                            "\n".join(message_parts)
+                            if message_parts
+                            else "No recent history"
+                        )
+                        prompt = header
+                        prompt += f"- Tool name: {approval_item.tool_name}\n"
+                        prompt += f"- Tool arguments: {json.dumps(approval_item.args, indent=2)}\n"
+                        prompt += f"- Tool history: {history_text}\n"
+                        ctx_role.set(input.role)
+                        ctx_session_id.set(input.session_id)
+                        try:
+                            agent_output = await run_agent(
+                                user_prompt=prompt,
+                                model_name=preset_config.model_name,
+                                model_provider=preset_config.model_provider,
+                                actions=preset_config.actions,
+                                namespaces=preset_config.namespaces,
+                                tool_approvals=preset_config.tool_approvals,
+                                mcp_server_url=preset_config.mcp_server_url,
+                                mcp_server_headers=preset_config.mcp_server_headers,
+                                instructions=preset_config.instructions,
+                                output_type=ApprovalRecommendation.model_json_schema(),
+                                model_settings=preset_config.model_settings,
+                                base_url=preset_config.base_url,
+                                retries=preset_config.retries,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Approval manager agent execution failed",
+                                error=str(exc),
                                 session_id=input.session_id,
                                 tool_call_id=approval_item.tool_call_id,
                             )
-                        )
-                        if approval:
-                            await approval_service.update_approval(
-                                approval,
-                                ApprovalUpdate(
-                                    recommendation=ApprovalRecommendation(
-                                        verdict=agent_output.output["verdict"],
-                                        reason=agent_output.output.get("reason"),
-                                        generated_by=preset.slug,
-                                    ),
-                                ),
+                            continue
+
+                        # Fetch and update the approval
+                        async with ApprovalService.with_session(
+                            role=input.role
+                        ) as approval_service:
+                            approval = (
+                                await approval_service.get_approval_by_session_and_tool(
+                                    session_id=input.session_id,
+                                    tool_call_id=approval_item.tool_call_id,
+                                )
                             )
+                            if approval:
+                                await approval_service.update_approval(
+                                    approval,
+                                    ApprovalUpdate(
+                                        recommendation=ApprovalRecommendation(
+                                            verdict=agent_output.output["verdict"],
+                                            reason=agent_output.output.get("reason"),
+                                            generated_by=preset.slug,
+                                        ),
+                                    ),
+                                )
+
+            except (TracecatNotFoundError, TracecatAuthorizationError) as exc:
+                logger.warning(
+                    "Failed to load approval manager preset configuration; skipping recommendations",
+                    preset_id=str(preset_id),
+                    session_id=input.session_id,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                return
+            except Exception as exc:
+                logger.error(
+                    "Unexpected error during approval recommendation generation; skipping recommendations",
+                    preset_id=str(preset_id),
+                    session_id=input.session_id,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                return
 
     @staticmethod
     @activity.defn
