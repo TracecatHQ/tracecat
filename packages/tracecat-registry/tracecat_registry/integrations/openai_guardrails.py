@@ -7,7 +7,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Any, TypeVar, cast
+from typing import Annotated, Any, TypeVar, TypedDict, cast
 
 from guardrails.checks.text.jailbreak import jailbreak
 from guardrails.checks.text.llm_base import LLMConfig
@@ -17,22 +17,49 @@ from guardrails.checks.text.pii import PIIConfig, pii
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult
 from openai import AsyncOpenAI
 from pydantic import BaseModel
-from typing_extensions import Doc
+from typing_extensions import Doc, NotRequired
 
-from tracecat.registry.fields import TextArea
 from tracecat_registry import RegistrySecret, registry, secrets
 
 
-openai_guardrails_secret = RegistrySecret(name="openai", keys=["OPENAI_API_KEY"])
+openai_guardrails_secret = RegistrySecret(
+    name="openai", optional_keys=["OPENAI_API_KEY"]
+)
 """OpenAI API key.
 
 - name: `openai`
-- keys:
+- optional_keys:
     - `OPENAI_API_KEY`
 """
 
 
 MaybeAwaitableGuardrail = GuardrailResult | Awaitable[GuardrailResult]
+
+
+class GuardrailCheckResult(TypedDict):
+    """Result from a single guardrail check."""
+
+    guardrail_name: str
+    tripwire_triggered: bool
+    execution_failed: bool
+    info: dict[str, Any]
+    error: NotRequired[str]
+
+
+class GuardrailSummary(TypedDict):
+    """Summary of all guardrail checks."""
+
+    total_checks: int
+    tripwires_triggered: list[str]
+    failed_checks: list[str]
+
+
+class GuardrailCheckAllResult(TypedDict):
+    """Complete result from running all guardrail checks."""
+
+    prompt: str
+    summary: GuardrailSummary
+    results: list[GuardrailCheckResult]
 
 
 @dataclass(slots=True)
@@ -94,11 +121,11 @@ async def _run_guardrail_check(
     ctx: _GuardrailContext,
     prompt: str,
     definition: _GuardrailCheckDefinition,
-) -> dict[str, Any]:
+) -> GuardrailCheckResult:
     """Execute a guardrail definition and normalize the result structure."""
     try:
         result = await _ensure_guardrail_result(definition.run(ctx, prompt))
-        payload: dict[str, Any] = {
+        payload: GuardrailCheckResult = {
             "guardrail_name": definition.name,
             "tripwire_triggered": result.tripwire_triggered,
             "execution_failed": result.execution_failed,
@@ -121,7 +148,7 @@ async def _run_all_guardrails(
     ctx: _GuardrailContext,
     prompt: str,
     definitions: list[_GuardrailCheckDefinition],
-) -> list[dict[str, Any]]:
+) -> list[GuardrailCheckResult]:
     tasks = [
         _run_guardrail_check(ctx, prompt, definition) for definition in definitions
     ]
@@ -140,19 +167,28 @@ async def check_all(
     prompt: Annotated[
         str,
         Doc("Text prompt to validate."),
-        TextArea(
-            rows=6, placeholder="Paste the text to evaluate with OpenAI Guardrails."
-        ),
     ],
-) -> dict[str, Any]:
+    model_name: Annotated[
+        str,
+        Doc("Name of the model to use."),
+    ] = "gpt-5-mini-2025-08-07",
+    base_url: Annotated[
+        str | None,
+        Doc("Base URL for the OpenAI API."),
+    ] = None,
+    confidence_threshold: Annotated[
+        float,
+        Doc("Confidence threshold for the guardrail checks."),
+    ] = 0.7,
+) -> GuardrailCheckAllResult:
     """Run a curated set of OpenAI Guardrails checks with OpenAI providers."""
     api_key = secrets.get("OPENAI_API_KEY")
-    client = AsyncOpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     ctx = _GuardrailContext(guardrail_llm=client)
 
     common_llm_kwargs = {
-        "model": "gpt-4o-mini",
-        "confidence_threshold": 0.7,
+        "model": model_name,
+        "confidence_threshold": confidence_threshold,
     }
 
     guardrail_checks = [
@@ -182,15 +218,17 @@ async def check_all(
     finally:
         await client.close()
 
-    tripwire_hits = [r["guardrail_name"] for r in results if r["tripwire_triggered"]]
-    failed_checks = [r["guardrail_name"] for r in results if r["execution_failed"]]
+    tripwires_triggered = [
+        r["guardrail_name"] for r in results if r["tripwire_triggered"]
+    ]
+    execution_failed = [r["guardrail_name"] for r in results if r["execution_failed"]]
 
     return {
         "prompt": prompt,
         "summary": {
             "total_checks": len(guardrail_checks),
-            "tripwires_triggered": tripwire_hits,
-            "failed_checks": failed_checks,
+            "tripwires_triggered": tripwires_triggered,
+            "failed_checks": execution_failed,
         },
         "results": results,
     }
