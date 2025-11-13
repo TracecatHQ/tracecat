@@ -4,8 +4,6 @@ from typing import Any
 from uuid import UUID
 
 import orjson
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.tables.enums import SqlType
 
@@ -94,53 +92,6 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case _:
             raise TypeError(f"Unsupported SQL type for default value: {type}")
     return default_value
-
-
-def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
-    """Convert a value to a SQL-compatible string based on type.
-
-    Args:
-        value: The value to convert to SQL format
-        type: The SQL type to convert to
-
-    Returns:
-        A SQL-compatible string representation of the value
-
-    Raises:
-        TypeError: If the SQL type is not supported
-    """
-    match sql_type:
-        case SqlType.JSONB:
-            return sa.bindparam(key=name, value=value, type_=JSONB)
-        case SqlType.TEXT:
-            return sa.bindparam(key=name, value=str(value), type_=sa.String)
-        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
-            coerced = coerce_optional_to_utc_datetime(value)
-            return sa.bindparam(
-                key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
-            )
-        case SqlType.BOOLEAN:
-            # Allow bool, 1, 0 as valid boolean values
-            match str(value).lower():
-                case "true" | "1":
-                    bool_value = True
-                case "false" | "0":
-                    bool_value = False
-                case _:
-                    raise TypeError(
-                        f"Expected bool or 0/1, got {type(value).__name__}: {value}"
-                    )
-            return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
-        case SqlType.INTEGER:
-            return sa.bindparam(key=name, value=value, type_=sa.Integer)
-        case SqlType.NUMERIC:
-            return sa.bindparam(key=name, value=value, type_=sa.Numeric)
-        case SqlType.UUID:
-            return sa.bindparam(key=name, value=value, type_=sa.UUID)
-        case SqlType.ENUM:
-            return sa.bindparam(key=name, value=str(value), type_=sa.String)
-        case _:
-            raise TypeError(f"Unsupported SQL type for value conversion: {type}")
 
 
 def parse_postgres_default(default_value: str | None) -> str | None:

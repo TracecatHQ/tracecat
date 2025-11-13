@@ -5,6 +5,7 @@ class SqlType(StrEnum):
     """Supported SQL types."""
 
     TEXT = "TEXT"
+    BIGINT = "BIGINT"
     INTEGER = "INTEGER"
     NUMERIC = "NUMERIC"
     BOOLEAN = "BOOLEAN"

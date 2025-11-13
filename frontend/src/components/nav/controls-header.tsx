@@ -37,11 +37,11 @@ import {
   CasesViewToggle,
 } from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
-import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import {
   FolderViewToggle,
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
+import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
