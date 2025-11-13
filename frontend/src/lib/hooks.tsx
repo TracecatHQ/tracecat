@@ -196,6 +196,8 @@ import {
   type TablesDeleteTableData,
   type TablesGetTableData,
   type TablesImportCsvData,
+  type TablesImportTableFromCsvData,
+  type TablesImportTableFromCsvResponse,
   type TablesInsertRowData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
@@ -213,6 +215,7 @@ import {
   tablesDeleteTable,
   tablesGetTable,
   tablesImportCsv,
+  tablesImportTableFromCsv,
   tablesInsertRow,
   tablesListTables,
   tablesUpdateColumn,
@@ -3123,6 +3126,62 @@ export function useImportCsv() {
     importCsv,
     importCsvIsPending,
     importCsvError,
+  }
+}
+
+export function useImportTableFromCsv() {
+  const queryClient = useQueryClient()
+  const router = useRouter()
+  const {
+    mutateAsync: importTable,
+    isPending: importTableIsPending,
+    error: importTableError,
+  } = useMutation<
+    TablesImportTableFromCsvResponse,
+    TracecatApiError,
+    TablesImportTableFromCsvData
+  >({
+    mutationFn: async (params) => await tablesImportTableFromCsv(params),
+    onSuccess: (response, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+      toast({
+        title: "Imported table successfully",
+        description: "A new table has been created from the CSV file.",
+      })
+      if (response?.table?.id) {
+        router.push(
+          `/workspaces/${variables.workspaceId}/tables/${response.table.id}`
+        )
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error importing table from CSV", error)
+          toast({
+            title: "Import failed",
+            description:
+              error.body && typeof error.body.detail === "string"
+                ? error.body.detail
+                : "Unable to import table from CSV. Please try again.",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    importTable,
+    importTableIsPending,
+    importTableError,
   }
 }
 

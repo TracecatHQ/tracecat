@@ -122,6 +122,23 @@ class TableRead(BaseModel):
     columns: list[TableColumnRead]
 
 
+class InferredColumn(BaseModel):
+    """Inferred column mapping between CSV headers and table columns."""
+
+    csv_header: str = Field(
+        ...,
+        description="Original column header in the CSV file",
+    )
+    field_name: str = Field(
+        ...,
+        description="Column name created in Tracecat",
+    )
+    field_type: SqlType = Field(
+        ...,
+        description="Inferred SQL type for the column",
+    )
+
+
 class TableCreate(BaseModel):
     """Create model for a table."""
 
@@ -167,3 +184,11 @@ class TableUpdate(BaseModel):
                 "Table name must contain only letters, numbers, and underscores, and start with a letter or underscore"
             )
         return value
+
+
+class TableImportResponse(BaseModel):
+    """Response model for importing a table from CSV."""
+
+    table: TableRead
+    rows_inserted: int
+    column_mapping: list[InferredColumn]

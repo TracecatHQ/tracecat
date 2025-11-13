@@ -2507,6 +2507,30 @@ export const $Body_tables_import_csv = {
   title: "Body_tables-import_csv",
 } as const
 
+export const $Body_tables_import_table_from_csv = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_tables-import_table_from_csv",
+} as const
+
 export const $Body_workflows_create_workflow = {
   properties: {
     title: {
@@ -7831,6 +7855,29 @@ distinguish multiple files.`,
   description: "A URL to an image.",
 } as const
 
+export const $InferredColumn = {
+  properties: {
+    csv_header: {
+      type: "string",
+      title: "Csv Header",
+      description: "Original column header in the CSV file",
+    },
+    field_name: {
+      type: "string",
+      title: "Field Name",
+      description: "Column name created in Tracecat",
+    },
+    field_type: {
+      $ref: "#/components/schemas/SqlType",
+      description: "Inferred SQL type for the column",
+    },
+  },
+  type: "object",
+  required: ["csv_header", "field_name", "field_type"],
+  title: "InferredColumn",
+  description: "Inferred column mapping between CSV headers and table columns.",
+} as const
+
 export const $Integer = {
   properties: {
     component_id: {
@@ -12421,6 +12468,29 @@ export const $TableCreate = {
   required: ["name"],
   title: "TableCreate",
   description: "Create model for a table.",
+} as const
+
+export const $TableImportResponse = {
+  properties: {
+    table: {
+      $ref: "#/components/schemas/TableRead",
+    },
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted",
+    },
+    column_mapping: {
+      items: {
+        $ref: "#/components/schemas/InferredColumn",
+      },
+      type: "array",
+      title: "Column Mapping",
+    },
+  },
+  type: "object",
+  required: ["table", "rows_inserted", "column_mapping"],
+  title: "TableImportResponse",
+  description: "Response model for importing a table from CSV.",
 } as const
 
 export const $TableRead = {

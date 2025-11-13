@@ -1,6 +1,9 @@
+import csv
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
+from io import StringIO
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -24,9 +27,14 @@ from tenacity import (
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.db.models import Table, TableColumn
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatImportError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
+from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -35,11 +43,17 @@ from tracecat.pagination import (
 from tracecat.service import BaseService
 from tracecat.tables.common import (
     coerce_to_utc_datetime,
+    convert_value,
     handle_default_value,
     is_valid_sql_type,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.importer import (
+    CSVSchemaInferer,
+    InferredCSVColumn,
+    generate_table_name,
+)
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -76,6 +90,18 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
         return f'"{schema_name}".{sanitized_table_name}'
+
+    async def _find_unique_table_name(self, base_name: str) -> str:
+        """Find a unique table name by appending numeric suffixes if required."""
+        candidate = base_name
+        suffix = 1
+        while True:
+            try:
+                await self.get_table_by_name(candidate)
+            except TracecatNotFoundError:
+                return candidate
+            candidate = f"{base_name}_{suffix}"
+            suffix += 1
 
     def _workspace_id(self) -> WorkspaceUUID:
         """Get the workspace ID for the current role."""
@@ -1366,6 +1392,131 @@ class TablesService(BaseTablesService):
         await self.session.commit()
         await self.session.refresh(result)
         return result
+
+    async def import_table_from_csv(
+        self,
+        *,
+        contents: bytes,
+        filename: str | None = None,
+        table_name: str | None = None,
+        chunk_size: int = 1000,
+    ) -> tuple[Table, int, list[InferredCSVColumn]]:
+        """Create a new table by inferring schema and rows from a CSV file."""
+        try:
+            csv_text = contents.decode()
+        except UnicodeDecodeError as exc:
+            raise TracecatImportError(
+                "CSV import requires UTF-8 encoded files"
+            ) from exc
+
+        first_pass = StringIO(csv_text)
+        reader = csv.DictReader(first_pass)
+        headers = reader.fieldnames
+
+        inferer = CSVSchemaInferer.initialise(headers or [])
+        for row in reader:
+            inferer.observe(row)
+        first_pass.close()
+
+        inferred_columns = inferer.result()
+
+        if not inferred_columns:
+            raise TracecatImportError("CSV file does not contain any columns")
+
+        raw_table_name = table_name
+        if not raw_table_name and filename:
+            raw_table_name = Path(filename).stem
+        base_table_name = generate_table_name(raw_table_name)
+        unique_table_name = await self._find_unique_table_name(base_table_name)
+
+        column_defs = [
+            TableColumnCreate(name=column.name, type=column.type)
+            for column in inferred_columns
+        ]
+        table = await self.create_table(
+            TableCreate(name=unique_table_name, columns=column_defs)
+        )
+
+        second_pass = StringIO(csv_text)
+        reader = csv.DictReader(second_pass)
+
+        chunk: list[dict[str, Any]] = []
+        rows_inserted = 0
+        try:
+            for row in reader:
+                mapped_row: dict[str, Any] = {}
+                for column in inferred_columns:
+                    raw_value = row.get(column.original_name)
+                    if raw_value is None:
+                        mapped_row[column.name] = None
+                        continue
+                    if isinstance(raw_value, str) and raw_value.strip() == "":
+                        if column.type is SqlType.TEXT:
+                            mapped_row[column.name] = ""
+                        else:
+                            mapped_row[column.name] = None
+                        continue
+                    value_to_convert = raw_value
+                    if isinstance(raw_value, str) and column.type is not SqlType.TEXT:
+                        value_to_convert = raw_value.strip()
+                    try:
+                        mapped_row[column.name] = convert_value(
+                            value_to_convert, column.type
+                        )
+                    except TypeError as exc:
+                        raise TracecatImportError(
+                            f"Cannot convert value {raw_value!r} in column "
+                            f"{column.original_name!r} to type {column.type}"
+                        ) from exc
+                if mapped_row:
+                    chunk.append(mapped_row)
+                if len(chunk) >= chunk_size:
+                    rows_inserted += await self._insert_import_chunk(
+                        table, chunk, chunk_size=chunk_size
+                    )
+                    chunk = []
+
+            if chunk:
+                rows_inserted += await self._insert_import_chunk(
+                    table, chunk, chunk_size=chunk_size
+                )
+        except Exception:
+            await self._cleanup_failed_import(table)
+            raise
+        finally:
+            second_pass.close()
+
+        await self.session.refresh(table)
+        return table, rows_inserted, inferred_columns
+
+    async def _insert_import_chunk(
+        self, table: Table, chunk: list[dict[str, Any]], *, chunk_size: int
+    ) -> int:
+        if not chunk:
+            return 0
+        try:
+            return await self.batch_insert_rows(table, chunk, chunk_size=chunk_size)
+        except DBAPIError as exc:
+            # Get error message, removing SQL queries that may contain sensitive data
+            cause = exc.__cause__ or exc
+            message = str(cause).strip()
+            if "[SQL:" in message:
+                message = message.split("[SQL:", 1)[0].strip()
+            if not message:
+                message = cause.__class__.__name__
+            raise TracecatImportError(
+                f"Failed to insert rows into table '{table.name}': {message}"
+            ) from exc
+
+    async def _cleanup_failed_import(self, table: Table) -> None:
+        try:
+            await self.delete_table(table)
+        except Exception as cleanup_error:
+            logger.error(
+                "Failed to clean up table after import failure",
+                table_id=str(table.id),
+                error=cleanup_error,
+            )
 
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         result = await super().update_table(table, params)
