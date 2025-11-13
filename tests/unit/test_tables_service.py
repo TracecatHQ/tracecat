@@ -70,7 +70,7 @@ class TestTableLifecycle:
         loyalty = next(col for col in stored.columns if col.name == "loyalty_score")
         assert loyalty.type == SqlType.INTEGER.value
         assert loyalty.default == "0"
-        
+
     async def test_import_table_from_csv(self, tables_service: TablesService) -> None:
         """Importing a CSV should create table, columns, and rows."""
         csv_content = "\n".join(
@@ -163,6 +163,17 @@ class TestTableLifecycle:
         """Test updating table metadata."""
         # Create table
         table = await tables_service.create_table(TableCreate(name="updatable_table"))
+
+        # Update the table using TableUpdate
+        update_params = TableUpdate(name="updated_table")
+        updated_table = await tables_service.update_table(table, update_params)
+
+        # Verify update
+        assert updated_table.name == "updated_table"
+
+        # Retrieve the updated table
+        retrieved_table = await tables_service.get_table(updated_table.id)
+        assert retrieved_table.name == "updated_table"
 
     async def test_update_table_changes_name(
         self, tables_service: TablesService

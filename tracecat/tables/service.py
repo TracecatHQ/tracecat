@@ -1,9 +1,8 @@
+import csv
 import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-import csv
-from collections import defaultdict
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
