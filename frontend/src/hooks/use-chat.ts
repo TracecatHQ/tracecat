@@ -15,6 +15,7 @@ import {
   type ChatReadMinimal,
   type ChatReadVercel,
   type ChatUpdate,
+  type ContinueRunRequest,
   chatCreateChat,
   chatGetChat,
   chatGetChatVercel,
@@ -254,20 +255,30 @@ export function useVercelChat({
       api: apiEndpoint,
       credentials: "include",
       prepareSendMessagesRequest: ({ messages }) => {
-        // Send only the last message
-        const reqBody: VercelChatRequest = {
-          format: "vercel",
+        // Support both normal vercel chat turns and approval continuations.
+        const last = messages[messages.length - 1]
+        const dataPart = last.parts.find((p) => p.type === "data-continue") as
+          | { type: "data-continue"; data?: ContinueRunRequest }
+          | undefined
+
+        if (dataPart?.data?.decisions) {
+          const body: ContinueRunRequest = {
+            kind: "continue",
+            decisions: dataPart.data.decisions,
+          }
+          return { body }
+        }
+
+        // Default: start a vercel chat turn with the last UI message
+        const body: VercelChatRequest = {
+          kind: "vercel",
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
-          message: messages[messages.length - 1],
+          message: last,
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
-        if (baseUrl != null) {
-          reqBody.base_url = baseUrl
-        }
-        return {
-          body: reqBody,
-        }
+        if (baseUrl != null) body.base_url = baseUrl
+        return { body }
       },
     }),
     onError: (error) => {
@@ -292,5 +303,32 @@ export function useVercelChat({
     ...chat,
     lastError,
     clearError: () => setLastError(null),
+  }
+}
+
+// --- Approvals helpers (CE handshake) ----------------------------------------
+
+export type ApprovalCard = {
+  tool_call_id: string
+  tool_name: string
+  args?: unknown
+}
+
+/**
+ * Build a synthetic UIMessage that encodes a continue request with approval decisions.
+ * Pass this message to your chat messages array before sending.
+ */
+export function makeContinueMessage(
+  decisions: ContinueRunRequest["decisions"]
+): UIMessage {
+  return {
+    id: `continue-${Date.now()}`,
+    role: "user",
+    parts: [
+      {
+        type: "data-continue",
+        data: { format: "continue", decisions },
+      } as UIMessage["parts"][number],
+    ],
   }
 }

@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import type * as ai from "ai"
+import * as ai from "ai"
 import type {
   BuiltinToolCallEvent,
   BuiltinToolResultEvent,
@@ -13,7 +13,7 @@ import type {
   PartStartEvent,
   UIMessage,
 } from "@/client"
-
+import type { ApprovalCard } from "@/hooks/use-chat"
 export type ModelMessage = ModelRequest | ModelResponse
 
 export function isModelMessage(value: unknown): value is ModelMessage {
@@ -236,4 +236,132 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
 
     return accumulator.length > 0 ? `${accumulator}\n\n${partText}` : partText
   }, "")
+}
+/**
+ * Transforms UI messages by managing tool call state visibility.
+ *
+ * Implements a state machine that tracks tool call lifecycle:
+ * - input-available: Tool call initiated
+ * - approval-request: Awaiting user approval
+ * - output-available/output-error: Tool call completed
+ *
+ * Visibility rules:
+ * - Streaming tool inputs remain visible
+ * - Completed tool calls collapse their input and approval parts
+ * - Pending approvals (without output) remain visible
+ *
+ * @param messages - Array of UI messages to transform
+ * @returns Transformed messages with appropriate parts hidden/visible
+ */
+export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
+  // Tool call id to array positions (using string keys for positions)
+  const states = new Map<
+    string,
+    { open?: string; approval?: string; close?: string } | undefined
+  >()
+  // Array positions to ignore (using "msgIndex-partIndex" string format)
+  const ignorePos = new Set<string>()
+
+  for (const [i, message] of messages.entries()) {
+    for (const [j, part] of message.parts.entries()) {
+      const posKey = `${i}-${j}`
+
+      if (ai.isToolUIPart(part)) {
+        const { state, toolCallId } = part
+        if (state === "input-available") {
+          // OPEN STATE
+          // If we encounter an input-available part, we open a tool call state
+          states.set(toolCallId, { open: posKey })
+        } else if (state === "output-available" || state === "output-error") {
+          // CLOSE STATE
+          // If we encounter an output-* part:
+          // 1. Close the tool call state by hiding the input-* + approval parts
+          // 2. Merge the input args into the output part
+          const currState = states.get(toolCallId)
+          if (currState) {
+            if (currState.open) {
+              ignorePos.add(currState.open) // Hide open state
+            }
+            if (currState.approval) {
+              ignorePos.add(currState.approval) // Hide approval state
+            }
+          } else {
+            console.warn(`Tool call ${toolCallId} not found in states`)
+          }
+          // add close state
+          states.set(toolCallId, { ...currState, close: posKey })
+        }
+      } else if (part.type === "data-approval-request") {
+        // Handle approval request parts
+        // 1. If approval request we mark positions, only ignore if we hit a close state
+        // 2. If we see approval requests after a close state, we should ignore the approval requests
+        const approvals: ApprovalCard[] = Array.isArray(part.data)
+          ? part.data
+          : []
+        for (const approval of approvals) {
+          // For each approval find the matching open state and update the approval state
+          if (approval.tool_call_id) {
+            const currState = states.get(approval.tool_call_id)
+            if (currState) {
+              // If we already have a close state, ignore this approval request
+              if (currState.close) {
+                ignorePos.add(posKey)
+              }
+              states.set(approval.tool_call_id, {
+                ...currState,
+                approval: posKey,
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Finally walk through each message and filter out the ignored positions
+  const finalMessages: ai.UIMessage[] = []
+  for (const [i, message] of messages.entries()) {
+    const newParts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
+    for (const [j, part] of message.parts.entries()) {
+      const posKey = `${i}-${j}`
+      if (ignorePos.has(posKey)) continue
+      // Merge input from open state into output parts
+      if (
+        ai.isToolUIPart(part) &&
+        (part.state === "output-available" || part.state === "output-error")
+      ) {
+        // Handle output parts
+        const { toolCallId } = part
+        const currState = states.get(toolCallId)
+        const newPart: ai.ToolUIPart = {
+          ...part,
+        }
+        if (currState?.open) {
+          // Extract the open position from the string key
+          const [openMsgIdx, openPartIdx] = currState.open
+            .split("-")
+            .map(Number)
+          const openPart = messages[openMsgIdx].parts[openPartIdx]
+          if (!ai.isToolUIPart(openPart)) {
+            throw new Error(
+              `Open part is not a tool part: ${JSON.stringify(openPart)}`
+            )
+          }
+          newPart.input = openPart.input
+        }
+        newParts.push(newPart)
+      } else {
+        newParts.push(part)
+      }
+    }
+    if (newParts.length > 0) {
+      finalMessages.push({ ...message, parts: newParts })
+    }
+  }
+  console.log({
+    states,
+    ignorePos,
+    finalMessages,
+  })
+  return finalMessages
 }

@@ -27,7 +27,7 @@ from tracecat.executor.service import (
     run_template_action,
 )
 from tracecat.expressions.common import ExprContext
-from tracecat.expressions.eval import collect_expressions
+from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
@@ -111,6 +111,7 @@ async def call_tracecat_action(
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
     try:
+        args = eval_templated_object(args, operand=context)
         with secrets_manager.env_sandbox(flattened_secrets):
             # Call directly based on action type
             if bound_action.is_template:

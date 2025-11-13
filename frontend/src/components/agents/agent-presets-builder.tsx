@@ -21,19 +21,13 @@ import {
   useRef,
   useState,
 } from "react"
-import {
-  type Control,
-  type FieldPath,
-  useFieldArray,
-  useForm,
-} from "react-hook-form"
+import { type Control, useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetReadMinimal,
   AgentPresetUpdate,
-  ChatEntity,
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -338,9 +332,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
 
   const modelOptionsByProvider = useMemo(() => {
     if (!models) {
-      return {} as Record<string, { label: string; value: string }[]>
+      return {}
     }
-    const grouped = {} as Record<string, { label: string; value: string }[]>
+    const grouped: Record<string, { label: string; value: string }[]> = {}
     for (const [key, config] of Object.entries(models)) {
       const provider = config.provider
       if (!grouped[provider]) {
@@ -399,9 +393,17 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
               className="flex h-full flex-col"
             >
               <div className="px-3 pt-3">
-                <TabsList className="grid h-9 w-full grid-cols-2">
-                  <TabsTrigger value="presets">Presets</TabsTrigger>
-                  <TabsTrigger value="chat" disabled={chatTabDisabled}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="presets" disableUnderline>
+                    <Bot className="mr-1.5 h-3.5 w-3.5" />
+                    Agents
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="chat"
+                    disabled={chatTabDisabled}
+                    disableUnderline
+                  >
+                    <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
                     Live chat
                   </TabsTrigger>
                 </TabsList>
@@ -504,23 +506,15 @@ function PresetsSidebar({
   workspaceId: string
   onCreate: () => void
 }) {
-  const isCreating = selectedId === NEW_PRESET_ID
   const list = presets
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <h2 className="text-sm font-semibold tracking-tight">
-            Agent presets
-          </h2>
-          <p className="text-xs text-muted-foreground">{list.length} saved</p>
+          <p className="text-xs text-muted-foreground">{list.length} agents</p>
         </div>
-        <Button
-          size="sm"
-          onClick={onCreate}
-          variant={isCreating ? "default" : "secondary"}
-        >
+        <Button size="sm" onClick={onCreate} variant="ghost">
           <Plus className="mr-2 size-4" />
           New
         </Button>
@@ -620,7 +614,7 @@ function AgentPresetChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_preset" as ChatEntity,
+      entityType: "agent_preset",
       entityId: preset?.id,
       limit: 1,
     },
@@ -672,7 +666,7 @@ function AgentPresetChatPane({
     try {
       const newChat = await createChat({
         title: `${preset.name} chat`,
-        entity_type: "agent_preset" as ChatEntity,
+        entity_type: "agent_preset",
         entity_id: preset.id,
         tools: preset.actions ?? undefined,
       })
@@ -810,7 +804,6 @@ function AgentPresetChatPane({
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
-          <h3 className="text-sm font-semibold">Interactive session</h3>
           <p className="text-xs text-muted-foreground">
             {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
           </p>
@@ -1489,9 +1482,7 @@ function AgentPresetForm({
                           >
                             <FormField
                               control={form.control}
-                              name={
-                                `toolApprovals.${index}.tool` as FieldPath<AgentPresetFormValues>
-                              }
+                              name={`toolApprovals.${index}.tool`}
                               render={({ field }) => (
                                 <FormItem className="flex-1">
                                   <FormControl>
@@ -1514,9 +1505,7 @@ function AgentPresetForm({
                             />
                             <FormField
                               control={form.control}
-                              name={
-                                `toolApprovals.${index}.allow` as FieldPath<AgentPresetFormValues>
-                              }
+                              name={`toolApprovals.${index}.allow`}
                               render={({ field }) => (
                                 <FormItem className="md:justify-self-center">
                                   <FormControl>
@@ -1680,9 +1669,7 @@ function KeyValueFieldArray({
             >
               <FormField
                 control={control}
-                name={
-                  `${name}.${index}.key` as FieldPath<AgentPresetFormValues>
-                }
+                name={`${name}.${index}.key`}
                 render={({ field: innerField }) => (
                   <FormItem>
                     <FormLabel className="text-xs uppercase text-muted-foreground">
@@ -1706,9 +1693,7 @@ function KeyValueFieldArray({
               />
               <FormField
                 control={control}
-                name={
-                  `${name}.${index}.value` as FieldPath<AgentPresetFormValues>
-                }
+                name={`${name}.${index}.value`}
                 render={({ field: innerField }) => (
                   <FormItem>
                     <FormLabel className="text-xs uppercase text-muted-foreground">
@@ -1779,7 +1764,7 @@ function AgentPresetBuilderChatPane({
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
-      entityType: "agent_preset_builder" as ChatEntity,
+      entityType: "agent_preset_builder",
       entityId: presetId ?? undefined,
       limit: 1,
     },
@@ -1813,7 +1798,7 @@ function AgentPresetBuilderChatPane({
     try {
       const newChat = await createChat({
         title: `${preset.name} builder assistant`,
-        entity_type: "agent_preset_builder" as ChatEntity,
+        entity_type: "agent_preset_builder",
         entity_id: presetId,
       })
       setCreatedChatId(newChat.id)
@@ -1936,7 +1921,7 @@ function AgentPresetBuilderChatPane({
         entityType="agent_preset_builder"
         entityId={presetId}
         className="flex-1 min-h-0"
-        placeholder={`The assistant can help you refine ${preset?.name ?? "this agent's"} configuration...`}
+        placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
         autoFocusInput={
@@ -1953,10 +1938,6 @@ function AgentPresetBuilderChatPane({
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div>
           <h3 className="text-sm font-semibold">Builder assistant</h3>
-          <p className="text-xs text-muted-foreground">
-            Get help drafting or refining this agent&apos;s system prompt,
-            allowed tools, and approval rules.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -2096,7 +2077,7 @@ function toToolApprovalMap(
 
 function keyValueArrayToRecord<T = string>(
   entries: KeyValueFormValue[],
-  transform: (value: string) => T = (value) => value as unknown as T
+  transform: (value: string) => T = (value) => value as T
 ): Record<string, T> | null {
   const result: Record<string, T> = {}
   for (const entry of entries) {

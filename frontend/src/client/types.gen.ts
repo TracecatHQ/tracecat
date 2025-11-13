@@ -262,10 +262,12 @@ export type AgentPresetReadMinimal = {
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
+  name?: string | null
+  slug?: string | null
   description?: string | null
   instructions?: string | null
-  model_name: string
-  model_provider: string
+  model_name?: string | null
+  model_provider?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -280,9 +282,7 @@ export type AgentPresetUpdate = {
   model_settings?: {
     [key: string]: unknown
   } | null
-  retries?: number
-  name?: string | null
-  slug?: string | null
+  retries?: number | null
 }
 
 export type AgentSessionRead = {
@@ -372,6 +372,20 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
 }
+
+/**
+ * Operator decision for a pending approval.
+ */
+export type ApprovalDecision = {
+  tool_call_id: string
+  action: "approve" | "override" | "deny"
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  reason?: string | null
+}
+
+export type action = "approve" | "override" | "deny"
 
 /**
  * Configuration for an approval interaction.
@@ -558,39 +572,6 @@ export type AuthSettingsUpdate = {
    * Session expiration time in seconds.
    */
   auth_session_expire_time_seconds?: number
-}
-
-/**
- * Simple request model for starting a chat with a text message.
- */
-export type BasicChatRequest = {
-  format?: "basic"
-  /**
-   * User message to send to the agent
-   */
-  message: string
-  /**
-   * AI model to use
-   */
-  model_name?: string
-  /**
-   * AI model provider
-   */
-  model_provider?: string
-  /**
-   * Optional instructions for the agent
-   */
-  instructions?: string | null
-  /**
-   * Optional context data for the agent
-   */
-  context?: {
-    [key: string]: unknown
-  } | null
-  /**
-   * Optional base URL for the model provider
-   */
-  base_url?: string | null
 }
 
 /**
@@ -1166,6 +1147,8 @@ export type CaseSeverity =
   | "fatal"
   | "other"
 
+export type action2 = "unlink" | "delete"
+
 /**
  * Case status values aligned with OCSF Incident Finding status.
  */
@@ -1549,6 +1532,14 @@ export type Code = {
 }
 
 export type lang = "yaml" | "python"
+
+/**
+ * Payload to continue a CE run after collecting approvals.
+ */
+export type ContinueRunRequest = {
+  kind?: "continue"
+  decisions: Array<ApprovalDecision>
+}
 
 /**
  * Event for when a case is created.
@@ -4431,6 +4422,26 @@ export type ToolDenied = {
 }
 
 /**
+ * A structured return value for tools that need to provide both a return value and custom content to the model.
+ *
+ * This class allows tools to return complex responses that include:
+ * - A return value for actual tool return
+ * - Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
+ * - Optional metadata for application use
+ */
+export type ToolReturn = {
+  return_value: unknown
+  content?:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+    | null
+  metadata?: unknown
+  kind?: "tool-return"
+}
+
+/**
  * A tool return message, this encodes the result of running a tool.
  */
 export type ToolReturnPart = {
@@ -4702,7 +4713,7 @@ export type VariableUpdate = {
  * Vercel AI SDK format request with structured UI messages.
  */
 export type VercelChatRequest = {
-  format?: "vercel"
+  kind?: "vercel"
   /**
    * User message in Vercel UI format
    */
@@ -6915,7 +6926,7 @@ export type ChatGetChatVercelResponse = ChatReadVercel
 
 export type ChatChatWithVercelStreamingData = {
   chatId: string
-  requestBody: BasicChatRequest | VercelChatRequest
+  requestBody: VercelChatRequest | ContinueRunRequest
   workspaceId: string
 }
 

@@ -8,6 +8,9 @@ from pydantic import TypeAdapter
 from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
 
+from tracecat import config
+from tracecat.chat.enums import MessageKind
+
 if TYPE_CHECKING:
     from pydantic_ai.tools import Tool as _PATool
 
@@ -41,7 +44,11 @@ class MessageStore(Protocol):
     async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
 
     async def store(
-        self, session_id: uuid.UUID, messages: list[ModelMessage]
+        self,
+        session_id: uuid.UUID,
+        messages: list[ModelMessage],
+        *,
+        kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None: ...
 
 
@@ -85,6 +92,6 @@ class AgentConfig:
     mcp_server_url: str | None = None
     mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
-    retries: int = 3
+    retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

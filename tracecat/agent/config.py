@@ -15,24 +15,32 @@ MODEL_CONFIGS = {
             "required": ["openai"],
         },
     ),
-    "claude-3-5-sonnet-20240620": ModelConfig(
-        name="claude-3-5-sonnet-20240620",
+    "claude-sonnet-4-5-20250929": ModelConfig(
+        name="claude-sonnet-4-5-20250929",
         provider="anthropic",
         org_secret_name="agent-anthropic-credentials",
         secrets={
             "required": ["anthropic"],
         },
     ),
-    "us.anthropic.claude-sonnet-4-20250514-v1:0": ModelConfig(
-        name="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "claude-haiku-4-5-20251001": ModelConfig(
+        name="claude-haiku-4-5-20251001",
+        provider="anthropic",
+        org_secret_name="agent-anthropic-credentials",
+        secrets={
+            "required": ["anthropic"],
+        },
+    ),
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": ModelConfig(
+        name="anthropic.claude-sonnet-4-5-20250929-v1:0",
         provider="bedrock",
         org_secret_name="agent-bedrock-credentials",
         secrets={
             "required": ["bedrock"],
         },
     ),
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": ModelConfig(
-        name="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "anthropic.claude-haiku-4-5-20251001-v1:0": ModelConfig(
+        name="anthropic.claude-haiku-4-5-20251001-v1:0",
         provider="bedrock",
         org_secret_name="agent-bedrock-credentials",
         secrets={

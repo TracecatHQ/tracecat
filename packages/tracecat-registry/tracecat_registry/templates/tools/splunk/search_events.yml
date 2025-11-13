@@ -13,7 +13,7 @@ definition:
   expects:
     query:
       type: str
-      description: Splunk (Splunk Query Language) search query.
+      description: Splunk (Splunk Query Language) search query. You MUST start the query with `search`, e.g. `search index=main | head 10`
     start_time:
       type: datetime | str
       description: Start time for the search.

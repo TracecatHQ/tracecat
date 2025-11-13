@@ -201,7 +201,6 @@ async def chat_with_vercel_streaming(
 
     try:
         svc = ChatService(session, role)
-        # Start the chat turn (this will spawn the agent execution)
         workspace_id = role.workspace_id
         if workspace_id is None:
             raise HTTPException(
@@ -213,7 +212,9 @@ async def chat_with_vercel_streaming(
             chat_id, workspace_id, persistent=True, namespace="chat"
         )
         executor = AioStreamingAgentExecutor(deps=deps)
-        await svc.start_chat_turn(
+
+        # Run chat turn (handles both start and continue cases)
+        await svc.run_chat_turn(
             chat_id=chat_id,
             request=request,
             executor=executor,

@@ -1183,6 +1183,32 @@ export const $AgentPresetReadMinimal = {
 
 export const $AgentPresetUpdate = {
   properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
     description: {
       anyOf: [
         {
@@ -1207,15 +1233,29 @@ export const $AgentPresetUpdate = {
       title: "Instructions",
     },
     model_name: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Name",
     },
     model_provider: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Provider",
     },
     base_url: {
@@ -1321,40 +1361,19 @@ export const $AgentPresetUpdate = {
       title: "Model Settings",
     },
     retries: {
-      type: "integer",
-      minimum: 0,
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Retries",
-      default: 3,
-    },
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 120,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-    },
-    slug: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 160,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Slug",
     },
   },
   type: "object",
-  required: ["model_name", "model_provider"],
   title: "AgentPresetUpdate",
   description: "Payload for updating an existing agent preset.",
 } as const
@@ -1668,6 +1687,47 @@ export const $AppSettingsUpdate = {
   type: "object",
   title: "AppSettingsUpdate",
   description: "Settings for OAuth authentication.",
+} as const
+
+export const $ApprovalDecision = {
+  properties: {
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    action: {
+      type: "string",
+      enum: ["approve", "override", "deny"],
+      title: "Action",
+    },
+    override_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Override Args",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["tool_call_id", "action"],
+  title: "ApprovalDecision",
+  description: "Operator decision for a pending approval.",
 } as const
 
 export const $ApprovalInteraction = {
@@ -2204,83 +2264,6 @@ export const $AuthSettingsUpdate = {
   },
   type: "object",
   title: "AuthSettingsUpdate",
-} as const
-
-export const $BasicChatRequest = {
-  properties: {
-    format: {
-      type: "string",
-      const: "basic",
-      title: "Format",
-      default: "basic",
-    },
-    message: {
-      type: "string",
-      maxLength: 10000,
-      minLength: 1,
-      title: "Message",
-      description: "User message to send to the agent",
-    },
-    model_name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Model Name",
-      description: "AI model to use",
-      default: "gpt-4o-mini",
-    },
-    model_provider: {
-      type: "string",
-      maxLength: 50,
-      minLength: 1,
-      title: "Model Provider",
-      description: "AI model provider",
-      default: "openai",
-    },
-    instructions: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 5000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Instructions",
-      description: "Optional instructions for the agent",
-    },
-    context: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Context",
-      description: "Optional context data for the agent",
-    },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-      description: "Optional base URL for the model provider",
-    },
-  },
-  type: "object",
-  required: ["message"],
-  title: "BasicChatRequest",
-  description: "Simple request model for starting a chat with a text message.",
 } as const
 
 export const $BinaryContent = {
@@ -5006,6 +4989,28 @@ export const $Code = {
   },
   type: "object",
   title: "Code",
+} as const
+
+export const $ContinueRunRequest = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "continue",
+      title: "Kind",
+      default: "continue",
+    },
+    decisions: {
+      items: {
+        $ref: "#/components/schemas/ApprovalDecision",
+      },
+      type: "array",
+      title: "Decisions",
+    },
+  },
+  type: "object",
+  required: ["decisions"],
+  title: "ContinueRunRequest",
+  description: "Payload to continue a CE run after collecting approvals.",
 } as const
 
 export const $CreatedEventRead = {
@@ -13383,6 +13388,68 @@ export const $ToolDenied = {
     "Indicates that a tool call has been denied and that a denial message should be returned to the model.",
 } as const
 
+export const $ToolReturn = {
+  properties: {
+    return_value: {
+      title: "Return Value",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+    metadata: {
+      title: "Metadata",
+    },
+    kind: {
+      type: "string",
+      const: "tool-return",
+      title: "Kind",
+      default: "tool-return",
+    },
+  },
+  type: "object",
+  required: ["return_value"],
+  title: "ToolReturn",
+  description: `A structured return value for tools that need to provide both a return value and custom content to the model.
+
+This class allows tools to return complex responses that include:
+- A return value for actual tool return
+- Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
+- Optional metadata for application use`,
+} as const
+
 export const $ToolReturnPart = {
   properties: {
     tool_name: {
@@ -14486,10 +14553,10 @@ export const $VariableUpdate = {
 
 export const $VercelChatRequest = {
   properties: {
-    format: {
+    kind: {
       type: "string",
       const: "vercel",
-      title: "Format",
+      title: "Kind",
       default: "vercel",
     },
     message: {
