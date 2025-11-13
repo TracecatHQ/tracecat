@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-import json
 import re
 import uuid
 from collections.abc import Generator, Iterable
@@ -91,7 +90,10 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
+        NormalizeTriggerInputsActivityInputs,
         ValidateTriggerInputsActivityInputs,
+        format_input_schema_validation_error,
+        normalize_trigger_inputs_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -114,7 +116,10 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.logger import logger
-    from tracecat.validation.schemas import DSLValidationResult
+    from tracecat.validation.schemas import (
+        DSLValidationResult,
+        ValidationDetailListTA,
+    )
     from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
     from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
@@ -359,22 +364,47 @@ class DSLWorkflow:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = args.trigger_inputs or {}
 
-        try:
-            validation_result = await self._validate_trigger_inputs(trigger_inputs)
-            logger.info("Trigger inputs are valid", validation_result=validation_result)
-        except ValidationError as e:
-            logger.error("Failed to validate trigger inputs", error=e.errors())
-            raise ApplicationError(
-                (
-                    "Failed to validate trigger inputs"
-                    f"\n\n{json.dumps(e.errors(), indent=2)}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+        # Validate and apply defaults from input schema to trigger inputs
+        if input_schema := self.dsl.entrypoint.expects:
+            try:
+                trigger_inputs = await workflow.execute_activity(
+                    normalize_trigger_inputs_activity,
+                    arg=NormalizeTriggerInputsActivityInputs(
+                        input_schema=input_schema, trigger_inputs=trigger_inputs
+                    ),
+                    start_to_close_timeout=self.start_to_close_timeout,
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+            except ActivityError as e:
+                match cause := e.cause:
+                    case ApplicationError(type=t, details=details) if (
+                        t == ValidationError.__name__
+                    ):
+                        logger.info(
+                            "Validation error when normalizing trigger inputs",
+                            error=e,
+                            details=details,
+                        )
+                        [val_detail] = details
+                        validated = ValidationDetailListTA.validate_python(val_detail)
+                        raise ApplicationError(
+                            format_input_schema_validation_error(validated),
+                            details,
+                            non_retryable=True,
+                            type=ValidationError.__name__,
+                        ) from cause
+                    case _:
+                        logger.warning(
+                            "Unexpected error cause when normalizing trigger inputs",
+                            error=e,
+                        )
+                        raise ApplicationError(
+                            "Failed to normalize trigger inputs",
+                            non_retryable=True,
+                            type=e.__class__.__name__,
+                        ) from cause
 
         # Prepare user facing context
-
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.TRIGGER: trigger_inputs,

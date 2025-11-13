@@ -1,0 +1,106 @@
+type: action
+definition:
+  title: Create operation
+  description: Create a Caldera operation from an existing adversary profile.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  namespace: tools.caldera
+  name: create_operation
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    name:
+      type: str
+      description: Operation name.
+    adversary_id:
+      type: str
+      description: Adversary ID whose abilities should be executed.
+    planner_id:
+      type: str
+      description: Planner ID to use when scheduling the operation.
+      default: aaa7c857-37a0-4c4a-85f7-4e9f7f30e31a
+    source_id:
+      type: str
+      description: Source ID for fact collection.
+      default: ed32b9c3-9593-4c33-b0db-e2007315096b
+    objective_id:
+      type: str
+      description: Objective ID the operation should satisfy.
+      default: 495a9828-cab1-44dd-a0ca-66e58177d8cc
+    state:
+      type: str
+      description: Initial operation state (e.g. running, paused, finished).
+      default: paused
+    autonomous:
+      type: int
+      description: Autonomous mode value (0 = manual, 1 = full autonomous).
+      default: 1
+    auto_close:
+      type: bool
+      description: Whether to automatically close the operation when finished.
+      default: false
+    obfuscator:
+      type: str
+      description: Obfuscator to use for commands.
+      default: plain-text
+    jitter:
+      type: str
+      description: Sleep jitter value (format min/max seconds).
+      default: 2/4
+    visibility:
+      type: int
+      description: Visibility score for the operation.
+      default: 51
+    use_learning_parsers:
+      type: bool
+      description: Whether to enable learning parsers during the run.
+      default: true
+    group:
+      type: str
+      description: Optional group assignment for the operation.
+      default: ""
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: fetch_adversary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/adversaries/${{ inputs.adversary_id }}
+        method: GET
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+    - ref: create_operation
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/operations
+        method: POST
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+        payload:
+          name: ${{ inputs.name }}
+          adversary:
+            adversary_id: ${{ steps.fetch_adversary.result.data.adversary_id }}
+            name: ${{ steps.fetch_adversary.result.data.name }}
+            description: ${{ steps.fetch_adversary.result.data.description }}
+            atomic_ordering: ${{ steps.fetch_adversary.result.data.atomic_ordering || [] }}
+            tags: ${{ steps.fetch_adversary.result.data.tags || [] }}
+            plugin: ${{ steps.fetch_adversary.result.data.plugin || "stockpile" }}
+            objective: ${{ inputs.objective_id }}
+          planner_id: ${{ inputs.planner_id }}
+          source_id: ${{ inputs.source_id }}
+          objective_id: ${{ inputs.objective_id }}
+          state: ${{ inputs.state }}
+          autonomous: ${{ inputs.autonomous }}
+          auto_close: ${{ inputs.auto_close }}
+          obfuscator: ${{ inputs.obfuscator }}
+          jitter: ${{ inputs.jitter }}
+          visibility: ${{ inputs.visibility }}
+          use_learning_parsers: ${{ inputs.use_learning_parsers }}
+          group: ${{ inputs.group }}
+  returns: ${{ steps.create_operation.result.data }}
