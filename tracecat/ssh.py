@@ -120,7 +120,8 @@ def _split_host_port(url: str) -> tuple[str, str | None]:
             return host_part, None
         return url, None
 
-    if ":" in url:
+    # Only treat single-colon inputs as host:port; IPv6 literals contain multiple colons
+    if url.count(":") == 1:
         host_part, port_part = url.rsplit(":", 1)
         if port_part.isdigit():
             return host_part, port_part
@@ -161,11 +162,20 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
                     if not stripped or stripped.startswith("#"):
                         continue
                     entry_host = stripped.split()[0]
-                    if entry_host in known_host_tokens:
+                    # known_hosts entries can list multiple hosts separated by commas
+                    matching_host = next(
+                        (
+                            host
+                            for host in entry_host.split(",")
+                            if host in known_host_tokens
+                        ),
+                        None,
+                    )
+                    if matching_host:
                         logger.debug(
                             "Host already in known_hosts file",
                             url=url,
-                            entry_host=entry_host,
+                            entry_host=matching_host,
                         )
                         return
         # Use ssh-keyscan to get the host key
