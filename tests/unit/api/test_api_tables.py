@@ -12,6 +12,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableRowRead
@@ -143,8 +144,6 @@ async def test_get_table_not_found(
 ) -> None:
     """Test GET /tables/{table_id} with non-existent ID returns 404."""
     with patch("tracecat.tables.router.TablesService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.get_table.side_effect = TracecatNotFoundError("Table not found")
         MockService.return_value = mock_svc

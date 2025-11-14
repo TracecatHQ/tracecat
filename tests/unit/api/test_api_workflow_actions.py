@@ -8,7 +8,9 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.api.app import app
 from tracecat.auth.types import Role
+from tracecat.db.engine import get_async_session
 from tracecat.db.models import Action, Workflow
 
 
@@ -66,9 +68,6 @@ async def test_list_actions_success(
     mock_action: Action,
 ) -> None:
     """Test GET /actions returns list of actions."""
-    from tracecat.api.app import app
-    from tracecat.db.engine import get_async_session
-
     mock_session = AsyncMock()
     mock_result = AsyncMock()
     mock_result.all = MagicMock(return_value=[mock_action])
@@ -105,9 +104,6 @@ async def test_create_action_success(
     mock_workflow,
 ) -> None:
     """Test POST /actions creates a new action."""
-    from tracecat.api.app import app
-    from tracecat.db.engine import get_async_session
-
     mock_session = AsyncMock()
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
@@ -149,9 +145,6 @@ async def test_create_action_conflict(
     mock_workflow,
 ) -> None:
     """Test POST /actions with duplicate ref returns 409."""
-    from tracecat.api.app import app
-    from tracecat.db.engine import get_async_session
-
     mock_session = AsyncMock()
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
@@ -233,9 +226,6 @@ async def test_delete_action_success(
     mock_action: Action,
 ) -> None:
     """Test DELETE /actions/{action_id} deletes action."""
-    from tracecat.api.app import app
-    from tracecat.db.engine import get_async_session
-
     workflow_id = str(mock_workflow.id)
 
     mock_session = AsyncMock()

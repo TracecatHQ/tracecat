@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 
@@ -143,8 +144,6 @@ async def test_get_secret_by_name_not_found(
 ) -> None:
     """Test GET /secrets/{secret_name} with non-existent name returns 404."""
     with patch("tracecat.secrets.router.SecretsService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.get_secret_by_name.side_effect = TracecatNotFoundError(
             "Secret not found"
@@ -249,8 +248,6 @@ async def test_update_secret_by_id_not_found(
 ) -> None:
     """Test POST /secrets/{secret_id} with non-existent ID returns 404."""
     with patch("tracecat.secrets.router.SecretsService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.get_secret.side_effect = TracecatNotFoundError("Secret not found")
         MockService.return_value = mock_svc
@@ -296,8 +293,6 @@ async def test_delete_secret_by_id_not_found(
 ) -> None:
     """Test DELETE /secrets/{secret_id} with non-existent ID returns 404."""
     with patch("tracecat.secrets.router.SecretsService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.get_secret.side_effect = TracecatNotFoundError("Secret not found")
         MockService.return_value = mock_svc

@@ -12,6 +12,7 @@ from tracecat.agent.schemas import (
     ProviderCredentialField,
 )
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatNotFoundError
 
 
 @pytest.mark.anyio
@@ -176,8 +177,6 @@ async def test_get_provider_credential_config_not_found(
 ) -> None:
     """Test GET /agent/providers/{provider}/config with invalid provider returns 404."""
     with patch("tracecat.agent.router.AgentManagementService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.get_provider_credential_config.side_effect = TracecatNotFoundError(
             "Provider not found"
@@ -275,8 +274,6 @@ async def test_update_provider_credentials_not_found(
 ) -> None:
     """Test PUT /agent/credentials/{provider} with non-existent provider returns 404."""
     with patch("tracecat.agent.router.AgentManagementService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.update_provider_credentials.side_effect = TracecatNotFoundError(
             "Credentials not found"
@@ -382,8 +379,6 @@ async def test_set_default_model_not_found(
 ) -> None:
     """Test PUT /agent/default-model with invalid model returns 404."""
     with patch("tracecat.agent.router.AgentManagementService") as MockService:
-        from tracecat.exceptions import TracecatNotFoundError
-
         mock_svc = AsyncMock()
         mock_svc.set_default_model.side_effect = TracecatNotFoundError(
             "Model not found"
