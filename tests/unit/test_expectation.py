@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 import lark
@@ -296,13 +295,13 @@ def test_validate_schema_with_enum(status, priority):
 
     # Test with provided priority
     model_instance: Any = model(status=status, priority=priority)
-    assert isinstance(model_instance.status, Enum)
-    assert model_instance.status.__class__.__name__ == "EnumStatus"
-    assert model_instance.priority.__class__.__name__ == "EnumPriority"
+    assert isinstance(model_instance.status, str)
+    assert model_instance.status == status
+    assert model_instance.priority == priority
 
     # Test default priority
     model_instance_default: Any = model(status=status)
-    assert str(model_instance_default.priority) == "low"
+    assert model_instance_default.priority == "low"
 
 
 @pytest.mark.parametrize(
@@ -413,8 +412,7 @@ def test_trigger_input_schema_default_values_are_applied():
 
     # Verify that default values were applied
     assert validated_instance.case_id == "case-123"
-    # Enum values are converted to Enum instances, check the value attribute
-    assert validated_instance.severity.value == "low"
+    assert validated_instance.severity == "low"
     assert validated_instance.count == 1  # Default applied
     assert validated_instance.enabled is True  # Default applied
     assert validated_instance.message == "Hello, World!"  # Default applied
@@ -434,8 +432,7 @@ def test_trigger_input_schema_default_values_are_applied():
 
     # Verify overridden values
     assert validated_instance_partial.case_id == "case-456"
-    # Enum values are converted to Enum instances, check the value attribute
-    assert validated_instance_partial.severity.value == "high"
+    assert validated_instance_partial.severity == "high"
     assert validated_instance_partial.count == 42  # Overridden
     assert validated_instance_partial.enabled is False  # Overridden
 
@@ -459,8 +456,7 @@ def test_trigger_input_schema_default_values_are_applied():
 
     # Verify all values are as provided (no defaults used)
     assert validated_instance_complete.case_id == "case-789"
-    # Enum values are converted to Enum instances, check the value attribute
-    assert validated_instance_complete.severity.value == "high"
+    assert validated_instance_complete.severity == "high"
     assert validated_instance_complete.count == 100
     assert validated_instance_complete.enabled is True
     assert validated_instance_complete.message == "Custom message"
