@@ -7,6 +7,7 @@ class SqlType(StrEnum):
     TEXT = "TEXT"
     INTEGER = "INTEGER"
     NUMERIC = "NUMERIC"
+    DATE = "DATE"
     BOOLEAN = "BOOLEAN"
     TIMESTAMP = "TIMESTAMP"
     TIMESTAMPTZ = "TIMESTAMPTZ"
