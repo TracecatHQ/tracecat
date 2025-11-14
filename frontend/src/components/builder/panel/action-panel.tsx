@@ -344,9 +344,19 @@ function ActionPanelContent({
   })
 
   // Tracks whether we've already run the one-off hydration for this action.
-  // This prevents the effect below from resetting the form on every render
-  // (which would clobber user edits or freshly-saved values).
   const hasHydratedRef = useRef(false)
+  const lastBaseValuesRef = useRef<ActionFormSchema | null>(null)
+  const lastActionIdRef = useRef<string | null>(null)
+
+  // When the selected action changes, treat it as a fresh hydration target.
+  // We still preserve drafts per action via actionDrafts.
+  useEffect(() => {
+    if (lastActionIdRef.current !== actionId) {
+      hasHydratedRef.current = false
+      lastBaseValuesRef.current = null
+      lastActionIdRef.current = actionId
+    }
+  }, [actionId])
 
   useEffect(() => {
     const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
@@ -365,11 +375,22 @@ function ActionPanelContent({
       return
     }
 
-    // Otherwise, hydrate once from the server-backed base values when the
-    // action data first arrives.
-    if (!existingDraft && action && !hasHydratedRef.current) {
-      methods.reset(baseFormValues)
-      hasHydratedRef.current = true
+    // Otherwise, keep pristine forms in sync with the latest server-backed
+    // base values. This will:
+    // - Hydrate once on initial load when there is no draft, and
+    // - Re-hydrate again if the underlying action data changes while the
+    //   form is still pristine (e.g. server-normalized values).
+    if (!existingDraft && action) {
+      const prevBaseValues = lastBaseValuesRef.current
+      const hasBaseChanged =
+        !prevBaseValues ||
+        JSON.stringify(prevBaseValues) !== JSON.stringify(baseFormValues)
+
+      if (!hasHydratedRef.current || hasBaseChanged) {
+        methods.reset(baseFormValues)
+        hasHydratedRef.current = true
+        lastBaseValuesRef.current = baseFormValues
+      }
     }
   }, [actionDrafts, actionId, action, baseFormValues, methods])
 
