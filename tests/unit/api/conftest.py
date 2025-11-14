@@ -2,6 +2,7 @@
 
 from collections.abc import Generator
 from typing import get_args
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session
 from tracecat.secrets.router import (
     OrgAdminUser,
     WorkspaceAdminUser,
@@ -78,6 +80,14 @@ def client() -> Generator[TestClient, None, None]:
             original_dependency = metadata[1].dependency
             # Override the actual dependency function
             app.dependency_overrides[original_dependency] = override_role_dependency
+
+    mock_session = AsyncMock(name="mock_async_session")
+
+    async def override_get_async_session() -> AsyncMock:
+        """Return a mock DB session so HTTP tests do not hit Postgres."""
+        return mock_session
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
 
     client = TestClient(app, raise_server_exceptions=False)
     yield client
