@@ -142,9 +142,13 @@ const actionFormSchema = z.object({
     ])
     .transform((val) => {
       if (Array.isArray(val)) {
-        return val.filter((item) => item.trim() !== "")
+        // Trim each expression and drop any that are empty after trimming.
+        return val
+          .map((item) => item.trim())
+          .filter((item) => item !== "")
       } else if (typeof val === "string") {
-        return val.trim() !== "" ? val : undefined
+        const trimmed = val.trim()
+        return trimmed !== "" ? trimmed : undefined
       }
       return val
     })
@@ -641,13 +645,32 @@ function ActionPanelContent({
     [handleSave, action]
   )
 
-  const onPanelBlur = useCallback(() => {
-    // Commit all YAML editors before form submission
-    if (methods.formState.isDirty) {
-      commitAllEditors()
-      methods.handleSubmit(onSubmit)()
-    }
-  }, [methods, onSubmit, commitAllEditors])
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  const onPanelBlur = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const nextFocusTarget = event.relatedTarget as Node | null
+
+      // If focus is moving to another element inside the panel, do not
+      // auto-save. This avoids immediately saving (and resetting) fields
+      // when the user clicks between controls such as "Add expression"
+      // and the new expression input.
+      if (
+        panelRef.current &&
+        nextFocusTarget &&
+        panelRef.current.contains(nextFocusTarget)
+      ) {
+        return
+      }
+
+      // Only when focus actually leaves the panel do we auto-save.
+      if (methods.formState.isDirty) {
+        commitAllEditors()
+        methods.handleSubmit(onSubmit)()
+      }
+    },
+    [methods, onSubmit, commitAllEditors]
+  )
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -729,6 +752,7 @@ function ActionPanelContent({
 
   return (
     <div
+      ref={panelRef}
       onBlur={onPanelBlur}
       className="flex h-full flex-col overflow-hidden pb-16"
     >
@@ -766,6 +790,9 @@ function ActionPanelContent({
                                 className="h-auto w-full border-none p-0 text-xs font-medium leading-none focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                 placeholder="Name your action..."
                                 {...field}
+                                // Always provide a string value so this
+                                // input stays controlled for its lifetime.
+                                value={field.value ?? ""}
                               />
                             </FormControl>
                           </FormItem>
@@ -786,6 +813,9 @@ function ActionPanelContent({
                                     className="h-auto w-full max-w-xl overflow-x-auto whitespace-nowrap border-none bg-transparent p-0 text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                     placeholder="No description"
                                     {...field}
+                                    // Keep description input controlled
+                                    // even when the value is initially undefined.
+                                    value={field.value ?? ""}
                                   />
                                 </FormControl>
                               </TooltipTrigger>

@@ -45,6 +45,7 @@ export function ForEachField() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          type="button"
                           onClick={() => {
                             const newExpressions = value.filter(
                               (_: string, i: number) => i !== index
@@ -61,6 +62,7 @@ export function ForEachField() {
                   variant="outline"
                   size="sm"
                   className="h-7 w-full"
+                  type="button"
                   onClick={() => {
                     const newExpressions = [...(value || []), ""]
                     field.onChange(newExpressions)
