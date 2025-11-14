@@ -68,7 +68,9 @@ async def test_list_workspaces_user_success(
         # Assertions
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) >= 0  # Could be 0 or more based on membership
+        assert len(data) == 1
+        assert data[0]["id"] == str(test_workspace.id)
+        assert data[0]["name"] == test_workspace.name
 
 
 @pytest.mark.anyio
@@ -243,27 +245,3 @@ async def test_delete_workspace_success(
 
         # Assertions
         assert response.status_code == status.HTTP_204_NO_CONTENT
-
-
-@pytest.mark.anyio
-async def test_get_workspace_settings_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test GET /workspaces/{workspace_id}/settings returns settings."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_settings = {
-            "notifications_enabled": True,
-            "default_timezone": "UTC",
-        }
-        mock_svc.get_workspace_settings.return_value = mock_settings
-        MockService.return_value = mock_svc
-
-        # Make request
-        workspace_id = str(mock_workspace_data.id)
-        response = client.get(f"/workspaces/{workspace_id}/settings")
-
-        # Assertions - might be 200 or 404 depending on implementation
-        assert response.status_code in [status.HTTP_200_OK, status.HTTP_404_NOT_FOUND]
