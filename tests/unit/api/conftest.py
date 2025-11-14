@@ -5,7 +5,6 @@ from typing import get_args
 
 import pytest
 from fastapi.testclient import TestClient
-from syrupy.assertion import SnapshotAssertion
 
 from tracecat.agent.router import (
     OrganizationAdminUserRole,
@@ -84,9 +83,3 @@ def client() -> Generator[TestClient, None, None]:
     yield client
     # Clean up overrides
     app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def snapshot(snapshot: SnapshotAssertion) -> Generator[SnapshotAssertion, None, None]:
-    """Provide snapshot fixture with proper type hints."""
-    yield snapshot
