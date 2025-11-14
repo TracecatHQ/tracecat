@@ -164,6 +164,7 @@ const actionFormSchema = z.object({
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   // Control flow options fields
   start_delay: z.number().min(0).optional(),
@@ -171,10 +172,12 @@ const actionFormSchema = z.object({
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   environment: z
     .string()
     .max(1000, "Environment must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
@@ -1051,7 +1054,7 @@ function ActionPanelContent({
                                                 <Input
                                                   disabled
                                                   type="number"
-                                                  value={field.value || ""}
+                                                  value={field.value ?? ""}
                                                   onChange={field.onChange}
                                                   placeholder="Timeout in seconds"
                                                   className="text-xs"
@@ -1488,7 +1491,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value
@@ -1520,7 +1523,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value
@@ -1552,7 +1555,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value
