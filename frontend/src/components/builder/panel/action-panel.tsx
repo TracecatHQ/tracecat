@@ -143,9 +143,7 @@ const actionFormSchema = z.object({
     .transform((val) => {
       if (Array.isArray(val)) {
         // Trim each expression and drop any that are empty after trimming.
-        return val
-          .map((item) => item.trim())
-          .filter((item) => item !== "")
+        return val.map((item) => item.trim()).filter((item) => item !== "")
       } else if (typeof val === "string") {
         const trimmed = val.trim()
         return trimmed !== "" ? trimmed : undefined
