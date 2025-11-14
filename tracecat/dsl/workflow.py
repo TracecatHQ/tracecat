@@ -372,7 +372,7 @@ class DSLWorkflow:
                     arg=NormalizeTriggerInputsActivityInputs(
                         input_schema=input_schema, trigger_inputs=trigger_inputs
                     ),
-                    start_to_close_timeout=self.start_to_close_timeout,
+                    start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
             except ActivityError as e:
