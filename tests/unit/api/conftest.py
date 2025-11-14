@@ -7,10 +7,36 @@ import pytest
 from fastapi.testclient import TestClient
 from syrupy.assertion import SnapshotAssertion
 
+from tracecat.agent.router import (
+    OrganizationAdminUserRole,
+    OrganizationUserRole,
+)
 from tracecat.api.app import app
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.types import Role
+from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
+from tracecat.secrets.router import (
+    OrgAdminUser,
+    WorkspaceAdminUser,
+)
+from tracecat.secrets.router import (
+    WorkspaceUser as SecretsWorkspaceUser,
+)
+from tracecat.tables.router import (
+    WorkspaceAdminUser as TablesWorkspaceAdminUser,
+)
+from tracecat.tables.router import (
+    WorkspaceUser as TablesWorkspaceUser,
+)
+from tracecat.workspaces.router import (
+    OrgAdminUser as WorkspacesOrgAdminUser,
+)
+from tracecat.workspaces.router import (
+    OrgUser,
+    WorkspaceAdminUserInPath,
+    WorkspaceUserInPath,
+)
 
 
 def override_role_dependency() -> Role:
@@ -28,11 +54,23 @@ def client() -> Generator[TestClient, None, None]:
     Uses the existing app instance and relies on ctx_role context
     from test_role/test_admin_role fixtures for authentication.
     """
-    # Import WorkspaceUser from cases router
-    from tracecat.cases.router import WorkspaceUser
 
     # List of Annotated role dependencies to override
-    role_dependencies = [WorkspaceUserRole, WorkspaceUser]
+    role_dependencies = [
+        WorkspaceUserRole,
+        WorkspaceUser,
+        WorkspaceUserInPath,
+        WorkspaceAdminUserInPath,
+        OrganizationUserRole,
+        OrganizationAdminUserRole,
+        OrgUser,
+        WorkspacesOrgAdminUser,
+        SecretsWorkspaceUser,
+        WorkspaceAdminUser,
+        OrgAdminUser,
+        TablesWorkspaceUser,
+        TablesWorkspaceAdminUser,
+    ]
 
     for annotated_type in role_dependencies:
         # Extract the Depends object from the Annotated type
