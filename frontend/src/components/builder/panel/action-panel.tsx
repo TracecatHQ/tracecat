@@ -24,7 +24,7 @@ import {
 import Link from "next/link"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { FormProvider, useForm } from "react-hook-form"
+import { FormProvider, useForm, useWatch } from "react-hook-form"
 import type { ImperativePanelHandle } from "react-resizable-panels"
 import YAML from "yaml"
 import { z } from "zod"
@@ -274,7 +274,8 @@ function ActionPanelContent({
     workspaceId,
     workflowId
   )
-  const { actionPanelRef } = useWorkflowBuilder()
+  const { actionPanelRef, actionDrafts, setActionDraft, clearActionDraft } =
+    useWorkflowBuilder()
   const { commitAllEditors } = useYamlEditorContext()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
@@ -289,10 +290,8 @@ function ActionPanelContent({
     // inputs still recalculates and triggers downstream resets.
     [action?.inputs, actionId]
   )
-  // Compute initial form values. Include actionId in deps so switching between
-  // two different actions with identical field values still produces a new
-  // object reference and triggers a reset.
-  const formValues = useMemo<ActionFormSchema>(
+  // Compute initial form values based on the server state.
+  const baseFormValues = useMemo<ActionFormSchema>(
     () => ({
       title: action?.title,
       description: action?.description,
@@ -310,7 +309,6 @@ function ActionPanelContent({
       interaction: action?.interaction ?? undefined,
     }),
     [
-      actionId,
       action?.title,
       action?.description,
       action?.is_interactive,
@@ -328,14 +326,38 @@ function ActionPanelContent({
     ]
   )
 
+  // Merge any existing draft for this action over the base values so that
+  // unsaved edits persist across node selection.
+  const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
+  const initialValues = useMemo<ActionFormSchema>(
+    () =>
+      existingDraft
+        ? {
+            ...baseFormValues,
+            ...existingDraft,
+            inputs: {
+              ...(baseFormValues.inputs || {}),
+              ...(existingDraft.inputs || {}),
+            },
+          }
+        : baseFormValues,
+    [baseFormValues, existingDraft]
+  )
+
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
-    defaultValues: formValues,
+    defaultValues: initialValues,
+  })
+
+  const watchedValues = useWatch({
+    control: methods.control,
   })
 
   useEffect(() => {
-    methods.reset(formValues)
-  }, [methods, formValues])
+    // Persist the latest draft for this action so that it can be restored
+    // when the user navigates away and back.
+    setActionDraft(actionId, watchedValues)
+  }, [actionId, watchedValues, setActionDraft])
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
@@ -394,10 +416,13 @@ function ActionPanelContent({
   const visibleOptionalFields = useMemo(() => {
     const fieldsWithValues = new Set<string>()
 
-    // Add fields that have values in the current inputs
-    if (optionalFields.length > 0 && actionInputsObj) {
+    // Add fields that have values in the current form inputs (draft),
+    // not just those persisted in the last saved YAML.
+    const currentInputs =
+      (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
+    if (optionalFields.length > 0 && currentInputs) {
       optionalFields.forEach(([fieldName]) => {
-        if (actionInputsObj[fieldName] !== undefined) {
+        if (currentInputs[fieldName] !== undefined) {
           fieldsWithValues.add(fieldName)
         }
       })
@@ -410,7 +435,7 @@ function ActionPanelContent({
     return visible
   }, [
     optionalFields,
-    actionInputsObj,
+    watchedValues,
     manuallyVisibleFields,
     manuallyHiddenFields,
   ])
@@ -430,13 +455,6 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
-
-  // Force-reset the form whenever the action identity changes, even if the
-  // field values are identical. This prevents stale edits from the previous
-  // action from appearing on the newly selected action with identical data.
-  useEffect(() => {
-    methods.reset(formValues)
-  }, [actionId])
 
   useEffect(() => {
     // Reset input mode based on organization setting
@@ -515,6 +533,10 @@ function ActionPanelContent({
         }
 
         await updateAction(params)
+        // Once the action is saved, clear any stored draft and
+        // mark the current form values as the new clean baseline.
+        clearActionDraft(actionId)
+        methods.reset(values)
         setTimeout(() => setSaveState(SaveState.SAVED), 300)
       } catch (error) {
         if (error instanceof ApiError) {
@@ -556,13 +578,14 @@ function ActionPanelContent({
     [
       registryAction,
       action,
+      actionId,
       updateAction,
       methods,
       setSaveState,
       setValidationResults,
       inputMode,
-      rawInputsYaml,
       commitAllEditors,
+      clearActionDraft,
     ]
   )
 

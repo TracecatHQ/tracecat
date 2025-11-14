@@ -47,6 +47,9 @@ interface ReactFlowContextType {
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
   setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
+  actionDrafts: Record<string, unknown>
+  setActionDraft: (actionId: string, draft: unknown) => void
+  clearActionDraft: (actionId: string) => void
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -73,6 +76,7 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  const [actionDrafts, setActionDrafts] = useState<Record<string, unknown>>({})
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
@@ -80,6 +84,7 @@ export const WorkflowBuilderProvider: React.FC<
   useEffect(() => {
     setSelectedNodeId(null)
     setCurrentExecutionId(null)
+    setActionDrafts({})
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
@@ -96,6 +101,23 @@ export const WorkflowBuilderProvider: React.FC<
     },
     [workflowId, reactFlowInstance]
   )
+
+  const setActionDraft = useCallback(
+    (actionId: string, draft: unknown) => {
+      setActionDrafts((prev) => ({
+        ...prev,
+        [actionId]: draft,
+      }))
+    },
+    []
+  )
+
+  const clearActionDraft = useCallback((actionId: string) => {
+    setActionDrafts((prev) => {
+      const { [actionId]: _removed, ...rest } = prev
+      return rest
+    })
+  }, [])
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: NodeType[] }) => {
       const nodeSelected = nodes[0]
@@ -167,6 +189,9 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      actionDrafts,
+      setActionDraft,
+      clearActionDraft,
     }),
     [
       workflowId,
@@ -188,6 +213,9 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      actionDrafts,
+      setActionDraft,
+      clearActionDraft,
     ]
   )
 
