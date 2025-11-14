@@ -364,7 +364,11 @@ async def test_admin_role(test_workspace, mock_org_id):
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
     )
-    yield admin_role
+    token = ctx_role.set(admin_role)
+    try:
+        yield admin_role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture(scope="function")
