@@ -1,8 +1,8 @@
 "use client"
 
 import { Circle, CircleCheck, CircleDashed, CircleDot } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
-import type { CaseTaskRead, WorkflowReadMinimal } from "@/client"
+import { useCallback, useState } from "react"
+import type { CaseTaskRead } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -72,12 +72,6 @@ export function CaseTasksTable({
     new Map()
   )
 
-  const workflowById = useMemo(() => {
-    const map = new Map<string, WorkflowReadMinimal>()
-    workflows?.forEach((workflow) => map.set(workflow.id, workflow))
-    return map
-  }, [workflows])
-
   const handleExecutionStart = useCallback((taskId: string, execId: string) => {
     setExecutionIds((prev) => {
       const newMap = new Map(prev)
@@ -122,11 +116,8 @@ export function CaseTasksTable({
       <div className="space-y-1">
         {tasks.map((task) => {
           const taskExecutionId = executionIds.get(task.id) || null
-          const workflow = task.workflow_id
-            ? workflowById.get(task.workflow_id)
-            : null
+          const workflow = workflows?.find((w) => w.id === task.workflow_id)
           const StatusIcon = STATUS_ICONS[task.status] || Circle
-
           return (
             <div key={task.id} className="flex items-center gap-2">
               <Button
@@ -187,6 +178,7 @@ export function CaseTasksTable({
                   caseId={caseId}
                   executionId={taskExecutionId}
                   onExecutionStart={handleExecutionStart}
+                  workflow={workflow}
                 />
               )}
             </div>

@@ -7,6 +7,9 @@ from typing_extensions import Doc
 from tracecat.cases.enums import CasePriority, CaseTaskStatus
 from tracecat.cases.schemas import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
 from tracecat.cases.service import CaseTasksService
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.fields import WorkflowAlias
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 
 @registry.register(
@@ -44,12 +47,33 @@ async def create_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    workflow_alias: Annotated[
+        str | None,
+        WorkflowAlias(),
+        Doc("The alias of the workflow associated with this task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Create a new task for a case."""
+    if workflow_id and workflow_alias:
+        raise ValueError(
+            "Cannot specify both 'workflow_id' and 'workflow_alias'. "
+            "Please provide only one."
+        )
+
     if priority:
         priority_enum = CasePriority(priority)
     if status:
         status_enum = CaseTaskStatus(status)
+
+    resolved_workflow_id: str | None = None
+    if workflow_alias:
+        async with WorkflowsManagementService.with_session() as service:
+            resolved = await service.resolve_workflow_alias(workflow_alias)
+        if resolved is None:
+            raise ValueError(f"Workflow alias '{workflow_alias}' was not found.")
+        resolved_workflow_id = resolved
+    elif workflow_id:
+        resolved_workflow_id = workflow_id
 
     async with CaseTasksService.with_session() as service:
         task = await service.create_task(
@@ -60,7 +84,9 @@ async def create_task(
                 priority=priority_enum,
                 status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
-                workflow_id=workflow_id,
+                workflow_id=WorkflowUUID.new(resolved_workflow_id).short()
+                if resolved_workflow_id
+                else None,
             ),
         )
 
@@ -147,8 +173,19 @@ async def update_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    workflow_alias: Annotated[
+        str | None,
+        WorkflowAlias(),
+        Doc("Alias of the workflow associated with this task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Update an existing case task."""
+    if workflow_id is not None and workflow_alias is not None:
+        raise ValueError(
+            "Cannot specify both 'workflow_id' and 'workflow_alias'. "
+            "Please provide only one."
+        )
+
     params: dict[str, Any] = {}
     if title is not None:
         params["title"] = title
@@ -164,8 +201,14 @@ async def update_task(
         )
     if assignee_id is not None:
         params["assignee_id"] = UUID(assignee_id)
-    if workflow_id is not None:
-        params["workflow_id"] = workflow_id
+    if workflow_alias is not None:
+        async with WorkflowsManagementService.with_session() as service:
+            resolved = await service.resolve_workflow_alias(workflow_alias)
+        if resolved is None:
+            raise ValueError(f"Workflow alias '{workflow_alias}' was not found.")
+        params["workflow_id"] = WorkflowUUID.new(resolved).short()
+    elif workflow_id is not None:
+        params["workflow_id"] = WorkflowUUID.new(workflow_id).short()
 
     async with CaseTasksService.with_session() as service:
         task = await service.update_task(UUID(task_id), CaseTaskUpdate(**params))

@@ -1305,6 +1305,9 @@ export type CaseTaskCreate = {
   status?: CaseTaskStatus
   assignee_id?: string | null
   workflow_id?: string | null
+  workflow_inputs?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseTaskRead = {
@@ -1318,6 +1321,9 @@ export type CaseTaskRead = {
   status: CaseTaskStatus
   assignee?: UserRead | null
   workflow_id: string | null
+  workflow_inputs?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -1332,6 +1338,9 @@ export type CaseTaskUpdate = {
   status?: CaseTaskStatus | null
   assignee_id?: string | null
   workflow_id?: string | null
+  workflow_inputs?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseUpdate = {

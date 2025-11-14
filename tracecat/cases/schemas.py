@@ -173,6 +173,7 @@ class CaseTaskRead(BaseModel):
     status: CaseTaskStatus
     assignee: UserRead | None = None
     workflow_id: WorkflowIDShort | None
+    workflow_inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaseTaskCreate(BaseModel):
@@ -181,7 +182,8 @@ class CaseTaskCreate(BaseModel):
     priority: CasePriority = Field(default=CasePriority.UNKNOWN)
     status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
     assignee_id: uuid.UUID | None = Field(default=None)
-    workflow_id: AnyWorkflowID | None = Field(default=None)
+    workflow_id: WorkflowIDShort | None = Field(default=None)
+    workflow_inputs: dict[str, Any] | None = Field(default=None)
 
 
 class CaseTaskUpdate(BaseModel):
@@ -190,7 +192,8 @@ class CaseTaskUpdate(BaseModel):
     priority: CasePriority | None = Field(default=None)
     status: CaseTaskStatus | None = Field(default=None)
     assignee_id: uuid.UUID | None = Field(default=None)
-    workflow_id: AnyWorkflowID | None = Field(default=None)
+    workflow_id: WorkflowIDShort | None = Field(default=None)
+    workflow_inputs: dict[str, Any] | None = Field(default=None)
 
 
 # Case Events

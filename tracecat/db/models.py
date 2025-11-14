@@ -1253,6 +1253,11 @@ class CaseTask(Resource, table=True):
         default=None,
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="SET NULL")),
     )
+    workflow_inputs: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Stored trigger inputs for the workflow",
+    )
 
     case: Case = Relationship(back_populates="tasks")
 

@@ -645,6 +645,7 @@ async def list_tasks(
             description=task.description,
             priority=task.priority,
             status=task.status,
+            workflow_inputs=task.workflow_inputs or {},
             assignee=UserRead.model_validate(task.assignee, from_attributes=True)
             if task.assignee
             else None,
@@ -683,6 +684,7 @@ async def create_task(
             workflow_id=WorkflowUUID.new(task.workflow_id).short()
             if task.workflow_id
             else None,
+            workflow_inputs=task.workflow_inputs or {},
         )
     except TracecatNotFoundError as e:
         raise HTTPException(

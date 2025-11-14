@@ -4288,6 +4288,18 @@ export const $CaseTaskCreate = {
       ],
       title: "Workflow Id",
     },
+    workflow_inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Inputs",
+    },
   },
   type: "object",
   required: ["title"],
@@ -4358,6 +4370,11 @@ export const $CaseTaskRead = {
         },
       ],
       title: "Workflow Id",
+    },
+    workflow_inputs: {
+      additionalProperties: true,
+      type: "object",
+      title: "Workflow Inputs",
     },
   },
   type: "object",
@@ -4456,6 +4473,18 @@ export const $CaseTaskUpdate = {
         },
       ],
       title: "Workflow Id",
+    },
+    workflow_inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Inputs",
     },
   },
   type: "object",

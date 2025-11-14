@@ -1125,7 +1125,6 @@ class CaseTasksService(BaseWorkspaceService):
         if not case:
             raise TracecatNotFoundError(f"Case {case_id} not found")
 
-        # Convert workflow_id from AnyWorkflowID to UUID
         workflow_uuid = (
             WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
         )
@@ -1139,6 +1138,7 @@ class CaseTasksService(BaseWorkspaceService):
             status=params.status,
             assignee_id=params.assignee_id,
             workflow_id=workflow_uuid,
+            workflow_inputs=params.workflow_inputs or {},
         )
         self.session.add(task)
         # Flush to get task ID before emitting event
@@ -1271,6 +1271,9 @@ class CaseTasksService(BaseWorkspaceService):
 
         if (new_desc := set_fields.pop("description", None)) is not None:
             task.description = new_desc
+
+        if "workflow_inputs" in set_fields:
+            task.workflow_inputs = set_fields["workflow_inputs"] or {}
 
         # Update parent case's updated_at timestamp
         case.updated_at = datetime.now(UTC)

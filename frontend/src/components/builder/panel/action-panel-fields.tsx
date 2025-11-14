@@ -18,7 +18,11 @@ import {
   type FieldValues,
   useFormContext,
 } from "react-hook-form"
-import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
+import type {
+  ActionType,
+  RegistryActionReadMinimal,
+  WorkflowReadMinimal,
+} from "@/client/types.gen"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
@@ -62,7 +66,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useWorkflowManager } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
 import {
   type ExpressionComponent,
@@ -557,8 +561,8 @@ function ComponentContent({
           component={component}
         />
       )
-    // Expression, workflow alias, and other fields fallback to expression
     case "workflow-alias":
+      return <WorkflowAliasField field={field} onChange={field.onChange} />
     case "expression":
     default:
       return <ExpressionInput value={field.value} onChange={field.onChange} />
@@ -750,6 +754,152 @@ function MultipleActionTypeField({
       placeholder="Start typing to search actions..."
     />
   )
+}
+
+function SingleWorkflowAliasField({
+  field,
+  onChange,
+}: {
+  field: ControllerRenderProps<FieldValues>
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [searchValue, setSearchValue] = useState("")
+  const { workflows, workflowsLoading } = useWorkflowManager()
+
+  const filterWorkflows = useCallback(
+    (workflows: WorkflowReadMinimal[], search: string) => {
+      if (!search.trim()) {
+        return workflows
+          .filter((w) => w.alias) // Only show workflows with aliases
+          .map((workflow) => ({ obj: workflow, score: 0 }))
+      }
+
+      const workflowsWithAliases = workflows.filter((w) => w.alias)
+      const results = fuzzysort.go<WorkflowReadMinimal>(
+        search,
+        workflowsWithAliases,
+        {
+          all: true,
+          keys: ["alias", "title"], // Search by alias and title
+        }
+      )
+      return results
+    },
+    []
+  )
+
+  const filteredResults = useMemo(() => {
+    if (!workflows) return []
+    return filterWorkflows(workflows, searchValue)
+  }, [workflows, searchValue, filterWorkflows])
+
+  const sortedWorkflows = useMemo(() => {
+    return [...filteredResults].sort((a, b) => {
+      if (searchValue.trim()) {
+        if (a.score !== b.score) {
+          return b.score - a.score
+        }
+      }
+      // Sort by alias alphabetically
+      const aliasA = a.obj.alias || ""
+      const aliasB = b.obj.alias || ""
+      return aliasA.localeCompare(aliasB)
+    })
+  }, [filteredResults, searchValue])
+
+  const selectedWorkflow = useMemo(() => {
+    return workflows?.find((w) => w.alias === field.value)
+  }, [workflows, field.value])
+
+  const handleSelect = (alias: string) => {
+    field.onChange(alias)
+    onChange(alias)
+    setOpen(false)
+    setSearchValue("")
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between text-left font-normal"
+          disabled={workflowsLoading}
+        >
+          <div className="flex items-center gap-2 truncate">
+            {selectedWorkflow ? (
+              <>
+                <WorkflowIcon className="size-4 shrink-0" />
+                <span className="truncate">{selectedWorkflow.alias}</span>
+              </>
+            ) : (
+              <>
+                <WorkflowIcon className="size-4 shrink-0" />
+                <span className="text-muted-foreground">
+                  Select workflow alias...
+                </span>
+              </>
+            )}
+          </div>
+          <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search workflows by alias..."
+            value={searchValue}
+            onValueChange={setSearchValue}
+          />
+          <ScrollArea className="h-[300px]">
+            <CommandList>
+              <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
+                {workflowsLoading
+                  ? "Loading workflows..."
+                  : "No workflows found."}
+              </CommandEmpty>
+              {sortedWorkflows.map((result) => {
+                const workflow = result.obj
+                if (!workflow.alias) return null
+                return (
+                  <CommandItem
+                    key={workflow.id}
+                    value={workflow.alias}
+                    onSelect={() => handleSelect(workflow.alias!)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <WorkflowIcon className="size-4 shrink-0" />
+                      <div className="flex flex-col">
+                        <span>{workflow.alias}</span>
+                        {workflow.title && (
+                          <span className="text-xs text-muted-foreground">
+                            {workflow.title}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </CommandItem>
+                )
+              })}
+            </CommandList>
+          </ScrollArea>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function WorkflowAliasField({
+  field,
+  onChange,
+}: {
+  field: ControllerRenderProps<FieldValues>
+  onChange: (value: string) => void
+}) {
+  return <SingleWorkflowAliasField field={field} onChange={onChange} />
 }
 
 export function ActionTypeField({
