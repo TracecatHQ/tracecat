@@ -129,7 +129,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                     )
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
-            return sa.bindparam(key=name, value=value, type_=sa.Integer)
+            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.NUMERIC:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
