@@ -28,7 +28,6 @@ const JSON_TYPES = new Set(["JSON", "JSONB"])
 const NUMERIC_TYPES = new Set([
   "INT",
   "INTEGER",
-  "BIGINT",
   "SMALLINT",
   "DECIMAL",
   "NUMERIC",

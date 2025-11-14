@@ -4,7 +4,6 @@ import type { TableColumnRead } from "@/client"
 export const SqlTypeEnum = [
   "TEXT",
   "INTEGER",
-  "BIGINT",
   "NUMERIC",
   "BOOLEAN",
   "TIMESTAMP",

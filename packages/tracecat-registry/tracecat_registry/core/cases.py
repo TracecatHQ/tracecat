@@ -755,15 +755,15 @@ async def remove_case_tag(
 
 
 @registry.register(
-    default_title="Link table row to case",
+    default_title="Add table row to case",
     display_group="Cases",
-    description="Link an existing table row to a case.",
+    description="Add an existing table row to a case.",
     namespace="core.cases",
 )
-async def link_case_table_row(
+async def add_case_table_row(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to link the row to."),
+        Doc("The ID of the case to add the row to."),
     ],
     table_id: Annotated[
         str,
@@ -772,7 +772,7 @@ async def link_case_table_row(
     row_ids: Annotated[
         list[str],
         Doc(
-            "One or more table row IDs to link (maximum "
+            "One or more table row IDs to add (maximum "
             f"{MAX_CASE_ROW_LINKS} rows per invocation)."
         ),
     ],
@@ -784,7 +784,7 @@ async def link_case_table_row(
         raise ValueError("At least one row ID must be provided")
     if len(row_ids) > MAX_CASE_ROW_LINKS:
         raise ValueError(
-            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be linked at once"
+            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be added at once"
         )
 
     unique_row_ids: list[UUID] = []
@@ -804,22 +804,16 @@ async def link_case_table_row(
 
         results: list[dict[str, Any]] = []
         for row_uuid in unique_row_ids:
-            link = await rows_service.link_table_row(
+            link = await rows_service.add_case_rows(
                 case,
                 CaseTableRowLink(table_id=table_uuid, row_id=row_uuid),
             )
             linked_row = await rows_service.get_case_table_row(case, link.id)
             if linked_row is None:
-                linked_row = {
-                    "id": link.id,
-                    "case_id": case_uuid,
-                    "table_id": table_uuid,
-                    "row_id": row_uuid,
-                    "table_name": "",
-                    "row_data": {},
-                    "created_at": link.created_at,
-                    "updated_at": link.updated_at,
-                }
+                raise ValueError(
+                    f"Failed to retrieve case table row link {link.id} "
+                    f"for case {case_uuid}",
+                )
             results.append(
                 CaseTableRowRead.model_validate(linked_row).model_dump(mode="json")
             )
@@ -828,15 +822,15 @@ async def link_case_table_row(
 
 
 @registry.register(
-    default_title="Unlink table row from case",
+    default_title="Delete table row from case",
     display_group="Cases",
-    description="Remove a linked table row from a case.",
+    description="Remove a table row from a case.",
     namespace="core.cases",
 )
-async def unlink_case_table_row(
+async def delete_case_table_row(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to unlink the row from."),
+        Doc("The ID of the case to delete the row from."),
     ],
     table_id: Annotated[
         str,
@@ -845,7 +839,7 @@ async def unlink_case_table_row(
     row_ids: Annotated[
         list[str],
         Doc(
-            "One or more table row IDs to unlink (maximum "
+            "One or more table row IDs to delete (maximum "
             f"{MAX_CASE_ROW_LINKS} rows per invocation)."
         ),
     ],
@@ -857,7 +851,7 @@ async def unlink_case_table_row(
         raise ValueError("At least one row ID must be provided")
     if len(row_ids) > MAX_CASE_ROW_LINKS:
         raise ValueError(
-            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be unlinked at once"
+            f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be deleted at once"
         )
 
     unique_row_ids: list[UUID] = []
@@ -875,7 +869,7 @@ async def unlink_case_table_row(
         if case is None:
             raise ValueError(f"Case with ID {case_id} not found")
 
-        unlinked: list[str] = []
+        deleted: list[str] = []
         for row_uuid in unique_row_ids:
             stmt = select(CaseTableRow).where(
                 CaseTableRow.case_id == case.id,
@@ -889,10 +883,8 @@ async def unlink_case_table_row(
                 # Skip if not linked (idempotent behavior)
                 continue
 
-            await rows_service.unlink_table_row(case_table_row)
-            unlinked.append(str(row_uuid))
-
-    return {"unlinked": unlinked}
+            await rows_service.delete_table_row(case_table_row)
+            deleted.append(str(row_uuid))
 
 
 @registry.register(

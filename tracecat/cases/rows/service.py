@@ -231,10 +231,8 @@ class CaseTableRowService(BaseWorkspaceService):
             "updated_at": link.updated_at,
         }
 
-    async def link_table_row(
-        self, case: Case, params: CaseTableRowLink
-    ) -> CaseTableRow:
-        """Link an existing table row to a case.
+    async def add_case_rows(self, case: Case, params: CaseTableRowLink) -> CaseTableRow:
+        """Add an existing table row to a case.
 
         This operation is idempotent: if the row is already linked, returns
         the existing link instead of raising an error.
@@ -261,7 +259,7 @@ class CaseTableRowService(BaseWorkspaceService):
                 f"Row {params.row_id} not found in table {table.name}"
             ) from e
 
-        # Check if already linked (idempotent: return existing if present)
+        # Check if row already connected to the case
         existing_stmt = select(CaseTableRow).where(
             CaseTableRow.case_id == case.id,
             CaseTableRow.table_id == params.table_id,
@@ -279,7 +277,7 @@ class CaseTableRowService(BaseWorkspaceService):
             )
             return existing_link
 
-        # Create the link
+        # Create the association
         case_table_row = CaseTableRow(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -291,7 +289,7 @@ class CaseTableRowService(BaseWorkspaceService):
         await self.session.refresh(case_table_row)
 
         logger.info(
-            "Linked table row to case",
+            "Added table row to case",
             case_id=case.id,
             table_id=params.table_id,
             row_id=params.row_id,
@@ -300,11 +298,11 @@ class CaseTableRowService(BaseWorkspaceService):
 
         return case_table_row
 
-    async def unlink_table_row(self, case_table_row: CaseTableRow) -> None:
-        """Unlink a table row from a case (soft delete - removes link only).
+    async def delete_case_rows(self, case_table_row: CaseTableRow) -> None:
+        """Remove a table row association from a case.
 
         Args:
-            case_table_row: The case table row link to remove
+            case_table_row: The case table row row to remove
         """
         if case_table_row.owner_id != self.workspace_id:
             raise TracecatNotFoundError("Case table row not found")
@@ -313,7 +311,7 @@ class CaseTableRowService(BaseWorkspaceService):
         await self.session.commit()
 
         logger.info(
-            "Unlinked table row from case",
+            "Removed table row from case",
             link_id=case_table_row.id,
             case_id=case_table_row.case_id,
             table_id=case_table_row.table_id,

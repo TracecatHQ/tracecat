@@ -20,7 +20,6 @@ export interface TypeConfig {
 export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   TEXT: { label: "Text", icon: Type },
   INTEGER: { label: "Integer", icon: Hash },
-  BIGINT: { label: "Integer", icon: Hash },
   NUMERIC: { label: "Number", icon: CircleDot },
   BOOLEAN: { label: "Boolean", icon: ToggleLeft },
   TIMESTAMP: { label: "Date and time", icon: CalendarClock },

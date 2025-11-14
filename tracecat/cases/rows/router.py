@@ -110,14 +110,14 @@ async def get_case_table_row(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CaseTableRowRead)
-async def link_table_row(
+async def add_case_table_row(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTableRowLink,
 ) -> CaseTableRowRead:
-    """Link an existing table row to a case."""
+    """Add an existing table row to a case."""
     cases_service = CasesService(session, role)
     case = await cases_service.get_case(case_id)
     if case is None:
@@ -129,7 +129,7 @@ async def link_table_row(
 
     service = CaseTableRowService(session, role)
     try:
-        link = await service.link_table_row(case, params)
+        link = await service.add_case_rows(case, params)
 
         # Fetch the full row data for response
         row_link_data = await service.get_case_table_row(case, link.id)
@@ -165,14 +165,14 @@ async def link_table_row(
 
 
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unlink_table_row(
+async def delete_case_table_row(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     link_id: uuid.UUID,
 ) -> None:
-    """Unlink a table row from a case."""
+    """Remove a table row link from a case."""
     cases_service = CasesService(session, role)
     case = await cases_service.get_case(case_id)
     if case is None:
@@ -205,7 +205,7 @@ async def unlink_table_row(
         )
 
     try:
-        await service.unlink_table_row(case_table_row)
+        await service.delete_case_rows(case_table_row)
     except TracecatNotFoundError as e:
         logger.warning(
             "Case table row not found for unlinking",

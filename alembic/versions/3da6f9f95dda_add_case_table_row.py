@@ -1,7 +1,7 @@
 """add_case_table_row
 
 Revision ID: 3da6f9f95dda
-Revises: 0aef095985d4
+Revises: 70144f614d3d
 Create Date: 2025-11-04 23:32:07.988988
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "3da6f9f95dda"
-down_revision: str | None = "0aef095985d4"
+down_revision: str | None = "70144f614d3d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
