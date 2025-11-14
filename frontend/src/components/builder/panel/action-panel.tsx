@@ -24,7 +24,7 @@ import {
 import Link from "next/link"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { FormProvider, useForm } from "react-hook-form"
+import { FormProvider, useForm, useWatch } from "react-hook-form"
 import type { ImperativePanelHandle } from "react-resizable-panels"
 import YAML from "yaml"
 import { z } from "zod"
@@ -142,9 +142,11 @@ const actionFormSchema = z.object({
     ])
     .transform((val) => {
       if (Array.isArray(val)) {
-        return val.filter((item) => item.trim() !== "")
+        // Trim each expression and drop any that are empty after trimming.
+        return val.map((item) => item.trim()).filter((item) => item !== "")
       } else if (typeof val === "string") {
-        return val.trim() !== "" ? val : undefined
+        const trimmed = val.trim()
+        return trimmed !== "" ? trimmed : undefined
       }
       return val
     })
@@ -160,6 +162,7 @@ const actionFormSchema = z.object({
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   // Control flow options fields
   start_delay: z.number().min(0).optional(),
@@ -167,10 +170,12 @@ const actionFormSchema = z.object({
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   environment: z
     .string()
     .max(1000, "Environment must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
@@ -274,7 +279,8 @@ function ActionPanelContent({
     workspaceId,
     workflowId
   )
-  const { actionPanelRef } = useWorkflowBuilder()
+  const { actionPanelRef, actionDrafts, setActionDraft, clearActionDraft } =
+    useWorkflowBuilder()
   const { commitAllEditors } = useYamlEditorContext()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
@@ -289,10 +295,9 @@ function ActionPanelContent({
     // inputs still recalculates and triggers downstream resets.
     [action?.inputs, actionId]
   )
-  // Compute initial form values. Include actionId in deps so switching between
-  // two different actions with identical field values still produces a new
-  // object reference and triggers a reset.
-  const formValues = useMemo<ActionFormSchema>(
+  // Compute initial form values based purely on the latest server state
+  // (ActionRead + control_flow). Drafts are layered on top of this later.
+  const baseFormValues = useMemo<ActionFormSchema>(
     () => ({
       title: action?.title,
       description: action?.description,
@@ -310,7 +315,6 @@ function ActionPanelContent({
       interaction: action?.interaction ?? undefined,
     }),
     [
-      actionId,
       action?.title,
       action?.description,
       action?.is_interactive,
@@ -328,14 +332,76 @@ function ActionPanelContent({
     ]
   )
 
+  // Local form state for this action. We always seed it from the latest
+  // server-backed baseFormValues; hydration from drafts happens via effects.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
-    defaultValues: formValues,
+    defaultValues: baseFormValues,
   })
 
+  const watchedValues = useWatch({
+    control: methods.control,
+  })
+
+  // Tracks whether we've already run the one-off hydration for this action.
+  const hasHydratedRef = useRef(false)
+  const lastBaseValuesRef = useRef<ActionFormSchema | null>(null)
+  const lastActionIdRef = useRef<string | null>(null)
+
+  // When the selected action changes, treat it as a fresh hydration target.
+  // We still preserve drafts per action via actionDrafts.
   useEffect(() => {
-    methods.reset(formValues)
-  }, [methods, formValues])
+    if (lastActionIdRef.current !== actionId) {
+      hasHydratedRef.current = false
+      lastBaseValuesRef.current = null
+      lastActionIdRef.current = actionId
+    }
+  }, [actionId])
+
+  useEffect(() => {
+    const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
+
+    // Never overwrite user edits: once the form is dirty, the user is in
+    // control and we should not reset from either drafts or server.
+    if (methods.formState.isDirty) {
+      return
+    }
+
+    // On first load for this action, prefer any stored draft so that
+    // switching between nodes restores unsaved edits.
+    if (existingDraft && !hasHydratedRef.current) {
+      methods.reset(existingDraft)
+      hasHydratedRef.current = true
+      return
+    }
+
+    // Otherwise, keep pristine forms in sync with the latest server-backed
+    // base values. This will:
+    // - Hydrate once on initial load when there is no draft, and
+    // - Re-hydrate again if the underlying action data changes while the
+    //   form is still pristine (e.g. server-normalized values).
+    if (!existingDraft && action) {
+      const prevBaseValues = lastBaseValuesRef.current
+      const hasBaseChanged =
+        !prevBaseValues ||
+        JSON.stringify(prevBaseValues) !== JSON.stringify(baseFormValues)
+
+      if (!hasHydratedRef.current || hasBaseChanged) {
+        methods.reset(baseFormValues)
+        hasHydratedRef.current = true
+        lastBaseValuesRef.current = baseFormValues
+      }
+    }
+  }, [actionDrafts, actionId, action, baseFormValues, methods])
+
+  useEffect(() => {
+    // Persist drafts only after the user has made changes. This avoids
+    // capturing the initial empty snapshot as a draft and ensures that
+    // drafts always represent actual user edits.
+    if (methods.formState.isDirty) {
+      setActionDraft(actionId, watchedValues)
+    }
+  }, [actionId, watchedValues, methods.formState.isDirty, setActionDraft])
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
@@ -394,10 +460,15 @@ function ActionPanelContent({
   const visibleOptionalFields = useMemo(() => {
     const fieldsWithValues = new Set<string>()
 
-    // Add fields that have values in the current inputs
-    if (optionalFields.length > 0 && actionInputsObj) {
+    // Add fields that have values in the current form inputs (draft),
+    // not just those persisted in the last saved YAML. This means that
+    // unsaved edits still keep optional fields visible while the user
+    // is actively configuring an action.
+    const currentInputs =
+      (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
+    if (optionalFields.length > 0 && currentInputs) {
       optionalFields.forEach(([fieldName]) => {
-        if (actionInputsObj[fieldName] !== undefined) {
+        if (currentInputs[fieldName] !== undefined) {
           fieldsWithValues.add(fieldName)
         }
       })
@@ -410,7 +481,7 @@ function ActionPanelContent({
     return visible
   }, [
     optionalFields,
-    actionInputsObj,
+    watchedValues,
     manuallyVisibleFields,
     manuallyHiddenFields,
   ])
@@ -430,13 +501,6 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
-
-  // Force-reset the form whenever the action identity changes, even if the
-  // field values are identical. This prevents stale edits from the previous
-  // action from appearing on the newly selected action with identical data.
-  useEffect(() => {
-    methods.reset(formValues)
-  }, [actionId])
 
   useEffect(() => {
     // Reset input mode based on organization setting
@@ -515,6 +579,10 @@ function ActionPanelContent({
         }
 
         await updateAction(params)
+        // Once the action is saved, clear any stored draft and
+        // mark the current form values as the new clean baseline.
+        clearActionDraft(actionId)
+        methods.reset(values)
         setTimeout(() => setSaveState(SaveState.SAVED), 300)
       } catch (error) {
         if (error instanceof ApiError) {
@@ -556,13 +624,14 @@ function ActionPanelContent({
     [
       registryAction,
       action,
+      actionId,
       updateAction,
       methods,
       setSaveState,
       setValidationResults,
       inputMode,
-      rawInputsYaml,
       commitAllEditors,
+      clearActionDraft,
     ]
   )
 
@@ -598,13 +667,32 @@ function ActionPanelContent({
     [handleSave, action]
   )
 
-  const onPanelBlur = useCallback(() => {
-    // Commit all YAML editors before form submission
-    if (methods.formState.isDirty) {
-      commitAllEditors()
-      methods.handleSubmit(onSubmit)()
-    }
-  }, [methods, onSubmit, commitAllEditors])
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  const onPanelBlur = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const nextFocusTarget = event.relatedTarget as Node | null
+
+      // If focus is moving to another element inside the panel, do not
+      // auto-save. This avoids immediately saving (and resetting) fields
+      // when the user clicks between controls such as "Add expression"
+      // and the new expression input.
+      if (
+        panelRef.current &&
+        nextFocusTarget &&
+        panelRef.current.contains(nextFocusTarget)
+      ) {
+        return
+      }
+
+      // Only when focus actually leaves the panel do we auto-save.
+      if (methods.formState.isDirty) {
+        commitAllEditors()
+        methods.handleSubmit(onSubmit)()
+      }
+    },
+    [methods, onSubmit, commitAllEditors]
+  )
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -686,6 +774,7 @@ function ActionPanelContent({
 
   return (
     <div
+      ref={panelRef}
       onBlur={onPanelBlur}
       className="flex h-full flex-col overflow-hidden pb-16"
     >
@@ -723,6 +812,9 @@ function ActionPanelContent({
                                 className="h-auto w-full border-none p-0 text-xs font-medium leading-none focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                 placeholder="Name your action..."
                                 {...field}
+                                // Always provide a string value so this
+                                // input stays controlled for its lifetime.
+                                value={field.value ?? ""}
                               />
                             </FormControl>
                           </FormItem>
@@ -743,6 +835,9 @@ function ActionPanelContent({
                                     className="h-auto w-full max-w-xl overflow-x-auto whitespace-nowrap border-none bg-transparent p-0 text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                     placeholder="No description"
                                     {...field}
+                                    // Keep description input controlled
+                                    // even when the value is initially undefined.
+                                    value={field.value ?? ""}
                                   />
                                 </FormControl>
                               </TooltipTrigger>
@@ -978,7 +1073,7 @@ function ActionPanelContent({
                                                 <Input
                                                   disabled
                                                   type="number"
-                                                  value={field.value || ""}
+                                                  value={field.value ?? ""}
                                                   onChange={field.onChange}
                                                   placeholder="Timeout in seconds"
                                                   className="text-xs"
@@ -1415,7 +1510,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value
@@ -1447,7 +1542,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value
@@ -1479,7 +1574,7 @@ function ActionPanelContent({
                               <FormControl>
                                 <Input
                                   type="number"
-                                  value={field.value || ""}
+                                  value={field.value ?? ""}
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value

@@ -127,9 +127,10 @@ async def build_agent_preset_builder_tools(
     build_tools_result = await build_agent_tools(
         actions=[
             "core.table.download",
-            "core.table.list_tables",
             "core.table.get_table_metadata",
-            "tools.exa.answer",
+            "core.table.list_tables",
+            "core.table.search_rows",
+            "tools.exa.deep_research",
         ]
     )
 
