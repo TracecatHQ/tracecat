@@ -76,12 +76,17 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  // In-memory map of actionId -> last edited form values.
+  // This lets the action panel restore unsaved edits when the user
+  // switches between nodes without touching the backend.
   const [actionDrafts, setActionDrafts] = useState<Record<string, unknown>>({})
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
 
   useEffect(() => {
+    // When the user switches workflows, clear selection, execution state,
+    // and any in-memory drafts so we don't leak state across workflows.
     setSelectedNodeId(null)
     setCurrentExecutionId(null)
     setActionDrafts({})
@@ -102,17 +107,16 @@ export const WorkflowBuilderProvider: React.FC<
     [workflowId, reactFlowInstance]
   )
 
-  const setActionDraft = useCallback(
-    (actionId: string, draft: unknown) => {
-      setActionDrafts((prev) => ({
-        ...prev,
-        [actionId]: draft,
-      }))
-    },
-    []
-  )
+  const setActionDraft = useCallback((actionId: string, draft: unknown) => {
+    // Store or update the draft for a given actionId.
+    setActionDrafts((prev) => ({
+      ...prev,
+      [actionId]: draft,
+    }))
+  }, [])
 
   const clearActionDraft = useCallback((actionId: string) => {
+    // Remove a single action's draft (typically after a successful save).
     setActionDrafts((prev) => {
       const { [actionId]: _removed, ...rest } = prev
       return rest

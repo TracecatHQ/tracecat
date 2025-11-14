@@ -75,7 +75,11 @@ function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {
     case "udf":
       return (
-        <ActionPanel key={node.id} actionId={node.id} workflowId={workflow.id} />
+        <ActionPanel
+          key={node.id}
+          actionId={node.id}
+          workflowId={workflow.id}
+        />
       )
     case "trigger":
       return <TriggerPanel workflow={workflow} />

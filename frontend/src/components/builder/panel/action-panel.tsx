@@ -290,7 +290,8 @@ function ActionPanelContent({
     // inputs still recalculates and triggers downstream resets.
     [action?.inputs, actionId]
   )
-  // Compute initial form values based on the server state.
+  // Compute initial form values based purely on the latest server state
+  // (ActionRead + control_flow). Drafts are layered on top of this later.
   const baseFormValues = useMemo<ActionFormSchema>(
     () => ({
       title: action?.title,
@@ -326,38 +327,55 @@ function ActionPanelContent({
     ]
   )
 
-  // Merge any existing draft for this action over the base values so that
-  // unsaved edits persist across node selection.
-  const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
-  const initialValues = useMemo<ActionFormSchema>(
-    () =>
-      existingDraft
-        ? {
-            ...baseFormValues,
-            ...existingDraft,
-            inputs: {
-              ...(baseFormValues.inputs || {}),
-              ...(existingDraft.inputs || {}),
-            },
-          }
-        : baseFormValues,
-    [baseFormValues, existingDraft]
-  )
-
+  // Local form state for this action. We always seed it from the latest
+  // server-backed baseFormValues; hydration from drafts happens via effects.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
-    defaultValues: initialValues,
+    defaultValues: baseFormValues,
   })
 
   const watchedValues = useWatch({
     control: methods.control,
   })
 
+  // Tracks whether we've already run the one-off hydration for this action.
+  // This prevents the effect below from resetting the form on every render
+  // (which would clobber user edits or freshly-saved values).
+  const hasHydratedRef = useRef(false)
+
   useEffect(() => {
-    // Persist the latest draft for this action so that it can be restored
-    // when the user navigates away and back.
-    setActionDraft(actionId, watchedValues)
-  }, [actionId, watchedValues, setActionDraft])
+    const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
+
+    // Never overwrite user edits: once the form is dirty, the user is in
+    // control and we should not reset from either drafts or server.
+    if (methods.formState.isDirty) {
+      return
+    }
+
+    // On first load for this action, prefer any stored draft so that
+    // switching between nodes restores unsaved edits.
+    if (existingDraft && !hasHydratedRef.current) {
+      methods.reset(existingDraft)
+      hasHydratedRef.current = true
+      return
+    }
+
+    // Otherwise, hydrate once from the server-backed base values when the
+    // action data first arrives.
+    if (!existingDraft && action && !hasHydratedRef.current) {
+      methods.reset(baseFormValues)
+      hasHydratedRef.current = true
+    }
+  }, [actionDrafts, actionId, action, baseFormValues, methods])
+
+  useEffect(() => {
+    // Persist drafts only after the user has made changes. This avoids
+    // capturing the initial empty snapshot as a draft and ensures that
+    // drafts always represent actual user edits.
+    if (methods.formState.isDirty) {
+      setActionDraft(actionId, watchedValues)
+    }
+  }, [actionId, watchedValues, methods.formState.isDirty, setActionDraft])
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
@@ -417,7 +435,9 @@ function ActionPanelContent({
     const fieldsWithValues = new Set<string>()
 
     // Add fields that have values in the current form inputs (draft),
-    // not just those persisted in the last saved YAML.
+    // not just those persisted in the last saved YAML. This means that
+    // unsaved edits still keep optional fields visible while the user
+    // is actively configuring an action.
     const currentInputs =
       (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
     if (optionalFields.length > 0 && currentInputs) {
