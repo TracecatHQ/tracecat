@@ -208,8 +208,7 @@ class BaseTablesService(BaseService):
 
         return value
 
-    @staticmethod
-    def _column_index(table: Table) -> dict[str, TableColumn]:
+    def _column_index(self, table: Table) -> dict[str, TableColumn]:
         return {column.name: column for column in table.columns}
 
     def _jsonb_text_path(
