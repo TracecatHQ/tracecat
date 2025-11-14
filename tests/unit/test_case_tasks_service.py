@@ -114,7 +114,7 @@ class TestCaseTasksService:
         test_workflow: Workflow,
     ) -> None:
         """Test creating a task with a workflow_id."""
-        task_create_params.workflow_id = WorkflowUUID.new(test_workflow.id)
+        task_create_params.workflow_id = WorkflowUUID.new(test_workflow.id).short()
 
         created_task = await case_tasks_service.create_task(
             test_case.id, task_create_params
@@ -278,7 +278,8 @@ class TestCaseTasksService:
 
         # Add workflow_id
         updated_task = await case_tasks_service.update_task(
-            task.id, CaseTaskUpdate(workflow_id=WorkflowUUID.new(test_workflow.id))
+            task.id,
+            CaseTaskUpdate(workflow_id=WorkflowUUID.new(test_workflow.id).short()),
         )
         assert updated_task.workflow_id == test_workflow.id
 
@@ -329,7 +330,7 @@ class TestCaseTasksService:
                 description="Task with all fields",
                 priority=CasePriority.CRITICAL,
                 status=CaseTaskStatus.IN_PROGRESS,
-                workflow_id=WorkflowUUID.new(test_workflow.id),
+                workflow_id=WorkflowUUID.new(test_workflow.id).short(),
             ),
         )
 
