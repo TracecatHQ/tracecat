@@ -126,6 +126,7 @@ class BaseTablesService(BaseService):
         return WorkspaceUUID.new(workspace_id)
 
     def _table_context(self, table: Table) -> _TableContext:
+        """Build lightweight SQLAlchemy objects targeting the workspace table."""
         schema_name = self._get_schema_name()
         sanitized_table = self._sanitize_identifier(table.name)
         data_col = sa.column("data", type_=JSONB)
@@ -188,6 +189,7 @@ class BaseTablesService(BaseService):
         return normalised
 
     def _normalise_value(self, column: TableColumn, value: Any) -> Any:
+        """Coerce a single cell value to match the column's declared SQL type."""
         if value is None:
             return None
 
@@ -209,6 +211,7 @@ class BaseTablesService(BaseService):
         return value
 
     def _column_index(self, table: Table) -> dict[str, TableColumn]:
+        """Return a quick lookup dict for the table's column metadata."""
         return {column.name: column for column in table.columns}
 
     def _jsonb_text_path(
@@ -231,6 +234,7 @@ class BaseTablesService(BaseService):
         updated_before: datetime | None,
         updated_after: datetime | None,
     ) -> list[ColumnElement[Any]]:
+        """Build WHERE clauses for row queries (search, time filters, etc.)."""
         conditions: list[ColumnElement[Any]] = []
 
         if search_term:
@@ -279,6 +283,7 @@ class BaseTablesService(BaseService):
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
     ) -> tuple[Select, _TableContext]:
+        """Compose a SELECT statement and context for fetching table rows."""
         context = self._table_context(table)
         stmt = sa.select(sa.text("*")).select_from(context.table)
         where_conditions = self._row_filter_conditions(
@@ -295,6 +300,7 @@ class BaseTablesService(BaseService):
         return stmt, context
 
     def _flatten_record(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        """Merge the JSONB payload into the flat row dict returned to callers."""
         materialised = dict(row)
         payload = materialised.pop("data", None)
         if isinstance(payload, Mapping):
@@ -302,6 +308,7 @@ class BaseTablesService(BaseService):
         return materialised
 
     def _enum_metadata(self, payload: Any) -> dict[str, Any]:
+        """Normalise/validate enum metadata blobs supplied for enum columns."""
         if not isinstance(payload, Mapping):
             raise ValueError("Enum columns expect an object with an 'enum_values' list")
 
@@ -342,6 +349,7 @@ class BaseTablesService(BaseService):
         return metadata
 
     def _enum_values(self, column: TableColumn) -> tuple[str, ...]:
+        """Extract enum options from the stored column metadata."""
         raw = column.default
         if not isinstance(raw, Mapping):
             return ()
@@ -423,6 +431,7 @@ class BaseTablesService(BaseService):
         default_payload: Any | None,
         sql_type: SqlType,
     ) -> None:
+        """Re-write every row's JSON payload after a column type/default change."""
         context = self._table_context(table)
         sanitized_column = self._sanitize_identifier(column_name)
         conn = await self.session.connection()
@@ -452,6 +461,7 @@ class BaseTablesService(BaseService):
         await conn.execute(stmt, params)
 
     async def _ensure_no_null_values(self, table: Table, column_name: str) -> None:
+        """Guard against toggling nullable=False when nulls already exist."""
         context = self._table_context(table)
         sanitized_column = self._sanitize_identifier(column_name)
         value_expr = self._jsonb_text_path(context, column_name)
@@ -476,6 +486,7 @@ class BaseTablesService(BaseService):
             )
 
     async def _ensure_unique_values(self, table: Table, column_name: str) -> None:
+        """Check for duplicates before adding a unique index."""
         context = self._table_context(table)
         value_expr = self._jsonb_text_path(context, column_name)
 
@@ -497,6 +508,7 @@ class BaseTablesService(BaseService):
             )
 
     async def _rename_jsonb_key(self, table: Table, old_key: str, new_key: str) -> None:
+        """Rename a column key across every JSON row."""
         if old_key == new_key:
             return
 
@@ -524,6 +536,7 @@ class BaseTablesService(BaseService):
         await conn.execute(stmt)
 
     async def _drop_unique_index(self, table: Table, column_name: str) -> None:
+        """Drop the backing index for a unique column if it exists."""
         schema_name = self._get_schema_name()
         sanitized_column = self._sanitize_identifier(column_name)
         sanitized_table_name = self._sanitize_identifier(table.name)
