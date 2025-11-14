@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -250,7 +249,7 @@ class TestAddHostToKnownHosts:
         ),
     )
     def test_split_host_port(
-        self, url: str, expected_host: str, expected_port: Optional[str]
+        self, url: str, expected_host: str, expected_port: str | None
     ) -> None:
         from tracecat.ssh import _split_host_port
 
@@ -258,4 +257,3 @@ class TestAddHostToKnownHosts:
 
         assert host == expected_host
         assert port == expected_port
-
