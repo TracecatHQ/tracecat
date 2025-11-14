@@ -193,13 +193,6 @@ class BaseTablesService(BaseService):
 
         sql_type = SqlType(column.type)
 
-        # Auto-promote INTEGER to BIGINT if value exceeds INT32 range
-        if sql_type is SqlType.INTEGER and isinstance(value, int):
-            if value < -(2**31) or value > (2**31 - 1):
-                column.type = SqlType.BIGINT.value
-                self.session.add(column)  # Mark for update
-                sql_type = SqlType.BIGINT
-
         if sql_type is SqlType.ENUM:
             candidate = str(value).strip()
             allowed = self._enum_values(column)
