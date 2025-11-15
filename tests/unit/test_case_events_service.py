@@ -496,7 +496,8 @@ class TestCaseEventsService:
         await case_events_service.session.commit()
 
         # Move the first event outside the dedupe window.
-        await case_events_service.session.execute(
+        conn = await case_events_service.session.connection()
+        await conn.execute(
             sa.update(sa.table("case_event"))
             .where(sa.column("id") == first_event.id)
             .values(created_at=datetime.now(UTC) - timedelta(minutes=10))
