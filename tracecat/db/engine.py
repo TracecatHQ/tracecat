@@ -6,7 +6,7 @@ from typing import Literal
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
@@ -119,4 +119,19 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
     SQLModelAsyncSession
 ]:
     """Get a context manager for an async SQLModel database session."""
+    return contextlib.asynccontextmanager(get_async_session)()
+
+
+async def sa_get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """Get an async SQLAlchemy database session."""
+    async with AsyncSession(
+        get_async_engine(), expire_on_commit=False
+    ) as async_session:
+        yield async_session
+
+
+def sa_get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
+    AsyncSession
+]:
+    """Get a context manager for an async SQLAlchemy database session."""
     return contextlib.asynccontextmanager(get_async_session)()
