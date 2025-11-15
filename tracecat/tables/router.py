@@ -179,6 +179,7 @@ async def get_table(
                 nullable=column.nullable,
                 default=column.default,
                 is_index=column.name in index_columns,
+                options=column.options,
             )
             for column in table.columns
         ],
@@ -523,6 +524,7 @@ async def import_table_from_csv(
                     nullable=column.nullable,
                     default=column.default,
                     is_index=column.name in index_columns,
+                    options=column.options,
                 )
                 for column in table_with_columns.columns
             ],
