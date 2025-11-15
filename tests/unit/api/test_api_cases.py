@@ -11,12 +11,12 @@ from fastapi.testclient import TestClient
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseReadMinimal
-from tracecat.db.models import Case, CaseTag
+from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.pagination import CursorPaginatedResponse
 
 
 @pytest.fixture
-def mock_case(test_workspace) -> Case:
+def mock_case(test_workspace: Workspace) -> Case:
     """Create a mock case DB object."""
     case = Case(
         owner_id=test_workspace.id,
@@ -38,7 +38,7 @@ def mock_case(test_workspace) -> Case:
 
 
 @pytest.fixture
-def mock_case_tag(test_workspace) -> CaseTag:
+def mock_case_tag(test_workspace: Workspace) -> CaseTag:
     """Create a mock case tag DB object."""
     return CaseTag(
         id=uuid.uuid4(),
@@ -93,7 +93,10 @@ async def test_list_cases_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get(f"/cases?workspace_id={test_admin_role.workspace_id}")
+        response = client.get(
+            "/cases",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
@@ -152,7 +155,14 @@ async def test_list_cases_with_filters(
 
         # Make request with filters
         response = client.get(
-            f"/cases?workspace_id={test_admin_role.workspace_id}&status=new&priority=medium&severity=medium&search_term=Test"
+            "/cases",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "status": "new",
+                "priority": "medium",
+                "severity": "medium",
+                "search_term": "Test",
+            },
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -176,7 +186,8 @@ async def test_create_case_success(
 
         # Make request
         response = client.post(
-            f"/cases?workspace_id={test_admin_role.workspace_id}",
+            "/cases",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "summary": "Test Case Summary",
                 "description": "Test case description with details",
@@ -202,7 +213,8 @@ async def test_create_case_validation_error(
     """Test POST /cases with invalid data returns 422."""
     # Make request with missing required fields
     response = client.post(
-        f"/cases?workspace_id={test_admin_role.workspace_id}",
+        "/cases",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
         json={
             "summary": "Test",
             # Missing required fields: description, priority, severity
@@ -234,7 +246,8 @@ async def test_get_case_success(
         # Make request
         case_id = str(mock_case.id)
         response = client.get(
-            f"/cases/{case_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -268,7 +281,8 @@ async def test_get_case_not_found(
         # Make request with non-existent ID
         fake_id = str(uuid.uuid4())
         response = client.get(
-            f"/cases/{fake_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/cases/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -293,7 +307,8 @@ async def test_update_case_success(
         # Make request
         case_id = str(mock_case.id)
         response = client.patch(
-            f"/cases/{case_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "summary": "Updated Summary",
                 "status": "in_progress",
@@ -323,7 +338,8 @@ async def test_update_case_not_found(
         # Make request
         fake_id = str(uuid.uuid4())
         response = client.patch(
-            f"/cases/{fake_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/cases/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"summary": "Updated Summary"},
         )
 
@@ -356,7 +372,8 @@ async def test_get_case_with_tags(
         # Make request
         case_id = str(mock_case.id)
         response = client.get(
-            f"/cases/{case_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -390,7 +407,12 @@ async def test_search_cases_success(
 
         # Make request
         response = client.get(
-            f"/cases/search?workspace_id={test_admin_role.workspace_id}&search_term=Test&limit=10"
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "Test",
+                "limit": 10,
+            },
         )
 
         # Assertions

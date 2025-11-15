@@ -141,7 +141,10 @@ async def test_search_workspaces_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get("/workspaces/search?name=Test")
+        response = client.get(
+            "/workspaces/search",
+            params={"name": "Test"},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK

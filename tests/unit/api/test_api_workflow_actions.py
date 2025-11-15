@@ -7,15 +7,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import Action, Workflow
+from tracecat.db.models import Action, Workflow, Workspace
 
 
 @pytest.fixture
-def mock_workflow(test_workspace) -> Workflow:
+def mock_workflow(test_workspace: Workspace) -> Workflow:
     """Create a mock workflow DB object."""
     workflow_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
     return Workflow(
@@ -40,7 +41,7 @@ def mock_workflow(test_workspace) -> Workflow:
 
 
 @pytest.fixture
-def mock_action(test_workspace, mock_workflow) -> Action:
+def mock_action(test_workspace: Workspace, mock_workflow: Workflow) -> Action:
     """Create a mock action DB object."""
     action = Action(
         id="act-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -64,7 +65,7 @@ def mock_action(test_workspace, mock_workflow) -> Action:
 async def test_list_actions_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_workflow,
+    mock_workflow: Workflow,
     mock_action: Action,
 ) -> None:
     """Test GET /actions returns list of actions."""
@@ -83,7 +84,11 @@ async def test_list_actions_success(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.get(
-            f"/actions?workspace_id={test_admin_role.workspace_id}&workflow_id={workflow_id}"
+            "/actions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "workflow_id": workflow_id,
+            },
         )
 
         # Assertions
@@ -101,7 +106,7 @@ async def test_list_actions_success(
 async def test_create_action_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_workflow,
+    mock_workflow: Workflow,
 ) -> None:
     """Test POST /actions creates a new action."""
     mock_session = AsyncMock()
@@ -121,7 +126,10 @@ async def test_create_action_success(
     workflow_id = str(mock_workflow.id)
     try:
         response = client.post(
-            f"/actions?workspace_id={test_admin_role.workspace_id}",
+            "/actions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+            },
             json={
                 "workflow_id": workflow_id,
                 "type": "core.http_request",
@@ -142,7 +150,7 @@ async def test_create_action_success(
 async def test_create_action_conflict(
     client: TestClient,
     test_admin_role: Role,
-    mock_workflow,
+    mock_workflow: Workflow,
 ) -> None:
     """Test POST /actions with duplicate ref returns 409."""
     mock_session = AsyncMock()
@@ -161,7 +169,10 @@ async def test_create_action_conflict(
     workflow_id = str(mock_workflow.id)
     try:
         response = client.post(
-            f"/actions?workspace_id={test_admin_role.workspace_id}",
+            "/actions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+            },
             json={
                 "workflow_id": workflow_id,
                 "type": "core.http_request",
@@ -181,17 +192,34 @@ async def test_create_action_conflict(
 async def test_get_action_not_found(
     client: TestClient,
     test_admin_role: Role,
-    mock_workflow,
+    mock_workflow: Workflow,
 ) -> None:
     """Test GET /actions/{action_id} with non-existent ID returns 404."""
+    mock_session = AsyncMock()
+    mock_result = AsyncMock()
+    mock_result.one = MagicMock(side_effect=NoResultFound())
+    mock_session.exec.return_value = mock_result
+
+    async def get_mock_session() -> AsyncMock:
+        return mock_session
+
+    app.dependency_overrides[get_async_session] = get_mock_session
+
     workflow_id = str(mock_workflow.id)
     # Use proper action ID format: act-[0-9a-f]{32}
     fake_action_id = "act-00000000000000000000000000000000"
 
     # Make request
-    response = client.get(
-        f"/actions/{fake_action_id}?workspace_id={test_admin_role.workspace_id}&workflow_id={workflow_id}"
-    )
+    try:
+        response = client.get(
+            f"/actions/{fake_action_id}",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "workflow_id": workflow_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_async_session, None)
 
     # Should return 404
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -203,16 +231,32 @@ async def test_update_action_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test POST /actions/{action_id} with non-existent ID returns 404."""
+    mock_session = AsyncMock()
+    mock_result = AsyncMock()
+    mock_result.one = MagicMock(side_effect=NoResultFound())
+    mock_session.exec.return_value = mock_result
+
+    async def get_mock_session() -> AsyncMock:
+        return mock_session
+
+    app.dependency_overrides[get_async_session] = get_mock_session
+
     # Use proper action ID format: act-[0-9a-f]{32}
     fake_action_id = "act-00000000000000000000000000000000"
 
     # Make request
-    response = client.post(
-        f"/actions/{fake_action_id}?workspace_id={test_admin_role.workspace_id}",
-        json={
-            "title": "Updated Title",
-        },
-    )
+    try:
+        response = client.post(
+            f"/actions/{fake_action_id}",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+            },
+            json={
+                "title": "Updated Title",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_async_session, None)
 
     # Should return 404
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -222,7 +266,7 @@ async def test_update_action_not_found(
 async def test_delete_action_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_workflow,
+    mock_workflow: Workflow,
     mock_action: Action,
 ) -> None:
     """Test DELETE /actions/{action_id} deletes action."""
@@ -242,7 +286,11 @@ async def test_delete_action_success(
 
     try:
         delete_response = client.delete(
-            f"/actions/{mock_action.id}?workspace_id={test_admin_role.workspace_id}&workflow_id={workflow_id}"
+            f"/actions/{mock_action.id}",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "workflow_id": workflow_id,
+            },
         )
     finally:
         app.dependency_overrides.pop(get_async_session, None)
