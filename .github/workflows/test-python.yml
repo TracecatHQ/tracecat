@@ -1,4 +1,4 @@
-name: pytest
+name: Run Python tests
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
-      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
+      - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -22,7 +22,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
-      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
+      - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
