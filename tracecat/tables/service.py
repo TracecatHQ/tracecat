@@ -379,7 +379,9 @@ class BaseTablesService(BaseService):
         self.session.add(column)
 
         # Build the column definition string
-        column_def = [f"{column_name} {sql_type.value}"]
+        # Map INTEGER to BIGINT for larger integer support
+        ddl_type = "BIGINT" if sql_type == SqlType.INTEGER else sql_type.value
+        column_def = [f"{column_name} {ddl_type}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if default_value is not None:
@@ -445,10 +447,14 @@ class BaseTablesService(BaseService):
                     )
                 )
             if "type" in set_fields:
+                # Map INTEGER to BIGINT for larger integer support
+                ddl_type = (
+                    "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
+                )
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, new_type),
+                        (full_table_name, new_name, ddl_type),
                     )
                 )
             if "nullable" in set_fields:
@@ -1688,10 +1694,12 @@ class TableEditorService(BaseService):
             )
         if "type" in set_fields:
             new_type = set_fields["type"]
+            # Map INTEGER to BIGINT for larger integer support
+            ddl_type = "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, new_name, new_type),
+                    (full_table_name, new_name, ddl_type),
                 )
             )
         if "nullable" in set_fields:
