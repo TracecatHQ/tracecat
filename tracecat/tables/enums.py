@@ -7,6 +7,7 @@ class SqlType(StrEnum):
     TEXT = "TEXT"
     INTEGER = "INTEGER"  # Maps to BIGINT (8 bytes)
     NUMERIC = "NUMERIC"
+    DATE = "DATE"
     BOOLEAN = "BOOLEAN"
     TIMESTAMP = "TIMESTAMP"
     TIMESTAMPTZ = "TIMESTAMPTZ"

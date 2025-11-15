@@ -39,6 +39,7 @@ export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   BOOLEAN: { label: "Boolean", icon: ToggleLeft },
   TIMESTAMP: { label: "Date and time", icon: CalendarClock },
   TIMESTAMPTZ: { label: "Date and time", icon: CalendarClock },
+  DATE: { label: "Date", icon: Calendar },
   JSONB: { label: "JSON", icon: Braces },
 }
 

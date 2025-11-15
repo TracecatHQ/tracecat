@@ -3970,6 +3970,7 @@ export type SqlType =
   | "TEXT"
   | "INTEGER"
   | "NUMERIC"
+  | "DATE"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"

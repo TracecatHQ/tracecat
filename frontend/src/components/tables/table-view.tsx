@@ -197,11 +197,21 @@ export function DatabaseTable({
         ),
         cell: ({ row }: CellT) => {
           const value = row.original[column.name as keyof TableRowRead]
-          const isTimestampColumn = TIMESTAMP_TYPES.has(normalizedType)
-          const parsedDate =
-            isTimestampColumn && typeof value === "string" && value
-              ? new Date(value)
-              : undefined
+          const isDateLike =
+            normalizedType === "DATE" || TIMESTAMP_TYPES.has(normalizedType)
+
+          // For DATE types, parse without timezone conversion
+          // For TIMESTAMP types, use standard Date parsing
+          let parsedDate: Date | undefined
+          if (isDateLike && typeof value === "string" && value) {
+            if (normalizedType === "DATE") {
+              const [year, month, day] = value.split("-").map(Number)
+              parsedDate = new Date(year, month - 1, day)
+            } else {
+              parsedDate = new Date(value)
+            }
+          }
+
           const isValidDate =
             parsedDate && !Number.isNaN(parsedDate.getTime())
               ? parsedDate
@@ -225,7 +235,14 @@ export function DatabaseTable({
                   </TooltipProvider>
                 </button>
               ) : isValidDate ? (
-                <span>{format(isValidDate, "MMM d yyyy '·' p")}</span>
+                <span>
+                  {format(
+                    isValidDate,
+                    normalizedType === "DATE"
+                      ? "MMM d yyyy"
+                      : "MMM d yyyy '·' p"
+                  )}
+                </span>
               ) : typeof value === "string" && value.length > 25 ? (
                 <CollapsibleText text={String(value)} />
               ) : (

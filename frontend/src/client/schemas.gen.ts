@@ -12164,6 +12164,7 @@ export const $SqlType = {
     "TEXT",
     "INTEGER",
     "NUMERIC",
+    "DATE",
     "BOOLEAN",
     "TIMESTAMP",
     "TIMESTAMPTZ",

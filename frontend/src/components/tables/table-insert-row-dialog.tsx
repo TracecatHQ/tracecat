@@ -88,6 +88,18 @@ const createInsertTableRowSchema = (table: TableRead) => {
             `${column.name} must be a valid date and time`
           )
         break
+      case "DATE":
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine((val) => {
+            try {
+              return !Number.isNaN(new Date(val).getTime())
+            } catch {
+              return false
+            }
+          }, `${column.name} must be a valid date`)
+        break
       default:
         // Default to text for any unknown types
         columnValidations[column.name] = z
@@ -249,6 +261,19 @@ function DynamicInput({
           onChange={(next) => field.onChange(next ? next.toISOString() : "")}
           onBlur={field.onBlur}
           buttonProps={{ className: "w-full" }}
+        />
+      )
+    }
+    case "DATE": {
+      const stringValue =
+        typeof field.value === "string" && field.value.length > 0
+          ? field.value
+          : ""
+      return (
+        <Input
+          type="date"
+          value={stringValue}
+          onChange={(e) => field.onChange(e.target.value)}
         />
       )
     }

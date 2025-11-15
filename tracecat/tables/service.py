@@ -42,6 +42,7 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseService
 from tracecat.tables.common import (
+    coerce_to_date,
     coerce_to_utc_datetime,
     convert_value,
     handle_default_value,
@@ -132,6 +133,8 @@ class BaseTablesService(BaseService):
                 and value is not None
             ):
                 normalised[column_name] = coerce_to_utc_datetime(value)
+            elif sql_type is SqlType.DATE and value is not None:
+                normalised[column_name] = coerce_to_date(value)
             else:
                 normalised[column_name] = value
 
