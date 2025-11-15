@@ -479,7 +479,9 @@ class BaseTablesService(BaseService):
 
         # Handle options for SELECT/MULTI_SELECT columns
         target_type = (
-            SqlType(set_fields["type"]) if "type" in set_fields else column.type
+            SqlType(set_fields["type"])
+            if "type" in set_fields
+            else SqlType(column.type)
         )
         if requested_options is not None:
             normalized_options = self._normalize_options_for_type(

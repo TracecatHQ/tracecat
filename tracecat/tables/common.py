@@ -73,11 +73,11 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.MULTI_SELECT:
             coerced_default = coerce_multi_select_value(default)
             json_literal = orjson.dumps(coerced_default).decode()
-            return f"'{json_literal}'::jsonb"
+            return f"'{json_literal.replace("'", "''")}'::jsonb"
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast
             json_literal = orjson.dumps(default).decode()
-            default_value = f"'{json_literal}'::jsonb"
+            default_value = f"'{json_literal.replace("'", "''")}'::jsonb"
         case SqlType.TEXT | SqlType.SELECT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
