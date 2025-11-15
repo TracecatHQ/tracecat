@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Annotated, TypedDict
+from typing import Any, Annotated
 
+from pydantic import BaseModel
 from guardrails.checks.text.jailbreak import jailbreak
 from guardrails.checks.text.llm_base import LLMConfig
 from guardrails.checks.text.moderation import ModerationCfg, moderation
@@ -26,7 +27,7 @@ openai_guardrails_secret = RegistrySecret(
 """
 
 
-class GuardrailCheckAllResult(TypedDict):
+class GuardrailCheckAllResult(BaseModel):
     """Result from running all guardrail checks."""
 
     prompt: str
@@ -60,7 +61,7 @@ def check_all(
         float,
         Doc("Confidence threshold for the guardrail checks."),
     ] = 0.7,
-) -> GuardrailCheckAllResult:
+) -> dict[str, Any]:
     """Run a curated set of OpenAI Guardrails checks with OpenAI providers."""
     api_key = secrets.get("OPENAI_API_KEY")
     client = OpenAI(api_key=api_key, base_url=base_url)
@@ -100,4 +101,4 @@ def check_all(
         results=results,
         tripwires_triggered=tripwires_triggered,
         execution_failed=execution_failed,
-    )
+    ).model_dump(mode="json")

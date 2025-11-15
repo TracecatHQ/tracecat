@@ -44,6 +44,7 @@ from tracecat.service import BaseService
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
+    coerce_to_date,
     coerce_to_utc_datetime,
     convert_value,
     handle_default_value,
@@ -172,6 +173,8 @@ class BaseTablesService(BaseService):
 
             if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
                 normalised[column_name] = coerce_to_utc_datetime(value)
+            elif sql_type is SqlType.DATE and value is not None:
+                normalised[column_name] = coerce_to_date(value)
             else:
                 normalised[column_name] = value
 
@@ -427,7 +430,10 @@ class BaseTablesService(BaseService):
         elif sql_type is SqlType.MULTI_SELECT:
             column_type_sql = SqlType.JSONB.value
         else:
-            column_type_sql = sql_type.value
+            # Map INTEGER to BIGINT for larger integer support
+            column_type_sql = (
+                "BIGINT" if sql_type == SqlType.INTEGER else sql_type.value
+            )
         column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
@@ -523,7 +529,9 @@ class BaseTablesService(BaseService):
                 elif target_type is SqlType.MULTI_SELECT:
                     physical_type = SqlType.JSONB.value
                 else:
-                    physical_type = new_type
+                    physical_type = (
+                        "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
+                    )
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
@@ -1796,7 +1804,9 @@ class TableEditorService(BaseService):
             elif new_type is SqlType.MULTI_SELECT:
                 column_type_sql = SqlType.JSONB.value
             else:
-                column_type_sql = new_type.value
+                column_type_sql = (
+                    "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
+                )
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",

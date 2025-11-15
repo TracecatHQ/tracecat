@@ -54,6 +54,36 @@ def coerce_optional_to_utc_datetime(
     return coerce_to_utc_datetime(value)
 
 
+def coerce_to_date(value: str | int | float | datetime | date) -> date:
+    """Convert supported inputs into a date."""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=UTC).date()
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed_dt = datetime.fromisoformat(text)
+            return parsed_dt.date()
+        except ValueError:
+            try:
+                return date.fromisoformat(text)
+            except ValueError as exc:
+                raise TypeError(f"Invalid ISO date string: {value!r}") from exc
+    raise TypeError(f"Unable to coerce {value!r} to date")
+
+
+def coerce_optional_to_date(
+    value: str | int | float | datetime | date | None,
+) -> date | None:
+    """Coerce a value to a date."""
+    if value is None:
+        return None
+    return coerce_to_date(value)
+
+
 def handle_default_value(type: SqlType, default: Any) -> str:
     """Handle converting default values to SQL-compatible strings based on type.
 
@@ -81,6 +111,9 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.TEXT | SqlType.SELECT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
+        case SqlType.DATE:
+            d = coerce_to_date(default)
+            default_value = f"'{d.isoformat()}'::date"
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             # For timestamp with timezone, ensure proper format and quoting
             dt = coerce_to_utc_datetime(default)
@@ -123,6 +156,9 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
+        case SqlType.DATE:
+            coerced = coerce_optional_to_date(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.Date)
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             coerced = coerce_optional_to_utc_datetime(value)
             return sa.bindparam(
@@ -141,7 +177,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                     )
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
-            return sa.bindparam(key=name, value=value, type_=sa.Integer)
+            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.NUMERIC:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
@@ -207,6 +243,8 @@ def convert_value(value: str | None, type: SqlType) -> Any:
             case SqlType.MULTI_SELECT:
                 parsed = orjson.loads(value)
                 return coerce_multi_select_value(parsed)
+            case SqlType.DATE:
+                return coerce_to_date(value)
             case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return coerce_to_utc_datetime(value)
             case SqlType.UUID:

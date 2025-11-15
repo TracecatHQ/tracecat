@@ -5,8 +5,9 @@ class SqlType(StrEnum):
     """Supported SQL types."""
 
     TEXT = "TEXT"
-    INTEGER = "INTEGER"
+    INTEGER = "INTEGER"  # Maps to BIGINT (8 bytes)
     NUMERIC = "NUMERIC"
+    DATE = "DATE"
     BOOLEAN = "BOOLEAN"
     TIMESTAMP = "TIMESTAMP"
     TIMESTAMPTZ = "TIMESTAMPTZ"

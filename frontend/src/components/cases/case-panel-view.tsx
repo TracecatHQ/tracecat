@@ -971,6 +971,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     <CaseTasksSection
                       caseId={caseId}
                       workspaceId={workspaceId}
+                      caseData={caseData}
                     />
                   </div>
                 )}
