@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Table
+from tracecat.db.models import Table, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables.enums import SqlType
@@ -19,7 +19,7 @@ from tracecat.tables.schemas import TableRowRead
 
 
 @pytest.fixture
-def mock_table(test_workspace) -> Table:
+def mock_table(test_workspace: Workspace) -> Table:
     """Create a mock table DB object."""
     table = Table(
         id=uuid.UUID("ffffffff-ffff-4fff-ffff-ffffffffffff"),
@@ -45,7 +45,10 @@ async def test_list_tables_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get(f"/tables?workspace_id={test_admin_role.workspace_id}")
+        response = client.get(
+            "/tables",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
@@ -67,7 +70,8 @@ async def test_create_table_success(
 
         # Make request
         response = client.post(
-            f"/tables?workspace_id={test_admin_role.workspace_id}",
+            "/tables",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "name": "new_table",
                 "description": "New test table",
@@ -99,7 +103,8 @@ async def test_create_table_duplicate(
 
         # Make request
         response = client.post(
-            f"/tables?workspace_id={test_admin_role.workspace_id}",
+            "/tables",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "name": "duplicate_table",
                 "description": "Duplicate table",
@@ -127,7 +132,8 @@ async def test_get_table_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.get(
-            f"/tables/{table_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/tables/{table_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -151,7 +157,8 @@ async def test_get_table_not_found(
         # Make request
         fake_id = str(uuid.uuid4())
         response = client.get(
-            f"/tables/{fake_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/tables/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -174,7 +181,8 @@ async def test_update_table_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.patch(
-            f"/tables/{table_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/tables/{table_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"description": "Updated description"},
         )
 
@@ -197,7 +205,8 @@ async def test_delete_table_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.delete(
-            f"/tables/{table_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/tables/{table_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -220,7 +229,8 @@ async def test_insert_table_row_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.post(
-            f"/tables/{table_id}/rows?workspace_id={test_admin_role.workspace_id}",
+            f"/tables/{table_id}/rows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"data": {"id": "row-1", "value": "test"}},
         )
 
@@ -244,7 +254,8 @@ async def test_insert_table_rows_batch_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.post(
-            f"/tables/{table_id}/rows/batch?workspace_id={test_admin_role.workspace_id}",
+            f"/tables/{table_id}/rows/batch",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "rows": [
                     {"id": "row-1", "value": "test1"},
@@ -298,7 +309,8 @@ async def test_list_table_rows_success(
         # Make request
         table_id = str(mock_table.id)
         response = client.get(
-            f"/tables/{table_id}/rows?workspace_id={test_admin_role.workspace_id}"
+            f"/tables/{table_id}/rows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
