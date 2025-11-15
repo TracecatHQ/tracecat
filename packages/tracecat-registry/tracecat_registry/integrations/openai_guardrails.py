@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated, TypedDict
+from typing import Any, Annotated, TypedDict
 
 from guardrails.checks.text.jailbreak import jailbreak
 from guardrails.checks.text.llm_base import LLMConfig
 from guardrails.checks.text.moderation import ModerationCfg, moderation
 from guardrails.checks.text.nsfw import nsfw_content
 from guardrails.checks.text.pii import PIIConfig, pii
-from guardrails.types import GuardrailResult
 from openai import OpenAI
 from typing_extensions import Doc
 
@@ -31,7 +30,7 @@ class GuardrailCheckAllResult(TypedDict):
     """Result from running all guardrail checks."""
 
     prompt: str
-    results: list[GuardrailResult]
+    results: list[dict[str, Any]]
     tripwires_triggered: int
     execution_failed: int
 
@@ -72,7 +71,9 @@ def check_all(
     }
 
     # Run checks sequentially
-    results: list[GuardrailResult] = []
+    results: list[dict[str, Any]] = []
+    tripwires_triggered = 0
+    execution_failed = 0
     checks = [
         (moderation, ModerationCfg()),
         (
@@ -88,11 +89,11 @@ def check_all(
 
     for func, config in checks:
         result = func(client, prompt, config.model_copy(deep=True))
-        results.append(result)
-
-    # Count tripwires and execution failures for accurate reporting
-    tripwires_triggered = sum(1 for r in results if r.tripwire_triggered)
-    execution_failed = sum(1 for r in results if r.execution_failed)
+        if result.tripwire_triggered:
+            tripwires_triggered += 1
+        if result.execution_failed:
+            execution_failed += 1
+        results.append(result.model_dump(mode="json"))
 
     return GuardrailCheckAllResult(
         prompt=prompt,

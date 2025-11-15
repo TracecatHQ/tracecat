@@ -1,7 +1,6 @@
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from lark import Lark, Transformer, v_args
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -110,11 +109,11 @@ class TypeTransformer(Transformer):
         return f"${name.value}"
 
     @v_args(inline=True)
-    def enum_type(self, *values) -> Enum:
+    def enum_type(self, *values) -> Any:
         if len(values) > self.MAX_ENUM_VALUES:
             raise ValueError(f"Too many enum values (maximum {self.MAX_ENUM_VALUES})")
 
-        enum_values = {}
+        literal_values: list[str] = []
         seen_values = set()
 
         for value in values:
@@ -127,12 +126,11 @@ class TypeTransformer(Transformer):
                 raise ValueError(f"Duplicate enum value: {value}")
 
             seen_values.add(value_lower)
-            enum_values[value] = value
+            literal_values.append(value)
 
-        # Convert to upper camel case (e.g., "user_status" -> "UserStatus")
-        enum_name = "".join(word.title() for word in self.field_name.split("_"))
-        logger.trace("Enum type:", name=enum_name, values=enum_values)
-        return Enum(f"Enum{enum_name}", enum_values)
+        literal_type = Literal.__getitem__(tuple(literal_values))
+        logger.trace("Enum literal type:", field=self.field_name, values=literal_values)
+        return literal_type
 
     @v_args(inline=True)
     def STRING_LITERAL(self, value) -> str:
