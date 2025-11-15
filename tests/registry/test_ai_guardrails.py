@@ -12,7 +12,7 @@ GuardrailOverride = dict[str, tuple[bool, bool]]
 @pytest.fixture
 def mock_guardrail_checks(
     monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[GuardrailOverride | None], None]:
+) -> Callable[..., None]:
     """Patch OpenAI client and guardrail check fns to return deterministic results."""
 
     def _build_result(
@@ -66,7 +66,7 @@ def mock_guardrail_checks(
 
 
 def test_check_all_basic_safe_prompt(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with a safe, benign prompt."""
     mock_guardrail_checks()
@@ -90,7 +90,7 @@ def test_check_all_basic_safe_prompt(
 
 
 def test_check_all_with_pii_prompt(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with a prompt that might contain PII."""
     mock_guardrail_checks({"Contains PII": (True, False)})
@@ -116,7 +116,7 @@ def test_check_all_with_pii_prompt(
 
 
 def test_check_all_with_custom_model(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with a custom model name."""
     mock_guardrail_checks()
@@ -134,7 +134,7 @@ def test_check_all_with_custom_model(
 
 
 def test_check_all_with_custom_confidence_threshold(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with a custom confidence threshold."""
     mock_guardrail_checks()
@@ -152,7 +152,7 @@ def test_check_all_with_custom_confidence_threshold(
 
 
 def test_check_all_guardrail_names(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test that all expected guardrail names are present."""
     mock_guardrail_checks()
@@ -170,7 +170,7 @@ def test_check_all_guardrail_names(
 
 
 def test_check_all_empty_prompt(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with an empty prompt."""
     mock_guardrail_checks()
@@ -187,7 +187,7 @@ def test_check_all_empty_prompt(
 
 
 def test_check_all_long_prompt(
-    mock_guardrail_checks: Callable[[GuardrailOverride | None], None],
+    mock_guardrail_checks: Callable[..., None],
 ):
     """Test guardrails with a long prompt."""
     mock_guardrail_checks()
