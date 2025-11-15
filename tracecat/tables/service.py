@@ -42,10 +42,13 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseService
 from tracecat.tables.common import (
+    coerce_multi_select_value,
+    coerce_select_value,
     coerce_to_utc_datetime,
     convert_value,
     handle_default_value,
     is_valid_sql_type,
+    normalize_column_options,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
@@ -110,6 +113,36 @@ class BaseTablesService(BaseService):
             raise TracecatAuthorizationError("Workspace ID is required")
         return WorkspaceUUID.new(workspace_id)
 
+    def _normalize_options_for_type(
+        self, sql_type: SqlType, options: list[str] | None
+    ) -> list[str] | None:
+        # Only SELECT and MULTI_SELECT types support options
+        if sql_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
+            if options:
+                raise ValueError(
+                    "Options are only supported for SELECT or MULTI_SELECT"
+                )
+            return None
+
+        # For SELECT/MULTI_SELECT, normalize and validate options
+        normalized = normalize_column_options(options)
+        if not normalized:
+            raise ValueError(
+                "SELECT and MULTI_SELECT columns must define at least one option"
+            )
+        return normalized
+
+    def _coerce_value_for_column(
+        self, sql_type: SqlType, value: Any, options: list[str] | None
+    ) -> Any:
+        if value is None:
+            return None
+        if sql_type is SqlType.SELECT:
+            return coerce_select_value(value, options=options)
+        if sql_type is SqlType.MULTI_SELECT:
+            return coerce_multi_select_value(value, options=options)
+        return value
+
     def _normalize_row_inputs(
         self, table: Table, data: dict[str, Any]
     ) -> dict[str, Any]:
@@ -127,10 +160,17 @@ class BaseTablesService(BaseService):
                 )
 
             sql_type = SqlType(column.type)
-            if (
-                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
-                and value is not None
-            ):
+            if value is None:
+                normalised[column_name] = None
+                continue
+
+            if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                normalised[column_name] = self._coerce_value_for_column(
+                    sql_type, value, column.options
+                )
+                continue
+
+            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
                 normalised[column_name] = coerce_to_utc_datetime(value)
             else:
                 normalised[column_name] = value
@@ -363,6 +403,7 @@ class BaseTablesService(BaseService):
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
+        normalized_options = self._normalize_options_for_type(sql_type, params.options)
 
         # Handle default value based on type
         default_value = params.default
@@ -375,11 +416,19 @@ class BaseTablesService(BaseService):
             type=sql_type.value,
             nullable=params.nullable,
             default=default_value,  # Store original default in metadata
+            options=normalized_options,
         )
         self.session.add(column)
 
         # Build the column definition string
-        column_def = [f"{column_name} {sql_type.value}"]
+        # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+        if sql_type is SqlType.SELECT:
+            column_type_sql = SqlType.TEXT.value
+        elif sql_type is SqlType.MULTI_SELECT:
+            column_type_sql = SqlType.JSONB.value
+        else:
+            column_type_sql = sql_type.value
+        column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if default_value is not None:
@@ -422,10 +471,31 @@ class BaseTablesService(BaseService):
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
+        requested_options = set_fields.pop("options", None)
 
         # Create index if requested
         if is_index:
             await self.create_unique_index(column.table, column.name)
+
+        # Handle options for SELECT/MULTI_SELECT columns
+        target_type = (
+            SqlType(set_fields["type"]) if "type" in set_fields else column.type
+        )
+        if requested_options is not None:
+            normalized_options = self._normalize_options_for_type(
+                target_type, requested_options
+            )
+            set_fields["options"] = normalized_options
+        elif "type" in set_fields:
+            if (
+                target_type in (SqlType.SELECT, SqlType.MULTI_SELECT)
+                and not column.options
+            ):
+                raise ValueError(
+                    "SELECT and MULTI_SELECT columns must define at least one option"
+                )
+            elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                set_fields["options"] = None
 
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
@@ -445,10 +515,17 @@ class BaseTablesService(BaseService):
                     )
                 )
             if "type" in set_fields:
+                # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+                if target_type is SqlType.SELECT:
+                    physical_type = SqlType.TEXT.value
+                elif target_type is SqlType.MULTI_SELECT:
+                    physical_type = SqlType.JSONB.value
+                else:
+                    physical_type = new_type
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, new_type),
+                        (full_table_name, new_name, physical_type),
                     )
                 )
             if "nullable" in set_fields:
@@ -981,7 +1058,13 @@ class BaseTablesService(BaseService):
             searchable_columns = [
                 col.name
                 for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+                if col.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
             ]
 
             if searchable_columns:
@@ -991,7 +1074,9 @@ class BaseTablesService(BaseService):
                 for col_name in searchable_columns:
                     sanitized_col = self._sanitize_identifier(col_name)
                     if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                        c.name
+                        for c in table.columns
+                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
                     ]:
                         # For JSONB columns, convert to text for searching
                         search_conditions.append(
@@ -1109,7 +1194,13 @@ class BaseTablesService(BaseService):
             searchable_columns = [
                 col.name
                 for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+                if col.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
             ]
 
             if searchable_columns:
@@ -1119,7 +1210,9 @@ class BaseTablesService(BaseService):
                 for col_name in searchable_columns:
                     sanitized_col = self._sanitize_identifier(col_name)
                     if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                        c.name
+                        for c in table.columns
+                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
                     ]:
                         # For JSONB columns, convert to text for searching
                         search_conditions.append(
@@ -1638,7 +1731,14 @@ class TableEditorService(BaseService):
             default_value = handle_default_value(params.type, default_value)
 
         # Build the column definition string
-        column_def = [f"{params.name} {params.type.value}"]
+        # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+        if params.type is SqlType.SELECT:
+            column_type_sql = SqlType.TEXT.value
+        elif params.type is SqlType.MULTI_SELECT:
+            column_type_sql = SqlType.JSONB.value
+        else:
+            column_type_sql = params.type.value
+        column_def = [f"{params.name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if default_value is not None:
@@ -1687,11 +1787,18 @@ class TableEditorService(BaseService):
                 )
             )
         if "type" in set_fields:
-            new_type = set_fields["type"]
+            new_type = SqlType(set_fields["type"])
+            # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+            if new_type is SqlType.SELECT:
+                column_type_sql = SqlType.TEXT.value
+            elif new_type is SqlType.MULTI_SELECT:
+                column_type_sql = SqlType.JSONB.value
+            else:
+                column_type_sql = new_type.value
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, new_name, new_type),
+                    (full_table_name, new_name, column_type_sql),
                 )
             )
         if "nullable" in set_fields:

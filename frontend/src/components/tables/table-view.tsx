@@ -10,6 +10,7 @@ import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
@@ -67,6 +68,16 @@ const getColumnWidth = (rawType?: string) => {
   if (BOOLEAN_TYPES.has(normalizedType)) return "10rem"
   if (NUMERIC_TYPES.has(normalizedType)) return "14rem"
   return "18rem"
+}
+
+const sanitizeColumnOptions = (options?: Array<string> | null) => {
+  if (!Array.isArray(options)) {
+    return undefined
+  }
+  const normalized = options
+    .map((option) => (typeof option === "string" ? option.trim() : ""))
+    .filter((option): option is string => option.length > 0)
+  return normalized.length > 0 ? normalized : undefined
 }
 
 function CollapsibleText({ text }: { text: string }) {
@@ -198,6 +209,18 @@ export function DatabaseTable({
         cell: ({ row }: CellT) => {
           const value = row.original[column.name as keyof TableRowRead]
           const isTimestampColumn = TIMESTAMP_TYPES.has(normalizedType)
+          const isSelectColumn = normalizedType === "SELECT"
+          const isMultiSelectColumn = normalizedType === "MULTI_SELECT"
+          const columnOptions = sanitizeColumnOptions(column.options)
+          const parsedMultiValue = Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === "string")
+            : typeof value === "string" && value.length > 0
+              ? [value]
+              : []
+          const multiSelectValues =
+            columnOptions && columnOptions.length > 0
+              ? parsedMultiValue.filter((item) => columnOptions.includes(item))
+              : parsedMultiValue
           const parsedDate =
             isTimestampColumn && typeof value === "string" && value
               ? new Date(value)
@@ -206,10 +229,36 @@ export function DatabaseTable({
             parsedDate && !Number.isNaN(parsedDate.getTime())
               ? parsedDate
               : null
+          const selectDisplayValue =
+            typeof value === "string"
+              ? value
+              : value === null || value === undefined
+                ? ""
+                : String(value)
 
           return (
             <div className="w-full text-xs font-sans text-foreground">
-              {typeof value === "object" && value ? (
+              {isMultiSelectColumn ? (
+                multiSelectValues.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {multiSelectValues.map((item, idx) => (
+                      <Badge
+                        key={`${column.id}-${item}-${idx}`}
+                        variant="secondary"
+                        className="text-[11px]"
+                      >
+                        {item}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )
+              ) : isSelectColumn ? (
+                <span className="whitespace-pre-wrap break-words">
+                  {selectDisplayValue || "—"}
+                </span>
+              ) : typeof value === "object" && value ? (
                 <button
                   type="button"
                   onClick={(e) => e.stopPropagation()}

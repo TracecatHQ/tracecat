@@ -12,3 +12,5 @@ class SqlType(StrEnum):
     TIMESTAMPTZ = "TIMESTAMPTZ"
     JSONB = "JSONB"
     UUID = "UUID"
+    SELECT = "SELECT"
+    MULTI_SELECT = "MULTI_SELECT"

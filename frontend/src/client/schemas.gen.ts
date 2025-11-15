@@ -3658,6 +3658,20 @@ export const $CaseFieldCreate = {
       ],
       title: "Default",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
   },
   type: "object",
   required: ["name", "type"],
@@ -3766,6 +3780,20 @@ export const $CaseFieldUpdate = {
       ],
       title: "Is Index",
       description: "Whether the column is an index",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",
@@ -12169,6 +12197,8 @@ export const $SqlType = {
     "TIMESTAMPTZ",
     "JSONB",
     "UUID",
+    "SELECT",
+    "MULTI_SELECT",
   ],
   title: "SqlType",
   description: "Supported SQL types.",
@@ -12330,6 +12360,20 @@ export const $TableColumnCreate = {
       ],
       title: "Default",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
   },
   type: "object",
   required: ["name", "type"],
@@ -12369,6 +12413,20 @@ export const $TableColumnRead = {
       type: "boolean",
       title: "Is Index",
       default: false,
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",
@@ -12439,6 +12497,20 @@ export const $TableColumnUpdate = {
       ],
       title: "Is Index",
       description: "Whether the column is an index",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",

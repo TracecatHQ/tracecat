@@ -1037,6 +1037,7 @@ export type CaseFieldCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -1075,6 +1076,7 @@ export type CaseFieldUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
@@ -3975,6 +3977,8 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+  | "SELECT"
+  | "MULTI_SELECT"
 
 /**
  * Event for when a case status is changed.
@@ -4037,6 +4041,7 @@ export type TableColumnCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -4049,6 +4054,7 @@ export type TableColumnRead = {
   nullable?: boolean
   default?: unknown | null
   is_index?: boolean
+  options?: Array<string> | null
 }
 
 /**
@@ -4075,6 +4081,7 @@ export type TableColumnUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
