@@ -134,4 +134,4 @@ def sa_get_async_session_context_manager() -> contextlib.AbstractAsyncContextMan
     AsyncSession
 ]:
     """Get a context manager for an async SQLAlchemy database session."""
-    return contextlib.asynccontextmanager(get_async_session)()
+    return contextlib.asynccontextmanager(sa_get_async_session)()
