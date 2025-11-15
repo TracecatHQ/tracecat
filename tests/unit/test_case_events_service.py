@@ -21,7 +21,6 @@ from tracecat.cases.schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
-from tracecat.db.models import CaseEvent
 from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -497,9 +496,9 @@ class TestCaseEventsService:
         await case_events_service.session.commit()
 
         # Move the first event outside the dedupe window.
-        await case_events_service.session.exec(
-            sa.update(CaseEvent)
-            .where(CaseEvent.id == first_event.id)
+        await case_events_service.session.execute(
+            sa.update(sa.table("case_event"))
+            .where(sa.column("id") == first_event.id)
             .values(created_at=datetime.now(UTC) - timedelta(minutes=10))
         )
         await case_events_service.session.commit()
