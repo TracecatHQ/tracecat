@@ -1,5 +1,6 @@
 """HTTP-level tests for secrets API endpoints."""
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,14 +11,14 @@ from pydantic import SecretStr
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Secret
+from tracecat.db.models import Secret, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 
 
 @pytest.fixture
-def mock_secret(test_workspace) -> Secret:
+def mock_secret(test_workspace: Workspace) -> Secret:
     """Create a mock secret DB object."""
     secret = Secret(
         id="secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -50,7 +51,10 @@ async def test_list_secrets_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get(f"/secrets?workspace_id={test_admin_role.workspace_id}")
+        response = client.get(
+            "/secrets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
@@ -77,7 +81,11 @@ async def test_list_secrets_with_type_filter(
 
         # Make request
         response = client.get(
-            f"/secrets?workspace_id={test_admin_role.workspace_id}&type=custom"
+            "/secrets",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "type": "custom",
+            },
         )
 
         # Assertions
@@ -103,7 +111,12 @@ async def test_search_secrets_success(
 
         # Make request
         response = client.get(
-            f"/secrets/search?workspace_id={test_admin_role.workspace_id}&environment=default&name=test_secret"
+            "/secrets/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "environment": "default",
+                "name": "test_secret",
+            },
         )
 
         # Assertions
@@ -127,7 +140,8 @@ async def test_get_secret_by_name_success(
 
         # Make request
         response = client.get(
-            f"/secrets/test_secret?workspace_id={test_admin_role.workspace_id}"
+            "/secrets/test_secret",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -152,7 +166,8 @@ async def test_get_secret_by_name_not_found(
 
         # Make request
         response = client.get(
-            f"/secrets/nonexistent?workspace_id={test_admin_role.workspace_id}"
+            "/secrets/nonexistent",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -172,7 +187,8 @@ async def test_create_secret_success(
 
         # Make request
         response = client.post(
-            f"/secrets?workspace_id={test_admin_role.workspace_id}",
+            "/secrets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "name": "new_secret",
                 "type": "custom",
@@ -201,7 +217,8 @@ async def test_create_secret_conflict(
 
         # Make request
         response = client.post(
-            f"/secrets?workspace_id={test_admin_role.workspace_id}",
+            "/secrets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "name": "duplicate_secret",
                 "type": "custom",
@@ -230,7 +247,8 @@ async def test_update_secret_by_id_success(
         # Make request
         secret_id = str(mock_secret.id)
         response = client.post(
-            f"/secrets/{secret_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/secrets/{secret_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "description": "Updated description",
                 "keys": [{"key": "api_key", "value": "new_value"}],
@@ -255,7 +273,8 @@ async def test_update_secret_by_id_not_found(
         # Make request
         fake_id = "secret-00000000000000000000000000000000"
         response = client.post(
-            f"/secrets/{fake_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/secrets/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"description": "Updated"},
         )
 
@@ -279,7 +298,8 @@ async def test_delete_secret_by_id_success(
         # Make request
         secret_id = str(mock_secret.id)
         response = client.delete(
-            f"/secrets/{secret_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/secrets/{secret_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -300,7 +320,8 @@ async def test_delete_secret_by_id_not_found(
         # Make request
         fake_id = "secret-00000000000000000000000000000000"
         response = client.delete(
-            f"/secrets/{fake_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/secrets/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -311,7 +332,7 @@ async def test_delete_secret_by_id_not_found(
 
 
 @pytest.fixture
-def mock_org_secret(mock_org_id) -> Secret:
+def mock_org_secret(mock_org_id: uuid.UUID) -> Secret:
     """Create a mock organization secret DB object."""
     secret = Secret(
         id="secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

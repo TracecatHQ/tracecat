@@ -87,7 +87,10 @@ async def test_list_workflows_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get(f"/workflows?workspace_id={test_admin_role.workspace_id}")
+        response = client.get(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
@@ -133,7 +136,12 @@ async def test_list_workflows_with_pagination(
 
         # Make request with pagination params
         response = client.get(
-            f"/workflows?workspace_id={test_admin_role.workspace_id}&limit=10&cursor=some-cursor"
+            "/workflows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "limit": 10,
+                "cursor": "some-cursor",
+            },
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -178,7 +186,11 @@ async def test_list_workflows_with_tag_filter(
 
         # Make request with tag filter
         response = client.get(
-            f"/workflows?workspace_id={test_admin_role.workspace_id}&tag=test-tag"
+            "/workflows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "tag": "test-tag",
+            },
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -205,7 +217,8 @@ async def test_create_workflow_success(
 
         # Make request
         response = client.post(
-            f"/workflows?workspace_id={test_admin_role.workspace_id}",
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             data={
                 "title": "Test Workflow",
                 "description": "Test workflow description",
@@ -232,7 +245,8 @@ async def test_create_workflow_validation_error(
     """Test POST /workflows with invalid data returns 422."""
     # Make request with title that's too long (> 100 chars)
     response = client.post(
-        f"/workflows?workspace_id={test_admin_role.workspace_id}",
+        "/workflows",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
         data={
             "title": "a" * 101,
             "description": "Test description",
@@ -267,7 +281,8 @@ async def test_get_workflow_success(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.get(
-            f"/workflows/{workflow_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/workflows/{workflow_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -302,7 +317,8 @@ async def test_get_workflow_not_found(
         # Make request with non-existent ID
         fake_id = str(uuid.uuid4())
         response = client.get(
-            f"/workflows/{fake_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/workflows/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -329,7 +345,8 @@ async def test_update_workflow_success(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.patch(
-            f"/workflows/{workflow_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/workflows/{workflow_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
                 "title": "Updated Title",
                 "description": "Updated description",
@@ -361,7 +378,8 @@ async def test_update_workflow_not_found(
         # Make request
         fake_id = str(uuid.uuid4())
         response = client.patch(
-            f"/workflows/{fake_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/workflows/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"title": "Updated Title"},
         )
 
@@ -391,7 +409,8 @@ async def test_update_workflow_duplicate_alias(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.patch(
-            f"/workflows/{workflow_id}?workspace_id={test_admin_role.workspace_id}",
+            f"/workflows/{workflow_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"alias": "duplicate-alias"},
         )
 
@@ -418,7 +437,8 @@ async def test_delete_workflow_success(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.delete(
-            f"/workflows/{workflow_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/workflows/{workflow_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions
@@ -446,7 +466,8 @@ async def test_delete_workflow_not_found(
         # Make request
         fake_id = str(uuid.uuid4())
         response = client.delete(
-            f"/workflows/{fake_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/workflows/{fake_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Should return 404
@@ -515,7 +536,8 @@ async def test_get_workflow_with_relationships(
         # Make request
         workflow_id = str(mock_workflow.id)
         response = client.get(
-            f"/workflows/{workflow_id}?workspace_id={test_admin_role.workspace_id}"
+            f"/workflows/{workflow_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
         )
 
         # Assertions

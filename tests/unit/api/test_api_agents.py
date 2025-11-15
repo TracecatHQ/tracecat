@@ -363,7 +363,10 @@ async def test_set_default_model_success(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.put("/agent/default-model?model_name=gpt-4")
+        response = client.put(
+            "/agent/default-model",
+            params={"model_name": "gpt-4"},
+        )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
@@ -386,7 +389,10 @@ async def test_set_default_model_not_found(
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.put("/agent/default-model?model_name=invalid-model")
+        response = client.put(
+            "/agent/default-model",
+            params={"model_name": "invalid-model"},
+        )
 
         # Should return 404
         assert response.status_code == status.HTTP_404_NOT_FOUND
