@@ -6,8 +6,10 @@ import Link from "next/link"
 import { useCallback, useMemo } from "react"
 import type { ApiError, CaseRead, WorkflowRead } from "@/client"
 import { workflowsGetWorkflow } from "@/client"
-import { WorkflowTriggerForm, type TriggerFormValues } from "@/components/cases/workflow-trigger-form"
-import { useWorkflowTriggerInputs } from "@/hooks/use-workflow-trigger-inputs"
+import {
+  type TriggerFormValues,
+  WorkflowTriggerForm,
+} from "@/components/cases/workflow-trigger-form"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { SystemInfoAlert } from "@/components/system"
 import {
@@ -23,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkflowTriggerInputs } from "@/hooks/use-workflow-trigger-inputs"
 import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import type { TracecatJsonSchema } from "@/lib/schema"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -110,7 +113,11 @@ export function WorkflowTriggerDialog({
     toast({
       title: "Workflow run started",
       description: (
-        <Link href={selectedWorkflowUrl} target="_blank" rel="noopener noreferrer">
+        <Link
+          href={selectedWorkflowUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <div className="flex items-center space-x-1">
             <ArrowUpRight className="size-3" />
             <span>View workflow run</span>
@@ -141,7 +148,13 @@ export function WorkflowTriggerDialog({
     })
     showExecutionStartedToast()
     onOpenChange(false)
-  }, [createExecution, fallbackInputs, onOpenChange, showExecutionStartedToast, workflowId])
+  }, [
+    createExecution,
+    fallbackInputs,
+    onOpenChange,
+    showExecutionStartedToast,
+    workflowId,
+  ])
 
   if (!workflowId) {
     return null
@@ -179,7 +192,8 @@ export function WorkflowTriggerDialog({
                 <div className="space-y-1 text-xs">
                   <div className="font-medium">Group case fields</div>
                   <p className="text-[11px] text-muted-foreground">
-                    Send case data under a single <code>case_fields</code> object.
+                    Send case data under a single <code>case_fields</code>{" "}
+                    object.
                   </p>
                 </div>
                 <Switch

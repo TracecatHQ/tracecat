@@ -472,7 +472,8 @@ export function WorkflowTriggerForm({
                             checked={Boolean(field.value)}
                             onCheckedChange={(value) => field.onChange(value)}
                           />
-                        ) : fieldType === "number" || fieldType === "integer" ? (
+                        ) : fieldType === "number" ||
+                          fieldType === "integer" ? (
                           <Input
                             type="number"
                             value={
@@ -501,18 +502,25 @@ export function WorkflowTriggerForm({
                               const rawValue = jsonDrafts[fieldName] ?? ""
                               if (!rawValue.trim()) {
                                 field.onChange(undefined)
-                                form.clearErrors(fieldName as keyof TriggerFormValues)
+                                form.clearErrors(
+                                  fieldName as keyof TriggerFormValues
+                                )
                                 return
                               }
                               try {
                                 const parsed = JSON.parse(rawValue)
                                 field.onChange(parsed)
-                                form.clearErrors(fieldName as keyof TriggerFormValues)
+                                form.clearErrors(
+                                  fieldName as keyof TriggerFormValues
+                                )
                               } catch {
-                                form.setError(fieldName as keyof TriggerFormValues, {
-                                  type: "manual",
-                                  message: "Invalid JSON",
-                                })
+                                form.setError(
+                                  fieldName as keyof TriggerFormValues,
+                                  {
+                                    type: "manual",
+                                    message: "Invalid JSON",
+                                  }
+                                )
                               }
                             }}
                             className="font-mono text-xs"
@@ -525,7 +533,9 @@ export function WorkflowTriggerForm({
                                 ? ""
                                 : String(field.value)
                             }
-                            onChange={(event) => field.onChange(event.target.value)}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
                           />
                         )}
                       </FormControl>
