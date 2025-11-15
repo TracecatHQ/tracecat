@@ -54,13 +54,13 @@ def upgrade() -> None:
         schema_row = schema_result.fetchone()
 
         if schema_row:
-            schema_name = schema_row.table_schema
-            # Alter the column type
-            connection.execute(
-                sa.text(f"""
-                    ALTER TABLE "{schema_name}".{column.table_name}
-                    ALTER COLUMN {column.column_name} TYPE BIGINT
-                """)
+            # Use Alembic helper to emit a properly quoted DDL statement
+            op.alter_column(
+                column.table_name,
+                column.column_name,
+                schema=schema_row.table_schema,
+                existing_type=sa.Integer(),
+                type_=sa.BigInteger(),
             )
 
 
@@ -99,11 +99,10 @@ def downgrade() -> None:
         schema_row = schema_result.fetchone()
 
         if schema_row:
-            schema_name = schema_row.table_schema
-            # Alter the column type
-            connection.execute(
-                sa.text(f"""
-                    ALTER TABLE "{schema_name}".{column.table_name}
-                    ALTER COLUMN {column.column_name} TYPE INTEGER
-                """)
+            op.alter_column(
+                column.table_name,
+                column.column_name,
+                schema=schema_row.table_schema,
+                existing_type=sa.BigInteger(),
+                type_=sa.Integer(),
             )
