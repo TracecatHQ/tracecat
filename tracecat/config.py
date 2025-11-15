@@ -466,7 +466,7 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
 
 
 # === Agent config === #
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 10))
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
 """The maximum number of tools that can be used in an agent."""
 
 
