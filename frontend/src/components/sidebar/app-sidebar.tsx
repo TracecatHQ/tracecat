@@ -2,11 +2,9 @@
 
 import {
   BotIcon,
-  BoxIcon,
   BracketsIcon,
   KeyRoundIcon,
   type LucideIcon,
-  ShapesIcon,
   SquareStackIcon,
   Table2Icon,
   UsersIcon,
