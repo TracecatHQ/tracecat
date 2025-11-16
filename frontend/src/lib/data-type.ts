@@ -41,6 +41,8 @@ export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   TIMESTAMPTZ: { label: "Date and time", icon: CalendarClock },
   DATE: { label: "Date", icon: Calendar },
   JSONB: { label: "JSON", icon: Braces },
+  SELECT: { label: "Select", icon: SquareCheck },
+  MULTI_SELECT: { label: "Multi-select", icon: ListTodo },
 }
 
 export function getFieldTypeConfig(type?: FieldType | null) {

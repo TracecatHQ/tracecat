@@ -853,6 +853,7 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
     type: str = Field(..., description="SQL type like 'TEXT', 'INTEGER', etc.")
     nullable: bool = Field(default=True)
     default: Any | None = Field(default=None, sa_column=Column(JSONB))
+    options: list[str] | None = Field(default=None, sa_column=Column(JSONB))
     # Relationship back to the table
     table: Table = Relationship(
         back_populates="columns",
