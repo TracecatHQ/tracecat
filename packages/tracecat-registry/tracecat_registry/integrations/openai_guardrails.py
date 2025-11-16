@@ -1,7 +1,5 @@
 """Run OpenAI Guardrails checks as a Tracecat UDF."""
 
-from __future__ import annotations
-
 from typing import Any, Annotated
 
 from pydantic import BaseModel
