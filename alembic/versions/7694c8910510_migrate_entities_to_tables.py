@@ -1,7 +1,7 @@
 """migrate_entities_to_tables
 
 Revision ID: 7694c8910510
-Revises: 53b9f5600bef
+Revises: c23dbe59fec6
 Create Date: 2025-11-15 09:40:24.819173
 
 """
@@ -16,7 +16,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 # revision identifiers, used by Alembic.
 revision: str = "7694c8910510"
-down_revision: str | None = "53b9f5600bef"
+down_revision: str | None = "c23dbe59fec6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
