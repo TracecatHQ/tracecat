@@ -80,33 +80,13 @@ def upgrade() -> None:
         owner_id = entity.owner_id
         table_name = entity.key  # Use entity key as table name
 
-        # 1. Find or create schema for this workspace
-        # Try to find existing schema by checking for tables with same owner
-        schema_result = connection.execute(
-            sa.text("""
-                SELECT DISTINCT table_schema
-                FROM information_schema.tables ist
-                JOIN tables t ON ist.table_name = t.name
-                WHERE t.owner_id = :owner_id
-                  AND table_schema LIKE 'tables_%'
-                LIMIT 1
-            """),
-            {"owner_id": owner_id},
-        )
-        schema_row = schema_result.fetchone()
+        # 1. Derive schema name from owner_id (deterministic, tenant-isolated)
+        workspace_id = WorkspaceUUID.new(owner_id)
+        schema_name = f"tables_{workspace_id.short()}"
 
-        if schema_row:
-            schema_name = schema_row.table_schema
-        else:
-            # Create new schema using workspace UUID
-            workspace_id = WorkspaceUUID.new(owner_id)
-            schema_name = f"tables_{workspace_id.short()}"
-
-            # Create schema (quoted to preserve case)
-            schema_identifier = sanitize_identifier(schema_name)
-            connection.execute(
-                sa.text(f"CREATE SCHEMA IF NOT EXISTS {schema_identifier}")
-            )
+        # Create schema if it doesn't exist (quoted to preserve case)
+        schema_identifier = sanitize_identifier(schema_name)
+        connection.execute(sa.text(f"CREATE SCHEMA IF NOT EXISTS {schema_identifier}"))
 
         # 2. Check if table already exists in this schema - skip if it does
         table_exists = (
