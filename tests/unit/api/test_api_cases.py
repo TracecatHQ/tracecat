@@ -9,6 +9,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
+from tracecat.cases import router as cases_router
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseReadMinimal
 from tracecat.db.models import Case, CaseTag, Workspace
@@ -59,7 +60,7 @@ async def test_list_cases_success(
 ) -> None:
     """Test GET /cases returns paginated list of cases."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         # Create mock service instance
         mock_svc = AsyncMock()
@@ -125,7 +126,7 @@ async def test_list_cases_with_filters(
 ) -> None:
     """Test GET /cases with filtering by status, priority, severity."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_case_read = CaseReadMinimal(
@@ -178,7 +179,7 @@ async def test_create_case_success(
 ) -> None:
     """Test POST /cases creates a new case."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.create_case.return_value = mock_case
@@ -233,7 +234,7 @@ async def test_get_case_success(
 ) -> None:
     """Test GET /cases/{id} returns case details."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
@@ -272,7 +273,7 @@ async def test_get_case_not_found(
 ) -> None:
     """Test GET /cases/{id} with non-existent ID returns 404."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = None
@@ -297,7 +298,7 @@ async def test_update_case_success(
 ) -> None:
     """Test PATCH /cases/{id} updates case."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
@@ -329,7 +330,7 @@ async def test_update_case_not_found(
 ) -> None:
     """Test PATCH /cases/{id} with non-existent ID returns 404."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = None
@@ -356,7 +357,7 @@ async def test_get_case_with_tags(
 ) -> None:
     """Test GET /cases/{id} properly serializes tags relationship."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
 
@@ -396,7 +397,7 @@ async def test_search_cases_success(
 ) -> None:
     """Test GET /cases/search with search term."""
     with (
-        patch("tracecat.cases.router.CasesService") as MockService,
+        patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
         mock_svc.search_cases.return_value = [mock_case]
