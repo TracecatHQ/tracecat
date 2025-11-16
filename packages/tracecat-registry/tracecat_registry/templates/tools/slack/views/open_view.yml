@@ -8,9 +8,9 @@ definition:
   name: open_view
   expects:
     view:
-      type: list[dict[str, Any]]
+      type: dict[str, Any]
       description: >
-        List of blocks to open the view with.
+        View payload for the modal to open.
         See: https://docs.slack.dev/reference/views/modal-views
     trigger_id:
       type: str
