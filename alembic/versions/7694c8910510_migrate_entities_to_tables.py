@@ -232,33 +232,41 @@ def upgrade() -> None:
             # Extract data for each field from the JSONB data column
             record_data = record.data
 
-            # Build insert statement
+            # Build insert statement (handle entities with no fields)
             if fields:
                 field_names = [sanitize_identifier(field.key) for field in fields]
-                placeholders = [f":{field.key}" for field in fields]
                 insert_sql = f"""
                     INSERT INTO {schema_identifier}.{table_identifier}
                     (id, created_at, updated_at, {", ".join(field_names)})
-                    VALUES (:id, :created_at, :updated_at, {", ".join(placeholders)})
+                    VALUES (:id, :created_at, :updated_at, {", ".join(f":field_{i}" for i in range(len(fields)))})
+                """
+            else:
+                # Entity has no fields - insert only base columns
+                insert_sql = f"""
+                    INSERT INTO {schema_identifier}.{table_identifier}
+                    (id, created_at, updated_at)
+                    VALUES (:id, :created_at, :updated_at)
                 """
 
-                # Prepare values dict
-                values = {
-                    "id": record.id,
-                    "created_at": record.created_at,
-                    "updated_at": record.updated_at,
-                }
-                for field in fields:
+            # Prepare values dict
+            values = {
+                "id": record.id,
+                "created_at": record.created_at,
+                "updated_at": record.updated_at,
+            }
+
+            # Add field values if entity has fields
+            if fields:
+                for i, field in enumerate(fields):
                     field_value = record_data.get(field.key)
-                    # Convert to JSON string for JSONB columns (MULTI_SELECT and JSON types)
                     if (
                         field.type in ("MULTI_SELECT", "JSON")
                         and field_value is not None
                     ):
                         field_value = orjson.dumps(field_value).decode()
-                    values[field.key] = field_value
+                    values[f"field_{i}"] = field_value
 
-                connection.execute(sa.text(insert_sql), values)
+            connection.execute(sa.text(insert_sql), values)
 
 
 def downgrade() -> None:
