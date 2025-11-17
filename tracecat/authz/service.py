@@ -47,7 +47,7 @@ class MembershipService(BaseService):
                 org_role=user.role,
                 workspace_role=WorkspaceRole(ws_role),
             )
-            for user, ws_role in result.scalars().all()
+            for user, ws_role in result.tuples().all()
         ]
 
     async def get_membership(

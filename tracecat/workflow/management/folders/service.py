@@ -351,7 +351,8 @@ class WorkflowFolderService(BaseService):
                     Workflow.folder_id == descendant.id,
                 )
                 result = await self.session.execute(statement)
-                for workflow in result:
+                workflows = result.scalars().all()
+                for workflow in workflows:
                     workflow.folder_id = None
                     self.session.add(workflow)
 
@@ -363,7 +364,8 @@ class WorkflowFolderService(BaseService):
                 Workflow.owner_id == self.workspace_id, Workflow.folder_id == folder.id
             )
             result = await self.session.execute(statement)
-            for workflow in result:
+            workflows = result.scalars().all()
+            for workflow in workflows:
                 workflow.folder_id = None
                 self.session.add(workflow)
 

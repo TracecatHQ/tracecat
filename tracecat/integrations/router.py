@@ -414,7 +414,8 @@ async def connect_provider(
 
     # Clean up expired state entries before creating a new one
     stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
-    expired_states = await session.execute(stmt)
+    result = await session.execute(stmt)
+    expired_states = result.scalars().all()
     for expired_state in expired_states:
         await session.delete(expired_state)
     await session.commit()

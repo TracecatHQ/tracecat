@@ -129,7 +129,7 @@ class CasesService(BaseWorkspaceService):
         )
 
         result = await self.session.execute(stmt)
-        rows = result.scalars().all()
+        rows = result.tuples().all()
 
         # Build result dict with defaults for cases without tasks
         counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
