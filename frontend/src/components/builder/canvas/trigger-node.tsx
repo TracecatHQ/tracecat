@@ -8,7 +8,6 @@ import {
   WebhookIcon,
 } from "lucide-react"
 import React from "react"
-import type { Schedule, WebhookRead } from "@/client"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
 import { getIcon } from "@/components/icons"
@@ -41,19 +40,17 @@ import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 
 export type TriggerNodeData = {
-  type: "trigger"
   title: string
   status: "online" | "offline"
   isConfigured: boolean
   entrypointId?: string
-  webhook: WebhookRead
-  schedules: Schedule[]
 }
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
 export default React.memo(function TriggerNode({
-  data: { title, type },
+  type,
+  data: { title },
   selected,
 }: NodeProps<TriggerNodeType>) {
   const { workflow } = useWorkflow()
