@@ -966,7 +966,7 @@ function AgentPresetForm({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-3">
+      <div className="flex items-center justify-between border-b px-3 py-2">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold">
             {mode === "edit"
