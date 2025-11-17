@@ -60,7 +60,7 @@ def coerce_to_date(value: str | int | float | datetime | date) -> date:
         return value
     if isinstance(value, datetime):
         return value.date()
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return datetime.fromtimestamp(value, tz=UTC).date()
     if isinstance(value, str):
         text = value.strip()
@@ -290,7 +290,7 @@ def coerce_multi_select_value(
     """Normalize a MULTI_SELECT payload as a list of strings."""
     if value is None:
         raise ValueError("Value cannot be None for MULTI_SELECT fields")
-    if not isinstance(value, (list, tuple, set)):
+    if not isinstance(value, list | tuple | set):
         raise ValueError("MULTI_SELECT values must be provided as a list of strings")
     coerced: list[str] = [str(item) for item in value]
     if options:

@@ -21,7 +21,7 @@ class SentryMCPProvider(MCPAuthProvider):
     id: ClassVar[str] = "sentry_mcp"
 
     # MCP server endpoint - OAuth endpoints discovered automatically
-    _mcp_server_uri: ClassVar[str] = "https://mcp.sentry.dev/mcp"
+    mcp_server_uri: ClassVar[str] = "https://mcp.sentry.dev/mcp"
 
     # No default scopes - authorization server determines based on user permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])

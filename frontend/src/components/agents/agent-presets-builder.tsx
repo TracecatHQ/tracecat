@@ -247,9 +247,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       if (normalizedId === activePresetId) {
         return
       }
-      router.replace(
-        `/workspaces/${workspaceId}/agents/presets/${normalizedId}`
-      )
+      router.replace(`/workspaces/${workspaceId}/agents/${normalizedId}`)
     },
     [activePresetId, router, workspaceId]
   )
@@ -534,7 +532,7 @@ function PresetsSidebar({
               list.map((preset) => (
                 <SidebarItem
                   key={preset.id}
-                  href={`/workspaces/${workspaceId}/agents/presets/${preset.id}`}
+                  href={`/workspaces/${workspaceId}/agents/${preset.id}`}
                   active={selectedId === preset.id}
                   title={preset.name}
                   description={preset.description ?? preset.slug}
