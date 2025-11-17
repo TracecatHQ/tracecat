@@ -14,7 +14,11 @@ export function MainChatInterface() {
 
   return (
     <div className="flex h-full flex-col">
-      <ChatInterface entityType="workspace" entityId={workspaceId} />
+      <ChatInterface
+        entityType="workspace"
+        entityId={workspaceId}
+        bodyClassName="px-2"
+      />
     </div>
   )
 }
