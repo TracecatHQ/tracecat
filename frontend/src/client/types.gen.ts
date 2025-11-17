@@ -28,7 +28,7 @@ export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
-  description?: string
+  description?: string | null
   inputs?: string
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean

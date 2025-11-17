@@ -113,10 +113,16 @@ export const $ActionCreate = {
       title: "Title",
     },
     description: {
-      type: "string",
-      maxLength: 1000,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Description",
-      default: "",
     },
     inputs: {
       type: "string",
