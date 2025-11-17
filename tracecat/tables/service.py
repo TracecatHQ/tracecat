@@ -13,10 +13,10 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -151,8 +151,8 @@ class BaseTablesService(BaseService):
         """
         ws_id = self._workspace_id()
         statement = select(Table).where(Table.owner_id == ws_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_table(self, table_id: TableID) -> Table:
         """Get a lookup table by ID."""
@@ -161,8 +161,8 @@ class BaseTablesService(BaseService):
             Table.owner_id == ws_id,
             Table.id == table_id,
         )
-        result = await self.session.exec(statement)
-        table = result.first()
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
         if table is None:
             raise TracecatNotFoundError("Table not found")
 
@@ -209,8 +209,8 @@ class BaseTablesService(BaseService):
             Table.owner_id == ws_id,
             Table.name == sanitized_name,
         )
-        result = await self.session.exec(statement)
-        table = result.first()
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
         if table is None:
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
@@ -334,8 +334,8 @@ class BaseTablesService(BaseService):
             TableColumn.table_id == table_id,
             TableColumn.id == column_id,
         )
-        result = await self.session.exec(statement)
-        column = result.first()
+        result = await self.session.execute(statement)
+        column = result.scalars().first()
         if column is None:
             raise TracecatNotFoundError("Column not found")
         return column

@@ -4,8 +4,8 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
-from sqlmodel import and_, col, or_, select
 
 from tracecat.db.models import Entity, EntityField, EntityRecord
 from tracecat.entities.enums import FieldType
@@ -32,10 +32,10 @@ class RecordService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.entity_id == entity.id, EntityField.is_active)
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     def _validate_and_coerce(
         self, data: dict[str, Any], fields: Sequence[EntityField]
@@ -102,7 +102,7 @@ class RecordService(BaseWorkspaceService):
                 EntityRecord.owner_id == self.workspace_id,
                 EntityRecord.entity_id == entity.id,
             )
-            .order_by(col(EntityRecord.created_at).desc(), col(EntityRecord.id).desc())
+            .order_by(EntityRecord.created_at.desc(), EntityRecord.id.desc())
         )
 
         if params.cursor:
@@ -113,29 +113,27 @@ class RecordService(BaseWorkspaceService):
             if params.reverse:
                 stmt = stmt.where(
                     or_(
-                        col(EntityRecord.created_at) > cursor_time,
+                        EntityRecord.created_at > cursor_time,
                         and_(
-                            col(EntityRecord.created_at) == cursor_time,
-                            col(EntityRecord.id) > cursor_id,
+                            EntityRecord.created_at == cursor_time,
+                            EntityRecord.id > cursor_id,
                         ),
                     )
-                ).order_by(
-                    col(EntityRecord.created_at).asc(), col(EntityRecord.id).asc()
-                )
+                ).order_by(EntityRecord.created_at.asc(), EntityRecord.id.asc())
             else:
                 stmt = stmt.where(
                     or_(
-                        col(EntityRecord.created_at) < cursor_time,
+                        EntityRecord.created_at < cursor_time,
                         and_(
-                            col(EntityRecord.created_at) == cursor_time,
-                            col(EntityRecord.id) < cursor_id,
+                            EntityRecord.created_at == cursor_time,
+                            EntityRecord.id < cursor_id,
                         ),
                     )
                 )
 
         stmt = stmt.limit(params.limit + 1)
-        result = await self.session.exec(stmt)
-        all_items = result.all()
+        result = await self.session.execute(stmt)
+        all_items = result.scalars().all()
 
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
@@ -188,7 +186,7 @@ class RecordService(BaseWorkspaceService):
         stmt = (
             select(EntityRecord)
             .where(EntityRecord.owner_id == self.workspace_id)
-            .order_by(col(EntityRecord.created_at).desc(), col(EntityRecord.id).desc())
+            .order_by(EntityRecord.created_at.desc(), EntityRecord.id.desc())
         )
         if entity_id is not None:
             stmt = stmt.where(EntityRecord.entity_id == entity_id)
@@ -201,29 +199,27 @@ class RecordService(BaseWorkspaceService):
             if params.reverse:
                 stmt = stmt.where(
                     or_(
-                        col(EntityRecord.created_at) > cursor_time,
+                        EntityRecord.created_at > cursor_time,
                         and_(
-                            col(EntityRecord.created_at) == cursor_time,
-                            col(EntityRecord.id) > cursor_id,
+                            EntityRecord.created_at == cursor_time,
+                            EntityRecord.id > cursor_id,
                         ),
                     )
-                ).order_by(
-                    col(EntityRecord.created_at).asc(), col(EntityRecord.id).asc()
-                )
+                ).order_by(EntityRecord.created_at.asc(), EntityRecord.id.asc())
             else:
                 stmt = stmt.where(
                     or_(
-                        col(EntityRecord.created_at) < cursor_time,
+                        EntityRecord.created_at < cursor_time,
                         and_(
-                            col(EntityRecord.created_at) == cursor_time,
-                            col(EntityRecord.id) < cursor_id,
+                            EntityRecord.created_at == cursor_time,
+                            EntityRecord.id < cursor_id,
                         ),
                     )
                 )
 
         stmt = stmt.limit(params.limit + 1)
-        result = await self.session.exec(stmt)
-        all_items = result.all()
+        result = await self.session.execute(stmt)
+        all_items = result.scalars().all()
 
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
@@ -275,8 +271,8 @@ class RecordService(BaseWorkspaceService):
             EntityRecord.entity_id == entity.id,
             EntityRecord.id == record_id,
         )
-        result = await self.session.exec(stmt)
-        record = result.first()
+        result = await self.session.execute(stmt)
+        record = result.scalars().first()
         if record is None:
             raise TracecatNotFoundError("Record not found")
         return record
@@ -286,8 +282,8 @@ class RecordService(BaseWorkspaceService):
         stmt = select(EntityRecord).where(
             EntityRecord.owner_id == self.workspace_id, EntityRecord.id == record_id
         )
-        result = await self.session.exec(stmt)
-        record = result.first()
+        result = await self.session.execute(stmt)
+        record = result.scalars().first()
         if record is None:
             raise TracecatNotFoundError("Record not found")
         return record
@@ -317,7 +313,7 @@ class RecordService(BaseWorkspaceService):
 
         # Fetch entity to validate against active fields
         stmt = select(Entity).where(Entity.id == record.entity_id)
-        entity = (await self.session.exec(stmt)).one()
+        entity = (await self.session.execute(stmt)).scalar_one()
 
         fields = await self._get_active_fields(entity)
         normalized = self._validate_and_coerce(params.data, fields)

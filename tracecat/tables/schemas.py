@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from tracecat.core.schemas import Schema
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
 from tracecat.tables.enums import SqlType
 
@@ -107,14 +108,14 @@ class TableRowInsertBatchResponse(BaseModel):
     rows_inserted: int
 
 
-class TableReadMinimal(BaseModel):
+class TableReadMinimal(Schema):
     """Read model for a table."""
 
     id: TableID
     name: str
 
 
-class TableRead(BaseModel):
+class TableRead(Schema):
     """Read model for a table."""
 
     id: TableID

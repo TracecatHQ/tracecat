@@ -1,9 +1,9 @@
 import uuid
 from collections.abc import Sequence
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Entity, EntityField, EntityFieldOption
@@ -32,16 +32,16 @@ class EntityService(BaseWorkspaceService):
         stmt = select(Entity).where(Entity.owner_id == self.workspace_id)
         if not include_inactive:
             stmt = stmt.where(Entity.is_active)
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_entity(self, entity_id: uuid.UUID) -> Entity:
         stmt = select(Entity).where(
             Entity.owner_id == self.workspace_id,
             Entity.id == entity_id,
         )
-        result = await self.session.exec(stmt)
-        entity = result.first()
+        result = await self.session.execute(stmt)
+        entity = result.scalars().first()
         if entity is None:
             raise TracecatNotFoundError("Entity not found")
         return entity
@@ -51,8 +51,8 @@ class EntityService(BaseWorkspaceService):
             Entity.owner_id == self.workspace_id,
             Entity.key == key,
         )
-        result = await self.session.exec(stmt)
-        entity = result.first()
+        result = await self.session.execute(stmt)
+        entity = result.scalars().first()
         if entity is None:
             raise TracecatNotFoundError("Entity not found")
         return entity
@@ -132,12 +132,12 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.entity_id == entity.id)
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
         if not include_inactive:
             stmt = stmt.where(EntityField.is_active)
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_field(self, entity: Entity, field_id: uuid.UUID) -> EntityField:
         # Ensure workspace ownership
@@ -150,10 +150,10 @@ class EntityFieldsService(BaseWorkspaceService):
                 EntityField.entity_id == entity.id,
                 EntityField.id == field_id,
             )
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
-        result = await self.session.exec(stmt)
-        field = result.first()
+        result = await self.session.execute(stmt)
+        field = result.scalars().first()
         if field is None:
             raise TracecatNotFoundError("Field not found")
         return field
@@ -169,10 +169,10 @@ class EntityFieldsService(BaseWorkspaceService):
                 EntityField.entity_id == entity.id,
                 EntityField.key == key,
             )
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
-        result = await self.session.exec(stmt)
-        field = result.first()
+        result = await self.session.execute(stmt)
+        field = result.scalars().first()
         if field is None:
             raise TracecatNotFoundError("Field not found")
         return field
@@ -214,10 +214,10 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.id == field.id)
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
-        result = await self.session.exec(stmt)
-        return result.one()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def update_field(
         self, field: EntityField, params: EntityFieldUpdate
@@ -247,9 +247,9 @@ class EntityFieldsService(BaseWorkspaceService):
             reload_stmt = (
                 select(EntityField)
                 .where(EntityField.id == field.id)
-                .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+                .options(selectinload(EntityField.options))
             )
-            field = (await self.session.exec(reload_stmt)).one()
+            field = (await self.session.execute(reload_stmt)).scalar_one()
 
             existing_by_key = {opt.key: opt for opt in field.options}
             # Normalize/generated keys are ensured by the option model
@@ -281,10 +281,10 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.id == field.id)
-            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
+            .options(selectinload(EntityField.options))
         )
-        result = await self.session.exec(stmt)
-        return result.one()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def deactivate_field(self, field: EntityField) -> EntityField:
         # Ensure workspace ownership

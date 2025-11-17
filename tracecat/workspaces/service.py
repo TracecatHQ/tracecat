@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from pydantic import UUID4
+from sqlalchemy import select
 from sqlalchemy.orm import load_only, noload
-from sqlmodel import select
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel
@@ -38,8 +38,8 @@ class WorkspaceService(BaseService):
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")
             statement = statement.limit(limit)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def list_workspaces(
         self, user_id: UserID, limit: int | None = None
@@ -59,8 +59,8 @@ class WorkspaceService(BaseService):
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")
             statement = statement.limit(limit)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     @require_access_level(AccessLevel.ADMIN)
     async def create_workspace(
@@ -75,12 +75,14 @@ class WorkspaceService(BaseService):
         kwargs = {
             "name": name,
             "owner_id": owner_id,
-            "users": users or [],
+            # Workspace model defines the relationship as "members"
+            "members": users or [],
         }
         if override_id:
             kwargs["id"] = override_id
         workspace = Workspace(**kwargs)
         self.session.add(workspace)
+        await self.session.flush()
 
         # Create ownership record
         ownership = Ownership(
@@ -98,8 +100,8 @@ class WorkspaceService(BaseService):
     async def get_workspace(self, workspace_id: WorkspaceID) -> Workspace | None:
         """Retrieve a workspace by ID."""
         statement = select(Workspace).where(Workspace.id == workspace_id)
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
@@ -124,8 +126,8 @@ class WorkspaceService(BaseService):
                 "There must be at least one workspace in the organization."
             )
         statement = select(Workspace).where(Workspace.id == workspace_id)
-        result = await self.session.exec(statement)
-        workspace = result.one()
+        result = await self.session.execute(statement)
+        workspace = result.scalar_one()
         await self.session.delete(workspace)
         await self.session.commit()
 
@@ -140,5 +142,5 @@ class WorkspaceService(BaseService):
             )
         if params.name:
             statement = statement.where(Workspace.name == params.name)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()

@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 
 from slugify import slugify
-from sqlmodel import select
+from sqlalchemy import select
 
 from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
@@ -18,8 +18,8 @@ class TagsService(BaseService):
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
         statement = select(Tag).where(Tag.owner_id == workspace_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_tag(self, tag_id: TagID) -> Tag:
         workspace_id = self.role.workspace_id
@@ -29,8 +29,8 @@ class TagsService(BaseService):
             Tag.owner_id == workspace_id,
             Tag.id == tag_id,
         )
-        result = await self.session.exec(statement)
-        return result.one()
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     async def get_tag_by_ref(self, ref: str) -> Tag:
         """Get a tag by its ref."""
@@ -41,8 +41,8 @@ class TagsService(BaseService):
             Tag.owner_id == workspace_id,
             Tag.ref == ref,
         )
-        result = await self.session.exec(statement)
-        return result.one()
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     async def get_tag_by_ref_or_id(self, tag_identifier: str) -> Tag:
         """Get a tag by either ref or ID."""
@@ -67,7 +67,7 @@ class TagsService(BaseService):
         ref = slugify(tag.name)
 
         # Check if ref already exists
-        existing = await self.session.exec(
+        existing = await self.session.execute(
             select(Tag).where(Tag.ref == ref, Tag.owner_id == workspace_id)
         )
         if existing.one_or_none():
