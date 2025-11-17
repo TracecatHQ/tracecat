@@ -1,6 +1,6 @@
 import pytest
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -59,8 +59,8 @@ class TestCaseFieldsIntegration:
 
         # Query the database to verify fields row exists for this case
         statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.exec(statement)
-        case_fields = result.one_or_none()
+        result = await session.execute(statement)
+        case_fields = result.scalar_one_or_none()
         assert case_fields is not None
 
         # Verify get_fields returns the row with metadata but no custom fields
@@ -142,8 +142,8 @@ class TestCaseFieldsIntegration:
 
         # Query the fields directly from the database to verify
         statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.exec(statement)
-        case_fields = result.one_or_none()
+        result = await session.execute(statement)
+        case_fields = result.scalar_one_or_none()
         assert case_fields is not None
 
         # Now check the values of the fields
@@ -287,12 +287,12 @@ class TestCaseFieldsIntegration:
 
         # Verify case is deleted
         case_statement = select(Case).where(Case.id == case_id)
-        case_result = await session.exec(case_statement)
+        case_result = await session.execute(case_statement)
         assert case_result.first() is None
 
         # Verify fields were also deleted due to cascade delete
         fields_statement = select(CaseFields).where(CaseFields.id == fields_id)
-        fields_result = await session.exec(fields_statement)
+        fields_result = await session.execute(fields_statement)
         assert fields_result.one_or_none() is None
 
 
@@ -339,8 +339,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id == test_user.id
 
     async def test_update_case_assignee(
@@ -364,8 +364,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id == test_user.id
 
     async def test_remove_case_assignee(
@@ -390,8 +390,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id is None
 
     async def test_list_cases_with_assignee_filtering(

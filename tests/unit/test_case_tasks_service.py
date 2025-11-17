@@ -2,7 +2,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus

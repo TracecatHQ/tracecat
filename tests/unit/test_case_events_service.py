@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -497,7 +497,7 @@ class TestCaseEventsService:
         await case_events_service.session.commit()
 
         # Move the first event outside the dedupe window.
-        await case_events_service.session.exec(
+        await case_events_service.session.execute(
             sa.update(CaseEvent)
             .where(CaseEvent.id == first_event.id)
             .values(created_at=datetime.now(UTC) - timedelta(minutes=10))

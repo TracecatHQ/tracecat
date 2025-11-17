@@ -1,6 +1,6 @@
 import pytest
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
@@ -63,8 +63,8 @@ async def test_compute_case_durations_from_events(
     assert value.duration is None
 
     initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
-    initial_duration = await session.exec(initial_stmt)
-    initial_record = initial_duration.one()
+    initial_duration = await session.execute(initial_stmt)
+    initial_record = initial_duration.scalar_one()
     assert initial_record.definition_id == metric.id
     assert initial_record.start_event_id == value.start_event_id
     assert initial_record.end_event_id is None
@@ -84,8 +84,8 @@ async def test_compute_case_durations_from_events(
     assert value.duration.total_seconds() >= 0
 
     duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
-    stored_duration = await session.exec(duration_stmt)
-    record = stored_duration.one()
+    stored_duration = await session.execute(duration_stmt)
+    record = stored_duration.scalar_one()
     assert record.definition_id == metric.id
     assert record.start_event_id is not None
     assert record.end_event_id == value.end_event_id
