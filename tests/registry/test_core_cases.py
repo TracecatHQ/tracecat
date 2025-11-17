@@ -47,6 +47,7 @@ def mock_case():
     case.created_at = datetime.now()
     case.updated_at = datetime.now()
     case.case_number = 1234
+    case.short_id = "CASE-1234"
     case.payload = {"alert_type": "security", "severity": "high"}
     case.tags = []  # Empty list of tags by default
 
@@ -765,7 +766,7 @@ class TestCoreListCases:
         # Check that the required fields are present
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
         assert "created_at" in case_result
         assert "updated_at" in case_result
         assert case_result["status"] == mock_case.status.value
@@ -896,7 +897,7 @@ class TestCoreSearchCases:
         # Check that the required fields are present
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
         assert "created_at" in case_result
         assert "updated_at" in case_result
         assert case_result["status"] == mock_case.status.value
@@ -941,7 +942,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_status(self, mock_with_session, mock_case):
@@ -982,7 +983,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_priority(self, mock_with_session, mock_case):
@@ -1023,7 +1024,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_severity(self, mock_with_session, mock_case):
@@ -1064,7 +1065,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_tags(self, mock_with_session, mock_case):
@@ -1158,7 +1159,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_ordering(self, mock_with_session, mock_case):
@@ -1249,7 +1250,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_empty_result(self, mock_with_session):
@@ -1501,7 +1502,7 @@ class TestCoreSearchCasesWithDateFilters:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_limit_validation(self, mock_with_session):

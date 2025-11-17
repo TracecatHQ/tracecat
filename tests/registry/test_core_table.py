@@ -8,7 +8,7 @@ import orjson
 import pytest
 from asyncpg import DuplicateTableError
 from sqlalchemy.exc import ProgrammingError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
