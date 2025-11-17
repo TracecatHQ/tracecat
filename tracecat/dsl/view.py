@@ -234,10 +234,6 @@ class RFGraph(TSObject):
                     "data": {
                         "type": "trigger",
                         "title": "Trigger",
-                        "status": "offline",
-                        "isConfigured": False,
-                        # "webhook": workflow.webhook.to_dict(),
-                        # "schedules": workflow.schedules or [],
                     },
                 }
             ],

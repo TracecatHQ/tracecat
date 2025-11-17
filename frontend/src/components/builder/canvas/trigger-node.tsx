@@ -41,9 +41,6 @@ import { useWorkflow } from "@/providers/workflow"
 
 export type TriggerNodeData = {
   title: string
-  status: "online" | "offline"
-  isConfigured: boolean
-  entrypointId?: string
 }
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
