@@ -2367,6 +2367,7 @@ sqlalchemy==2.0.43 \
     #   alembic-utils
     #   fastapi-users-db-sqlalchemy
     #   sqlmodel
+    #   tracecat
 sqlmodel==0.0.18 \
     --hash=sha256:2e520efe03810ef2c268a1004cfc5ef8f8a936312232f38d6c8e62c11af2cac3 \
     --hash=sha256:d70fdf8fe595e30a918660cf4537b9c5fc2fffdbfcba851a0135de73c3ebcbb7
