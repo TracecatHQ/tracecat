@@ -256,7 +256,7 @@ async def search_cases(
                 id=case.id,
                 created_at=case.created_at,
                 updated_at=case.updated_at,
-                short_id=f"CASE-{case.case_number:04d}",
+                short_id=case.short_id,
                 summary=case.summary,
                 status=case.status,
                 priority=case.priority,
@@ -313,7 +313,7 @@ async def get_case(
     # Match up the fields with the case field definitions
     return CaseRead(
         id=case.id,
-        short_id=f"CASE-{case.case_number:04d}",
+        short_id=case.short_id,
         created_at=case.created_at,
         updated_at=case.updated_at,
         summary=case.summary,

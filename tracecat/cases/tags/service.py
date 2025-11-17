@@ -3,9 +3,9 @@ from collections.abc import Sequence
 from typing import cast
 
 from slugify import slugify
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import select
 
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
@@ -28,8 +28,8 @@ class CaseTagsService(BaseWorkspaceService):
             Case.owner_id == workspace_id,
             Case.id == case_id,
         )
-        result = await self.session.exec(stmt)
-        case = result.one_or_none()
+        result = await self.session.execute(stmt)
+        case = result.scalar_one_or_none()
         if case is None:
             raise TracecatNotFoundError(f"Case {case_id} not found in this workspace.")
         return case
@@ -66,8 +66,8 @@ class CaseTagsService(BaseWorkspaceService):
             raise ValueError("Workspace ID is required")
 
         stmt = select(CaseTag).where(CaseTag.owner_id == workspace_id)
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_tag(self, tag_id: CaseTagID) -> CaseTag:
         """Get a case tag by ID scoped to the current workspace."""
@@ -79,8 +79,8 @@ class CaseTagsService(BaseWorkspaceService):
             CaseTag.owner_id == workspace_id,
             CaseTag.id == tag_id,
         )
-        result = await self.session.exec(stmt)
-        return result.one()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def get_tag_by_ref(self, ref: str) -> CaseTag:
         """Get a case tag by its slug reference."""
@@ -92,8 +92,8 @@ class CaseTagsService(BaseWorkspaceService):
             CaseTag.owner_id == workspace_id,
             CaseTag.ref == ref,
         )
-        result = await self.session.exec(stmt)
-        return result.one()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def get_tag_by_ref_or_id(self, tag_identifier: str) -> CaseTag:
         """Get a case tag by either UUID or slug; gracefully handle free-form names."""
@@ -138,7 +138,7 @@ class CaseTagsService(BaseWorkspaceService):
 
         ref = slugify(params.name)
 
-        existing = await self.session.exec(
+        existing = await self.session.execute(
             select(CaseTag).where(CaseTag.owner_id == workspace_id, CaseTag.ref == ref)
         )
         if existing.one_or_none():
@@ -164,7 +164,7 @@ class CaseTagsService(BaseWorkspaceService):
                 if owner_id is None:
                     raise ValueError("Case tag owner is required")
 
-                existing = await self.session.exec(
+                existing = await self.session.execute(
                     select(CaseTag).where(
                         CaseTag.owner_id == owner_id,
                         CaseTag.ref == new_ref,
@@ -193,8 +193,8 @@ class CaseTagsService(BaseWorkspaceService):
         onclause = cast(ColumnElement[bool], CaseTagLink.tag_id == CaseTag.id)
         condition = cast(ColumnElement[bool], CaseTagLink.case_id == case_id)
         stmt = select(CaseTag).join(CaseTagLink, onclause).where(condition)
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_case_tag(
         self, case_id: uuid.UUID, tag_id: CaseTagID
@@ -204,8 +204,8 @@ class CaseTagsService(BaseWorkspaceService):
             CaseTagLink.case_id == case_id,
             CaseTagLink.tag_id == tag_id,
         )
-        result = await self.session.exec(stmt)
-        return result.one_or_none()
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def add_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> CaseTag:
         """Add a tag to a case by ID or ref."""
@@ -219,8 +219,8 @@ class CaseTagsService(BaseWorkspaceService):
             CaseTagLink.case_id == case_id,
             CaseTagLink.tag_id == tag.id,
         )
-        result = await self.session.exec(stmt)
-        existing = result.one_or_none()
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
 
         if existing:
             return tag  # Already exists, return tag

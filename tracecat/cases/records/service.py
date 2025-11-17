@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlmodel import col, func, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -45,8 +45,8 @@ class CaseRecordService(BaseWorkspaceService):
             .select_from(CaseRecord)
             .where(CaseRecord.case_id == case.id)
         )
-        result = await self.session.exec(stmt)
-        count = result.one() or 0
+        result = await self.session.execute(stmt)
+        count = result.scalar_one() or 0
 
         if count >= config.TRACECAT__MAX_RECORDS_PER_CASE:
             raise TracecatValidationError(
@@ -67,13 +67,13 @@ class CaseRecordService(BaseWorkspaceService):
             select(CaseRecord)
             .where(CaseRecord.case_id == case.id)
             .options(
-                selectinload(CaseRecord.entity),  # type: ignore
-                selectinload(CaseRecord.record),  # type: ignore
+                selectinload(CaseRecord.entity),
+                selectinload(CaseRecord.record),
             )
-            .order_by(col(CaseRecord.created_at).desc())
+            .order_by(CaseRecord.created_at.desc())
         )
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_case_record(
         self, case: Case, record_link_id: uuid.UUID
@@ -94,12 +94,12 @@ class CaseRecordService(BaseWorkspaceService):
                 CaseRecord.id == record_link_id,
             )
             .options(
-                selectinload(CaseRecord.entity),  # type: ignore
-                selectinload(CaseRecord.record),  # type: ignore
+                selectinload(CaseRecord.entity),
+                selectinload(CaseRecord.record),
             )
         )
-        result = await self.session.exec(stmt)
-        return result.first()
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
     async def create_case_record(
         self, case: Case, params: CaseRecordCreate
@@ -191,7 +191,7 @@ class CaseRecordService(BaseWorkspaceService):
             CaseRecord.case_id == case.id,
             CaseRecord.record_id == params.entity_record_id,
         )
-        existing = await self.session.exec(existing_stmt)
+        existing = await self.session.execute(existing_stmt)
         if existing.first():
             raise TracecatValidationError(
                 f"Record {params.entity_record_id} is already linked to this case"
@@ -199,7 +199,7 @@ class CaseRecordService(BaseWorkspaceService):
 
         # Get entity for the record
         entity_stmt = select(Entity).where(Entity.id == entity_record.entity_id)
-        entity = (await self.session.exec(entity_stmt)).one()
+        entity = (await self.session.execute(entity_stmt)).scalar_one()
 
         # Create the link
         case_record = CaseRecord(

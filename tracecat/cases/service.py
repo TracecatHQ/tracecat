@@ -5,10 +5,10 @@ from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
+from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
-from sqlmodel import and_, cast, col, desc, func, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -121,17 +121,15 @@ class CasesService(BaseWorkspaceService):
                 CaseTask.case_id,
                 func.count().label("total"),
                 func.sum(
-                    sa.case(
-                        (col(CaseTask.status) == CaseTaskStatus.COMPLETED, 1), else_=0
-                    )
+                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
                 ).label("completed"),
             )
-            .where(col(CaseTask.case_id).in_(case_ids))
-            .group_by(col(CaseTask.case_id))
+            .where(CaseTask.case_id.in_(case_ids))
+            .group_by(CaseTask.case_id)
         )
 
-        result = await self.session.exec(stmt)
-        rows = result.all()
+        result = await self.session.execute(stmt)
+        rows = result.scalars().all()
 
         # Build result dict with defaults for cases without tasks
         counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
@@ -161,8 +159,8 @@ class CasesService(BaseWorkspaceService):
                 statement = statement.order_by(attr.desc())
             else:
                 statement = statement.order_by(attr)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def list_cases_paginated(
         self,
@@ -177,14 +175,14 @@ class CasesService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
-        filters: list[Any] = [col(Case.owner_id) == self.workspace_id]
+        filters: list[Any] = [Case.owner_id == self.workspace_id]
 
         # Base query - eagerly load tags and assignee
         stmt = (
             select(Case)
-            .options(selectinload(Case.tags))  # type: ignore
-            .options(selectinload(Case.assignee))  # type: ignore
-            .order_by(col(Case.created_at).desc(), col(Case.id).desc())
+            .options(selectinload(Case.tags))
+            .options(selectinload(Case.assignee))
+            .order_by(Case.created_at.desc(), Case.id.desc())
         )
 
         # Apply search term filter
@@ -199,24 +197,24 @@ class CasesService(BaseWorkspaceService):
             search_pattern = func.concat("%", search_term, "%")
             filters.append(
                 or_(
-                    col(Case.summary).ilike(search_pattern),
-                    col(Case.description).ilike(search_pattern),
+                    Case.summary.ilike(search_pattern),
+                    Case.description.ilike(search_pattern),
                 )
             )
 
         normalized_statuses = _normalize_filter_values(status)
         if normalized_statuses:
-            filters.append(col(Case.status).in_(normalized_statuses))
+            filters.append(Case.status.in_(normalized_statuses))
 
         # Apply priority filter
         normalized_priorities = _normalize_filter_values(priority)
         if normalized_priorities:
-            filters.append(col(Case.priority).in_(normalized_priorities))
+            filters.append(Case.priority.in_(normalized_priorities))
 
         # Apply severity filter
         normalized_severities = _normalize_filter_values(severity)
         if normalized_severities:
-            filters.append(col(Case.severity).in_(normalized_severities))
+            filters.append(Case.severity.in_(normalized_severities))
 
         # Apply assignee filter
         if include_unassigned or assignee_ids:
@@ -224,10 +222,10 @@ class CasesService(BaseWorkspaceService):
             assignee_conditions: list[Any] = []
 
             if unique_assignees:
-                assignee_conditions.append(col(Case.assignee_id).in_(unique_assignees))
+                assignee_conditions.append(Case.assignee_id.in_(unique_assignees))
 
             if include_unassigned:
-                assignee_conditions.append(col(Case.assignee_id).is_(None))
+                assignee_conditions.append(Case.assignee_id.is_(None))
 
             if assignee_conditions:
                 assignee_clause = (
@@ -241,7 +239,7 @@ class CasesService(BaseWorkspaceService):
         if tag_ids:
             for tag_id in tag_ids:
                 filters.append(
-                    col(Case.id).in_(
+                    Case.id.in_(
                         select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
                     )
                 )
@@ -266,28 +264,28 @@ class CasesService(BaseWorkspaceService):
             if params.reverse:
                 stmt = stmt.where(
                     or_(
-                        col(Case.created_at) > cursor_time,
+                        Case.created_at > cursor_time,
                         and_(
-                            col(Case.created_at) == cursor_time,
-                            col(Case.id) > cursor_id,
+                            Case.created_at == cursor_time,
+                            Case.id > cursor_id,
                         ),
                     )
-                ).order_by(col(Case.created_at).asc(), col(Case.id).asc())
+                ).order_by(Case.created_at.asc(), Case.id.asc())
             else:
                 stmt = stmt.where(
                     or_(
-                        col(Case.created_at) < cursor_time,
+                        Case.created_at < cursor_time,
                         and_(
-                            col(Case.created_at) == cursor_time,
-                            col(Case.id) < cursor_id,
+                            Case.created_at == cursor_time,
+                            Case.id < cursor_id,
                         ),
                     )
                 )
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
-        result = await self.session.exec(stmt)
-        all_cases = result.all()
+        result = await self.session.execute(stmt)
+        all_cases = result.scalars().all()
 
         # Check if there are more items
         has_more = len(all_cases) > params.limit
@@ -331,7 +329,7 @@ class CasesService(BaseWorkspaceService):
                     id=case.id,
                     created_at=case.created_at,
                     updated_at=case.updated_at,
-                    short_id=f"CASE-{case.case_number:04d}",
+                    short_id=case.short_id,
                     summary=case.summary,
                     status=case.status,
                     priority=case.priority,
@@ -393,7 +391,7 @@ class CasesService(BaseWorkspaceService):
         statement = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
-            .options(selectinload(Case.tags))  # type: ignore
+            .options(selectinload(Case.tags))
         )
 
         # Apply search term filter (search in summary and description)
@@ -408,25 +406,23 @@ class CasesService(BaseWorkspaceService):
             search_pattern = func.concat("%", search_term, "%")
             statement = statement.where(
                 or_(
-                    col(Case.summary).ilike(search_pattern),
-                    col(Case.description).ilike(search_pattern),
+                    Case.summary.ilike(search_pattern),
+                    Case.description.ilike(search_pattern),
                 )
             )
 
         # Apply status filter
-        normalized_statuses = _normalize_filter_values(status)
-        if normalized_statuses:
-            statement = statement.where(col(Case.status).in_(normalized_statuses))
+        if normalized_statuses := _normalize_filter_values(status):
+            statement = statement.where(Case.status.in_(normalized_statuses))
 
         # Apply priority filter
-        normalized_priorities = _normalize_filter_values(priority)
-        if normalized_priorities:
-            statement = statement.where(col(Case.priority).in_(normalized_priorities))
+        if normalized_priorities := _normalize_filter_values(priority):
+            statement = statement.where(Case.priority.in_(normalized_priorities))
 
         # Apply severity filter
         normalized_severities = _normalize_filter_values(severity)
         if normalized_severities:
-            statement = statement.where(col(Case.severity).in_(normalized_severities))
+            statement = statement.where(Case.severity.in_(normalized_severities))
 
         # Apply tag filtering if specified (AND logic for multiple tags)
         if tag_ids:
@@ -465,8 +461,8 @@ class CasesService(BaseWorkspaceService):
             else:
                 statement = statement.order_by(attr)
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_case(
         self, case_id: uuid.UUID, *, track_view: bool = False
@@ -488,11 +484,11 @@ class CasesService(BaseWorkspaceService):
                 Case.owner_id == self.workspace_id,
                 Case.id == case_id,
             )
-            .options(selectinload(Case.tags))  # type: ignore
+            .options(selectinload(Case.tags))
         )
 
-        result = await self.session.exec(statement)
-        case = result.first()
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
 
         if case and track_view:
             try:
@@ -521,6 +517,7 @@ class CasesService(BaseWorkspaceService):
 
     async def create_case(self, params: CaseCreate) -> Case:
         try:
+            now = datetime.now(UTC)
             # Create the base case first
             case = Case(
                 owner_id=self.workspace_id,
@@ -531,6 +528,8 @@ class CasesService(BaseWorkspaceService):
                 status=params.status,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
+                created_at=now,
+                updated_at=now,
             )
 
             self.session.add(case)
@@ -755,7 +754,7 @@ class CaseFieldsService(BaseWorkspaceService):
         Args:
             field_id: The name of the field to delete
         """
-        if field_id in CaseFields.model_fields:
+        if field_id in CaseFields.__table__.columns:
             raise ValueError(f"Field {field_id} is a reserved field")
 
         await self.editor.delete_column(field_id)
@@ -866,8 +865,8 @@ class CaseCommentsService(BaseWorkspaceService):
             CaseComment.id == comment_id,
         )
 
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def list_comments(
         self, case: Case, *, with_users: bool = True
@@ -889,17 +888,17 @@ class CaseCommentsService(BaseWorkspaceService):
                 .where(CaseComment.case_id == case.id)
                 .order_by(cast(CaseComment.created_at, sa.DateTime))
             )
-            result = await self.session.exec(statement)
-            return list(result.all())
+            result = await self.session.execute(statement)
+            return list(result.tuples().all())
         else:
             statement = (
                 select(CaseComment)
                 .where(CaseComment.case_id == case.id)
                 .order_by(cast(CaseComment.created_at, sa.DateTime))
             )
-            result = await self.session.exec(statement)
+            result = await self.session.execute(statement)
             # Return in the same format as the join query for consistency
-            return [(comment, None) for comment in result.all()]
+            return [(comment, None) for comment in result.scalars().all()]
 
     async def create_comment(
         self, case: Case, params: CaseCommentCreate
@@ -992,10 +991,15 @@ class CaseEventsService(BaseWorkspaceService):
         statement = (
             select(CaseEvent)
             .where(CaseEvent.case_id == case.id)
-            .order_by(desc(col(CaseEvent.created_at)))
+            # Order by creation time (newest first) and fall back to surrogate_id
+            # to ensure deterministic ordering when timestamps are equal.
+            .order_by(
+                CaseEvent.created_at.desc(),
+                CaseEvent.surrogate_id.desc(),
+            )
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
@@ -1036,11 +1040,11 @@ class CaseEventsService(BaseWorkspaceService):
                 CaseEvent.type == CaseEventType.CASE_VIEWED,
                 CaseEvent.user_id == self.role.user_id,
             )
-            .order_by(desc(col(CaseEvent.created_at)))
+            .order_by(CaseEvent.created_at.desc())
             .limit(1)
         )
-        result = await self.session.exec(stmt)
-        last_event = result.first()
+        result = await self.session.execute(stmt)
+        last_event = result.scalars().first()
         if last_event:
             last_created_at = last_event.created_at
             if last_created_at.tzinfo is None:
@@ -1074,12 +1078,12 @@ class CaseTasksService(BaseWorkspaceService):
                 CaseTask.case_id == case_id,
             )
             .order_by(
-                col(CaseTask.priority).desc(),
+                CaseTask.priority.desc(),
                 cast(CaseTask.created_at, sa.DateTime),
             )
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_task(self, task_id: uuid.UUID) -> CaseTask:
         """Get a task by ID.
@@ -1097,8 +1101,8 @@ class CaseTasksService(BaseWorkspaceService):
             CaseTask.owner_id == self.workspace_id,
             CaseTask.id == task_id,
         )
-        result = await self.session.exec(statement)
-        task = result.first()
+        result = await self.session.execute(statement)
+        task = result.scalars().first()
         if not task:
             raise TracecatNotFoundError(f"Task {task_id} not found")
         return task
@@ -1120,8 +1124,8 @@ class CaseTasksService(BaseWorkspaceService):
             Case.owner_id == self.workspace_id,
             Case.id == case_id,
         )
-        result = await self.session.exec(statement)
-        case = result.first()
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
         if not case:
             raise TracecatNotFoundError(f"Case {case_id} not found")
 
@@ -1183,8 +1187,8 @@ class CaseTasksService(BaseWorkspaceService):
             Case.owner_id == self.workspace_id,
             Case.id == task.case_id,
         )
-        result = await self.session.exec(statement)
-        case = result.first()
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
         if not case:
             raise TracecatNotFoundError(f"Case {task.case_id} not found")
 
@@ -1295,8 +1299,8 @@ class CaseTasksService(BaseWorkspaceService):
             Case.owner_id == self.workspace_id,
             Case.id == task.case_id,
         )
-        result = await self.session.exec(statement)
-        case = result.first()
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
         if not case:
             raise TracecatNotFoundError(f"Case {task.case_id} not found")
 
