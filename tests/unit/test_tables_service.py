@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table

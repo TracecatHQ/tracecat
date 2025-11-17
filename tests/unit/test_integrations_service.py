@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr, ValidationError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import OAuthIntegration

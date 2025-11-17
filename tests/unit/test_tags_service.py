@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from sqlalchemy.exc import NoResultFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace
@@ -51,7 +51,7 @@ async def workflow_id(
         entrypoint=None,
         returns=None,
         object=None,
-    )  # type: ignore
+    )
     session.add(workflow)
     await session.commit()
     try:

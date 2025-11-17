@@ -1,9 +1,9 @@
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
@@ -407,17 +407,21 @@ class TestCascadeDeletion:
         )
         # Verify exists
         assert (
-            await session.exec(select(EntityField).where(EntityField.entity_id == e.id))
+            await session.execute(
+                select(EntityField).where(EntityField.entity_id == e.id)
+            )
         ).first() is not None
         # Delete entity
         await entities_service.delete_entity(e)
         # Fields should be gone
         assert (
-            await session.exec(select(EntityField).where(EntityField.entity_id == e.id))
+            await session.execute(
+                select(EntityField).where(EntityField.entity_id == e.id)
+            )
         ).first() is None
         # Options should also be gone
         assert (
-            await session.exec(
+            await session.execute(
                 select(EntityFieldOption).where(EntityFieldOption.field_id == f.id)
             )
         ).first() is None

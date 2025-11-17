@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.entities.enums import FieldType
