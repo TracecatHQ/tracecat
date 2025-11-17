@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from typing import Any, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -17,7 +16,7 @@ class BaseService:
 
     service_name: str
 
-    def __init__(self, session: SQLModelAsyncSession, role: Role | None = None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         self.session = session
         self.role = role or ctx_role.get()
         self.logger = logger.bind(service=self.service_name)
@@ -43,38 +42,6 @@ class BaseService:
 
 class BaseWorkspaceService(BaseService):
     """Base class for services that require a workspace."""
-
-    def __init__(self, session: SQLModelAsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError(
-                f"{self.service_name} service requires workspace"
-            )
-        self.workspace_id = self.role.workspace_id
-
-
-class BaseSAService(BaseService):
-    """Base class for SQLAlchemy services. Temporary until we fully migrate to SQLAlchemy."""
-
-    service_name: str
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.session = session
-        self.role = role or ctx_role.get()
-        self.logger = logger.bind(service=self.service_name)
-
-    @classmethod
-    @asynccontextmanager
-    async def with_session(
-        cls,
-        role: Role | None = None,
-    ) -> AsyncGenerator[Self, None]:
-        async with get_async_session_context_manager() as session:
-            yield cls(session, role=role)
-
-
-class BaseSAWorkspaceService(BaseSAService):
-    """Base class for SQLAlchemy services that require a workspace. Temporary until we fully migrate to SQLAlchemy."""
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)

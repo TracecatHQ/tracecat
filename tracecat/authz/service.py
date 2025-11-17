@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlmodel import and_, select
+from sqlalchemy import and_, select
 
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
@@ -24,8 +24,8 @@ class MembershipService(BaseService):
     async def list_memberships(self, workspace_id: WorkspaceID) -> Sequence[Membership]:
         """List all workspace memberships."""
         statement = select(Membership).where(Membership.workspace_id == workspace_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
@@ -37,7 +37,7 @@ class MembershipService(BaseService):
                 Membership.user_id == User.id,
             )
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         return [
             WorkspaceMember(
                 user_id=user.id,
@@ -47,7 +47,7 @@ class MembershipService(BaseService):
                 org_role=user.role,
                 workspace_role=WorkspaceRole(ws_role),
             )
-            for user, ws_role in result.all()
+            for user, ws_role in result.scalars().all()
         ]
 
     async def get_membership(
@@ -57,8 +57,8 @@ class MembershipService(BaseService):
         statement = select(Membership).where(
             Membership.user_id == user_id, Membership.workspace_id == workspace_id
         )
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
         """List all workspace memberships for a specific user.
@@ -66,8 +66,8 @@ class MembershipService(BaseService):
         This is used by the authorization middleware to cache user permissions.
         """
         statement = select(Membership).where(Membership.user_id == user_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def create_membership(
