@@ -2,17 +2,15 @@
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import NoResultFound
 
-from tracecat.api.app import app
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session
 from tracecat.db.models import Action, Workflow, Workspace
+from tracecat.workflow.actions.service import WorkflowActionService
 
 
 @pytest.fixture
@@ -69,19 +67,11 @@ async def test_list_actions_success(
     mock_action: Action,
 ) -> None:
     """Test GET /actions returns list of actions."""
-    mock_session = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.all = MagicMock(return_value=[mock_action])
-    mock_session.exec.return_value = mock_result
+    with patch.object(
+        WorkflowActionService, "list_actions", new_callable=AsyncMock
+    ) as mock_list:
+        mock_list.return_value = [mock_action]
 
-    # Override get_async_session dependency
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
-
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    try:
-        # Make request
         workflow_id = str(mock_workflow.id)
         response = client.get(
             "/actions",
@@ -91,15 +81,11 @@ async def test_list_actions_success(
             },
         )
 
-        # Assertions
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data) == 1
         assert data[0]["title"] == "Test Action"
         assert data[0]["type"] == "core.http_request"
-    finally:
-        # Clean up override
-        app.dependency_overrides.pop(get_async_session, None)
 
 
 @pytest.mark.anyio
@@ -107,24 +93,18 @@ async def test_create_action_success(
     client: TestClient,
     test_admin_role: Role,
     mock_workflow: Workflow,
+    mock_action: Action,
 ) -> None:
     """Test POST /actions creates a new action."""
-    mock_session = AsyncMock()
-    mock_session.add = MagicMock()
-    mock_session.commit = AsyncMock()
-    mock_session.refresh = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.first = MagicMock(return_value=None)
-    mock_session.exec.return_value = mock_result
+    created_action = mock_action
+    created_action.title = "New Action"
 
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
+    with patch.object(
+        WorkflowActionService, "create_action", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.return_value = created_action
 
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    # Make request
-    workflow_id = str(mock_workflow.id)
-    try:
+        workflow_id = str(mock_workflow.id)
         response = client.post(
             "/actions",
             params={
@@ -138,12 +118,8 @@ async def test_create_action_success(
                 "is_interactive": False,
             },
         )
-    finally:
-        app.dependency_overrides.pop(get_async_session, None)
 
-    # Assertions - This will actually hit the database
-    # Just check it doesn't error
-    assert response.status_code in [status.HTTP_200_OK, status.HTTP_201_CREATED]
+        assert response.status_code in [status.HTTP_200_OK, status.HTTP_201_CREATED]
 
 
 @pytest.mark.anyio
@@ -153,21 +129,14 @@ async def test_create_action_conflict(
     mock_workflow: Workflow,
 ) -> None:
     """Test POST /actions with duplicate ref returns 409."""
-    mock_session = AsyncMock()
-    mock_session.add = MagicMock()
-    mock_session.commit = AsyncMock()
-    mock_session.refresh = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.first = MagicMock(return_value=object())
-    mock_session.exec.return_value = mock_result
+    with patch.object(
+        WorkflowActionService, "create_action", new_callable=AsyncMock
+    ) as mock_create:
+        from tracecat.exceptions import TracecatValidationError
 
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
+        mock_create.side_effect = TracecatValidationError("ref exists")
 
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    workflow_id = str(mock_workflow.id)
-    try:
+        workflow_id = str(mock_workflow.id)
         response = client.post(
             "/actions",
             params={
@@ -181,11 +150,8 @@ async def test_create_action_conflict(
                 "is_interactive": False,
             },
         )
-    finally:
-        app.dependency_overrides.pop(get_async_session, None)
 
-    # Should return 409 conflict
-    assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.status_code == status.HTTP_409_CONFLICT
 
 
 @pytest.mark.anyio
@@ -195,22 +161,14 @@ async def test_get_action_not_found(
     mock_workflow: Workflow,
 ) -> None:
     """Test GET /actions/{action_id} with non-existent ID returns 404."""
-    mock_session = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.one = MagicMock(side_effect=NoResultFound())
-    mock_session.exec.return_value = mock_result
+    with patch.object(
+        WorkflowActionService, "get_action", new_callable=AsyncMock
+    ) as mock_get:
+        mock_get.return_value = None
 
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
+        workflow_id = str(mock_workflow.id)
+        fake_action_id = "act-00000000000000000000000000000000"
 
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    workflow_id = str(mock_workflow.id)
-    # Use proper action ID format: act-[0-9a-f]{32}
-    fake_action_id = "act-00000000000000000000000000000000"
-
-    # Make request
-    try:
         response = client.get(
             f"/actions/{fake_action_id}",
             params={
@@ -218,11 +176,8 @@ async def test_get_action_not_found(
                 "workflow_id": workflow_id,
             },
         )
-    finally:
-        app.dependency_overrides.pop(get_async_session, None)
 
-    # Should return 404
-    assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -231,21 +186,13 @@ async def test_update_action_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test POST /actions/{action_id} with non-existent ID returns 404."""
-    mock_session = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.one = MagicMock(side_effect=NoResultFound())
-    mock_session.exec.return_value = mock_result
+    with patch.object(
+        WorkflowActionService, "get_action", new_callable=AsyncMock
+    ) as mock_get:
+        mock_get.return_value = None
 
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
+        fake_action_id = "act-00000000000000000000000000000000"
 
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    # Use proper action ID format: act-[0-9a-f]{32}
-    fake_action_id = "act-00000000000000000000000000000000"
-
-    # Make request
-    try:
         response = client.post(
             f"/actions/{fake_action_id}",
             params={
@@ -255,11 +202,8 @@ async def test_update_action_not_found(
                 "title": "Updated Title",
             },
         )
-    finally:
-        app.dependency_overrides.pop(get_async_session, None)
 
-    # Should return 404
-    assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -272,19 +216,11 @@ async def test_delete_action_success(
     """Test DELETE /actions/{action_id} deletes action."""
     workflow_id = str(mock_workflow.id)
 
-    mock_session = AsyncMock()
-    mock_result = AsyncMock()
-    mock_result.one = MagicMock(return_value=mock_action)
-    mock_session.exec.return_value = mock_result
-    mock_session.delete = AsyncMock()
-    mock_session.commit = AsyncMock()
+    with patch.object(
+        WorkflowActionService, "get_action", new_callable=AsyncMock
+    ) as mock_get:
+        mock_get.return_value = mock_action
 
-    async def get_mock_session() -> AsyncMock:
-        return mock_session
-
-    app.dependency_overrides[get_async_session] = get_mock_session
-
-    try:
         delete_response = client.delete(
             f"/actions/{mock_action.id}",
             params={
@@ -292,8 +228,5 @@ async def test_delete_action_success(
                 "workflow_id": workflow_id,
             },
         )
-    finally:
-        app.dependency_overrides.pop(get_async_session, None)
 
-    # Assertions
-    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT

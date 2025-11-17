@@ -13,6 +13,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Workspace
 from tracecat.logger import logger
+from tracecat.workspaces import router as workspaces_router
 
 
 @pytest.fixture
@@ -21,6 +22,7 @@ def mock_workspace_data() -> Workspace:
     workspace = Workspace(
         id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         name="Test Workspace",
+        settings={},
         owner_id=uuid.uuid4(),
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
@@ -35,7 +37,7 @@ async def test_list_workspaces_admin_success(
     mock_workspace_data: Workspace,
 ) -> None:
     """Test GET /workspaces returns all workspaces for admin."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.admin_list_workspaces.return_value = [mock_workspace_data]
         MockService.return_value = mock_svc
@@ -57,7 +59,7 @@ async def test_list_workspaces_user_success(
     test_workspace: Workspace,
 ) -> None:
     """Test GET /workspaces returns user's workspaces."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_workspaces.return_value = [test_workspace]
         MockService.return_value = mock_svc
@@ -80,7 +82,7 @@ async def test_create_workspace_success(
     mock_workspace_data: Workspace,
 ) -> None:
     """Test POST /workspaces creates a new workspace."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_workspace.return_value = mock_workspace_data
         MockService.return_value = mock_svc
@@ -107,7 +109,7 @@ async def test_create_workspace_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /workspaces with duplicate name returns 409."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_workspace.side_effect = IntegrityError(
             "", {}, Exception("Duplicate")
@@ -135,7 +137,7 @@ async def test_search_workspaces_success(
     mock_workspace_data: Workspace,
 ) -> None:
     """Test GET /workspaces/search with search term."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.search_workspaces.return_value = [mock_workspace_data]
         MockService.return_value = mock_svc
@@ -159,8 +161,8 @@ async def test_get_workspace_success(
 ) -> None:
     """Test GET /workspaces/{workspace_id} returns workspace details."""
     with (
-        patch("tracecat.workspaces.router.WorkspaceService") as MockService,
-        patch("tracecat.auth.credentials.MembershipService") as MockMembershipService,
+        patch.object(workspaces_router, "WorkspaceService") as MockService,
+        patch.object(workspaces_router, "MembershipService") as MockMembershipService,
     ):
         # Mock workspace service
         mock_svc = AsyncMock()
@@ -193,7 +195,7 @@ async def test_get_workspace_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workspaces/{workspace_id} with non-existent ID returns 404."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         # Return None to mimic service behavior when workspace is not found
         mock_svc.get_workspace.return_value = None
@@ -214,7 +216,7 @@ async def test_update_workspace_success(
     mock_workspace_data: Workspace,
 ) -> None:
     """Test PATCH /workspaces/{workspace_id} updates workspace."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.update_workspace.return_value = None
         MockService.return_value = mock_svc
@@ -237,7 +239,7 @@ async def test_delete_workspace_success(
     mock_workspace_data: Workspace,
 ) -> None:
     """Test DELETE /workspaces/{workspace_id} deletes workspace."""
-    with patch("tracecat.workspaces.router.WorkspaceService") as MockService:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.delete_workspace.return_value = None
         MockService.return_value = mock_svc
