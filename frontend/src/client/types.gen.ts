@@ -1286,7 +1286,7 @@ export type ChatEntity =
   | "case"
   | "agent_preset"
   | "agent_preset_builder"
-  | "workspace"
+  | "copilot"
 
 /**
  * Model for chat metadata with a single message.

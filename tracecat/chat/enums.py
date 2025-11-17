@@ -7,7 +7,7 @@ class ChatEntity(StrEnum):
     CASE = "case"
     AGENT_PRESET = "agent_preset"
     AGENT_PRESET_BUILDER = "agent_preset_builder"
-    WORKSPACE = "workspace"
+    COPILOT = "copilot"
 
 
 class MessageKind(StrEnum):

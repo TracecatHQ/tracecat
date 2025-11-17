@@ -75,7 +75,7 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const presetsEnabled = entityType === "case" || entityType === "workspace"
+  const presetsEnabled = entityType === "case" || entityType === "copilot"
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
     { enabled: presetsEnabled }

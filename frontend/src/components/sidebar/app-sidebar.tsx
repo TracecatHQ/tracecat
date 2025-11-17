@@ -74,9 +74,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const navMain: NavItem[] = [
     {
       title: "Chat",
-      url: `${basePath}/main-chat`,
+      url: `${basePath}/copilot`,
       icon: MessageSquareIcon,
-      isActive: pathname?.startsWith(`${basePath}/main-chat`),
+      isActive: pathname?.startsWith(`${basePath}/copilot`),
     },
     {
       title: "Workflows",

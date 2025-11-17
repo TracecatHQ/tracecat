@@ -112,7 +112,7 @@ class ChatService(BaseWorkspaceService):
                 )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
-        if entity_type == ChatEntity.WORKSPACE:
+        if entity_type == ChatEntity.COPILOT:
             return WorkspaceCopilotPrompts().instructions
         else:
             raise ValueError(
@@ -189,7 +189,7 @@ class ChatService(BaseWorkspaceService):
                     "Agent preset builder requires a default AI model with valid provider credentials. "
                     "Configure the default model in Organization settings before chatting."
                 ) from exc
-        elif chat_entity is ChatEntity.WORKSPACE:
+        elif chat_entity is ChatEntity.COPILOT:
             entity_instructions = await self._chat_entity_to_prompt(
                 chat.entity_type, chat
             )

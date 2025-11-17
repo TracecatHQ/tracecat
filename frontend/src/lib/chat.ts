@@ -205,12 +205,10 @@ export const ENTITY_TO_INVALIDATION: Record<
       })
     },
   },
-  workspace: {
+  copilot: {
     predicate: () => false,
     handler: (queryClient, workspaceId, entityId) => {
-      // Invalidate specific workspace query and workspace list
-      queryClient.invalidateQueries({ queryKey: ["workspace", entityId] })
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      // No invalidation logic for copilot
     },
   },
 }
