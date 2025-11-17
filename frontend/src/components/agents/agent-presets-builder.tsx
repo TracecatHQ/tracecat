@@ -6,8 +6,10 @@ import {
   Bot,
   Loader2,
   MessageCircle,
+  MoreVertical,
   Plus,
   RotateCcw,
+  Save,
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
@@ -49,6 +51,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Form,
   FormControl,
@@ -965,11 +973,20 @@ function AgentPresetForm({
               ? (preset?.name ?? "Agent preset")
               : "Create agent preset"}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            Configure prompts, tools, models, and approvals for reusable agents.
-          </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="icon"
+            onClick={() => handleSubmit()}
+            disabled={isSaving || !canSubmit}
+          >
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
+          </Button>
           {mode === "edit" && onDelete ? (
             <AlertDialog
               open={deleteDialogOpen}
@@ -980,17 +997,32 @@ function AgentPresetForm({
                 setDeleteDialogOpen(nextOpen)
               }}
             >
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isDeleting || isSaving}
-                >
-                  <Trash2 className="mr-2 size-4" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={isDeleting || isSaving}
+                  >
+                    <MoreVertical className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        setDeleteDialogOpen(true)
+                      }}
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Delete agent
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete this agent preset?</AlertDialogTitle>
@@ -1014,22 +1046,13 @@ function AgentPresetForm({
                         Deleting...
                       </span>
                     ) : (
-                      "Delete"
+                      "Delete agent"
                     )}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           ) : null}
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => handleSubmit()}
-            disabled={isSaving || !canSubmit}
-          >
-            {isSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-            {mode === "edit" ? "Save changes" : "Create preset"}
-          </Button>
         </div>
       </div>
       <ScrollArea className="flex-1">
@@ -1042,12 +1065,6 @@ function AgentPresetForm({
             className="flex flex-col gap-8 px-6 py-6 text-sm"
           >
             <section className="space-y-4">
-              <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Preset details</h3>
-                <p className="text-xs text-muted-foreground">
-                  Basic metadata for identifying this agent across Tracecat.
-                </p>
-              </header>
               <FormField
                 control={form.control}
                 name="name"
@@ -1113,12 +1130,6 @@ function AgentPresetForm({
             <Separator />
 
             <section className="space-y-4">
-              <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Model & runtime</h3>
-                <p className="text-xs text-muted-foreground">
-                  Choose the foundation model, optional overrides, and retries.
-                </p>
-              </header>
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -1245,12 +1256,6 @@ function AgentPresetForm({
             <Separator />
 
             <section className="space-y-4">
-              <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Prompt & behavior</h3>
-                <p className="text-xs text-muted-foreground">
-                  Define instructions and expected output shape.
-                </p>
-              </header>
               <FormField
                 control={form.control}
                 name="instructions"
@@ -1375,12 +1380,6 @@ function AgentPresetForm({
             <Separator />
 
             <section className="space-y-4">
-              <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Tools & approvals</h3>
-                <p className="text-xs text-muted-foreground">
-                  Declare tool access and manual approval requirements.
-                </p>
-              </header>
               <FormField
                 control={form.control}
                 name="actions"
@@ -1431,9 +1430,9 @@ function AgentPresetForm({
               />
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                  <label className="text-sm font-medium leading-none">
                     Approval rules
-                  </h4>
+                  </label>
                   <Button
                     type="button"
                     size="sm"
@@ -1548,12 +1547,6 @@ function AgentPresetForm({
             <Separator />
 
             <section className="space-y-4">
-              <header className="space-y-1">
-                <h3 className="text-sm font-semibold">Advanced</h3>
-                <p className="text-xs text-muted-foreground">
-                  Configure MCP servers, custom headers, and model arguments.
-                </p>
-              </header>
               <FormField
                 control={form.control}
                 name="mcpServerUrl"
@@ -1635,14 +1628,7 @@ function KeyValueFieldArray({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div>
-          <h4 className="text-xs font-semibold uppercase text-muted-foreground">
-            {title}
-          </h4>
-          {description ? (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
+        <label className="text-sm font-medium leading-none">{title}</label>
         <Button
           type="button"
           size="sm"
@@ -1655,9 +1641,14 @@ function KeyValueFieldArray({
         </Button>
       </div>
       {fields.length === 0 ? (
-        <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-          No entries yet.
-        </p>
+        <div className="space-y-1.5">
+          <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+            No entries yet.
+          </p>
+          {description ? (
+            <p className="text-[0.8rem] text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
       ) : (
         <div className="space-y-2">
           {fields.map((field, index) => (
@@ -1726,6 +1717,9 @@ function KeyValueFieldArray({
               </div>
             </div>
           ))}
+          {description ? (
+            <p className="text-[0.8rem] text-muted-foreground">{description}</p>
+          ) : null}
         </div>
       )}
       <datalist id={`${listId}-${name}-key`}>
