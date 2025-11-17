@@ -9,7 +9,6 @@ Create Date: 2025-10-26 14:06:11.873927
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -38,11 +37,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("values", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("environment", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("environment", sa.String(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=False),
         sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),

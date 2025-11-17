@@ -9,8 +9,6 @@ Create Date: 2024-09-03 16:57:04.031659
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel
-import sqlmodel.sql.sqltypes
 
 from alembic import op
 
@@ -27,7 +25,7 @@ def upgrade() -> None:
         "secret",
         sa.Column(
             "environment",
-            sqlmodel.sql.sqltypes.AutoString(),
+            sa.String(),
             nullable=False,
             server_default="default",
         ),

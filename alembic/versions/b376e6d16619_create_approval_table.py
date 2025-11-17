@@ -9,7 +9,6 @@ Create Date: 2025-10-17 13:37:04.811962
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -41,11 +40,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("session_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("tool_call_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("tool_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("tool_call_id", sa.String(), nullable=False),
+        sa.Column("tool_name", sa.String(), nullable=False),
         sa.Column(
             "tool_call_args", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
@@ -60,9 +59,9 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("reason", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("reason", sa.String(), nullable=True),
         sa.Column("decision", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("approved_by", sqlmodel.sql.sqltypes.GUID(), nullable=True),
+        sa.Column("approved_by", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("approved_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["approved_by"],

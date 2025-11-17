@@ -9,8 +9,6 @@ Create Date: 2024-10-11 17:32:12.582693
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -27,7 +25,7 @@ def upgrade() -> None:
     op.create_table(
         "organizationsecret",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -40,12 +38,12 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("encrypted_keys", sa.LargeBinary(), nullable=False),
-        sa.Column("environment", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("environment", sa.String(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
         sa.UniqueConstraint("name", "environment"),

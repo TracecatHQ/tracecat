@@ -9,7 +9,6 @@ Create Date: 2025-05-17 01:12:21.305684
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -42,11 +41,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("wf_exec_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("action_ref", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("action_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("wf_exec_id", sa.String(), nullable=False),
+        sa.Column("action_ref", sa.String(), nullable=False),
+        sa.Column("action_type", sa.String(), nullable=False),
         sa.Column(
             "type",
             postgresql.ENUM(
@@ -74,7 +73,7 @@ def upgrade() -> None:
             "response_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
         sa.Column("expires_at", sa.DateTime(), nullable=True),
-        sa.Column("actor", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("actor", sa.String(), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
     )
     op.create_index(op.f("ix_interaction_id"), "interaction", ["id"], unique=True)

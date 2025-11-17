@@ -9,7 +9,6 @@ Create Date: 2024-12-15 19:01:06.608544
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 
 from alembic import op
 
@@ -28,7 +27,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "registryrepository",
-        sa.Column("commit_sha", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("commit_sha", sa.String(), nullable=True),
     )
     # ### end Alembic commands ###
 
