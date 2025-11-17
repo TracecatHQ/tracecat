@@ -22,10 +22,13 @@ class WorkflowActionService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_action(self, action_id: ActionID) -> Action | None:
+    async def get_action(
+        self, action_id: ActionID, workflow_id: WorkflowID
+    ) -> Action | None:
         statement = select(Action).where(
             Action.owner_id == self.workspace_id,
             Action.id == action_id,
+            Action.workflow_id == workflow_id,
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()

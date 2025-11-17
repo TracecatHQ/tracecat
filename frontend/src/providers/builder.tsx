@@ -28,7 +28,7 @@ import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
-  workflowId: string | null
+  workflowId: string
   workspaceId: string
   selectedNodeId: string | null
   getNode: (id: string) => Node | undefined
@@ -173,7 +173,8 @@ export const WorkflowBuilderProvider: React.FC<
 
   const value = React.useMemo(
     () => ({
-      workflowId,
+      // safe: provider not rendered when !workflowId
+      workflowId: workflowId!,
       workspaceId,
       selectedNodeId,
       selectedActionEventRef,

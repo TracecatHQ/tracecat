@@ -83,7 +83,7 @@ async def get_action(
 ) -> ActionRead:
     """Get an action."""
     svc = WorkflowActionService(session, role=role)
-    action = await svc.get_action(action_id=action_id)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
     if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
@@ -129,13 +129,14 @@ async def get_action(
 async def update_action(
     role: WorkspaceUserRole,
     action_id: ActionID,
+    workflow_id: AnyWorkflowIDPath,
     params: ActionUpdate,
     session: AsyncDBSession,
 ) -> ActionRead:
     """Update an action."""
     # Fetch the action by id
     svc = WorkflowActionService(session, role=role)
-    action = await svc.get_action(action_id=action_id)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
     if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
@@ -148,11 +149,12 @@ async def update_action(
 async def delete_action(
     role: WorkspaceUserRole,
     action_id: ActionID,
+    workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> None:
     """Delete an action."""
     svc = WorkflowActionService(session, role=role)
-    action = await svc.get_action(action_id=action_id)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
     if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"

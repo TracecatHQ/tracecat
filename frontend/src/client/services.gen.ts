@@ -1668,6 +1668,7 @@ export const actionsGetAction = (
  * @param data The data for the request.
  * @param data.actionId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns ActionRead Successful Response
  * @throws ApiError
@@ -1683,6 +1684,7 @@ export const actionsUpdateAction = (
     },
     query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -1698,6 +1700,7 @@ export const actionsUpdateAction = (
  * @param data The data for the request.
  * @param data.actionId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1712,6 +1715,7 @@ export const actionsDeleteAction = (
     },
     query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",

@@ -5643,6 +5643,7 @@ export type ActionsGetActionResponse = ActionRead
 export type ActionsUpdateActionData = {
   actionId: string
   requestBody: ActionUpdate
+  workflowId: string
   workspaceId: string
 }
 
@@ -5650,6 +5651,7 @@ export type ActionsUpdateActionResponse = ActionRead
 
 export type ActionsDeleteActionData = {
   actionId: string
+  workflowId: string
   workspaceId: string
 }
 

@@ -314,7 +314,7 @@ export function useAppInfo() {
 export function useAction(
   actionId: string,
   workspaceId: string,
-  workflowId: string | null
+  workflowId: string
 ) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
@@ -336,6 +336,7 @@ export function useAction(
       return await actionsUpdateAction({
         workspaceId,
         actionId,
+        workflowId,
         requestBody: values,
       })
     },
