@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from slugify import slugify
-from sqlmodel import desc, func, select
+from sqlalchemy import func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, OutputType
@@ -27,10 +27,10 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = (
             select(AgentPreset)
             .where(AgentPreset.owner_id == self.workspace_id)
-            .order_by(desc(AgentPreset.created_at))
+            .order_by(AgentPreset.created_at.desc())
         )
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
@@ -72,8 +72,8 @@ class AgentPresetService(BaseWorkspaceService):
                 actions_set
             )
         )
-        result = await self.session.exec(stmt)
-        registry_actions = result.all()
+        result = await self.session.execute(stmt)
+        registry_actions = result.scalars().all()
         available_identifiers = {a.action for a in registry_actions}
         if missing_actions := actions_set - available_identifiers:
             raise TracecatValidationError(
@@ -165,8 +165,8 @@ class AgentPresetService(BaseWorkspaceService):
         if exclude_id is not None:
             stmt = stmt.where(AgentPreset.id != exclude_id)
 
-        result = await self.session.exec(stmt)
-        if result.first() is not None:
+        result = await self.session.execute(stmt)
+        if result.scalars().first() is not None:
             raise TracecatValidationError(
                 f"Agent preset slug '{slug}' is already in use for this workspace",
             )
@@ -178,8 +178,8 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPreset.owner_id == self.workspace_id,
             AgentPreset.id == preset_id,
         )
-        result = await self.session.exec(stmt)
-        return result.first()
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
     async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
@@ -187,8 +187,8 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPreset.owner_id == self.workspace_id,
             AgentPreset.slug == slug,
         )
-        result = await self.session.exec(stmt)
-        return result.first()
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
     def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
         return AgentConfig(

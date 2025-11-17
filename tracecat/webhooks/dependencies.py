@@ -8,8 +8,8 @@ from typing import Annotated, Any, cast
 
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import col, select
 
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
@@ -63,12 +63,12 @@ async def validate_incoming_webhook(
     NOte: The webhook ID here is the workflow ID.
     """
     async with get_async_session_context_manager() as session:
-        result = await session.exec(
+        result = await session.execute(
             select(Webhook).where(Webhook.workflow_id == workflow_id)
         )
         try:
             # One webhook per workflow
-            webhook = result.one()
+            webhook = result.scalar_one()
         except NoResultFound as e:
             logger.info("Webhook does not exist")
             raise HTTPException(
@@ -182,13 +182,13 @@ async def validate_workflow_definition(
     # Match the webhook id with the workflow id and get the latest version
     # of the workflow defitniion.
     async with get_async_session_context_manager() as session:
-        result = await session.exec(
+        result = await session.execute(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == workflow_id)
-            .order_by(col(WorkflowDefinition.version).desc())
+            .order_by(WorkflowDefinition.version.desc())
             .limit(1)
         )
-        defn = result.first()
+        defn = result.scalars().first()
         if not defn:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

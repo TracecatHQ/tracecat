@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 from slugify import slugify
-from sqlmodel import and_, or_, select
+from sqlalchemy import and_, or_, select
 
 from tracecat.db.models import OAuthIntegration, WorkspaceOAuthProvider
 from tracecat.identifiers import UserID
@@ -82,8 +82,8 @@ class IntegrationService(BaseWorkspaceService):
             WorkspaceOAuthProvider.provider_id == provider_id,
             WorkspaceOAuthProvider.grant_type == grant_type,
         )
-        result = await self.session.exec(statement)
-        return result.first() is not None
+        result = await self.session.execute(statement)
+        return result.scalars().first() is not None
 
     async def _generate_custom_provider_id(
         self, *, name: str, requested_id: str | None, grant_type: OAuthGrantType
@@ -106,8 +106,8 @@ class IntegrationService(BaseWorkspaceService):
         statement = select(WorkspaceOAuthProvider).where(
             WorkspaceOAuthProvider.owner_id == self.workspace_id
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_custom_provider(
         self, *, provider_key: ProviderKey
@@ -118,8 +118,8 @@ class IntegrationService(BaseWorkspaceService):
             WorkspaceOAuthProvider.provider_id == provider_key.id,
             WorkspaceOAuthProvider.grant_type == provider_key.grant_type,
         )
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     @staticmethod
     def _build_custom_provider_class(
@@ -268,8 +268,8 @@ class IntegrationService(BaseWorkspaceService):
         )
         if user_id is not None:
             statement = statement.where(OAuthIntegration.user_id == user_id)
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def list_integrations(
         self, *, provider_keys: set[ProviderKey] | None = None
@@ -288,8 +288,8 @@ class IntegrationService(BaseWorkspaceService):
                 for provider in provider_keys
             ]
             statement = statement.where(or_(*provider_conditions))
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     @staticmethod
     def _determine_endpoints(

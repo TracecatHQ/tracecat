@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 from pydantic_ai.tools import Tool
-from sqlmodel import col, func, or_, select
+from sqlalchemy import func, or_, select
 
-from tracecat.agent.preset.schemas import AgentPresetUpdate
+from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tools import build_agent_tools
 from tracecat.contexts import ctx_role
@@ -51,12 +51,19 @@ class ListAvailableActions(BaseModel):
     )
 
 
+class AgentToolSummary(TypedDict):
+    """Summary of an agent tool."""
+
+    action_id: str
+    description: str
+
+
 async def build_agent_preset_builder_tools(
     preset_id: uuid.UUID,
 ) -> list[Tool[Any]]:
     """Create tool instances bound to a specific preset ID."""
 
-    async def get_agent_preset_summary() -> dict[str, Any]:
+    async def get_agent_preset_summary() -> AgentPresetRead:
         """Return the latest configuration for this agent preset, including tools and approval rules."""
 
         async with _preset_service() as service:
@@ -64,11 +71,11 @@ async def build_agent_preset_builder_tools(
                 raise TracecatNotFoundError(
                     f"Agent preset with ID '{preset_id}' not found"
                 )
-        return preset.model_dump(mode="json")
+        return AgentPresetRead.model_validate(preset)
 
     async def list_available_agent_tools(
         params: ListAvailableActions,
-    ) -> list[dict[str, str]]:
+    ) -> list[AgentToolSummary]:
         """Return the list of available actions in the registry."""
         # Do naive contains + ilike search on the name column
         async with get_async_session_context_manager() as session:
@@ -79,11 +86,11 @@ async def build_agent_preset_builder_tools(
                     func.concat(
                         RegistryAction.namespace, ".", RegistryAction.name
                     ).ilike(f"%{params.query}%"),
-                    col(RegistryAction.description).ilike(f"%{params.query}%"),
+                    RegistryAction.description.ilike(f"%{params.query}%"),
                 )
             )
-            result = await session.exec(stmt)
-            actions = result.all()
+            result = await session.execute(stmt)
+            actions = result.scalars().all()
             logger.info(
                 "Listed available actions",
                 query_term=params.query,
@@ -91,13 +98,13 @@ async def build_agent_preset_builder_tools(
                 count=len(actions),
             )
             return [
-                {"action_id": ra.action, "description": ra.description}
+                AgentToolSummary(action_id=ra.action, description=ra.description)
                 for ra in actions
             ]
 
     async def update_agent_preset(
         params: AgentPresetUpdate,
-    ) -> dict[str, Any]:
+    ) -> AgentPresetRead:
         """Patch selected fields on the agent preset and return the updated record.
 
         Only include fields you want to change - omit unchanged fields so they remain untouched.
@@ -121,7 +128,7 @@ async def build_agent_preset_builder_tools(
             except TracecatValidationError as error:
                 # Surface builder validation issues to the model as retryable errors.
                 raise ModelRetry(str(error)) from error
-        return updated.model_dump(mode="json")
+        return AgentPresetRead.model_validate(updated)
 
     # Tracecat tools
     build_tools_result = await build_agent_tools(

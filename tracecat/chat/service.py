@@ -9,8 +9,8 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.tools import DeferredToolResults
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from sqlmodel import col, select
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.builder.tools import build_agent_preset_builder_tools
@@ -330,9 +330,9 @@ class ChatService(BaseWorkspaceService):
             Chat.owner_id == self.workspace_id,
         )
         if with_messages:
-            stmt = stmt.options(selectinload(Chat.messages))  # type: ignore
-        result = await self.session.exec(stmt)
-        return result.first()
+            stmt = stmt.options(selectinload(Chat.messages))
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
     async def list_chats(
         self,
@@ -354,10 +354,10 @@ class ChatService(BaseWorkspaceService):
         if entity_id:
             stmt = stmt.where(Chat.entity_id == entity_id)
 
-        stmt = stmt.order_by(col(Chat.created_at).desc()).limit(limit)
+        stmt = stmt.order_by(Chat.created_at.desc()).limit(limit)
 
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def update_chat(
         self,
@@ -467,16 +467,14 @@ class ChatService(BaseWorkspaceService):
                 DBChatMessage.chat_id == chat_id,
                 DBChatMessage.owner_id == self.workspace_id,
             )
-            .order_by(col(DBChatMessage.created_at).asc())
+            .order_by(DBChatMessage.created_at.asc())
         )
 
         if kinds:
-            stmt = stmt.where(
-                col(DBChatMessage.kind).in_({kind.value for kind in kinds})
-            )
+            stmt = stmt.where(DBChatMessage.kind.in_({kind.value for kind in kinds}))
 
-        result = await self.session.exec(stmt)
-        db_messages = result.all()
+        result = await self.session.execute(stmt)
+        db_messages = result.scalars().all()
 
         messages: list[ModelMessage] = []
         for db_msg in db_messages:

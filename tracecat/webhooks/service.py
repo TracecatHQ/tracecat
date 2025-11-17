@@ -1,5 +1,5 @@
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import Webhook
 from tracecat.identifiers import WorkflowID
@@ -14,5 +14,5 @@ async def get_webhook(
         Webhook.owner_id == workspace_id,
         Webhook.workflow_id == workflow_id,
     )
-    result = await session.exec(statement)
-    return result.first()
+    result = await session.execute(statement)
+    return result.scalars().first()

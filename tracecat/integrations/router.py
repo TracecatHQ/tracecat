@@ -5,7 +5,7 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import SecretStr
-from sqlmodel import select
+from sqlalchemy import select
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
@@ -414,7 +414,7 @@ async def connect_provider(
 
     # Clean up expired state entries before creating a new one
     stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
-    expired_states = await session.exec(stmt)
+    expired_states = await session.execute(stmt)
     for expired_state in expired_states:
         await session.delete(expired_state)
     await session.commit()

@@ -3,7 +3,7 @@ import os
 from typing import cast
 
 import aiofiles
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role

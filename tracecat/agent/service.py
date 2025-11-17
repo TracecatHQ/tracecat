@@ -5,7 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from pydantic import SecretStr
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService

@@ -6,7 +6,7 @@ from typing import Any
 import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.actions import (
     ApprovalsAgentActionArgs,
     PresetApprovalsAgentActionArgs,
