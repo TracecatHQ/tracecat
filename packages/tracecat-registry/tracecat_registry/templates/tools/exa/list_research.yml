@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: List research tasks
+  description: Get a paginated list of research tasks. Use cursor for pagination and limit to control page size.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/research/list-tasks
+  namespace: tools.exa
+  name: list_research
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    limit:
+      type: int
+      description: Maximum number of results per page (maximum 50).
+      default: 10
+      optional: true
+    cursor:
+      type: str
+      description: Cursor token from previous response for pagination.
+      optional: true
+  steps:
+    - ref: list_research
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/research/v1
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        params:
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
+  returns: ${{ steps.list_research.result.data }}
