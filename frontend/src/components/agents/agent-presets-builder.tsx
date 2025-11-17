@@ -980,6 +980,7 @@ function AgentPresetForm({
             size="icon"
             onClick={() => handleSubmit()}
             disabled={isSaving || !canSubmit}
+            aria-label="Save agent preset"
           >
             {isSaving ? (
               <Loader2 className="size-4 animate-spin" />
@@ -1004,6 +1005,7 @@ function AgentPresetForm({
                     variant="ghost"
                     size="icon"
                     disabled={isDeleting || isSaving}
+                    aria-label="Open agent actions menu"
                   >
                     <MoreVertical className="size-4" />
                   </Button>
