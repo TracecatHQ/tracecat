@@ -23,7 +23,7 @@ def upgrade() -> None:
     # Drop existing foreign key from casetag to tag before renaming
     op.drop_constraint("casetag_tag_id_fkey", "casetag", type_="foreignkey")
 
-    # Rename junction table to match new SQLModel definition
+    # Rename junction table to match new SQLAlchemy definition
     op.rename_table("casetag", "case_tag_link")
 
     # Create dedicated case_tag table for case-specific tags
