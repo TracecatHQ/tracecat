@@ -207,7 +207,7 @@ export const ENTITY_TO_INVALIDATION: Record<
   },
   copilot: {
     predicate: () => false,
-    handler: (queryClient, workspaceId, entityId) => {
+    handler: (_queryClient, _workspaceId, _entityId) => {
       // No invalidation logic for copilot
     },
   },
