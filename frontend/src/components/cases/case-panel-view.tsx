@@ -96,7 +96,6 @@ type CasePanelTab =
   | "comments"
   | "activity"
   | "attachments"
-  | "records"
   | "payload"
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
@@ -636,7 +635,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
     searchParams &&
-    ["comments", "activity", "attachments", "records", "payload"].includes(
+    ["comments", "activity", "attachments", "payload"].includes(
       searchParams.get("tab") || ""
     )
       ? (searchParams.get("tab") ?? "comments")
@@ -1002,13 +1001,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     >
                       <Paperclip className="mr-1.5 h-3.5 w-3.5" />
                       Attachments
-                    </TabsTrigger>
-                    <TabsTrigger
-                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                      value="records"
-                    >
-                      <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
-                      Records
                     </TabsTrigger>
                     <TabsTrigger
                       className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
