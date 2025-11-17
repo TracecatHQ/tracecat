@@ -1748,7 +1748,6 @@ pydantic==2.11.9 \
     #   pydantic-settings
     #   ray
     #   spacy
-    #   sqlmodel
     #   thinc
     #   tracecat
     #   weasel
@@ -2366,12 +2365,7 @@ sqlalchemy==2.0.43 \
     #   alembic-postgresql-enum
     #   alembic-utils
     #   fastapi-users-db-sqlalchemy
-    #   sqlmodel
     #   tracecat
-sqlmodel==0.0.18 \
-    --hash=sha256:2e520efe03810ef2c268a1004cfc5ef8f8a936312232f38d6c8e62c11af2cac3 \
-    --hash=sha256:d70fdf8fe595e30a918660cf4537b9c5fc2fffdbfcba851a0135de73c3ebcbb7
-    # via tracecat
 srsly==2.5.1 \
     --hash=sha256:00c2a3e4856e63b7efd47591d049aaee8e5a250e098917f50d93ea68853fab78 \
     --hash=sha256:184e3c98389aab68ff04aab9095bd5f1a8e5a72cc5edcba9d733bac928f5cf9f \

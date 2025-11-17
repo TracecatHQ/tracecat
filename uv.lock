@@ -3912,19 +3912,6 @@ asyncio = [
 ]
 
 [[package]]
-name = "sqlmodel"
-version = "0.0.18"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/32/19/d0b363befa90c168941f4f7826f6a9d7211f4aa2b99660ac0410bf5803f8/sqlmodel-0.0.18.tar.gz", hash = "sha256:2e520efe03810ef2c268a1004cfc5ef8f8a936312232f38d6c8e62c11af2cac3", size = 109419, upload-time = "2024-04-30T06:30:44.085Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cc/5f/8838e6b1b6673709e93386d6d42d28030883079b5ebcbdc7a37f2953e993/sqlmodel-0.0.18-py3-none-any.whl", hash = "sha256:d70fdf8fe595e30a918660cf4537b9c5fc2fffdbfcba851a0135de73c3ebcbb7", size = 26507, upload-time = "2024-04-30T06:30:41.916Z" },
-]
-
-[[package]]
 name = "srsly"
 version = "2.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4216,7 +4203,6 @@ dependencies = [
     { name = "redis", extra = ["hiredis"] },
     { name = "sentry-sdk" },
     { name = "sqlalchemy" },
-    { name = "sqlmodel" },
     { name = "starlette" },
     { name = "temporalio" },
     { name = "tenacity" },
@@ -4284,7 +4270,6 @@ requires-dist = [
     { name = "redis", extras = ["hiredis"], specifier = ">=5.0.0" },
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlalchemy", specifier = ">=2.0.0,<3.0.0" },
-    { name = "sqlmodel", specifier = "==0.0.18" },
     { name = "starlette", specifier = ">=0.49.1,<0.50.0" },
     { name = "temporalio", specifier = "==1.17.0" },
     { name = "tenacity", specifier = "==8.3.0" },
