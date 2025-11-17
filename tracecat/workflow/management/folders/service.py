@@ -520,7 +520,7 @@ class WorkflowFolderService(BaseService):
         )
 
         workflow_result = await self.session.execute(workflow_statement)
-        workflows_with_defns = workflow_result.all()
+        workflows_with_defns = workflow_result.tuples().all()
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
@@ -531,7 +531,7 @@ class WorkflowFolderService(BaseService):
                 == 2,  # folders with exactly two slashes
             )
             folder_result = await self.session.execute(folder_statement)
-            folders = folder_result.all()
+            folders = folder_result.scalars().all()
         else:
             # Get direct child folders
             folder_statement = select(WorkflowFolder).where(
@@ -541,7 +541,7 @@ class WorkflowFolderService(BaseService):
                 ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
             )
             folder_result = await self.session.execute(folder_statement)
-            folders = folder_result.all()
+            folders = folder_result.scalars().all()
 
         # Convert to directory items
         directory_items: list[DirectoryItem] = []
