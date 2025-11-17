@@ -54,7 +54,6 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.entities.enums import FieldType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
@@ -70,7 +69,6 @@ CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
-FIELD_TYPE_ENUM = Enum(FieldType, name="fieldtype")
 
 
 class Base(DeclarativeBase):
@@ -281,12 +279,6 @@ class Workspace(RecordModel):
     )
     oauth_providers: Mapped[list[WorkspaceOAuthProvider]] = relationship(
         "WorkspaceOAuthProvider",
-        back_populates="owner",
-        cascade="all, delete",
-    )
-    # Custom entities owned by this workspace
-    entities: Mapped[list[Entity]] = relationship(
-        "Entity",
         back_populates="owner",
         cascade="all, delete",
     )
@@ -1052,6 +1044,7 @@ class TableColumn(TimestampMixin, Base):
     nullable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     default: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
+    options: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Relationship back to the table
     table: Mapped[Table] = relationship(
         "Table",
@@ -1341,11 +1334,6 @@ class Case(RecordModel):
         secondary=lambda: CaseTagLink.__table__,
         back_populates="cases",
         lazy="selectin",
-    )
-    record_links: Mapped[list[CaseRecord]] = relationship(
-        "CaseRecord",
-        back_populates="case",
-        cascade="all, delete-orphan",
     )
     tasks: Mapped[list[CaseTask]] = relationship(
         "CaseTask",
@@ -2155,215 +2143,4 @@ class Tag(RecordModel):
         "Workflow",
         secondary=lambda: WorkflowTag.__table__,
         back_populates="tags",
-    )
-
-
-class Entity(RecordModel):
-    """An entity defines a type of object that can be created and managed in the system.
-
-    Entities lifecycle:
-    - Create
-    - Deactivate
-    - Delete
-    """
-
-    __tablename__ = "entity"
-    __table_args__ = (
-        # Keys should be unique per workspace owner
-        UniqueConstraint("owner_id", "key", name="uq_entity_owner_key"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-    )
-    owner_id: Mapped[OwnerID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    key: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        doc="User defined immutable identifier for the entity (alphanumeric snake_case)",
-    )
-    display_name: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    icon: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    owner: Mapped[Workspace] = relationship(back_populates="entities")
-    fields: Mapped[list[EntityField]] = relationship(
-        "EntityField",
-        back_populates="entity",
-        cascade="all, delete-orphan",
-    )
-    records: Mapped[list[EntityRecord]] = relationship(
-        "EntityRecord",
-        back_populates="entity",
-        cascade="all, delete-orphan",
-    )
-
-
-class EntityField(RecordModel):
-    """The entity's fields. Defines the schema of the entity.
-
-    Fields lifecycle:
-    - Create
-    - Deactivate
-    - Delete
-    """
-
-    __tablename__ = "entity_field"
-    __table_args__ = (
-        # Field keys are unique per entity (user-defined, immutable)
-        UniqueConstraint("entity_id", "key", name="uq_entity_field_key"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-    )
-    entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("entity.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    key: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Immutable identifier for the field (alphanumeric snake_case).",
-    )
-    type: Mapped[FieldType] = mapped_column(
-        FIELD_TYPE_ENUM,
-        nullable=False,
-        doc="Immutable type of the field after creation",
-    )
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    default_value: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
-
-    entity: Mapped[Entity] = relationship("Entity", back_populates="fields")
-    options: Mapped[list[EntityFieldOption]] = relationship(
-        "EntityFieldOption",
-        back_populates="field",
-        cascade="all, delete-orphan",
-    )
-
-
-class EntityFieldOption(TimestampMixin, Base):
-    """Minimal relation table for enum choices per field.
-
-    - Enforces unique keys per field (auto-generated from label)
-    - Keys are generated at creation time and treated as immutable
-    - Simple to extend later (ordering, colors, i18n, metadata)
-    """
-
-    __tablename__ = "entity_field_option"
-    __table_args__ = (
-        # Enforce no duplicate keys per field
-        UniqueConstraint("field_id", "key", name="uq_field_option_key"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        primary_key=True,
-        nullable=False,
-    )
-    field_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("entity_field.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    key: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Immutable identifier derived from the label (snake_case) on creation.",
-    )
-    label: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-
-    field: Mapped[EntityField] = relationship("EntityField", back_populates="options")
-
-
-class EntityRecord(RecordModel):
-    """A record (aka instance) of an entity backed by JSONB data."""
-
-    __tablename__ = "entity_record"
-    __table_args__ = (
-        # GIN index for top level fields
-        Index("idx_record_gin", "data", postgresql_using="gin"),
-        Index("idx_record_entity", "entity_id"),
-        UniqueConstraint("id", name="uq_entity_record_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("entity.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    data: Mapped[Any] = mapped_column(JSONB, nullable=False)
-
-    entity: Mapped[Entity] = relationship("Entity", back_populates="records")
-
-
-class CaseRecord(RecordModel):
-    """Link table between cases and records."""
-
-    __tablename__ = "case_record"
-    __table_args__ = (
-        UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
-        Index("idx_case_record_case", "case_id"),
-        Index("idx_case_record_entity", "entity_id"),
-        Index("idx_case_record_case_entity", "case_id", "entity_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("entity.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    record_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("entity_record.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-
-    case: Mapped[Case] = relationship(
-        "Case",
-        back_populates="record_links",
-        foreign_keys=[case_id],
-    )
-    entity: Mapped[Entity] = relationship(
-        "Entity",
-        foreign_keys=[entity_id],
-    )
-    record: Mapped[EntityRecord] = relationship(
-        "EntityRecord",
-        foreign_keys=[record_id],
     )

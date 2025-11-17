@@ -5,9 +5,12 @@ export const SqlTypeEnum = [
   "INTEGER",
   "NUMERIC",
   "BOOLEAN",
+  "DATE",
   "TIMESTAMP",
   "TIMESTAMPTZ",
   "JSONB",
+  "SELECT",
+  "MULTI_SELECT",
 ] as const
 
 export const SqlTypeCreatableEnum = [
@@ -15,8 +18,11 @@ export const SqlTypeCreatableEnum = [
   "INTEGER",
   "NUMERIC",
   "BOOLEAN",
+  "DATE",
   "TIMESTAMPTZ",
   "JSONB",
+  "SELECT",
+  "MULTI_SELECT",
 ] as const
 
 export type SqlTypeCreatable = (typeof SqlTypeCreatableEnum)[number]

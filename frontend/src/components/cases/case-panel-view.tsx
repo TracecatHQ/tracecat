@@ -3,7 +3,6 @@
 import { format, intervalToDuration, isValid as isValidDate } from "date-fns"
 import {
   Activity,
-  BoxIcon,
   Braces,
   FlagTriangleRight,
   Hourglass,
@@ -37,7 +36,6 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
-import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
@@ -93,12 +91,7 @@ import { parseISODuration } from "@/lib/time"
 import { undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab =
-  | "comments"
-  | "activity"
-  | "attachments"
-  | "records"
-  | "payload"
+type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true
@@ -637,7 +630,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
     searchParams &&
-    ["comments", "activity", "attachments", "records", "payload"].includes(
+    ["comments", "activity", "attachments", "payload"].includes(
       searchParams.get("tab") || ""
     )
       ? (searchParams.get("tab") ?? "comments")
@@ -971,6 +964,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     <CaseTasksSection
                       caseId={caseId}
                       workspaceId={workspaceId}
+                      caseData={caseData}
                     />
                   </div>
                 )}
@@ -1005,13 +999,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </TabsTrigger>
                     <TabsTrigger
                       className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                      value="records"
-                    >
-                      <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
-                      Records
-                    </TabsTrigger>
-                    <TabsTrigger
-                      className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                       value="payload"
                     >
                       <Braces className="mr-1.5 h-3.5 w-3.5" />
@@ -1033,13 +1020,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
                   <TabsContent value="attachments" className="mt-4">
                     <CaseAttachmentsSection
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                    />
-                  </TabsContent>
-
-                  <TabsContent value="records" className="mt-4">
-                    <CaseRecordsSection
                       caseId={caseId}
                       workspaceId={workspaceId}
                     />

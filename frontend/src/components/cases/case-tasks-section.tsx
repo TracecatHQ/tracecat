@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react"
 import { useState } from "react"
+import type { CaseRead } from "@/client"
 import {
   Accordion,
   AccordionContent,
@@ -17,11 +18,13 @@ import { CaseTasksTable } from "./case-tasks-table"
 interface CaseTasksSectionProps {
   caseId: string
   workspaceId: string
+  caseData: CaseRead
 }
 
 export function CaseTasksSection({
   caseId,
   workspaceId,
+  caseData,
 }: CaseTasksSectionProps) {
   const { caseTasks, caseTasksIsLoading, caseTasksError } = useCaseTasks({
     caseId,
@@ -87,6 +90,7 @@ export function CaseTasksSection({
               error={caseTasksError as Error | null}
               caseId={caseId}
               workspaceId={workspaceId}
+              caseData={caseData}
             />
           </AccordionContent>
         </AccordionItem>

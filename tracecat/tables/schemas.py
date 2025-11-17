@@ -2,10 +2,15 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
+from tracecat.tables.common import (
+    coerce_multi_select_value,
+    coerce_select_value,
+    normalize_column_options,
+)
 from tracecat.tables.enums import SqlType
 
 
@@ -18,6 +23,7 @@ class TableColumnRead(BaseModel):
     nullable: bool = True
     default: Any | None = None
     is_index: bool = False
+    options: list[str] | None = None
 
 
 class TableColumnCreate(BaseModel):
@@ -37,6 +43,7 @@ class TableColumnCreate(BaseModel):
     )
     nullable: bool = True
     default: Any | None = None
+    options: list[str] | None = None
 
     @field_validator("name")
     @classmethod
@@ -48,6 +55,30 @@ class TableColumnCreate(BaseModel):
                 "Column name must contain only letters, numbers, and underscores, and start with a letter or underscore"
             )
         return value
+
+    @model_validator(mode="after")
+    def validate_enum_options(self) -> "TableColumnCreate":
+        normalized = normalize_column_options(self.options)
+        self.options = normalized
+
+        if self.type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+            if not self.options:
+                raise ValueError(
+                    "SELECT and MULTI_SELECT columns must define at least one option"
+                )
+            if self.default is not None:
+                if self.type is SqlType.SELECT:
+                    self.default = coerce_select_value(
+                        self.default, options=self.options
+                    )
+                elif self.type is SqlType.MULTI_SELECT:
+                    self.default = coerce_multi_select_value(
+                        self.default, options=self.options
+                    )
+        elif self.options:
+            raise ValueError("Options are only supported for SELECT or MULTI_SELECT")
+
+        return self
 
 
 class TableColumnUpdate(BaseModel):
@@ -77,6 +108,13 @@ class TableColumnUpdate(BaseModel):
         default=None,
         description="Whether the column is an index",
     )
+    options: list[str] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def normalise_options(self) -> "TableColumnUpdate":
+        if self.options is not None:
+            self.options = normalize_column_options(self.options) or []
+        return self
 
 
 class TableRowRead(BaseModel):
