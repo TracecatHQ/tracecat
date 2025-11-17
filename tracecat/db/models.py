@@ -41,7 +41,6 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from sqlmodel import SQLModel
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -75,11 +74,9 @@ FIELD_TYPE_ENUM = Enum(FieldType, name="fieldtype")
 
 
 class Base(DeclarativeBase):
-    """Declarative base that reuses the SQLModel metadata."""
+    """Declarative base for all SQLAlchemy models."""
 
     __abstract__ = True
-
-    metadata = SQLModel.metadata
 
 
 class TimestampMixin:
