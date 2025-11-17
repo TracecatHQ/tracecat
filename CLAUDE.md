@@ -103,20 +103,20 @@ just gen-functions
 - **Registry** (`registry/`): Independent package for integrations and templates
 
 ### Key Technologies
-- **Backend**: FastAPI, SQLModel, Pydantic, Temporal, Ray, PostgreSQL, Alembic
+- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic
 - **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
 - **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
 - **Package Management**: `uv` for Python, `pnpm` for JavaScript
 
 ### Database and Migrations
-- **Database Models**: `tracecat/db/models.py` - SQLModel database tables. Never add methods here, keep imports minimal
+- **Database Models**: `tracecat/db/models.py` - SQLAlchemy database tables. Never add methods here, keep imports minimal
 - **Migrations**: `alembic/` directory with comprehensive schema evolution
 - **Database Engine**: `tracecat/db/engine.py` for connection management
 
 ### Type System Architecture
 The codebase follows a three-tier type system to separate concerns and reduce circular imports:
 
-1. **`models.py`**: Database models (SQLModel tables)
+1. **`models.py`**: Database models (SQLAlchemy tables)
    - Location: `tracecat/db/models.py`
    - Purpose: Database table definitions
    - Rules: Never add methods, keep imports minimal
@@ -153,7 +153,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
-- **Database tables**: Add to `tracecat/db/models.py` (SQLModel classes)
+- **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
 - **API schemas**: Add to module-specific `schemas.py` files (Pydantic models for request/response)
 - **Domain types**: Add to module-specific `types.py` files (protocols, dataclasses, type aliases)
 - **Avoiding circular imports**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
