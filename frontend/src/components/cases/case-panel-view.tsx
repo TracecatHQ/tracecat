@@ -37,7 +37,6 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
-import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
@@ -1034,13 +1033,6 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
                   <TabsContent value="attachments" className="mt-4">
                     <CaseAttachmentsSection
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                    />
-                  </TabsContent>
-
-                  <TabsContent value="records" className="mt-4">
-                    <CaseRecordsSection
                       caseId={caseId}
                       workspaceId={workspaceId}
                     />
