@@ -338,7 +338,7 @@ async def create_table(
                     table = await service.get_table_by_name(name)
             else:
                 raise
-    return table.model_dump()
+    return table.to_dict()
 
 
 @registry.register(
@@ -350,7 +350,7 @@ async def create_table(
 async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
-    return [table.model_dump() for table in tables]
+    return [table.to_dict() for table in tables]
 
 
 @registry.register(

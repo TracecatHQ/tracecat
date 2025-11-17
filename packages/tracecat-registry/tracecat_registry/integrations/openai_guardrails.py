@@ -1,7 +1,5 @@
 """Run OpenAI Guardrails checks as a Tracecat UDF."""
 
-from __future__ import annotations
-
 from typing import Any, Annotated, TypedDict
 
 from guardrails.checks.text.jailbreak import jailbreak
