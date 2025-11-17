@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 import yaml
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace
