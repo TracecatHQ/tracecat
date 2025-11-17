@@ -2,7 +2,9 @@
 
 from typing import Any, Annotated
 
+from dataclasses import asdict
 from pydantic import BaseModel
+from guardrails.types import GuardrailResult
 from guardrails.checks.text.jailbreak import jailbreak
 from guardrails.checks.text.llm_base import LLMConfig
 from guardrails.checks.text.moderation import ModerationCfg, moderation
@@ -87,12 +89,12 @@ def check_all(
     ]
 
     for func, config in checks:
-        result = func(client, prompt, config.model_copy(deep=True))
+        result: GuardrailResult = func(client, prompt, config.model_copy(deep=True))
         if result.tripwire_triggered:
             tripwires_triggered += 1
         if result.execution_failed:
             execution_failed += 1
-        results.append(result.model_dump(mode="json"))
+        results.append(asdict(result))
 
     return GuardrailCheckAllResult(
         prompt=prompt,
