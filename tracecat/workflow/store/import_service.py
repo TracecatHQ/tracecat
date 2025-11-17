@@ -6,7 +6,7 @@ import uuid
 
 import yaml
 from pydantic import ValidationError
-from sqlmodel import select
+from sqlalchemy import select
 
 from tracecat.db.models import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
@@ -315,6 +315,9 @@ class WorkflowImportService(BaseWorkspaceService):
         actions = await self._create_actions_from_dsl(dsl, wf_id)
         existing_workflow.actions = actions
 
+        # Ensure IDs are generated before regenerating the graph
+        await self.session.flush()
+
         # 5. Regenerate the React Flow graph
         base_graph = RFGraph.with_defaults(existing_workflow)
         ref2id = {act.ref: act.id for act in actions}
@@ -468,8 +471,8 @@ class WorkflowImportService(BaseWorkspaceService):
         stmt = select(Tag).where(
             Tag.owner_id == self.workspace_id, Tag.name == tag_name
         )
-        result = await self.session.exec(stmt)
-        tag = result.first()
+        result = await self.session.execute(stmt)
+        tag = result.scalars().first()
 
         if not tag:
             tag = Tag(

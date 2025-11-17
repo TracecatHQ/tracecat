@@ -2,9 +2,9 @@ from typing import Any
 
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.runtime import AgentOutput
@@ -200,12 +200,12 @@ async def create_workflow_execution(
     # Get the dslinput from the workflow definition
     wf_id = WorkflowUUID.new(params.workflow_id)
     try:
-        result = await session.exec(
+        result = await session.execute(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(col(WorkflowDefinition.version).desc())
+            .order_by(WorkflowDefinition.version.desc())
         )
-        defn = result.first()
+        defn = result.scalars().first()
         if not defn:
             raise NoResultFound("No workflow definition found for workflow ID")
     except NoResultFound as e:

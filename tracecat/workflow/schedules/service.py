@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Literal, cast
 
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
 from temporalio import activity
 
 from tracecat.auth.types import AccessLevel
@@ -50,8 +50,8 @@ class WorkflowSchedulesService(BaseService):
         statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
         if workflow_id is not None:
             statement = statement.where(Schedule.workflow_id == workflow_id)
-        result = await self.session.exec(statement)
-        schedules = result.all()
+        result = await self.session.execute(statement)
+        schedules = result.scalars().all()
         return list(schedules)
 
     async def create_schedule(
@@ -92,6 +92,7 @@ class WorkflowSchedulesService(BaseService):
             status="online",
         )
         self.session.add(schedule)
+        await self.session.flush()
 
         role = self.role.model_copy(
             update={
@@ -167,14 +168,14 @@ class WorkflowSchedulesService(BaseService):
             If the schedule is not found
 
         """
-        result = await self.session.exec(
+        result = await self.session.execute(
             select(Schedule).where(
                 Schedule.owner_id == self.role.workspace_id,
                 Schedule.id == schedule_id,
             )
         )
         try:
-            return result.one()
+            return result.scalar_one()
         except NoResultFound as e:
             raise TracecatNotFoundError(f"Schedule {schedule_id} not found") from e
 

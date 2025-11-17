@@ -7,8 +7,8 @@ from typing import Any
 import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
+from sqlalchemy import and_, cast, select
 from sqlalchemy.orm import selectinload
-from sqlmodel import and_, cast, col, select
 from temporalio import activity
 
 from tracecat.db.models import (
@@ -109,13 +109,13 @@ class WorkflowsManagementService(BaseService):
 
         if reverse:
             stmt = stmt.order_by(
-                col(Workflow.created_at).asc(),
-                col(Workflow.id).asc(),
+                Workflow.created_at.asc(),
+                Workflow.id.asc(),
             )
         else:
             stmt = stmt.order_by(
-                col(Workflow.created_at).desc(),
-                col(Workflow.id).desc(),
+                Workflow.created_at.desc(),
+                Workflow.id.desc(),
             )
 
         if tags:
@@ -125,17 +125,15 @@ class WorkflowsManagementService(BaseService):
                 stmt.join(
                     WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
                 )
-                .join(
-                    Tag, and_(Tag.id == WorkflowTag.tag_id, col(Tag.name).in_(tag_set))
-                )
+                .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
                 # Ensure we get distinct workflows when multiple tags match
                 .distinct()
             )
 
         # Add eager loading for tags since they're accessed in the router
-        stmt = stmt.options(selectinload(Workflow.tags))  # type: ignore
+        stmt = stmt.options(selectinload(Workflow.tags))
 
-        results = await self.session.exec(stmt)
+        results = await self.session.execute(stmt)
         res = []
         for workflow, defn_id, defn_version, defn_created in results.all():
             if all((defn_id, defn_version, defn_created)):
@@ -178,7 +176,7 @@ class WorkflowsManagementService(BaseService):
                 Workflow,
                 WorkflowDefinition.id,
                 WorkflowDefinition.version,
-                col(WorkflowDefinition.created_at).label("defn_created_at"),
+                WorkflowDefinition.created_at.label("defn_created_at"),
             )
             .where(Workflow.owner_id == self.role.workspace_id)
             .outerjoin(
@@ -201,9 +199,7 @@ class WorkflowsManagementService(BaseService):
                 stmt.join(
                     WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
                 )
-                .join(
-                    Tag, and_(Tag.id == WorkflowTag.tag_id, col(Tag.name).in_(tag_set))
-                )
+                .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
                 .distinct()
             )
 
@@ -220,39 +216,37 @@ class WorkflowsManagementService(BaseService):
             if params.reverse:
                 stmt = stmt.where(
                     sa.or_(
-                        col(Workflow.created_at) > cursor_time,
+                        Workflow.created_at > cursor_time,
                         sa.and_(
-                            col(Workflow.created_at) == cursor_time,
-                            col(Workflow.id) > cursor_id,
+                            Workflow.created_at == cursor_time,
+                            Workflow.id > cursor_id,
                         ),
                     )
                 )
             else:
                 stmt = stmt.where(
                     sa.or_(
-                        col(Workflow.created_at) < cursor_time,
+                        Workflow.created_at < cursor_time,
                         sa.and_(
-                            col(Workflow.created_at) == cursor_time,
-                            col(Workflow.id) < cursor_id,
+                            Workflow.created_at == cursor_time,
+                            Workflow.id < cursor_id,
                         ),
                     )
                 )
 
         # Apply ordering
         if params.reverse:
-            stmt = stmt.order_by(col(Workflow.created_at).asc(), col(Workflow.id).asc())
+            stmt = stmt.order_by(Workflow.created_at.asc(), Workflow.id.asc())
         else:
-            stmt = stmt.order_by(
-                col(Workflow.created_at).desc(), col(Workflow.id).desc()
-            )
+            stmt = stmt.order_by(Workflow.created_at.desc(), Workflow.id.desc())
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
 
         # Add eager loading for tags since they're accessed in the router
-        stmt = stmt.options(selectinload(Workflow.tags))  # type: ignore
+        stmt = stmt.options(selectinload(Workflow.tags))
 
-        results = await self.session.exec(stmt)
+        results = await self.session.execute(stmt)
         raw_items = list(results.all())
 
         # Check if there are more items
@@ -311,23 +305,21 @@ class WorkflowsManagementService(BaseService):
                 Workflow.id == workflow_id,
             )
             .options(
-                selectinload(Workflow.actions),  # type: ignore
-                selectinload(Workflow.webhook).options(  # type: ignore
-                    selectinload(Webhook.api_key)  # type: ignore
-                ),
-                selectinload(Workflow.schedules),  # type: ignore
+                selectinload(Workflow.actions),
+                selectinload(Workflow.webhook).options(selectinload(Webhook.api_key)),
+                selectinload(Workflow.schedules),
             )
         )
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
         statement = select(Workflow.id).where(
             Workflow.owner_id == self.role.workspace_id,
             Workflow.alias == alias,
         )
-        result = await self.session.exec(statement)
-        res = result.one_or_none()
+        result = await self.session.execute(statement)
+        res = result.scalar_one_or_none()
         return WorkflowUUID.new(res) if res else None
 
     async def update_workflow(
@@ -337,8 +329,8 @@ class WorkflowsManagementService(BaseService):
             Workflow.owner_id == self.role.workspace_id,
             Workflow.id == workflow_id,
         )
-        result = await self.session.exec(statement)
-        workflow = result.one()
+        result = await self.session.execute(statement)
+        workflow = result.scalar_one()
         for key, value in params.model_dump(exclude_unset=True).items():
             # Safe because params has been validated
             setattr(workflow, key, value)
@@ -357,8 +349,8 @@ class WorkflowsManagementService(BaseService):
             Workflow.owner_id == self.role.workspace_id,
             Workflow.id == workflow_id,
         )
-        result = await self.session.exec(statement)
-        workflow = result.one()
+        result = await self.session.execute(statement)
+        workflow = result.scalar_one()
 
         # Clean up Temporal schedules before cascade deletion
         # This prevents orphaned schedules in Temporal
@@ -408,12 +400,16 @@ class WorkflowsManagementService(BaseService):
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
             owner_id=self.role.workspace_id,
-            workflow_id=workflow.id,
+            # workflow_id=workflow.id,
         )
+        webhook.workflow = workflow
         self.session.add(webhook)
         workflow.webhook = webhook
 
+        await self.session.flush()
+
         graph = RFGraph.with_defaults(workflow)
+        self.logger.info("Graph", graph=graph)
         workflow.object = graph.model_dump(by_alias=True, mode="json")
         self.session.add(workflow)
         await self.session.commit()
@@ -611,6 +607,9 @@ class WorkflowsManagementService(BaseService):
             self.session.add(new_action)
 
         workflow.actions = actions  # Associate actions with the workflow
+
+        # Ensure IDs are generated before constructing the graph
+        await self.session.flush()
 
         # Create and set the graph for the Workflow
         base_graph = RFGraph.with_defaults(workflow)

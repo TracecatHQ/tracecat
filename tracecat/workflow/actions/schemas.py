@@ -1,7 +1,8 @@
 import dateparser
 import yaml
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator
 
+from tracecat.core.schemas import Schema
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ActionRetryPolicy
 from tracecat.identifiers.action import ActionID
@@ -10,7 +11,7 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 from tracecat.interactions.schemas import ActionInteraction
 
 
-class ActionControlFlow(BaseModel):
+class ActionControlFlow(Schema):
     run_if: str | None = Field(default=None, max_length=1000)
     for_each: str | list[str] | None = Field(default=None, max_length=1000)
     join_strategy: JoinStrategy = Field(default=JoinStrategy.ALL)
@@ -48,7 +49,7 @@ class ActionControlFlow(BaseModel):
         return v
 
 
-class ActionRead(BaseModel):
+class ActionRead(Schema):
     id: ActionID
     type: str
     title: str
@@ -64,7 +65,7 @@ class ActionRead(BaseModel):
         return _ref(self.title)
 
 
-class ActionReadMinimal(BaseModel):
+class ActionReadMinimal(Schema):
     id: ActionID
     workflow_id: WorkflowIDShort
     type: str
@@ -74,11 +75,11 @@ class ActionReadMinimal(BaseModel):
     is_interactive: bool
 
 
-class ActionCreate(BaseModel):
+class ActionCreate(Schema):
     workflow_id: AnyWorkflowID
     type: str
     title: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=1000)
+    description: str = Field(default="", max_length=1000)
     inputs: str = Field(default="", max_length=300000)
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
@@ -95,7 +96,7 @@ class ActionCreate(BaseModel):
         return v
 
 
-class ActionUpdate(BaseModel):
+class ActionUpdate(Schema):
     title: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
