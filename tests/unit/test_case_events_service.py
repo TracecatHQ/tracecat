@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
+from sqlmodel import col
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
@@ -21,6 +22,7 @@ from tracecat.cases.schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
+from tracecat.db.models import CaseEvent
 from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -496,11 +498,10 @@ class TestCaseEventsService:
         await case_events_service.session.commit()
 
         # Move the first event outside the dedupe window.
-        conn = await case_events_service.session.connection()
-        await conn.execute(
-            sa.update(sa.table("case_event"))
-            .where(sa.column("id") == first_event.id)
-            .values(created_at=datetime.now(UTC) - timedelta(minutes=10))
+        _ = await case_events_service.session.execute(
+            sa.update(CaseEvent)
+            .where(col(CaseEvent.id) == first_event.id)
+            .values(created_at=datetime.now(UTC) - timedelta(minutes=10)),
         )
         await case_events_service.session.commit()
 
