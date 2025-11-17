@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.8.4-alpine
+    image: caddy:2.10.2-alpine
     restart: unless-stopped
     ports:
       - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
