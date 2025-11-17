@@ -4731,21 +4731,20 @@ export type WebhookCreate = {
 export type WebhookMethod = "GET" | "POST"
 
 export type WebhookRead = {
-  id?: string | null
-  owner_id: string
-  secret?: string | null
-  status?: WebhookStatus | null
+  id: string
+  secret: string
+  status: WebhookStatus
   entrypoint_ref?: string | null
-  allowlisted_cidrs?: Array<string> | null
+  allowlisted_cidrs?: Array<string>
   filters?: {
     [key: string]: unknown
-  } | null
+  }
   /**
    * Methods to allow
    */
-  methods?: Array<WebhookMethod> | null
+  methods?: Array<WebhookMethod>
   workflow_id: string
-  url?: string | null
+  url: string
   api_key?: WebhookApiKeyRead | null
 }
 

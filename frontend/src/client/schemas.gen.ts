@@ -14756,41 +14756,15 @@ export const $WebhookMethod = {
 export const $WebhookRead = {
   properties: {
     id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Id",
     },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     secret: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Secret",
     },
     status: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WebhookStatus",
-        },
-        {
-          type: "null",
-        },
-      ],
+      $ref: "#/components/schemas/WebhookStatus",
     },
     entrypoint_ref: {
       anyOf: [
@@ -14804,43 +14778,22 @@ export const $WebhookRead = {
       title: "Entrypoint Ref",
     },
     allowlisted_cidrs: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
+      items: {
+        type: "string",
+      },
+      type: "array",
       title: "Allowlisted Cidrs",
     },
     filters: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
+      additionalProperties: true,
+      type: "object",
       title: "Filters",
     },
     methods: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/WebhookMethod",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
       title: "Methods",
       description: "Methods to allow",
     },
@@ -14849,14 +14802,7 @@ export const $WebhookRead = {
       title: "Workflow Id",
     },
     url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Url",
     },
     api_key: {
@@ -14871,7 +14817,7 @@ export const $WebhookRead = {
     },
   },
   type: "object",
-  required: ["owner_id", "workflow_id"],
+  required: ["id", "secret", "status", "workflow_id", "url"],
   title: "WebhookRead",
 } as const
 

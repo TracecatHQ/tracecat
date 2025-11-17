@@ -143,7 +143,7 @@ import {
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   type SAMLSettingsRead,
-  type Schedule,
+  type ScheduleRead,
   type SchedulesCreateScheduleData,
   type SchedulesDeleteScheduleData,
   type SchedulesUpdateScheduleData,
@@ -964,7 +964,7 @@ export function useSchedules(workflowId: string) {
     data: schedules,
     isLoading,
     error,
-  } = useQuery<Schedule[], Error>({
+  } = useQuery<ScheduleRead[], Error>({
     queryKey: [workflowId, "schedules"],
     queryFn: async ({ queryKey }) => {
       const [workflowId] = queryKey as [string, string]
