@@ -7,6 +7,7 @@ import {
   type LucideIcon,
   SquareStackIcon,
   Table2Icon,
+  UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
   ZapIcon,
@@ -87,6 +88,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/agents`,
       icon: BotIcon,
       isActive: pathname?.startsWith(`${basePath}/agents`),
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/approvals`,
+      icon: UserCheckIcon,
+      isActive: pathname?.startsWith(`${basePath}/approvals`),
     },
   ]
 
