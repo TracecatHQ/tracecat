@@ -31,7 +31,8 @@ export function isChatEntity(value: unknown): value is ChatEntity {
   return (
     value === "case" ||
     value === "agent_preset" ||
-    value === "agent_preset_builder"
+    value === "agent_preset_builder" ||
+    value === "workspace"
   )
 }
 
@@ -202,6 +203,14 @@ export const ENTITY_TO_INVALIDATION: Record<
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
+    },
+  },
+  workspace: {
+    predicate: () => false,
+    handler: (queryClient, workspaceId, entityId) => {
+      // Invalidate specific workspace query and workspace list
+      queryClient.invalidateQueries({ queryKey: ["workspace", entityId] })
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
     },
   },
 }

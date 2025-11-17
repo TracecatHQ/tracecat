@@ -39,6 +39,7 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 
 class ChatService(BaseWorkspaceService):
@@ -111,6 +112,8 @@ class ChatService(BaseWorkspaceService):
                 )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
+        if entity_type == ChatEntity.WORKSPACE:
+            return WorkspaceCopilotPrompts().instructions
         else:
             raise ValueError(
                 f"Unsupported chat entity type: {entity_type}. Expected one of: {list(ChatEntity)}"
@@ -186,6 +189,31 @@ class ChatService(BaseWorkspaceService):
                     "Agent preset builder requires a default AI model with valid provider credentials. "
                     "Configure the default model in Organization settings before chatting."
                 ) from exc
+        elif chat_entity is ChatEntity.WORKSPACE:
+            entity_instructions = await self._chat_entity_to_prompt(
+                chat.entity_type, chat
+            )
+            if chat.agent_preset_id:
+                async with agent_svc.with_preset_config(
+                    preset_id=chat.agent_preset_id
+                ) as preset_config:
+                    combined_instructions = (
+                        f"{preset_config.instructions}\n\n{entity_instructions}"
+                        if preset_config.instructions
+                        else entity_instructions
+                    )
+                    config = replace(preset_config, instructions=combined_instructions)
+                    if not config.actions and chat.tools:
+                        config.actions = chat.tools
+                    yield config
+            else:
+                async with agent_svc.with_model_config() as model_config:
+                    yield AgentConfig(
+                        instructions=entity_instructions,
+                        model_name=model_config.name,
+                        model_provider=model_config.provider,
+                        actions=chat.tools,
+                    )
         else:
             raise ValueError(
                 f"Unsupported chat entity type: {chat.entity_type}. Expected one of: {list(ChatEntity)}"
