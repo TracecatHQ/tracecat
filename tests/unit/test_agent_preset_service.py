@@ -454,7 +454,6 @@ class TestAgentPresetService:
         agent_preset_create_params.actions = ["tools.test.test_action"]
         agent_preset_create_params.namespaces = ["tools.test"]
         agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
-        agent_preset_create_params.mcp_integrations = []
 
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
@@ -470,7 +469,6 @@ class TestAgentPresetService:
         assert config.actions == agent_preset_create_params.actions
         assert config.namespaces == agent_preset_create_params.namespaces
         assert config.tool_approvals == agent_preset_create_params.tool_approvals
-        assert config.mcp_integrations == agent_preset_create_params.mcp_integrations
         assert config.retries == agent_preset_create_params.retries
 
     async def test_get_agent_config_by_slug(
@@ -621,5 +619,4 @@ class TestAgentPresetService:
         assert config.actions == preset.actions
         assert config.namespaces == preset.namespaces
         assert config.tool_approvals == preset.tool_approvals
-        assert config.mcp_integrations == preset.mcp_integrations
         assert config.retries == preset.retries

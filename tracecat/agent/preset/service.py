@@ -153,10 +153,20 @@ class AgentPresetService(BaseWorkspaceService):
             raise ValueError("Either preset_id or slug must be provided")
 
         if preset_id is not None:
-            config = await self.get_agent_config(preset_id)
+            preset = await self.get_preset(preset_id)
+            if not preset:
+                raise TracecatNotFoundError(
+                    f"Agent preset with ID '{preset_id}' not found"
+                )
         else:
-            config = await self.get_agent_config_by_slug(slug or "")
-        return await self._attach_mcp_integration(config)
+            preset = await self.get_preset_by_slug(slug or "")
+            if not preset:
+                raise TracecatNotFoundError(
+                    f"Agent preset with slug '{slug}' not found"
+                )
+
+        config = self._preset_to_agent_config(preset)
+        return await self._attach_mcp_integration(config, preset.mcp_integrations)
 
     async def _normalize_and_validate_slug(
         self,
@@ -246,13 +256,14 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
-            mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
         )
 
-    async def _attach_mcp_integration(self, config: AgentConfig) -> AgentConfig:
+    async def _attach_mcp_integration(
+        self, config: AgentConfig, mcp_integrations: list[str] | None
+    ) -> AgentConfig:
         """Resolve MCP provider URLs and authorization headers from selected integrations."""
-        if not config.mcp_integrations:
+        if not mcp_integrations:
             return config
 
         integrations_service = IntegrationService(self.session, role=self.role)
@@ -263,7 +274,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         # Collect all matching integrations in preset order
         mcp_servers = []
-        for provider_id in config.mcp_integrations:
+        for provider_id in mcp_integrations:
             if provider_id not in by_provider:
                 continue
 
