@@ -5,6 +5,7 @@ import {
   BracketsIcon,
   KeyRoundIcon,
   type LucideIcon,
+  MessageSquareIcon,
   SquareStackIcon,
   Table2Icon,
   UserCheckIcon,
@@ -71,6 +72,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   const navMain: NavItem[] = [
+    {
+      title: "Chat",
+      url: `${basePath}/copilot`,
+      icon: MessageSquareIcon,
+      isActive: pathname?.startsWith(`${basePath}/copilot`),
+    },
     {
       title: "Workflows",
       url: `${basePath}/workflows`,

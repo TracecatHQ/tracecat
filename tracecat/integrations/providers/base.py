@@ -612,6 +612,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         discovered_auth_endpoint: str | None = None,
         discovered_token_endpoint: str | None = None,
         registration_endpoint: str | None = None,
+        token_methods: list[str] | None = None,
         **kwargs,
     ):
         """Initialize MCP provider with dynamic endpoint discovery."""
@@ -629,7 +630,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             discovered_auth_endpoint=discovered_auth_endpoint,
             discovered_token_endpoint=discovered_token_endpoint,
             registration_endpoint=registration_endpoint,
-            token_methods_override=None,
+            token_methods_override=token_methods,
         )
 
         self._registration_endpoint = discovery_result.registration_endpoint
@@ -1074,6 +1075,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             authorization_endpoint=discovery_result.authorization_endpoint,
             token_endpoint=discovery_result.token_endpoint,
             registration_endpoint=discovery_result.registration_endpoint,
+            token_methods=discovery_result.token_methods,
         )
 
         provider = cls(**init_kwargs)
