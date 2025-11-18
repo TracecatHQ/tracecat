@@ -4,13 +4,23 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   Bot,
+  Brackets,
+  Braces,
+  Box,
+  Hash,
+  List,
+  ListOrdered,
+  ListTodo,
   Loader2,
   MessageCircle,
   MoreVertical,
+  Percent,
   Plus,
   RotateCcw,
   Save,
+  ToggleLeft,
   Trash2,
+  Type,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -109,13 +119,15 @@ import {
 import { cn, slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const PRESET_OUTPUT_TYPES = [
-  { label: "Text (str)", value: "str" },
-  { label: "Boolean", value: "bool" },
-  { label: "Number (int)", value: "int" },
-  { label: "Number (float)", value: "float" },
-  { label: "List of text", value: "list[str]" },
-  { label: "List of numbers", value: "list[int]" },
+const DATA_TYPE_OUTPUT_TYPES = [
+  { label: "String", value: "str", icon: Type },
+  { label: "Boolean", value: "bool", icon: ToggleLeft },
+  { label: "Integer", value: "int", icon: Hash },
+  { label: "Float", value: "float", icon: Percent },
+  { label: "List of booleans", value: "list[bool]", icon: ListTodo },
+  { label: "List of floats", value: "list[float]", icon: Brackets },
+  { label: "List of integers", value: "list[int]", icon: ListOrdered },
+  { label: "List of strings", value: "list[str]", icon: List },
 ] as const
 
 const NEW_PRESET_ID = "new"
@@ -130,8 +142,8 @@ const agentPresetSchema = z
     model_provider: z.string().min(1, "Model provider is required"),
     model_name: z.string().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
-    outputTypeKind: z.enum(["none", "preset", "json"]),
-    outputTypePreset: z.string().optional(),
+    outputTypeKind: z.enum(["none", "data-type", "json"]),
+    outputTypeDataType: z.string().optional(),
     outputTypeJson: z.string().optional(),
     actions: z.array(z.string()).default([]),
     namespaces: z.array(z.string()).default([]),
@@ -166,9 +178,9 @@ const agentPresetSchema = z
       .min(0, "Retries must be 0 or more"),
   })
   .superRefine((data, ctx) => {
-    if (data.outputTypeKind === "preset" && !data.outputTypePreset) {
+    if (data.outputTypeKind === "data-type" && !data.outputTypeDataType) {
       ctx.addIssue({
-        path: ["outputTypePreset"],
+        path: ["outputTypeDataType"],
         code: z.ZodIssueCode.custom,
         message: "Select an output type",
       })
@@ -218,7 +230,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   model_name: "",
   base_url: "",
   outputTypeKind: "none",
-  outputTypePreset: "",
+  outputTypeDataType: "",
   outputTypeJson: "",
   actions: [],
   namespaces: [],
@@ -1364,13 +1376,22 @@ function AgentPresetForm({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">
-                              Free-form text (default)
+                              <div className="flex items-center gap-2">
+                                <Type className="size-4" />
+                                <span>Text only</span>
+                              </div>
                             </SelectItem>
-                            <SelectItem value="preset">
-                              Structured primitive
+                            <SelectItem value="data-type">
+                              <div className="flex items-center gap-2">
+                                <Box className="size-4" />
+                                <span>Structured</span>
+                              </div>
                             </SelectItem>
                             <SelectItem value="json">
-                              Custom JSON schema
+                              <div className="flex items-center gap-2">
+                                <Braces className="size-4" />
+                                <span>JSON schema</span>
+                              </div>
                             </SelectItem>
                           </SelectContent>
                         </Select>
@@ -1378,13 +1399,13 @@ function AgentPresetForm({
                     </FormItem>
                   )}
                 />
-                {outputTypeKind === "preset" ? (
+                {outputTypeKind === "data-type" ? (
                   <FormField
                     control={form.control}
-                    name="outputTypePreset"
+                    name="outputTypeDataType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Preset type</FormLabel>
+                        <FormLabel>Data type</FormLabel>
                         <FormControl>
                           <Select
                             value={field.value ?? ""}
@@ -1395,14 +1416,20 @@ function AgentPresetForm({
                               <SelectValue placeholder="Select type" />
                             </SelectTrigger>
                             <SelectContent>
-                              {PRESET_OUTPUT_TYPES.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  value={option.value}
-                                >
-                                  {option.label}
-                                </SelectItem>
-                              ))}
+                              {DATA_TYPE_OUTPUT_TYPES.map((option) => {
+                                const Icon = option.icon
+                                return (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <Icon className="size-4" />
+                                      <span>{option.label}</span>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })}
                             </SelectContent>
                           </Select>
                         </FormControl>
@@ -1994,10 +2021,10 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     base_url: preset.base_url ?? "",
     outputTypeKind: outputType
       ? typeof outputType === "string"
-        ? "preset"
+        ? "data-type"
         : "json"
       : "none",
-    outputTypePreset: typeof outputType === "string" ? outputType : "",
+    outputTypeDataType: typeof outputType === "string" ? outputType : "",
     outputTypeJson:
       outputType && typeof outputType === "object"
         ? JSON.stringify(outputType, null, 2)
@@ -2037,8 +2064,8 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
   const outputType =
     values.outputTypeKind === "none"
       ? null
-      : values.outputTypeKind === "preset"
-        ? (values.outputTypePreset ?? null)
+      : values.outputTypeKind === "data-type"
+        ? (values.outputTypeDataType ?? null)
         : values.outputTypeJson
           ? JSON.parse(values.outputTypeJson)
           : null
