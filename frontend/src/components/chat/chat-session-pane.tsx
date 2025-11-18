@@ -135,6 +135,28 @@ export function ChatSessionPane({
       modelInfo,
     })
 
+  const isWaitingForResponse = useMemo(() => {
+    if (status === "submitted") return true
+    if (status === "streaming") {
+      const lastMessage = messages[messages.length - 1]
+      if (!lastMessage || lastMessage.role !== "assistant") return true
+
+      // Check if the assistant message has any visible content
+      const hasContent = lastMessage.parts.some((part) => {
+        if (part.type === "text") return part.text.length > 0
+        if (part.type === "reasoning") return part.text.length > 0
+        // Tool calls and other parts count as content
+        return (
+          isToolUIPart(part) ||
+          part.type === "data-approval-request" ||
+          part.type === "file"
+        )
+      })
+      return !hasContent
+    }
+    return false
+  }, [status, messages])
+
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
       if (!decisionPayload.length) return
@@ -333,7 +355,7 @@ export function ChatSessionPane({
                 </div>
               )
             })}
-            {status === "submitted" && (
+            {isWaitingForResponse && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
