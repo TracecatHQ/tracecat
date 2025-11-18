@@ -23,7 +23,7 @@ MODEL_CONFIGS = {
             "required": ["openai"],
         },
     ),
-     "gpt-5-nano": ModelConfig(
+    "gpt-5-nano": ModelConfig(
         name="gpt-5-nano",
         provider="openai",
         org_secret_name="agent-openai-credentials",
@@ -31,7 +31,7 @@ MODEL_CONFIGS = {
             "required": ["openai"],
         },
     ),
-     "gpt-5": ModelConfig(
+    "gpt-5": ModelConfig(
         name="gpt-5",
         provider="openai",
         org_secret_name="agent-openai-credentials",
