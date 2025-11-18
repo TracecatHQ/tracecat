@@ -36,7 +36,7 @@ def mock_table():
     table = MagicMock()
     table.id = uuid.uuid4()
     table.name = "test_table"
-    table.model_dump.return_value = {
+    table.to_dict.return_value = {
         "id": str(table.id),
         "name": table.name,
         "created_at": datetime.now(UTC),
