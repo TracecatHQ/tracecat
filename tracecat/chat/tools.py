@@ -12,6 +12,7 @@ TOOL_DEFAULTS = {
     ],
     ChatEntity.AGENT_PRESET: [],
     ChatEntity.AGENT_PRESET_BUILDER: AGENT_PRESET_BUILDER_TOOL_NAMES,
+    ChatEntity.COPILOT: [],
 }
 
 
