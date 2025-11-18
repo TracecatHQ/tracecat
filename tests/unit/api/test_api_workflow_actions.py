@@ -184,6 +184,7 @@ async def test_get_action_not_found(
 async def test_update_action_not_found(
     client: TestClient,
     test_admin_role: Role,
+    mock_workflow: Workflow,
 ) -> None:
     """Test POST /actions/{action_id} with non-existent ID returns 404."""
     with patch.object(
@@ -191,12 +192,14 @@ async def test_update_action_not_found(
     ) as mock_get:
         mock_get.return_value = None
 
+        workflow_id = str(mock_workflow.id)
         fake_action_id = "act-00000000000000000000000000000000"
 
         response = client.post(
             f"/actions/{fake_action_id}",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
+                "workflow_id": workflow_id,
             },
             json={
                 "title": "Updated Title",

@@ -46,10 +46,13 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
 def mock_webhook(test_workspace: Workspace, mock_workflow: Workflow) -> Webhook:
     """Create a mock webhook DB object."""
     return Webhook(
+        id="wh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         owner_id=test_workspace.id,
         workflow_id=mock_workflow.id,
         status="online",
+        methods=["POST"],
         filters={},
+        allowlisted_cidrs=[],
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
