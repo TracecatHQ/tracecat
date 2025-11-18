@@ -60,7 +60,7 @@ async def create_task(
                 priority=priority_enum,
                 status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
-                workflow_id=workflow_id,
+                workflow_id=workflow_id or None,
             ),
         )
 
