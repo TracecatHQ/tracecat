@@ -74,6 +74,14 @@ type OutputType = (
 
 
 @pydantic.dataclasses.dataclass(kw_only=True, slots=True)
+class MCPServerConfig:
+    """Configuration for a single MCP server connection."""
+
+    url: str
+    headers: dict[str, str] | None = None
+
+
+@pydantic.dataclasses.dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
 
@@ -89,10 +97,8 @@ class AgentConfig:
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
     # MCP
-    mcp_server_url: str | None = None
-    mcp_server_headers: dict[str, str] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
     mcp_integrations: list[str] | None = None
-    model_settings: dict[str, Any] | None = None
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

@@ -74,11 +74,8 @@ async def run_agent(
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
-    mcp_server_url: str | None = None,
-    mcp_server_headers: dict[str, str] | None = None,
     instructions: str | None = None,
     output_type: OutputType | None = None,
-    model_settings: dict[str, Any] | None = None,
     max_tool_calls: int = TRACECAT__AGENT_MAX_TOOL_CALLS,
     max_requests: int = TRACECAT__AGENT_MAX_REQUESTS,
     retries: int = TRACECAT__AGENT_MAX_RETRIES,
@@ -102,13 +99,9 @@ async def run_agent(
         tool_approvals: Optional per-tool approval requirements keyed by action name.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
-        mcp_server_url: Optional URL of the MCP server to use.
-        mcp_server_headers: Optional headers for the MCP server.
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
                     Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
-        model_settings: Optional model-specific configuration parameters
-                       (temperature, max_tokens, etc.).
         max_tools_calls: Maximum number of tool calls to make per agent run (default: 5).
         max_requests: Maximum number of requests to make per agent run (default: 20).
         retries: Maximum number of retry attempts for agent execution (default: 3).
@@ -174,11 +167,8 @@ async def run_agent(
                 base_url=base_url,
                 instructions=instructions,
                 output_type=output_type,
-                model_settings=model_settings,
                 retries=retries,
                 deps_type=type(deps),
-                mcp_server_url=mcp_server_url,
-                mcp_server_headers=mcp_server_headers,
                 actions=actions,
                 namespaces=namespaces,
                 tool_approvals=tool_approvals,

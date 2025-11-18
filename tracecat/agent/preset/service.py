@@ -10,7 +10,7 @@ from slugify import slugify
 from sqlmodel import desc, func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.db.models import AgentPreset, RegistryAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.providers.base import MCPAuthProvider
@@ -251,47 +251,55 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def _attach_mcp_integration(self, config: AgentConfig) -> AgentConfig:
-        """Resolve MCP provider URL and authorization header from selected integrations."""
-        # Manual override already provided
+        """Resolve MCP provider URLs and authorization headers from selected integrations."""
         if not config.mcp_integrations:
             return config
 
         integrations_service = IntegrationService(self.session, role=self.role)
-        # Preserve preset order when selecting the first available integration
         integrations = await integrations_service.list_integrations()
         by_provider = {
             integration.provider_id: integration for integration in integrations
         }
-        selected_id = next(
-            (pid for pid in config.mcp_integrations or [] if pid in by_provider), None
-        )
-        if not selected_id:
+
+        # Collect all matching integrations in preset order
+        mcp_servers = []
+        for provider_id in config.mcp_integrations:
+            if provider_id not in by_provider:
+                continue
+
+            integration = by_provider[provider_id]
+            provider_key = ProviderKey(
+                id=integration.provider_id, grant_type=integration.grant_type
+            )
+            provider_impl = await integrations_service.resolve_provider_impl(
+                provider_key=provider_key
+            )
+            if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+                raise TracecatValidationError(
+                    f"Provider {integration.provider_id!r} is not a valid MCP provider"
+                )
+
+            await integrations_service.refresh_token_if_needed(integration)
+            access_token = await integrations_service.get_access_token(integration)
+            if not access_token:
+                raise TracecatValidationError(
+                    f"MCP integration {integration.provider_id!r} has no access token"
+                )
+
+            token_type = integration.token_type or "Bearer"
+            mcp_servers.append(
+                MCPServerConfig(
+                    url=provider_impl.mcp_server_uri,
+                    headers={
+                        "Authorization": f"{token_type} {access_token.get_secret_value()}"
+                    },
+                )
+            )
+
+        if not mcp_servers:
             raise TracecatValidationError(
                 "No matching MCP integrations found for this preset in the workspace"
             )
 
-        integration = by_provider[selected_id]
-        provider_key = ProviderKey(
-            id=integration.provider_id, grant_type=integration.grant_type
-        )
-        provider_impl = await integrations_service.resolve_provider_impl(
-            provider_key=provider_key
-        )
-        if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
-            raise TracecatValidationError(
-                f"Provider {integration.provider_id!r} is not a valid MCP provider"
-            )
-
-        await integrations_service.refresh_token_if_needed(integration)
-        access_token = await integrations_service.get_access_token(integration)
-        if not access_token:
-            raise TracecatValidationError(
-                f"MCP integration {integration.provider_id!r} has no access token"
-            )
-
-        token_type = integration.token_type or "Bearer"
-        config.mcp_server_url = provider_impl.mcp_server_uri
-        config.mcp_server_headers = {
-            "Authorization": f"{token_type} {access_token.get_secret_value()}"
-        }
+        config.mcp_servers = mcp_servers
         return config

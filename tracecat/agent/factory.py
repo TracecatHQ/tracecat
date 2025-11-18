@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
+from pydantic_ai import Agent, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
@@ -63,9 +63,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)
     _output_type = _parse_output_type(config.output_type) if config.output_type else str
-    _model_settings = (
-        ModelSettings(**config.model_settings) if config.model_settings else None
-    )
+    _model_settings = None
 
     # Add verbosity prompt
     verbosity_prompt = VerbosityPrompt()
@@ -79,12 +77,14 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         instructions = "\n".join(part for part in instruction_parts if part)
 
     toolsets = None
-    if config.mcp_server_url:
-        mcp_server = MCPServerStreamableHTTP(
-            url=config.mcp_server_url,
-            headers=config.mcp_server_headers,
-        )
-        toolsets = [mcp_server]
+    if config.mcp_servers:
+        toolsets = [
+            MCPServerStreamableHTTP(
+                url=server.url,
+                headers=server.headers,
+            )
+            for server in config.mcp_servers
+        ]
 
     output_type_for_agent: type[Any] | list[type[Any]]
     # If any tool requires approval, include DeferredToolRequests in output types

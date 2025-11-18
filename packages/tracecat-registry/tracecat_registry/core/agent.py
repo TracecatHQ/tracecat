@@ -169,9 +169,6 @@ async def agent(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
-    model_settings: Annotated[
-        dict[str, Any] | None, Doc("Model settings for the agent.")
-    ] = None,
     max_tool_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")
     ] = 15,
@@ -186,7 +183,6 @@ async def agent(
         actions=actions,
         instructions=instructions,
         output_type=output_type,
-        model_settings=model_settings,
         max_tool_calls=max_tool_calls,
         max_requests=max_requests,
         base_url=base_url,
@@ -259,13 +255,10 @@ async def preset_agent(
         tool_approvals=config.tool_approvals,
         instructions=config.instructions,
         output_type=config.output_type,
-        model_settings=config.model_settings,
         max_tool_calls=max_tool_calls,
         max_requests=max_requests,
         retries=config.retries,
         base_url=config.base_url,
-        mcp_server_url=config.mcp_server_url,
-        mcp_server_headers=config.mcp_server_headers,
     )
     return output.model_dump(mode="json")
 
@@ -295,9 +288,6 @@ async def action(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
-    model_settings: Annotated[
-        dict[str, Any] | None, Doc("Model settings for the agent.")
-    ] = None,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
@@ -308,7 +298,6 @@ async def action(
             model_provider=model_provider,
             instructions=instructions,
             output_type=output_type,
-            model_settings=model_settings,
             retries=retries,
             base_url=base_url,
         )
