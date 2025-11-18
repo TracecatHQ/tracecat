@@ -99,9 +99,7 @@ class RecordModel(TimestampMixin, Base):
     __abstract__ = True
     __pydantic_ignore_fields__ = {"surrogate_id"}
 
-    surrogate_id: Mapped[int] = mapped_column(
-        Integer, Identity(), primary_key=True, nullable=False
-    )
+    surrogate_id: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     owner_id: Mapped[OwnerID] = mapped_column(UUID, nullable=False)
 
     def __repr__(self) -> str:
@@ -224,8 +222,8 @@ class Workspace(RecordModel):
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
     settings: Mapped[WorkspaceSettings] = mapped_column(
         JSONB,
-        nullable=False,
         default=WorkspaceSettings(workflow_unlimited_timeout_enabled=True),
+        nullable=True,
     )
     members: Mapped[list[User]] = relationship(
         "User",
@@ -292,7 +290,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="userrole"), nullable=False, default=UserRole.BASIC
     )
-    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -331,6 +329,9 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     __tablename__ = "accesstoken"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id"), nullable=False
+    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
 
 
@@ -399,7 +400,7 @@ class Secret(BaseSecret):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     owner: Mapped[Workspace | None] = relationship(back_populates="secrets")
 
@@ -411,7 +412,6 @@ class WorkspaceVariable(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -422,7 +422,7 @@ class WorkspaceVariable(RecordModel):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    values: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    values: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=True)
     environment: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -468,9 +468,8 @@ class WorkflowDefinition(RecordModel):
     workflow_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=True,
     )
-    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True, default=dict)
 
     workflow: Mapped[Workflow] = relationship(back_populates="definitions")
 
@@ -491,7 +490,7 @@ class WorkflowFolder(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -575,7 +574,7 @@ class Workflow(RecordModel):
         index=True,
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="offline", nullable=False)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     entrypoint: Mapped[str | None] = mapped_column(
@@ -613,7 +612,7 @@ class Workflow(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -705,7 +704,7 @@ class Webhook(RecordModel):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     allowlisted_cidrs: Mapped[list[str]] = mapped_column(
         JSONB,
@@ -783,7 +782,7 @@ class Schedule(RecordModel):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
@@ -840,7 +839,7 @@ class Action(RecordModel):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="actions")
@@ -934,7 +933,7 @@ class RegistryAction(RecordModel):
         doc="The secrets required by the action",
     )
     interface: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, doc="The interface of the action"
+        JSONB, nullable=True, doc="The interface of the action"
     )
     implementation: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -951,7 +950,7 @@ class RegistryAction(RecordModel):
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("registryrepository.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
 
     repository: Mapped[RegistryRepository] = relationship(back_populates="actions")
@@ -1035,7 +1034,7 @@ class TableColumn(TimestampMixin, Base):
     table_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("tables.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     type: Mapped[str] = mapped_column(
@@ -1112,7 +1111,7 @@ class CaseTag(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     ref: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -1148,7 +1147,7 @@ class CaseDurationDefinition(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -1204,7 +1203,7 @@ class CaseDuration(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1401,7 +1400,7 @@ class CaseEvent(RecordModel):
     data: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         default=dict,
-        nullable=False,
+        nullable=True,
         doc="Variant-specific data for this event type",
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1499,7 +1498,7 @@ class Interaction(RecordModel):
         doc="Data received from the interaction",
     )
     expires_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True),
+        TIMESTAMP(),
         nullable=True,
         doc="Timestamp for when the interaction expires",
     )
@@ -1560,7 +1559,7 @@ class Approval(RecordModel):
         index=True,
     )
     reason: Mapped[str | None] = mapped_column(
-        Text,
+        String,
         nullable=True,
         doc="Optional reason for approval decision",
     )
@@ -1601,7 +1600,7 @@ class AgentPreset(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="Human readable preset name"
@@ -1801,7 +1800,7 @@ class OAuthIntegration(TimestampMixin, Base):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -1947,7 +1946,7 @@ class WorkspaceOAuthProvider(TimestampMixin, Base):
         doc="Optional description for the custom provider",
     )
     grant_type: Mapped[OAuthGrantType] = mapped_column(
-        Enum(OAuthGrantType, name="oauth_grant_type", create_constraint=True),
+        Enum(OAuthGrantType, name="oauthgranttype"),
         nullable=False,
         doc="OAuth grant type supported by this provider",
     )
@@ -2051,7 +2050,7 @@ class Chat(RecordModel):
     tools: Mapped[list[str]] = mapped_column(
         JSONB,
         default=list,
-        nullable=False,
+        nullable=True,
         doc="The tools available to the agent for this chat.",
     )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -2096,7 +2095,7 @@ class ChatMessage(RecordModel):
     data: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         default=dict,
-        nullable=False,
+        nullable=True,
         doc="The data of the message.",
     )
     chat_id: Mapped[uuid.UUID] = mapped_column(
@@ -2127,7 +2126,7 @@ class Tag(RecordModel):
     owner_id: Mapped[OwnerID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     ref: Mapped[str] = mapped_column(
