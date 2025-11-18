@@ -23,7 +23,7 @@ import {
   Type,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type MouseEvent,
   useCallback,
@@ -221,6 +221,8 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
 
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
@@ -233,7 +235,10 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
-  const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">("presets")
+  const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">(() => {
+    const tabParam = searchParams?.get("tab")
+    return tabParam === "chat" ? "chat" : "presets"
+  })
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
@@ -250,9 +255,15 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       if (normalizedId === activePresetId) {
         return
       }
-      router.replace(`/workspaces/${workspaceId}/agents/${normalizedId}`)
+      const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
+      const params = new URLSearchParams(searchParams?.toString())
+      params.set("tab", sidebarTab)
+      const url = params.toString()
+        ? `${nextPath}?${params.toString()}`
+        : nextPath
+      router.replace(url)
     },
-    [activePresetId, router, workspaceId]
+    [activePresetId, router, searchParams, sidebarTab, workspaceId]
   )
 
   // Fetch full preset data when a preset is selected (not in create mode)
@@ -291,8 +302,22 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   useEffect(() => {
     if (chatTabDisabled && sidebarTab === "chat") {
       setSidebarTab("presets")
+      const params = new URLSearchParams(searchParams?.toString())
+      params.set("tab", "presets")
+      const url = params.toString() ? `${pathname}?${params.toString()}` : pathname
+      router.replace(url)
     }
-  }, [chatTabDisabled, sidebarTab])
+  }, [chatTabDisabled, pathname, router, searchParams, sidebarTab])
+
+  useEffect(() => {
+    const tabParam = searchParams?.get("tab")
+    if (tabParam === "chat" && !chatTabDisabled && sidebarTab !== "chat") {
+      setSidebarTab("chat")
+    }
+    if (tabParam !== "chat" && sidebarTab !== "presets") {
+      setSidebarTab("presets")
+    }
+  }, [chatTabDisabled, searchParams, sidebarTab])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -389,7 +414,14 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                 if (value === "chat" && chatTabDisabled) {
                   return
                 }
-                setSidebarTab(value as "presets" | "chat")
+                const nextTab = value as "presets" | "chat"
+                setSidebarTab(nextTab)
+                const params = new URLSearchParams(searchParams?.toString())
+                params.set("tab", nextTab)
+                const url = params.toString()
+                  ? `${pathname}?${params.toString()}`
+                  : pathname
+                router.replace(url)
               }}
               className="flex h-full flex-col"
             >
