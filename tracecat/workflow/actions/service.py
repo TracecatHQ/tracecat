@@ -1,9 +1,8 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from tracecat.db.models import Action
-from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import ActionCreate, ActionUpdate
@@ -33,14 +32,6 @@ class WorkflowActionService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def check_action_ref_exists(self, ref: str) -> bool:
-        statement = select(func.count()).where(
-            Action.owner_id == self.workspace_id,
-            Action.ref == ref,  # pyright: ignore[reportArgumentType]
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one() > 0
-
     async def create_action(self, params: ActionCreate) -> Action:
         action = Action(
             owner_id=self.workspace_id,
@@ -55,8 +46,6 @@ class WorkflowActionService(BaseWorkspaceService):
             is_interactive=params.is_interactive,
             interaction=params.interaction.model_dump() if params.interaction else None,
         )
-        if await self.check_action_ref_exists(action.ref):
-            raise TracecatValidationError("Action ref already exists in the workflow")
         self.session.add(action)
         await self.session.commit()
         await self.session.refresh(action)
