@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -17,7 +17,11 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
+from tracecat.identifiers.workflow import (
+    AnyWorkflowID,
+    WorkflowIDShort,
+    WorkflowUUID,
+)
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableColumnUpdate
@@ -173,6 +177,14 @@ class CaseTaskRead(BaseModel):
     status: CaseTaskStatus
     assignee: UserRead | None = None
     workflow_id: WorkflowIDShort | None
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def convert_workflow_id(cls, v: AnyWorkflowID | None) -> WorkflowIDShort | None:
+        """Convert any workflow ID format to short form."""
+        if v is None:
+            return None
+        return WorkflowUUID.new(v).short()
 
 
 class CaseTaskCreate(BaseModel):
