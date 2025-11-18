@@ -32,7 +32,7 @@ export function isChatEntity(value: unknown): value is ChatEntity {
     value === "case" ||
     value === "agent_preset" ||
     value === "agent_preset_builder" ||
-    value === "workspace"
+    value === "copilot"
   )
 }
 
