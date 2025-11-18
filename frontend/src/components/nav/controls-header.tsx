@@ -11,7 +11,6 @@ import {
   PanelRight,
   PenLine,
   Plus,
-  SlidersHorizontal,
   Trash2,
   User,
   X,
@@ -553,26 +552,6 @@ function CasesSelectionActionsBar() {
   )
 }
 
-function AgentsActions() {
-  const workspaceId = useWorkspaceId()
-
-  if (!workspaceId) {
-    return null
-  }
-
-  return (
-    <Button asChild size="sm" variant="outline" className="h-7 bg-white">
-      <Link
-        href={`/workspaces/${workspaceId}/agents/presets`}
-        className="flex items-center gap-1.5"
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-        Manage presets
-      </Link>
-    </Button>
-  )
-}
-
 function MembersActions() {
   const { workspace } = useWorkspaceDetails()
 
@@ -787,26 +766,6 @@ function IntegrationBreadcrumb({
   )
 }
 
-function AgentsBreadcrumb({ workspaceId }: { workspaceId: string }) {
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">Presets</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  )
-}
-
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -825,16 +784,15 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/agents")) {
-    if (pagePath.startsWith("/agents/presets")) {
-      return {
-        title: <AgentsBreadcrumb workspaceId={workspaceId} />,
-      }
+  if (pagePath.startsWith("/approvals")) {
+    return {
+      title: "Approvals",
     }
+  }
 
+  if (pagePath.startsWith("/agents")) {
     return {
       title: "Agents",
-      actions: <AgentsActions />,
     }
   }
 
