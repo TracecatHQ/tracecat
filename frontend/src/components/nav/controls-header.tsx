@@ -183,7 +183,10 @@ function WorkflowsBreadcrumb({
                     {decodeURIComponent(segment)}
                   </BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+                  <BreadcrumbLink
+                    asChild
+                    className="font-semibold hover:no-underline"
+                  >
                     <Link href={getFolderHref(folderPath)}>
                       {decodeURIComponent(segment)}
                     </Link>
