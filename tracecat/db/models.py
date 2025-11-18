@@ -97,7 +97,7 @@ class RecordModel(TimestampMixin, Base):
     """Declarative base for workspace-owned resources."""
 
     __abstract__ = True
-    __pydantic_ignore_fields__ = {"surrogate_id"}
+    __serialization_exclude__ = {"surrogate_id"}
 
     surrogate_id: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     owner_id: Mapped[OwnerID] = mapped_column(UUID, nullable=False)
@@ -118,7 +118,11 @@ class RecordModel(TimestampMixin, Base):
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert the model instance to a dictionary."""
+        """Convert the model instance to a dictionary.
+
+        This serializes the model's column attributes only. Subclasses can override
+        this method to include related objects in the output if needed.
+        """
         return _to_dict(self)
 
     @classmethod
@@ -149,7 +153,7 @@ def _to_dict(instance: RecordModel) -> dict[str, Any]:
     return {
         column.key: value
         for column in instance.__mapper__.columns
-        if column.key not in instance.__class__.__pydantic_ignore_fields__
+        if column.key not in instance.__class__.__serialization_exclude__
         and (value := getattr(instance, column.key, _UNSET)) is not _UNSET
     }
 
