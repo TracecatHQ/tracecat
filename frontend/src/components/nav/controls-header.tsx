@@ -180,16 +180,14 @@ function WorkflowsBreadcrumb({
               <BreadcrumbItem>
                 {isLast ? (
                   <BreadcrumbPage className="font-semibold">
-                    {decodeURIComponent(segment)}
+                    {segment}
                   </BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink
                     asChild
                     className="font-semibold hover:no-underline"
                   >
-                    <Link href={getFolderHref(folderPath)}>
-                      {decodeURIComponent(segment)}
-                    </Link>
+                    <Link href={getFolderHref(folderPath)}>{segment}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
