@@ -26,10 +26,6 @@ definition:
         Output format to use. Either JSONSchema
         or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
       default: null
-    model_settings:
-      type: dict[str, Any] | None
-      description: Model-specific settings.
-      default: null
   steps:
     - ref: call_anthropic
       action: ai.action
@@ -39,5 +35,4 @@ definition:
         model_provider: anthropic
         instructions: ${{ inputs.system }}
         output_type: ${{ inputs.output_type }}
-        model_settings: ${{ inputs.model_settings }}
   returns: ${{ steps.call_anthropic.result }}

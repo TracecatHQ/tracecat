@@ -24,10 +24,6 @@ definition:
       type: str | dict[str, Any] | None
       description: Output type to use.
       default: null
-    model_settings:
-      type: dict[str, Any] | None
-      description: Model-specific settings.
-      default: null
   steps:
     - ref: call_gemini
       action: ai.action
@@ -37,5 +33,4 @@ definition:
         model_provider: gemini
         instructions: ${{ inputs.instructions }}
         output_type: ${{ inputs.output_type }}
-        model_settings: ${{ inputs.model_settings }}
   returns: ${{ steps.call_gemini.result }}
