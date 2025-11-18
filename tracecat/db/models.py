@@ -227,7 +227,7 @@ class Workspace(RecordModel):
     )
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=lambda: Membership.__table__,
+        secondary=Membership.__table__,
         back_populates="workspaces",
     )
     workflows: Mapped[list[Workflow]] = relationship(
@@ -648,7 +648,7 @@ class Workflow(RecordModel):
     )
     tags: Mapped[list[Tag]] = relationship(
         "Tag",
-        secondary=lambda: WorkflowTag.__table__,
+        secondary=WorkflowTag.__table__,
         back_populates="workflows",
     )
 
@@ -1121,7 +1121,7 @@ class CaseTag(RecordModel):
     cases: Mapped[list[Case]] = relationship(
         "Case",
         back_populates="tags",
-        secondary=lambda: CaseTagLink.__table__,
+        secondary=CaseTagLink.__table__,
     )
 
 
@@ -1330,7 +1330,7 @@ class Case(RecordModel):
     )
     tags: Mapped[list[CaseTag]] = relationship(
         "CaseTag",
-        secondary=lambda: CaseTagLink.__table__,
+        secondary=CaseTagLink.__table__,
         back_populates="cases",
         lazy="selectin",
     )
@@ -2140,6 +2140,6 @@ class Tag(RecordModel):
     owner: Mapped[Workspace] = relationship(back_populates="workflow_tags")
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow",
-        secondary=lambda: WorkflowTag.__table__,
+        secondary=WorkflowTag.__table__,
         back_populates="tags",
     )
