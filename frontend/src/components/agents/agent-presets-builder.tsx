@@ -4,9 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   Bot,
-  Brackets,
-  Braces,
   Box,
+  Braces,
+  Brackets,
   Hash,
   List,
   ListOrdered,
@@ -592,7 +592,9 @@ function SidebarItem({
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Agent preset slug used to identify the preset in workflows.</p>
+                <p>
+                  Agent preset slug used to identify the preset in workflows.
+                </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1102,74 +1104,76 @@ function AgentPresetForm({
                 <Save className="size-4" />
               )}
             </Button>
-          {mode === "edit" && onDelete ? (
-            <AlertDialog
-              open={deleteDialogOpen}
-              onOpenChange={(nextOpen) => {
-                if (isDeleting) {
-                  return
-                }
-                setDeleteDialogOpen(nextOpen)
-              }}
-            >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={isDeleting || isSaving}
-                    className="h-7 w-7 p-1"
-                    aria-label="Open agent actions menu"
-                  >
-                    <MoreVertical className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <AlertDialogTrigger asChild>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={(e) => {
-                        e.preventDefault()
-                        setDeleteDialogOpen(true)
-                      }}
+            {mode === "edit" && onDelete ? (
+              <AlertDialog
+                open={deleteDialogOpen}
+                onOpenChange={(nextOpen) => {
+                  if (isDeleting) {
+                    return
+                  }
+                  setDeleteDialogOpen(nextOpen)
+                }}
+              >
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={isDeleting || isSaving}
+                      className="h-7 w-7 p-1"
+                      aria-label="Open agent actions menu"
                     >
-                      <Trash2 className="mr-2 size-4" />
-                      Delete agent
-                    </DropdownMenuItem>
-                  </AlertDialogTrigger>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this agent preset?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action permanently removes the preset and cannot be
-                    undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={isDeleting}>
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    onClick={handleConfirmDelete}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <span className="flex items-center">
-                        <Loader2 className="mr-2 size-4 animate-spin" />
-                        Deleting...
-                      </span>
-                    ) : (
-                      "Delete agent"
-                    )}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          ) : null}
+                      <MoreVertical className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={(e) => {
+                          e.preventDefault()
+                          setDeleteDialogOpen(true)
+                        }}
+                      >
+                        <Trash2 className="mr-2 size-4" />
+                        Delete agent
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete this agent preset?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action permanently removes the preset and cannot be
+                      undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeleting}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      onClick={handleConfirmDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <span className="flex items-center">
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Deleting...
+                        </span>
+                      ) : (
+                        "Delete agent"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
           </div>
         </div>
         <ScrollArea className="flex-1">
@@ -1271,9 +1275,9 @@ function AgentPresetForm({
                           disabled={isSaving}
                         />
                       </FormControl>
-                  </FormItem>
-                )}
-              />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="retries"
@@ -1288,9 +1292,9 @@ function AgentPresetForm({
                           disabled={isSaving}
                         />
                       </FormControl>
-                  </FormItem>
-                )}
-              />
+                    </FormItem>
+                  )}
+                />
               </div>
             </section>
 
