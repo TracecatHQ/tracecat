@@ -28,12 +28,11 @@ import {
   type MouseEvent,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
 } from "react"
-import { type Control, useFieldArray, useForm } from "react-hook-form"
+import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
@@ -155,23 +154,6 @@ const agentPresetSchema = z
         })
       )
       .default([]),
-    mcpServerUrl: z.union([z.string().url(), z.literal(""), z.undefined()]),
-    mcpServerHeaders: z
-      .array(
-        z.object({
-          key: z.string().min(1, "Header key is required"),
-          value: z.string().optional(),
-        })
-      )
-      .default([]),
-    modelSettings: z
-      .array(
-        z.object({
-          key: z.string().min(1, "Setting key is required"),
-          value: z.string().optional(),
-        })
-      )
-      .default([]),
     retries: z.coerce
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
@@ -219,7 +201,6 @@ const agentPresetSchema = z
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
-type KeyValueFormValue = AgentPresetFormValues["modelSettings"][number]
 
 const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   name: "",
@@ -235,9 +216,6 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   actions: [],
   namespaces: [],
   toolApprovals: [],
-  mcpServerUrl: "",
-  mcpServerHeaders: [],
-  modelSettings: [],
   retries: DEFAULT_RETRIES,
 }
 
@@ -983,24 +961,6 @@ function AgentPresetForm({
     name: "toolApprovals",
   })
 
-  const {
-    fields: headerFields,
-    append: appendHeader,
-    remove: removeHeader,
-  } = useFieldArray({
-    control: form.control,
-    name: "mcpServerHeaders",
-  })
-
-  const {
-    fields: settingsFields,
-    append: appendSetting,
-    remove: removeSetting,
-  } = useFieldArray({
-    control: form.control,
-    name: "modelSettings",
-  })
-
   useEffect(() => {
     const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
     form.reset(defaults, { keepDirty: false })
@@ -1599,193 +1559,10 @@ function AgentPresetForm({
                 )}
               </div>
             </section>
-
-            <Separator />
-
-            <section className="space-y-4">
-              <FormField
-                control={form.control}
-                name="mcpServerUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>MCP server URL</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="https://mcp.example.com"
-                        value={field.value ?? ""}
-                        onChange={field.onChange}
-                        disabled={isSaving}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Optional Model Context Protocol server for toolsets.
-                    </FormDescription>
-                  </FormItem>
-                )}
-              />
-              <KeyValueFieldArray
-                title="MCP headers"
-                description="Optional headers sent with MCP requests."
-                fields={headerFields}
-                control={form.control}
-                name="mcpServerHeaders"
-                onAdd={() => appendHeader({ key: "", value: "" })}
-                onRemove={removeHeader}
-                keyPlaceholder="X-API-KEY"
-                valuePlaceholder="secret"
-                disabled={isSaving}
-              />
-              <KeyValueFieldArray
-                title="Model settings"
-                description="Extra arguments passed to the model (temperature, max_tokens, etc)."
-                fields={settingsFields}
-                control={form.control}
-                name="modelSettings"
-                onAdd={() => appendSetting({ key: "", value: "" })}
-                onRemove={removeSetting}
-                keyPlaceholder="temperature"
-                valuePlaceholder="0.2"
-                disabled={isSaving}
-              />
-            </section>
           </form>
         </ScrollArea>
       </div>
     </Form>
-  )
-}
-
-function KeyValueFieldArray({
-  title,
-  description,
-  fields,
-  control,
-  name,
-  onAdd,
-  onRemove,
-  keyPlaceholder,
-  valuePlaceholder,
-  disabled,
-}: {
-  title: string
-  description?: string
-  fields: { id: string }[]
-  control: Control<AgentPresetFormValues>
-  name: "mcpServerHeaders" | "modelSettings"
-  onAdd: () => void
-  onRemove: (index: number) => void
-  keyPlaceholder?: string
-  valuePlaceholder?: string
-  disabled?: boolean
-}) {
-  const listId = useId()
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium leading-none">{title}</label>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={onAdd}
-          disabled={disabled}
-        >
-          <Plus className="mr-2 size-4" />
-          Add
-        </Button>
-      </div>
-      {fields.length === 0 ? (
-        <div className="space-y-1.5">
-          <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-            No entries yet.
-          </p>
-          {description ? (
-            <p className="text-[0.8rem] text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {fields.map((field, index) => (
-            <div
-              key={field.id}
-              className="grid gap-2 rounded-md border px-3 py-3 md:grid-cols-[1fr_1fr_auto]"
-            >
-              <FormField
-                control={control}
-                name={`${name}.${index}.key`}
-                render={({ field: innerField }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs uppercase text-muted-foreground">
-                      Key
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={keyPlaceholder}
-                        value={String(innerField.value ?? "")}
-                        onChange={innerField.onChange}
-                        onBlur={innerField.onBlur}
-                        name={innerField.name}
-                        ref={innerField.ref}
-                        disabled={disabled}
-                        list={`${listId}-${name}-key`}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={control}
-                name={`${name}.${index}.value`}
-                render={({ field: innerField }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs uppercase text-muted-foreground">
-                      Value
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={valuePlaceholder}
-                        value={String(innerField.value ?? "")}
-                        onChange={innerField.onChange}
-                        onBlur={innerField.onBlur}
-                        name={innerField.name}
-                        ref={innerField.ref}
-                        disabled={disabled}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <div className="flex items-end justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onRemove(index)}
-                  disabled={disabled}
-                  aria-label={`Remove ${title}`}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-          {description ? (
-            <p className="text-[0.8rem] text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
-      )}
-      <datalist id={`${listId}-${name}-key`}>
-        {name === "modelSettings" ? (
-          <>
-            <option value="temperature" />
-            <option value="max_tokens" />
-            <option value="top_p" />
-            <option value="response_format" />
-          </>
-        ) : null}
-      </datalist>
-    </div>
   )
 }
 
@@ -2039,23 +1816,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
           })
         )
       : [],
-    mcpServerUrl: preset.mcp_server_url ?? "",
-    mcpServerHeaders: preset.mcp_server_headers
-      ? Object.entries(preset.mcp_server_headers).map(
-          ([key, value]): KeyValueFormValue => ({
-            key,
-            value: value ?? "",
-          })
-        )
-      : [],
-    modelSettings: preset.model_settings
-      ? Object.entries(preset.model_settings).map(
-          ([key, value]): KeyValueFormValue => ({
-            key,
-            value: typeof value === "string" ? value : JSON.stringify(value),
-          })
-        )
-      : [],
     retries: preset.retries ?? DEFAULT_RETRIES,
   }
 }
@@ -2069,9 +1829,6 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
         : values.outputTypeJson
           ? JSON.parse(values.outputTypeJson)
           : null
-
-  const headers = keyValueArrayToRecord<string>(values.mcpServerHeaders)
-  const settings = keyValueArrayToRecord(values.modelSettings, parseMaybeJson)
 
   return {
     name: values.name.trim(),
@@ -2088,9 +1845,6 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     actions: values.actions.length > 0 ? values.actions : null,
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
-    mcp_server_url: normalizeOptional(values.mcpServerUrl),
-    mcp_server_headers: headers ?? null,
-    model_settings: settings,
     retries: values.retries,
   }
 }
@@ -2118,29 +1872,4 @@ function toToolApprovalMap(
   }
 
   return Object.fromEntries(entries.map(({ tool, allow }) => [tool, allow]))
-}
-
-function keyValueArrayToRecord<T = string>(
-  entries: KeyValueFormValue[],
-  transform: (value: string) => T = (value) => value as T
-): Record<string, T> | null {
-  const result: Record<string, T> = {}
-  for (const entry of entries) {
-    const key = entry.key.trim()
-    if (!key) continue
-    result[key] = transform(entry.value ?? "")
-  }
-  return Object.keys(result).length > 0 ? result : null
-}
-
-function parseMaybeJson(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return ""
-  }
-  try {
-    return JSON.parse(trimmed)
-  } catch (_error) {
-    return trimmed
-  }
 }
