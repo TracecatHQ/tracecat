@@ -64,6 +64,7 @@ def mock_case():
         "fields": {"field1": "value1", "field2": "value2"},
         "payload": case.payload,
     }
+    case.to_dict.return_value = case.model_dump.return_value
 
     return case
 
@@ -75,14 +76,11 @@ def mock_comment():
     comment.id = uuid.uuid4()
     comment.content = "Test Comment"
     comment.parent_id = None
-
-    # Set up model_dump to return a dict representation
-    comment.model_dump.return_value = {
+    comment.to_dict.return_value = {
         "id": str(comment.id),
         "content": comment.content,
-        "parent_id": comment.parent_id,
+        "parent_id": None,
     }
-
     return comment
 
 
@@ -190,14 +188,18 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "description": "Updated Description",
             "priority": CasePriority.HIGH.value,
             "severity": CaseSeverity.HIGH.value,
             "status": CaseStatus.IN_PROGRESS.value,
-            "fields": {"field1": "new_value", "field2": "value2", "field3": "value3"},
+            "fields": {
+                "field1": "new_value",
+                "field2": "value2",
+                "field3": "value3",
+            },
         }
         mock_service.update_case.return_value = updated_case
 
@@ -230,7 +232,7 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": "new_value", "field3": "value3"}
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_case_append_description(self, mock_with_session, mock_case):
@@ -242,7 +244,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,
             "description": f"{original_description}\nNew details.",
@@ -268,7 +270,7 @@ class TestCoreUpdate:
         assert isinstance(update_arg, CaseUpdate)
         assert update_arg.description == f"{original_description}\nNew details."
 
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_partial_base_data(self, mock_with_session, mock_case):
@@ -278,7 +280,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "description": mock_case.description,  # Unchanged
@@ -324,7 +326,7 @@ class TestCoreUpdate:
         assert all(actual_params[k] == v for k, v in expected_params.items())
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_with_partial_field_data(self, mock_with_session, mock_case):
@@ -338,7 +340,7 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -380,7 +382,7 @@ class TestCoreUpdate:
         assert list(params.keys()) == ["fields"]
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_zeroing_out_field(self, mock_with_session, mock_case):
@@ -394,7 +396,7 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -424,7 +426,7 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": None}  # field1 set to None
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_with_empty_field_data(self, mock_with_session, mock_case):
@@ -434,7 +436,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -464,7 +466,7 @@ class TestCoreUpdate:
         assert update_arg.fields == {}  # Action passes empty dict to service
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_base_attribute_to_none(self, mock_with_session, mock_case):
@@ -474,7 +476,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": None,  # Set to None
@@ -509,7 +511,7 @@ class TestCoreUpdate:
         assert full_params["description"] is None
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
 
 @pytest.mark.anyio
@@ -560,7 +562,7 @@ class TestCoreCreateComment:
         assert comment_arg.parent_id is None
 
         # Verify the result
-        assert result == mock_comment.model_dump.return_value
+        assert result == mock_comment.to_dict()
 
 
 @pytest.mark.anyio
@@ -575,7 +577,7 @@ class TestCoreUpdateComment:
         mock_service.get_comment.return_value = mock_comment
 
         updated_comment = MagicMock()
-        updated_comment.model_dump.return_value = {
+        updated_comment.to_dict.return_value = {
             "id": str(mock_comment.id),
             "content": "Updated Comment",
             "parent_id": mock_comment.parent_id,
@@ -601,7 +603,7 @@ class TestCoreUpdateComment:
         assert update_arg.content == "Updated Comment"
 
         # Verify the result
-        assert result == updated_comment.model_dump.return_value
+        assert result == updated_comment.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CaseCommentsService.with_session")
     async def test_update_comment_zeroing_content(
@@ -613,7 +615,7 @@ class TestCoreUpdateComment:
         mock_service.get_comment.return_value = mock_comment
 
         updated_comment = MagicMock()
-        updated_comment.model_dump.return_value = {
+        updated_comment.to_dict.return_value = {
             "id": str(mock_comment.id),
             "content": None,  # Set to None
             "parent_id": mock_comment.parent_id,
@@ -639,7 +641,7 @@ class TestCoreUpdateComment:
         assert update_arg.content is None
 
         # Verify the result
-        assert result == updated_comment.model_dump.return_value
+        assert result == updated_comment.to_dict.return_value
 
 
 @pytest.mark.anyio
@@ -1531,7 +1533,7 @@ class TestCoreAssignUser:
         # Create an updated case with assignee
         updated_case = MagicMock()
         assignee_id = uuid.uuid4()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,
             "description": mock_case.description,
@@ -1565,7 +1567,7 @@ class TestCoreAssignUser:
         assert update_arg.assignee_id == assignee_id
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
         assert result["assignee_id"] == str(assignee_id)
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -1806,8 +1808,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.id = mock_case.id
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "tags": ["new-tag1", "new-tag2"],
@@ -1859,7 +1860,7 @@ class TestCoreCaseTags:
         mock_service.session.refresh.assert_called_once_with(updated_case)
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_case_without_tags(self, mock_with_session, mock_case):
@@ -1869,7 +1870,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
         }
@@ -1898,7 +1899,7 @@ class TestCoreCaseTags:
         mock_service.tags.add_case_tag.assert_not_called()
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_case_with_empty_tags(self, mock_with_session, mock_case):
@@ -1916,8 +1917,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.id = mock_case.id
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,
             "tags": [],
@@ -1965,7 +1965,7 @@ class TestCoreCaseTags:
         mock_service.session.refresh.assert_called_once_with(updated_case)
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
 
 @pytest.mark.anyio

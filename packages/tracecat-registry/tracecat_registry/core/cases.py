@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import NoResultFound, ProgrammingError
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped
@@ -251,7 +250,7 @@ async def update_case(
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
 
-    return to_jsonable_python(updated_case)
+    return updated_case.to_dict()
 
 
 @registry.register(
@@ -287,7 +286,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return to_jsonable_python(comment)
+    return comment.to_dict()
 
 
 @registry.register(
@@ -323,7 +322,7 @@ async def update_comment(
         updated_comment = await service.update_comment(
             comment, CaseCommentUpdate(**params)
         )
-    return to_jsonable_python(updated_comment)
+    return updated_comment.to_dict()
 
 
 @registry.register(
