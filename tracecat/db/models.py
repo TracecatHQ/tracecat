@@ -1437,20 +1437,10 @@ class AgentPreset(Resource, table=True):
         back_populates="agent_preset",
         sa_relationship_kwargs={"cascade": "save-update"},
     )
-    mcp_server_url: str | None = Field(
-        default=None,
-        max_length=500,
-        description="Optional MCP server URL",
-    )
-    mcp_server_headers: dict[str, str] | None = Field(
+    mcp_integrations: list[str] | None = Field(
         default=None,
         sa_column=Column(JSONB),
-        description="Headers to include when connecting to the MCP server",
-    )
-    model_settings: dict[str, Any] | None = Field(
-        default=None,
-        sa_column=Column(JSONB),
-        description="Provider specific model settings",
+        description="MCP integrations to use with the agent preset",
     )
     retries: int = Field(default=3, description="Maximum retry attempts per run")
 

@@ -91,6 +91,7 @@ class AgentConfig:
     # MCP
     mcp_server_url: str | None = None
     mcp_server_headers: dict[str, str] | None = None
+    mcp_integrations: list[str] | None = None
     model_settings: dict[str, Any] | None = None
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None

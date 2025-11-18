@@ -42,7 +42,7 @@ import type {
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
-import { getIcon } from "@/components/icons"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -111,6 +111,7 @@ import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
   useChatReadiness,
+  useIntegrations,
   useModelProviders,
   useModelProvidersStatus,
   useRegistryActions,
@@ -158,6 +159,7 @@ const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
+    mcpIntegrations: z.array(z.string()).default([]),
   })
   .superRefine((data, ctx) => {
     if (data.outputTypeKind === "data-type" && !data.outputTypeDataType) {
@@ -217,6 +219,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   namespaces: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
+  mcpIntegrations: [],
 }
 
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
@@ -233,6 +236,44 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
+  const {
+    integrations,
+    providers: integrationProviders,
+    integrationsIsLoading,
+    providersIsLoading: integrationProvidersIsLoading,
+  } = useIntegrations(workspaceId)
+
+  const mcpIntegrations = useMemo(() => {
+    if (!integrations || !integrationProviders) {
+      return []
+    }
+
+    const providerMap = new Map(
+      integrationProviders
+        .filter((provider) => provider.id.endsWith("_mcp"))
+        .map((provider) => [provider.id, provider])
+    )
+
+    return integrations
+      .filter(
+        (integration) =>
+          providerMap.has(integration.provider_id) &&
+          integration.status === "connected" &&
+          !integration.is_expired
+      )
+      .map((integration) => {
+        const provider = providerMap.get(integration.provider_id)!
+        return {
+          providerId: integration.provider_id,
+          name: provider.name,
+          description: provider.description,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [integrations, integrationProviders])
+
+  const mcpIntegrationsIsLoading =
+    integrationsIsLoading || integrationProvidersIsLoading
   const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">("presets")
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
@@ -444,6 +485,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
             namespaceSuggestions={namespaceSuggestions}
             modelOptionsByProvider={modelOptionsByProvider}
             modelProviderOptions={modelProviderOptions}
+            mcpIntegrationOptions={mcpIntegrations ?? []}
+            mcpIntegrationIsLoading={mcpIntegrationsIsLoading}
             isSaving={
               selectedPreset
                 ? updateAgentPresetIsPending
@@ -917,6 +960,8 @@ function AgentPresetForm({
   namespaceSuggestions,
   modelProviderOptions,
   modelOptionsByProvider,
+  mcpIntegrationOptions,
+  mcpIntegrationIsLoading,
 }: {
   preset: AgentPresetRead | null
   mode: "create" | "edit"
@@ -932,6 +977,12 @@ function AgentPresetForm({
   namespaceSuggestions: Suggestion[]
   modelProviderOptions: string[]
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  mcpIntegrationOptions: {
+    providerId: string
+    name: string
+    description?: string | null
+  }[]
+  mcpIntegrationIsLoading: boolean
 }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
@@ -1292,6 +1343,52 @@ function AgentPresetForm({
                           disabled={isSaving}
                         />
                       </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <FormField
+                  control={form.control}
+                  name="mcpIntegrations"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>MCP OAuth integrations</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value ?? []}
+                          onChange={(next) => field.onChange(next)}
+                          searchKeys={["label", "value"]}
+                          suggestions={(mcpIntegrationOptions ?? []).map(
+                            (integration) => ({
+                              id: integration.providerId,
+                              label: integration.name.replace(
+                                /\s*MCP\s*$/i,
+                                ""
+                              ),
+                              value: integration.providerId,
+                              description:
+                                integration.description || "Connected",
+                              icon: (
+                                <ProviderIcon
+                                  providerId={integration.providerId}
+                                  className="size-3 bg-transparent p-0 m  x-1"
+                                />
+                              ),
+                            })
+                          )}
+                          placeholder={
+                            mcpIntegrationIsLoading
+                              ? "Loading integrations..."
+                              : "Select MCP integrations"
+                          }
+                          disabled={isSaving}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Connected MCP providers whose tokens will be used to
+                        build the MCP server headers.
+                      </FormDescription>
                     </FormItem>
                   )}
                 />
@@ -1820,7 +1917,9 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
           })
         )
       : [],
+
     retries: preset.retries ?? DEFAULT_RETRIES,
+    mcpIntegrations: preset.mcp_integrations ?? [],
   }
 }
 
@@ -1849,6 +1948,10 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     actions: values.actions.length > 0 ? values.actions : null,
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
+    mcp_integrations:
+      values.mcpIntegrations && values.mcpIntegrations.length > 0
+        ? values.mcpIntegrations
+        : null,
     retries: values.retries,
   }
 }

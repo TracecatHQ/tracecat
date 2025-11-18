@@ -202,13 +202,7 @@ export type AgentPresetCreate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
-  mcp_server_url?: string | null
-  mcp_server_headers?: {
-    [key: string]: string
-  } | null
-  model_settings?: {
-    [key: string]: unknown
-  } | null
+  mcp_integrations?: Array<string> | null
   retries?: number
   name: string
   slug?: string | null
@@ -229,13 +223,7 @@ export type AgentPresetRead = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
-  mcp_server_url?: string | null
-  mcp_server_headers?: {
-    [key: string]: string
-  } | null
-  model_settings?: {
-    [key: string]: unknown
-  } | null
+  mcp_integrations?: Array<string> | null
   retries?: number
   id: string
   owner_id: string
@@ -275,13 +263,7 @@ export type AgentPresetUpdate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
-  mcp_server_url?: string | null
-  mcp_server_headers?: {
-    [key: string]: string
-  } | null
-  model_settings?: {
-    [key: string]: unknown
-  } | null
+  mcp_integrations?: Array<string> | null
   retries?: number | null
 }
 
