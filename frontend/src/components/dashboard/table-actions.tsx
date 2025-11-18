@@ -7,8 +7,10 @@ import {
   FolderKanban,
   FolderUp,
   Pencil,
+  CalendarClockIcon,
   TagsIcon,
   Trash2,
+  WebhookIcon,
 } from "lucide-react"
 import Link from "next/link"
 import type {
@@ -36,6 +38,7 @@ import {
   useWorkflowTags,
 } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import { useAuth } from "@/hooks/use-auth"
 
 export function WorkflowActions({
   view,
@@ -51,6 +54,10 @@ export function WorkflowActions({
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
   const { tags } = useWorkflowTags(workspaceId)
+  const { user } = useAuth()
+  const isAdmin = user?.isOrgAdmin() ?? false
+  const webhookLabel = isAdmin ? "Manage webhook" : "View webhook"
+  const scheduleLabel = isAdmin ? "Manage schedules" : "View schedules"
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false
@@ -69,6 +76,34 @@ export function WorkflowActions({
         >
           <ExternalLink className="mr-2 size-3.5" />
           Open in new tab
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-xs"
+        onClick={(e) => e.stopPropagation()}
+        asChild
+      >
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-webhooks`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <WebhookIcon className="mr-2 size-3.5" />
+          {webhookLabel}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-xs"
+        onClick={(e) => e.stopPropagation()}
+        asChild
+      >
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-schedules`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <CalendarClockIcon className="mr-2 size-3.5" />
+          {scheduleLabel}
         </Link>
       </DropdownMenuItem>
       {item.alias && (
