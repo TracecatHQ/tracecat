@@ -208,6 +208,14 @@ class AgentPresetService(BaseWorkspaceService):
                 f"Unknown MCP integrations for this workspace: {sorted(missing)}"
             )
 
+        # Verify that each provider is actually an MCP provider
+        # MCP providers follow the naming convention of ending with "_mcp"
+        non_mcp_providers = [pid for pid in unique_ids if not pid.endswith("_mcp")]
+        if non_mcp_providers:
+            raise TracecatValidationError(
+                f"Providers are not MCP providers: {sorted(non_mcp_providers)}"
+            )
+
         return unique_ids
 
     async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:

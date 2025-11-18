@@ -263,9 +263,11 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       )
       .map((integration) => {
         const provider = providerMap.get(integration.provider_id)!
+        // Remove " MCP" suffix from provider names for cleaner display
+        const displayName = provider.name.replace(/\s*MCP\s*$/i, "")
         return {
           providerId: integration.provider_id,
-          name: provider.name,
+          name: displayName,
           description: provider.description,
         }
       })
@@ -1362,17 +1364,14 @@ function AgentPresetForm({
                           suggestions={(mcpIntegrationOptions ?? []).map(
                             (integration) => ({
                               id: integration.providerId,
-                              label: integration.name.replace(
-                                /\s*MCP\s*$/i,
-                                ""
-                              ),
+                              label: integration.name,
                               value: integration.providerId,
                               description:
                                 integration.description || "Connected",
                               icon: (
                                 <ProviderIcon
                                   providerId={integration.providerId}
-                                  className="size-3 bg-transparent p-0 m  x-1"
+                                  className="size-3 bg-transparent p-0 mx-1"
                                 />
                               ),
                             })
