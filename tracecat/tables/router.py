@@ -19,7 +19,8 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
@@ -60,7 +61,7 @@ WorkspaceAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace_roles=WorkspaceRole.ADMIN,
     ),
 ]
 
