@@ -14,6 +14,7 @@ from tracecat.auth.types import Role
 from tracecat.db.models import Table, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables import router as tables_router
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableRowRead
 
@@ -39,7 +40,7 @@ async def test_list_tables_success(
     mock_table: Table,
 ) -> None:
     """Test GET /tables returns list of tables."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_tables.return_value = [mock_table]
         MockService.return_value = mock_svc
@@ -63,7 +64,7 @@ async def test_create_table_success(
     test_admin_role: Role,
 ) -> None:
     """Test POST /tables creates a new table."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_table.return_value = None
         MockService.return_value = mock_svc
@@ -92,7 +93,7 @@ async def test_create_table_duplicate(
     test_admin_role: Role,
 ) -> None:
     """Test POST /tables with duplicate name returns 409."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         # Create a nested exception chain to match the actual code
         duplicate_error = DuplicateTableError("Table already exists")
@@ -123,7 +124,7 @@ async def test_get_table_success(
     mock_table: Table,
 ) -> None:
     """Test GET /tables/{table_id} returns table details."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.get_index.return_value = []
@@ -149,7 +150,7 @@ async def test_get_table_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test GET /tables/{table_id} with non-existent ID returns 404."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.side_effect = TracecatNotFoundError("Table not found")
         MockService.return_value = mock_svc
@@ -172,7 +173,7 @@ async def test_update_table_success(
     mock_table: Table,
 ) -> None:
     """Test PATCH /tables/{table_id} updates table."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.update_table.return_value = None
@@ -197,7 +198,7 @@ async def test_delete_table_success(
     mock_table: Table,
 ) -> None:
     """Test DELETE /tables/{table_id} deletes table."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.delete_table.return_value = None
         MockService.return_value = mock_svc
@@ -220,7 +221,7 @@ async def test_insert_table_row_success(
     mock_table: Table,
 ) -> None:
     """Test POST /tables/{table_id}/rows inserts a row."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.insert_row.return_value = None
@@ -245,7 +246,7 @@ async def test_insert_table_rows_batch_success(
     mock_table: Table,
 ) -> None:
     """Test POST /tables/{table_id}/rows/batch inserts multiple rows."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.batch_insert_rows.return_value = 2
@@ -277,7 +278,7 @@ async def test_list_table_rows_success(
     mock_table: Table,
 ) -> None:
     """Test GET /tables/{table_id}/rows returns table rows."""
-    with patch("tracecat.tables.router.TablesService") as MockService:
+    with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         row_id_1 = uuid.uuid4()
         row_id_2 = uuid.uuid4()

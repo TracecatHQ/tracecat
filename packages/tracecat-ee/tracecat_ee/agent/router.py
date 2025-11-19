@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
@@ -26,7 +26,6 @@ from tracecat_ee.agent.approvals.schemas import ApprovalRead
 from tracecat_ee.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,
-    EnrichedSession,
     SessionInfo,
 )
 from tracecat_ee.agent.types import AgentWorkflowID
@@ -76,9 +75,6 @@ class AgentSessionRead(BaseModel):
     root_workflow: WorkflowSummary | None = None
     action_ref: str | None = None
     action_title: str | None = None
-
-
-ApprovalsTA: TypeAdapter[list[EnrichedSession]] = TypeAdapter(list[EnrichedSession])
 
 
 class AgentApprovalSubmission(BaseModel):
@@ -136,12 +132,22 @@ async def list_agent_sessions(
         # Transform approval enrichments to API response format
         approval_reads = [
             ApprovalRead(
+                id=enriched.approval.id,
+                session_id=enriched.approval.session_id,
+                tool_call_id=enriched.approval.tool_call_id,
+                tool_name=enriched.approval.tool_name,
+                status=enriched.approval.status,
+                reason=enriched.approval.reason,
+                tool_call_args=enriched.approval.tool_call_args,
+                decision=enriched.approval.decision,
+                approved_at=enriched.approval.approved_at,
+                created_at=enriched.approval.created_at,
+                updated_at=enriched.approval.updated_at,
                 approved_by=UserReadMinimal.model_validate(
                     enriched.approved_by, from_attributes=True
                 )
                 if enriched.approved_by
                 else None,
-                **enriched.approval.model_dump(exclude={"approved_by"}),
             )
             for enriched in enriched_session.approvals
         ]

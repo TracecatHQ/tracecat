@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret, Workspace
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.secrets import router as secrets_router
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 
@@ -42,7 +43,7 @@ async def test_list_secrets_success(
     mock_secret: Secret,
 ) -> None:
     """Test GET /secrets returns list of secrets."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_secrets.return_value = [mock_secret]
         mock_svc.decrypt_keys = MagicMock(
@@ -71,7 +72,7 @@ async def test_list_secrets_with_type_filter(
     mock_secret: Secret,
 ) -> None:
     """Test GET /secrets with type filter."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_secrets.return_value = [mock_secret]
         mock_svc.decrypt_keys = MagicMock(
@@ -101,7 +102,7 @@ async def test_search_secrets_success(
     mock_secret: Secret,
 ) -> None:
     """Test GET /secrets/search with filters."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.search_secrets.return_value = [mock_secret]
         mock_svc.decrypt_keys = MagicMock(
@@ -133,7 +134,7 @@ async def test_get_secret_by_name_success(
     mock_secret: Secret,
 ) -> None:
     """Test GET /secrets/{secret_name} returns secret details."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret_by_name.return_value = mock_secret
         MockService.return_value = mock_svc
@@ -157,7 +158,7 @@ async def test_get_secret_by_name_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test GET /secrets/{secret_name} with non-existent name returns 404."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret_by_name.side_effect = TracecatNotFoundError(
             "Secret not found"
@@ -180,7 +181,7 @@ async def test_create_secret_success(
     test_admin_role: Role,
 ) -> None:
     """Test POST /secrets creates a new secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_secret.return_value = None
         MockService.return_value = mock_svc
@@ -208,7 +209,7 @@ async def test_create_secret_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /secrets with duplicate name returns 409."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_secret.side_effect = IntegrityError(
             "", {}, Exception("Duplicate")
@@ -238,7 +239,7 @@ async def test_update_secret_by_id_success(
     mock_secret: Secret,
 ) -> None:
     """Test POST /secrets/{secret_id} updates secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret.return_value = mock_secret
         mock_svc.update_secret.return_value = None
@@ -265,7 +266,7 @@ async def test_update_secret_by_id_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test POST /secrets/{secret_id} with non-existent ID returns 404."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret.side_effect = TracecatNotFoundError("Secret not found")
         MockService.return_value = mock_svc
@@ -289,7 +290,7 @@ async def test_delete_secret_by_id_success(
     mock_secret: Secret,
 ) -> None:
     """Test DELETE /secrets/{secret_id} deletes secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret.return_value = mock_secret
         mock_svc.delete_secret.return_value = None
@@ -312,7 +313,7 @@ async def test_delete_secret_by_id_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test DELETE /secrets/{secret_id} with non-existent ID returns 404."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret.side_effect = TracecatNotFoundError("Secret not found")
         MockService.return_value = mock_svc
@@ -356,7 +357,7 @@ async def test_list_org_secrets_success(
     mock_org_secret: Secret,
 ) -> None:
     """Test GET /organization/secrets returns org secrets."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_org_secrets.return_value = [mock_org_secret]
         mock_svc.decrypt_keys = MagicMock(
@@ -380,7 +381,7 @@ async def test_create_org_secret_success(
     test_admin_role: Role,
 ) -> None:
     """Test POST /organization/secrets creates org secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_org_secret.return_value = None
         MockService.return_value = mock_svc
@@ -408,7 +409,7 @@ async def test_get_org_secret_by_name_success(
     mock_org_secret: Secret,
 ) -> None:
     """Test GET /organization/secrets/{secret_name} returns org secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_org_secret_by_name.return_value = mock_org_secret
         MockService.return_value = mock_svc
@@ -429,7 +430,7 @@ async def test_update_org_secret_by_id_success(
     mock_org_secret: Secret,
 ) -> None:
     """Test POST /organization/secrets/{secret_id} updates org secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_org_secret.return_value = mock_org_secret
         mock_svc.update_org_secret.return_value = None
@@ -453,7 +454,7 @@ async def test_delete_org_secret_by_id_success(
     mock_org_secret: Secret,
 ) -> None:
     """Test DELETE /organization/secrets/{secret_id} deletes org secret."""
-    with patch("tracecat.secrets.router.SecretsService") as MockService:
+    with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_org_secret.return_value = mock_org_secret
         mock_svc.delete_org_secret.return_value = None

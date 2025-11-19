@@ -1,7 +1,7 @@
 from typing import cast
 from urllib.parse import urlparse
 
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role

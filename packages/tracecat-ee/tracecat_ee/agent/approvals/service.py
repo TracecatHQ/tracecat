@@ -17,7 +17,7 @@ from pydantic_ai.tools import (
     ToolApproved,
     ToolDenied,
 )
-from sqlmodel import col, select
+from sqlalchemy import select
 from temporalio import activity, workflow
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
 
@@ -157,8 +157,8 @@ class ApprovalService(BaseWorkspaceService):
             Approval.owner_id == self.workspace_id,
             Approval.id == approval_id,
         )
-        result = await self.session.exec(statement)
-        return result.one()
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     async def get_approval_by_session_and_tool(
         self,
@@ -172,8 +172,8 @@ class ApprovalService(BaseWorkspaceService):
             Approval.session_id == session_id,
             Approval.tool_call_id == tool_call_id,
         )
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def list_approvals_for_session(
         self, session_id: uuid.UUID
@@ -183,8 +183,8 @@ class ApprovalService(BaseWorkspaceService):
             Approval.owner_id == self.workspace_id,
             Approval.session_id == session_id,
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def list_sessions_enriched(
         self, sessions: Sequence[SessionInfo]
@@ -204,24 +204,25 @@ class ApprovalService(BaseWorkspaceService):
         workflows_by_id = {}
         if workflow_ids:
             workflow_statement = select(Workflow).where(
-                col(Workflow.id).in_(list(workflow_ids))
+                Workflow.id.in_(list(workflow_ids))
             )
-            workflow_result = await self.session.exec(workflow_statement)
-            workflows_by_id = {w.id: w for w in workflow_result.all()}
+            workflow_result = await self.session.execute(workflow_statement)
+            workflows = workflow_result.scalars().all()
+            workflows_by_id = {w.id: w for w in workflows}
 
         statement = (
             select(Approval, User)
-            .outerjoin(User, col(Approval.approved_by) == col(User.id))
+            .outerjoin(User, Approval.approved_by == User.id)
             .where(
                 Approval.owner_id == self.workspace_id,
-                col(Approval.session_id).in_(session_ids),
+                Approval.session_id.in_(session_ids),
             )
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
 
         # Group approvals by session_id
         approvals_by_session: dict[uuid.UUID, list[tuple[Approval, User | None]]] = {}
-        for approval, user in result.all():
+        for approval, user in result.tuples().all():
             if approval.session_id not in approvals_by_session:
                 approvals_by_session[approval.session_id] = []
             approvals_by_session[approval.session_id].append((approval, user))

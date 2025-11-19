@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import patch, MagicMock
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
@@ -562,10 +562,8 @@ class TestCasesService:
                 cases_service.fields, "update_field_values"
             ) as mock_update_fields,
         ):
-            # Set case.fields using SQLAlchemy's __dict__ to bypass SQLModel's setattr checks
             fields_obj = MagicMock()
             fields_obj.id = uuid.uuid4()
-            # Use __dict__ directly to avoid SQLModel setattr validation
             created_case.__dict__["fields"] = fields_obj
 
             # Setup mock to return existing field values

@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.engine.interfaces import ReflectedColumn
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -27,7 +28,7 @@ async def case_fields_service(
 @pytest.fixture
 async def test_case(session: AsyncSession, svc_role: Role) -> Case:
     """Create a test case for use in field tests."""
-    # Create a case directly using SQLModel
+    # Create a case directly using SQLAlchemy
     case = Case(
         owner_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
         summary="Test Case for Fields",
@@ -85,43 +86,43 @@ class TestCaseFieldsService:
 
     async def test_case_field_read_accepts_timestamp_type(self) -> None:
         """Ensure TIMESTAMP columns can be read for reserved fields."""
-        column = {
-            "name": "created_at",
-            "type": sa.types.TIMESTAMP(),
-            "nullable": False,
-            "default": None,
-            "comment": None,
-        }
+        column = ReflectedColumn(
+            name="created_at",
+            type=sa.types.TIMESTAMP(),
+            nullable=False,
+            default=None,
+            comment=None,
+        )
 
-        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        field = CaseFieldRead.from_sa(column)
         assert field.type is SqlType.TIMESTAMP
         assert field.reserved is True
 
     async def test_case_field_read_accepts_timestamptz_type(self) -> None:
         """Ensure TIMESTAMPTZ columns can be read for custom fields."""
-        column = {
-            "name": "last_seen_at",
-            "type": sa.types.TIMESTAMP(timezone=True),
-            "nullable": False,
-            "default": None,
-            "comment": None,
-        }
+        column = ReflectedColumn(
+            name="last_seen_at",
+            type=sa.types.TIMESTAMP(timezone=True),
+            nullable=False,
+            default=None,
+            comment=None,
+        )
 
-        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        field = CaseFieldRead.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 
     async def test_case_field_read_normalises_timestamptz_string(self) -> None:
         """Ensure reflected TIMESTAMP WITH TIME ZONE strings are supported."""
-        column = {
-            "name": "custom_tz_field",
-            "type": "TIMESTAMP WITH TIME ZONE",
-            "nullable": True,
-            "default": None,
-            "comment": None,
-        }
+        column = ReflectedColumn(
+            name="custom_tz_field",
+            type="TIMESTAMP WITH TIME ZONE",  # pyright: ignore[reportArgumentType]
+            nullable=True,
+            default=None,
+            comment=None,
+        )
 
-        field = CaseFieldRead.from_sa(column)  # type: ignore[arg-type]
+        field = CaseFieldRead.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 

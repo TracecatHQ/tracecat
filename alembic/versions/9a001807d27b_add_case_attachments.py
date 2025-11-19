@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column("owner_id", sa.UUID(), nullable=False),
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
         sa.Column("content_type", sa.String(length=100), nullable=False),
         sa.Column("size", sa.Integer(), nullable=False),
         sa.Column("creator_id", sa.UUID(), nullable=True),

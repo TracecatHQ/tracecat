@@ -9,7 +9,7 @@ Create Date: 2025-04-08 19:22:39.778255
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -37,11 +37,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("content", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("user_id", sqlmodel.sql.sqltypes.GUID(), nullable=True),
-        sa.Column("parent_id", sqlmodel.sql.sqltypes.GUID(), nullable=True),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("content", sa.String(), nullable=False),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("parent_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("last_edited_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("case_id", sa.UUID(), nullable=False),
         sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),

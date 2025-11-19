@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlmodel import select
+from sqlalchemy import select
 
 from tracecat.db.models import Tag, WorkflowTag
 from tracecat.identifiers import TagID
@@ -15,16 +15,16 @@ class WorkflowTagsService(BaseService):
         stmt = select(Tag).where(
             Tag.id == WorkflowTag.tag_id, WorkflowTag.workflow_id == wf_id
         )
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_workflow_tag(self, wf_id: WorkflowID, tag_id: TagID) -> WorkflowTag:
         """Get a workflow tag association."""
         stmt = select(WorkflowTag).where(
             WorkflowTag.workflow_id == wf_id, WorkflowTag.tag_id == tag_id
         )
-        result = await self.session.exec(stmt)
-        return result.one()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def add_workflow_tag(self, wf_id: WorkflowID, tag_id: TagID) -> WorkflowTag:
         """Add a tag association to a workflow."""

@@ -5,8 +5,7 @@ from collections.abc import Sequence
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
-from sqlalchemy import Boolean
-from sqlmodel import cast, func, or_, select
+from sqlalchemy import Boolean, cast, func, or_, select
 from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
@@ -74,8 +73,8 @@ class RegistryActionsService(BaseService):
                 )
             )
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""
@@ -92,8 +91,8 @@ class RegistryActionsService(BaseService):
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
         )
-        result = await self.session.exec(statement)
-        action = result.one_or_none()
+        result = await self.session.execute(statement)
+        action = result.scalars().one_or_none()
         if not action:
             raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
@@ -106,8 +105,8 @@ class RegistryActionsService(BaseService):
                 action_names
             ),
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def create_action(
         self,

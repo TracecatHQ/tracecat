@@ -4,9 +4,9 @@ import os
 from collections.abc import Sequence
 
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -105,9 +105,9 @@ class SecretsService(BaseService):
 
         statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
         if types:
-            statement = statement.where(col(Secret.type).in_(types))
-        result = await self.session.exec(statement)
-        return result.all()
+            statement = statement.where(Secret.type.in_(types))
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
@@ -116,9 +116,9 @@ class SecretsService(BaseService):
             Secret.owner_id == self.role.workspace_id,
             Secret.id == secret_id,
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             logger.error(
                 "Multiple secrets found",
@@ -162,9 +162,9 @@ class SecretsService(BaseService):
         )
         if environment:
             statement = statement.where(Secret.environment == environment)
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             raise TracecatNotFoundError(
                 "Multiple secrets found when searching by name."
@@ -220,14 +220,14 @@ class SecretsService(BaseService):
         self.logger.info("Searching secrets", set_fields=fields)
 
         if ids := fields.get("ids"):
-            stmt = stmt.where(col(Secret.id).in_(ids))
+            stmt = stmt.where(Secret.id.in_(ids))
         if names := fields.get("names"):
-            stmt = stmt.where(col(Secret.name).in_(names))
+            stmt = stmt.where(Secret.name.in_(names))
         if "environment" in fields:
             stmt = stmt.where(Secret.environment == fields["environment"])
 
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     # === Organization secrets ===
 
@@ -240,9 +240,9 @@ class SecretsService(BaseService):
             OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID
         )
         if types:
-            stmt = stmt.where(col(OrganizationSecret.type).in_(types))
-        result = await self.session.exec(stmt)
-        return result.all()
+            stmt = stmt.where(OrganizationSecret.type.in_(types))
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_org_secret(self, secret_id: SecretID) -> OrganizationSecret:
         """Get an organization secret by ID."""
@@ -251,8 +251,8 @@ class SecretsService(BaseService):
             OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             OrganizationSecret.id == secret_id,
         )
-        result = await self.session.exec(statement)
-        return result.one()
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     async def get_org_secret_by_name(
         self,
@@ -266,9 +266,9 @@ class SecretsService(BaseService):
             OrganizationSecret.name == secret_name,
             OrganizationSecret.environment == environment,
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             raise TracecatNotFoundError(
                 "Multiple organization secrets found when searching by name."

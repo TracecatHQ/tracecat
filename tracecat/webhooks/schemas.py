@@ -6,8 +6,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat.db.models import Resource
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.core.schemas import Schema
+from tracecat.identifiers import WorkflowID
 
 # API Models
 
@@ -20,13 +20,13 @@ NDJSON_CONTENT_TYPES = (
 )
 
 
-class WebhookRead(Resource):
+class WebhookRead(Schema):
     id: str
     secret: str
     status: WebhookStatus
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] = Field(default_factory=list)
-    filters: dict[str, Any]
+    filters: dict[str, Any] = Field(default_factory=dict)
     methods: list[WebhookMethod] = Field(
         default_factory=list, description="Methods to allow"
     )

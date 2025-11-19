@@ -9,7 +9,6 @@ Create Date: 2025-07-10 17:32:07.568809
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -38,12 +37,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("title", sa.String(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("entity_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("entity_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("entity_type", sa.String(), nullable=False),
+        sa.Column("entity_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tools", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),

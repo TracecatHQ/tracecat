@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
-from sqlmodel import select
+from sqlalchemy import select
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -288,8 +288,8 @@ class InteractionService(BaseWorkspaceService):
             Interaction.owner_id == self.workspace_id,
             Interaction.id == interaction_id,
         )
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def update_interaction(
         self, interaction: Interaction, params: InteractionUpdate
@@ -326,8 +326,8 @@ class InteractionService(BaseWorkspaceService):
         statement = select(Interaction).where(Interaction.owner_id == self.workspace_id)
         if wf_exec_id:
             statement = statement.where(Interaction.wf_exec_id == wf_exec_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def delete_interaction(self, interaction: Interaction) -> None:
         """Delete an interaction by ID.

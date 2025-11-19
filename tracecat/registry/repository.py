@@ -23,7 +23,7 @@ from pydantic import (
     create_model,
 )
 from pydantic_core import to_jsonable_python
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 

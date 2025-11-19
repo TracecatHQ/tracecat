@@ -8,7 +8,8 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Schedule, Workflow, WorkflowDefinition
+from tracecat.core.schemas import Schema
+from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
@@ -18,9 +19,10 @@ from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.actions.schemas import ActionRead
+from tracecat.workflow.schedules.schemas import ScheduleRead
 
 
-class WorkflowRead(BaseModel):
+class WorkflowRead(Schema):
     id: WorkflowIDShort
     title: str
     description: str
@@ -30,7 +32,7 @@ class WorkflowRead(BaseModel):
     owner_id: OwnerID
     version: int | None = None
     webhook: WebhookRead
-    schedules: list[Schedule]
+    schedules: list[ScheduleRead]
     entrypoint: str | None
     expects: dict[str, ExpectedField] | None = None
     expects_schema: dict[str, Any] | None = None
@@ -40,13 +42,25 @@ class WorkflowRead(BaseModel):
     error_handler: str | None = None
 
 
-class WorkflowDefinitionReadMinimal(BaseModel):
+class WorkflowDefinitionReadMinimal(Schema):
     id: str
     version: int
     created_at: datetime
 
 
-class WorkflowReadMinimal(BaseModel):
+class WorkflowDefinitionRead(Schema):
+    """API response model for persisted workflow definitions."""
+
+    id: str
+    workflow_id: WorkflowUUID | None
+    owner_id: OwnerID
+    version: int
+    content: dict[str, Any] | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowReadMinimal(Schema):
     """Minimal version of WorkflowRead model for list endpoints."""
 
     id: WorkflowIDShort
@@ -164,7 +178,7 @@ class ExternalWorkflowDefinition(BaseModel):
             created_at=defn.created_at,
             updated_at=defn.updated_at,
             version=defn.version,
-            definition=DSLInput(**defn.content),
+            definition=DSLInput.model_validate(defn.content),
         )
 
     @field_validator("workflow_id", mode="before")
@@ -189,7 +203,7 @@ class WorkflowCommitResponse(BaseModel):
         )
 
 
-class WorkflowDSLCreateResponse(BaseModel):
+class WorkflowDSLCreateResponse(Schema):
     workflow: Workflow | None = None
     errors: list[ValidationResult] | None = None
 

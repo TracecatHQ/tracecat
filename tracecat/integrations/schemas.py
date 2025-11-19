@@ -10,8 +10,7 @@ from datetime import datetime
 from typing import Any, Self, TypedDict
 from urllib.parse import urlparse
 
-from pydantic import UUID4, BaseModel, SecretStr, field_validator
-from sqlmodel import Field
+from pydantic import UUID4, BaseModel, Field, SecretStr, field_validator
 
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
@@ -233,12 +232,13 @@ class ProviderMetadata(BaseModel):
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     description: str = Field(..., description="Provider description")
-    logo_url: str | None = Field(None, description="URL to provider logo")
+    logo_url: str | None = Field(default=None, description="URL to provider logo")
     setup_instructions: str | None = Field(
-        None, description="Setup instructions for the provider"
+        default=None, description="Setup instructions for the provider"
     )
     requires_config: bool = Field(
-        False, description="Whether this provider requires additional configuration"
+        default=False,
+        description="Whether this provider requires additional configuration",
     )
     setup_steps: list[str] = Field(
         default_factory=list,

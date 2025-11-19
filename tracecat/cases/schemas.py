@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -17,6 +17,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.core.schemas import Schema
 from tracecat.identifiers.workflow import (
     AnyWorkflowID,
     WorkflowIDShort,
@@ -27,7 +28,7 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableColumnUpdate
 
 
-class CaseReadMinimal(BaseModel):
+class CaseReadMinimal(Schema):
     id: uuid.UUID
     short_id: str
     created_at: datetime
@@ -42,7 +43,7 @@ class CaseReadMinimal(BaseModel):
     num_tasks_total: int = Field(default=0)
 
 
-class CaseRead(BaseModel):
+class CaseRead(Schema):
     id: uuid.UUID
     short_id: str
     created_at: datetime
@@ -58,7 +59,7 @@ class CaseRead(BaseModel):
     tags: list[CaseTagRead] = Field(default_factory=list)
 
 
-class CaseCreate(BaseModel):
+class CaseCreate(Schema):
     summary: str
     description: str
     status: CaseStatus
@@ -69,7 +70,7 @@ class CaseCreate(BaseModel):
     payload: dict[str, Any] | None = None
 
 
-class CaseUpdate(BaseModel):
+class CaseUpdate(Schema):
     summary: str | None = None
     description: str | None = None
     status: CaseStatus | None = None
@@ -83,7 +84,7 @@ class CaseUpdate(BaseModel):
 # Case Fields
 
 
-class CaseFieldRead(BaseModel):
+class CaseFieldRead(Schema):
     """Read model for a case field."""
 
     id: str
@@ -143,7 +144,7 @@ class CaseCustomFieldRead(CaseFieldRead):
 # Case Comments
 
 
-class CaseCommentRead(BaseModel):
+class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -153,12 +154,12 @@ class CaseCommentRead(BaseModel):
     last_edited_at: datetime | None = None
 
 
-class CaseCommentCreate(BaseModel):
+class CaseCommentCreate(Schema):
     content: str = Field(..., min_length=1, max_length=5_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
 
-class CaseCommentUpdate(BaseModel):
+class CaseCommentUpdate(Schema):
     content: str | None = Field(default=None, min_length=1, max_length=5_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
@@ -166,7 +167,7 @@ class CaseCommentUpdate(BaseModel):
 # Case Tasks
 
 
-class CaseTaskRead(BaseModel):
+class CaseTaskRead(Schema):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -187,7 +188,7 @@ class CaseTaskRead(BaseModel):
         return WorkflowUUID.new(v).short()
 
 
-class CaseTaskCreate(BaseModel):
+class CaseTaskCreate(Schema):
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     priority: CasePriority = Field(default=CasePriority.UNKNOWN)
@@ -196,7 +197,7 @@ class CaseTaskCreate(BaseModel):
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
 
-class CaseTaskUpdate(BaseModel):
+class CaseTaskUpdate(Schema):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     priority: CasePriority | None = Field(default=None)
@@ -208,7 +209,7 @@ class CaseTaskUpdate(BaseModel):
 # Case Events
 
 
-class CaseEventReadBase(BaseModel):
+class CaseEventReadBase(Schema):
     """Base for reading events - rich user data."""
 
     user_id: uuid.UUID | None = Field(
@@ -217,7 +218,7 @@ class CaseEventReadBase(BaseModel):
     created_at: datetime = Field(..., description="The timestamp of the event.")
 
 
-class CaseEventBase(BaseModel):
+class CaseEventBase(Schema):
     """Base for all case events."""
 
     wf_exec_id: str | None = Field(
@@ -272,7 +273,7 @@ class UpdatedEvent(CaseEventBase):
     new: str | None
 
 
-class FieldDiff(BaseModel):
+class FieldDiff(Schema):
     field: str
     old: Any
     new: Any
@@ -486,9 +487,10 @@ type CaseEventVariant = Annotated[
 ]
 
 
-class CaseEventRead(RootModel):
+class CaseEventRead(RootModel, Schema):
     """Base read model for all event types."""
 
+    model_config = ConfigDict(from_attributes=True)
     root: (
         CreatedEventRead
         | ClosedEventRead
@@ -514,12 +516,12 @@ class CaseEventRead(RootModel):
     ) = Field(discriminator="type")
 
 
-class Change[OldType: Any, NewType: Any](BaseModel):
+class Change[OldType: Any, NewType: Any](Schema):
     field: str
     old: OldType
     new: NewType
 
 
-class CaseEventsWithUsers(BaseModel):
+class CaseEventsWithUsers(Schema):
     events: list[CaseEventRead] = Field(..., description="The events for the case.")
     users: list[UserRead] = Field(..., description="The users for the case.")

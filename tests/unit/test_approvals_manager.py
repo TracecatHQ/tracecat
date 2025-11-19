@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from pydantic_ai.messages import ToolCallPart
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     PersistApprovalsActivityInputs,

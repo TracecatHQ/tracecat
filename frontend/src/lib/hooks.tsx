@@ -143,7 +143,7 @@ import {
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   type SAMLSettingsRead,
-  type Schedule,
+  type ScheduleRead,
   type SchedulesCreateScheduleData,
   type SchedulesDeleteScheduleData,
   type SchedulesUpdateScheduleData,
@@ -314,7 +314,7 @@ export function useAppInfo() {
 export function useAction(
   actionId: string,
   workspaceId: string,
-  workflowId: string | null
+  workflowId: string
 ) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
@@ -336,6 +336,7 @@ export function useAction(
       return await actionsUpdateAction({
         workspaceId,
         actionId,
+        workflowId,
         requestBody: values,
       })
     },
@@ -964,7 +965,7 @@ export function useSchedules(workflowId: string) {
     data: schedules,
     isLoading,
     error,
-  } = useQuery<Schedule[], Error>({
+  } = useQuery<ScheduleRead[], Error>({
     queryKey: [workflowId, "schedules"],
     queryFn: async ({ queryKey }) => {
       const [workflowId] = queryKey as [string, string]

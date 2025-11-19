@@ -15,9 +15,7 @@ from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -26,7 +24,7 @@ from tracecat import config
 from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.models import Workspace
+from tracecat.db.models import Base, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -222,7 +220,7 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
-            SQLModel.metadata.create_all(conn)
+            Base.metadata.create_all(conn)
         yield
     finally:
         test_engine.dispose()
@@ -381,13 +379,12 @@ async def test_workspace():
         # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.info("Created test workspace", workspace=workspace)
-
+        logger.debug("Created test workspace", workspace=workspace)
         try:
             yield workspace
         finally:
             # Clean up the workspace
-            logger.info("Teardown test workspace")
+            logger.debug("Teardown test workspace")
             try:
                 await svc.delete_workspace(ws_id)
             except Exception as e:
@@ -440,7 +437,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     try:
         yield workspace
     finally:
-        logger.info("Cleaning up test workspace")
+        logger.debug("Cleaning up test workspace")
         try:
             if session.is_active:
                 # Reset transaction state in case it was aborted

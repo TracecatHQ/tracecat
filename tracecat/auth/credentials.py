@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.schemas import UserRole

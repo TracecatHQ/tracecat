@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import EmailStr
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
@@ -40,11 +40,11 @@ async def search_user(
 
     statement = select(User)
     if email is not None:
-        statement = statement.where(User.email == email)
+        statement = statement.where(User.email == email)  # pyright: ignore[reportArgumentType]
 
-    result = await session.exec(statement)
+    result = await session.execute(statement)
     try:
-        user = result.one()
+        user = result.scalar_one()
         return UserRead.model_validate(user)
     except NoResultFound as e:
         raise HTTPException(

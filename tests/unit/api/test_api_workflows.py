@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Schedule, Tag, Webhook, Workflow, Workspace
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
 
 
@@ -45,10 +46,13 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
 def mock_webhook(test_workspace: Workspace, mock_workflow: Workflow) -> Webhook:
     """Create a mock webhook DB object."""
     return Webhook(
+        id="wh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         owner_id=test_workspace.id,
         workflow_id=mock_workflow.id,
         status="online",
+        methods=["POST"],
         filters={},
+        allowlisted_cidrs=[],
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
@@ -62,8 +66,8 @@ async def test_list_workflows_success(
 ) -> None:
     """Test GET /workflows returns paginated list of workflows."""
     # Mock service layer
-    with patch(
-        "tracecat.workflow.management.router.WorkflowsManagementService"
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
     ) as MockService:
         # Create mock service instance
         mock_svc = AsyncMock()
@@ -507,12 +511,15 @@ async def test_get_workflow_with_relationships(
             status="online",
             inputs="",  # inputs is a YAML string, not dict
             control_flow={},
+            is_interactive=False,
             owner_id=test_workspace.id,
             workflow_id=mock_workflow.id,
             created_at=datetime(2024, 1, 1, tzinfo=UTC),
             updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
         mock_schedule = Schedule(
+            id="sch-12345678901234567890123456789012",
+            status="online",
             owner_id=test_workspace.id,
             workflow_id=mock_workflow.id,
             cron="0 0 * * *",

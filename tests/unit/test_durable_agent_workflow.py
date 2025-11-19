@@ -175,8 +175,8 @@ async def test_user(svc_role: Role) -> User:
     This user is committed to the actual database (not in a test transaction)
     so that Temporal activities can see it.
     """
-    from sqlmodel import select
-    from sqlmodel.ext.asyncio.session import AsyncSession
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.db.engine import get_async_engine
 
@@ -185,8 +185,8 @@ async def test_user(svc_role: Role) -> User:
     engine = get_async_engine()
     async with AsyncSession(engine) as session:
         # Check if user already exists
-        result = await session.exec(select(User).where(User.id == user_id))
-        existing_user = result.first()
+        result = await session.execute(select(User).where(User.id == user_id))  # pyright: ignore[reportArgumentType]
+        existing_user = result.scalars().first()
 
         if existing_user:
             return existing_user

@@ -8,7 +8,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from pydantic import BaseModel, Field
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 T = TypeVar("T")
 

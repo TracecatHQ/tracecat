@@ -6,6 +6,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.agent import router as agent_router
 from tracecat.agent.schemas import (
     ModelConfig,
     ProviderCredentialConfig,
@@ -21,7 +22,7 @@ async def test_list_models_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/models returns available models."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_models = {
             "gpt-4": ModelConfig(
@@ -58,7 +59,7 @@ async def test_list_providers_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/providers returns available providers."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_providers = ["openai", "anthropic", "google"]
         mock_svc.list_providers.return_value = mock_providers
@@ -81,7 +82,7 @@ async def test_get_providers_status_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/providers/status returns credential status."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_status = {
             "openai": True,
@@ -108,7 +109,7 @@ async def test_list_provider_credential_configs_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/providers/configs returns credential configs."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_configs = [
             ProviderCredentialConfig(
@@ -143,7 +144,7 @@ async def test_get_provider_credential_config_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/providers/{provider}/config returns provider config."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_config = ProviderCredentialConfig(
             provider="openai",
@@ -176,7 +177,7 @@ async def test_get_provider_credential_config_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/providers/{provider}/config with invalid provider returns 404."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_provider_credential_config.side_effect = TracecatNotFoundError(
             "Provider not found"
@@ -196,7 +197,7 @@ async def test_create_provider_credentials_success(
     test_admin_role: Role,
 ) -> None:
     """Test POST /agent/credentials creates provider credentials."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_provider_credentials.return_value = None
         MockService.return_value = mock_svc
@@ -223,7 +224,7 @@ async def test_create_provider_credentials_error(
     test_admin_role: Role,
 ) -> None:
     """Test POST /agent/credentials with error returns 400."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_provider_credentials.side_effect = Exception(
             "Invalid credentials"
@@ -249,7 +250,7 @@ async def test_update_provider_credentials_success(
     test_admin_role: Role,
 ) -> None:
     """Test PUT /agent/credentials/{provider} updates credentials."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.update_provider_credentials.return_value = None
         MockService.return_value = mock_svc
@@ -273,7 +274,7 @@ async def test_update_provider_credentials_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test PUT /agent/credentials/{provider} with non-existent provider returns 404."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.update_provider_credentials.side_effect = TracecatNotFoundError(
             "Credentials not found"
@@ -296,7 +297,7 @@ async def test_delete_provider_credentials_success(
     test_admin_role: Role,
 ) -> None:
     """Test DELETE /agent/credentials/{provider} deletes credentials."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.delete_provider_credentials.return_value = None
         MockService.return_value = mock_svc
@@ -317,7 +318,7 @@ async def test_get_default_model_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/default-model returns default model."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_default_model.return_value = "gpt-4"
         MockService.return_value = mock_svc
@@ -337,7 +338,7 @@ async def test_get_default_model_none(
     test_admin_role: Role,
 ) -> None:
     """Test GET /agent/default-model when no default is set."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_default_model.return_value = None
         MockService.return_value = mock_svc
@@ -357,7 +358,7 @@ async def test_set_default_model_success(
     test_admin_role: Role,
 ) -> None:
     """Test PUT /agent/default-model sets default model."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.set_default_model.return_value = None
         MockService.return_value = mock_svc
@@ -381,7 +382,7 @@ async def test_set_default_model_not_found(
     test_admin_role: Role,
 ) -> None:
     """Test PUT /agent/default-model with invalid model returns 404."""
-    with patch("tracecat.agent.router.AgentManagementService") as MockService:
+    with patch.object(agent_router, "AgentManagementService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.set_default_model.side_effect = TracecatNotFoundError(
             "Model not found"

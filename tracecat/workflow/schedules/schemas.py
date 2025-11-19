@@ -5,11 +5,12 @@ from croniter import croniter
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.auth.types import Role
+from tracecat.core.schemas import Schema
 from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID
 
 
-class ScheduleRead(BaseModel):
+class ScheduleRead(Schema):
     id: ScheduleID
     owner_id: OwnerID
     created_at: datetime

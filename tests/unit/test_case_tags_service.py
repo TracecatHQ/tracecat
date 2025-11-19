@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator, Sequence
 import pytest
 from slugify import slugify
 from sqlalchemy.exc import DatabaseError, IntegrityError, NoResultFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus

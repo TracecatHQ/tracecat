@@ -1,10 +1,11 @@
 import base64
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from sqlalchemy.exc import NoResultFound, ProgrammingError
-from sqlmodel import col, select
+from sqlalchemy import select
+from sqlalchemy.orm import Mapped
 from typing_extensions import Doc
 
 from tracecat.auth.schemas import UserRead
@@ -150,7 +151,7 @@ async def create_case(
             # Refresh case to include tags
             await service.session.refresh(case)
 
-    return case.model_dump(mode="json")
+    return case.to_dict()
 
 
 @registry.register(
@@ -249,7 +250,7 @@ async def update_case(
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
 
-    return updated_case.model_dump(mode="json")
+    return updated_case.to_dict()
 
 
 @registry.register(
@@ -285,7 +286,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return comment.model_dump(mode="json")
+    return comment.to_dict()
 
 
 @registry.register(
@@ -321,7 +322,7 @@ async def update_comment(
         updated_comment = await service.update_comment(
             comment, CaseCommentUpdate(**params)
         )
-    return updated_comment.model_dump(mode="json")
+    return updated_comment.to_dict()
 
 
 @registry.register(
@@ -362,7 +363,7 @@ async def get_case(
     # Convert any UUID to string before serializing
     case_read = CaseRead(
         id=case.id,  # Use UUID directly
-        short_id=f"CASE-{case.case_number:04d}",
+        short_id=case.short_id,
         created_at=case.created_at,
         updated_at=case.updated_at,
         summary=case.summary,
@@ -410,7 +411,7 @@ async def list_cases(
             id=case.id,
             created_at=case.created_at,
             updated_at=case.updated_at,
-            short_id=f"CASE-{case.case_number:04d}",
+            short_id=case.short_id,
             summary=case.summary,
             status=case.status,
             priority=case.priority,
@@ -515,7 +516,7 @@ async def search_cases(
             id=case.id,
             created_at=case.created_at,
             updated_at=case.updated_at,
-            short_id=f"CASE-{case.case_number:04d}",
+            short_id=case.short_id,
             summary=case.summary,
             status=case.status,
             priority=case.priority,
@@ -579,11 +580,11 @@ async def list_case_events(
         async with get_async_session_context_manager() as session:
             from tracecat.db.models import User
 
-            stmt = select(User).where(col(User.id).in_(user_ids))
-            result = await session.exec(stmt)
+            stmt = select(User).where(cast(Mapped[UUID], User.id).in_(user_ids))
+            result = await session.execute(stmt)
             users = [
                 UserRead.model_validate(user, from_attributes=True)
-                for user in result.all()
+                for user in result.scalars().all()
             ]
 
     return CaseEventsWithUsers(
@@ -654,7 +655,7 @@ async def assign_user(
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
-    return updated_case.model_dump(mode="json")
+    return updated_case.to_dict()
 
 
 @registry.register(
@@ -685,7 +686,7 @@ async def assign_user_by_email(
 
         # Update the case with the user's ID
         updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
-    return updated_case.model_dump(mode="json")
+    return updated_case.to_dict()
 
 
 @registry.register(

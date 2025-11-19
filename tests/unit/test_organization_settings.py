@@ -3,7 +3,7 @@ from typing import Any
 import orjson
 import pytest
 from fastapi import HTTPException
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role

@@ -46,7 +46,14 @@ from tracecat.dsl.schemas import (
     Trigger,
     TriggerInputs,
 )
-from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
+from tracecat.dsl.view import (
+    RFEdge,
+    RFGraph,
+    RFNode,
+    TriggerNode,
+    UDFNode,
+    UDFNodeData,
+)
 from tracecat.exceptions import (
     TracecatCredentialsError,
     TracecatDSLError,

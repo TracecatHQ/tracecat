@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.approvals.schemas import ApprovalCreate, ApprovalUpdate
 from tracecat_ee.agent.approvals.service import ApprovalService, SessionInfo
 

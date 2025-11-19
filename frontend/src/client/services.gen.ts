@@ -1137,7 +1137,7 @@ export const workflowsExportWorkflow = (
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WorkflowDefinition Successful Response
+ * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflowDefinitions = (
@@ -1165,7 +1165,7 @@ export const workflowsListWorkflowDefinitions = (
  * @param data.workflowId
  * @param data.workspaceId
  * @param data.version
- * @returns WorkflowDefinition Successful Response
+ * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
  */
 export const workflowsGetWorkflowDefinition = (
@@ -1193,7 +1193,7 @@ export const workflowsGetWorkflowDefinition = (
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WorkflowDefinition Successful Response
+ * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
  */
 export const workflowsCreateWorkflowDefinition = (
@@ -1668,6 +1668,7 @@ export const actionsGetAction = (
  * @param data The data for the request.
  * @param data.actionId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns ActionRead Successful Response
  * @throws ApiError
@@ -1683,6 +1684,7 @@ export const actionsUpdateAction = (
     },
     query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -1698,6 +1700,7 @@ export const actionsUpdateAction = (
  * @param data The data for the request.
  * @param data.actionId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1712,6 +1715,7 @@ export const actionsDeleteAction = (
     },
     query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2224,7 +2228,7 @@ export const variablesDeleteVariableById = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId
- * @returns Schedule Successful Response
+ * @returns ScheduleRead Successful Response
  * @throws ApiError
  */
 export const schedulesListSchedules = (
@@ -2249,7 +2253,7 @@ export const schedulesListSchedules = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns Schedule Successful Response
+ * @returns ScheduleRead Successful Response
  * @throws ApiError
  */
 export const schedulesCreateSchedule = (
@@ -2275,7 +2279,7 @@ export const schedulesCreateSchedule = (
  * @param data The data for the request.
  * @param data.scheduleId
  * @param data.workspaceId
- * @returns Schedule Successful Response
+ * @returns ScheduleRead Successful Response
  * @throws ApiError
  */
 export const schedulesGetSchedule = (
@@ -2303,7 +2307,7 @@ export const schedulesGetSchedule = (
  * @param data.scheduleId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns Schedule Successful Response
+ * @returns ScheduleRead Successful Response
  * @throws ApiError
  */
 export const schedulesUpdateSchedule = (
@@ -2359,7 +2363,7 @@ export const schedulesDeleteSchedule = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns Schedule Successful Response
+ * @returns ScheduleRead Successful Response
  * @throws ApiError
  */
 export const schedulesSearchSchedules = (

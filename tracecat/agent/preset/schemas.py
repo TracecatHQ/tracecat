@@ -9,10 +9,11 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.core.schemas import Schema
 from tracecat.identifiers import OwnerID
 
 
-class AgentPresetBase(BaseModel):
+class AgentPresetBase(Schema):
     """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
@@ -57,7 +58,7 @@ class AgentPresetUpdate(BaseModel):
     retries: int | None = Field(default=None, ge=0)
 
 
-class AgentPresetReadMinimal(BaseModel):
+class AgentPresetReadMinimal(Schema):
     """Minimal API model for reading agent presets in list endpoints."""
 
     id: uuid.UUID
@@ -67,8 +68,6 @@ class AgentPresetReadMinimal(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class AgentPresetRead(AgentPresetBase):

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import NotRequired, TypedDict
 
-from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
+from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
@@ -24,7 +25,7 @@ class WorkspaceSettings(TypedDict):
 
 
 # Schema
-class WorkspaceSettingsRead(BaseModel):
+class WorkspaceSettingsRead(Schema):
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
     workflow_default_timeout_seconds: int | None = None
@@ -49,7 +50,7 @@ class WorkspaceSettingsRead(BaseModel):
         return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES)
 
 
-class WorkspaceSettingsUpdate(BaseModel):
+class WorkspaceSettingsUpdate(Schema):
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(
         default=None,
@@ -89,28 +90,28 @@ class WorkspaceSettingsUpdate(BaseModel):
 
 
 # Params
-class WorkspaceCreate(BaseModel):
+class WorkspaceCreate(Schema):
     name: str = Field(..., min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
     owner_id: OwnerID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
 
 
-class WorkspaceUpdate(BaseModel):
+class WorkspaceUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
 
 
-class WorkspaceSearch(BaseModel):
+class WorkspaceSearch(Schema):
     name: str | None = None
 
 
 # Responses
-class WorkspaceReadMinimal(BaseModel):
+class WorkspaceReadMinimal(Schema):
     id: WorkspaceID
     name: str
 
 
-class WorkspaceMember(BaseModel):
+class WorkspaceMember(Schema):
     user_id: UserID
     first_name: str | None
     last_name: str | None
@@ -119,7 +120,7 @@ class WorkspaceMember(BaseModel):
     workspace_role: WorkspaceRole
 
 
-class WorkspaceRead(BaseModel):
+class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
     settings: WorkspaceSettingsRead | None = None
@@ -131,16 +132,16 @@ WorkspaceSettingsUpdate.model_rebuild()
 
 
 # === Membership === #
-class WorkspaceMembershipCreate(BaseModel):
+class WorkspaceMembershipCreate(Schema):
     user_id: UserID
     role: WorkspaceRole = WorkspaceRole.EDITOR
 
 
-class WorkspaceMembershipUpdate(BaseModel):
+class WorkspaceMembershipUpdate(Schema):
     role: WorkspaceRole | None = None
 
 
-class WorkspaceMembershipRead(BaseModel):
+class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
     role: WorkspaceRole

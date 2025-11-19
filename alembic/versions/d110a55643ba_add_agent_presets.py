@@ -9,7 +9,6 @@ Create Date: 2025-11-04 17:06:03.137296
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -38,15 +37,15 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("slug", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("slug", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("instructions", sa.Text(), nullable=True),
-        sa.Column("model_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("model_provider", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("base_url", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("model_name", sa.String(), nullable=False),
+        sa.Column("model_provider", sa.String(), nullable=False),
+        sa.Column("base_url", sa.String(), nullable=True),
         sa.Column(
             "output_type", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
@@ -55,7 +54,7 @@ def upgrade() -> None:
         sa.Column(
             "tool_approvals", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
-        sa.Column("mcp_server_url", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("mcp_server_url", sa.String(), nullable=True),
         sa.Column(
             "mcp_server_headers", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),

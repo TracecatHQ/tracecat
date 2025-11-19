@@ -28,7 +28,7 @@ export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
-  description?: string | null
+  description?: string
   inputs?: string
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean
@@ -3431,39 +3431,6 @@ export type SAMLSettingsUpdate = {
   saml_idp_metadata_url?: string | null
 }
 
-export type Schedule = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
-  id?: string
-  status?: string
-  cron?: string | null
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
-   * ISO 8601 duration string
-   */
-  every?: string | null
-  /**
-   * ISO 8601 duration string
-   */
-  offset?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  start_at?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  end_at?: string | null
-  /**
-   * The maximum number of seconds to wait for the workflow to complete
-   */
-  timeout?: number | null
-  workflow_id: string
-}
-
 export type ScheduleCreate = {
   workflow_id: string
   inputs?: {
@@ -3494,6 +3461,24 @@ export type ScheduleCreate = {
 }
 
 export type status2 = "online" | "offline"
+
+export type ScheduleRead = {
+  id: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+  workflow_id: string
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  every?: string | null
+  offset?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  timeout?: number | null
+  status: "online" | "offline"
+}
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -4750,15 +4735,12 @@ export type WebhookCreate = {
 export type WebhookMethod = "GET" | "POST"
 
 export type WebhookRead = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
   id: string
   secret: string
   status: WebhookStatus
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string>
-  filters: {
+  filters?: {
     [key: string]: unknown
   }
   /**
@@ -4796,38 +4778,18 @@ export type WorkflowCommitResponse = {
 export type status3 = "success" | "failure"
 
 /**
- * A workflow definition.
- *
- * This is the underlying representation/snapshot of a workflow in the system, which
- * can directly execute in the runner.
- *
- * Shoulds
- * -------
- * 1. Be convertible into a Workspace Workflow + Acitons
- * 2. Be convertible into a YAML DSL
- * 3. Be able to be versioned
- *
- * Shouldn'ts
- * ----------
- * 1. Have any stateful information
- *
- * Relationships
- * -------------
- * - 1 Workflow to many WorkflowDefinitions
+ * API response model for persisted workflow definitions.
  */
-export type WorkflowDefinition = {
-  created_at?: string
-  updated_at?: string
+export type WorkflowDefinitionRead = {
+  id: string
+  workflow_id: string | null
   owner_id: string
-  id?: string
-  /**
-   * DSL spec version
-   */
   version: number
-  workflow_id: string
-  content: {
+  content?: {
     [key: string]: unknown
-  }
+  } | null
+  created_at: string
+  updated_at: string
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -5153,7 +5115,7 @@ export type WorkflowRead = {
   owner_id: string
   version?: number | null
   webhook: WebhookRead
-  schedules: Array<Schedule>
+  schedules: Array<ScheduleRead>
   entrypoint: string | null
   expects?: {
     [key: string]: ExpectedField
@@ -5539,7 +5501,8 @@ export type WorkflowsListWorkflowDefinitionsData = {
   workspaceId: string
 }
 
-export type WorkflowsListWorkflowDefinitionsResponse = Array<WorkflowDefinition>
+export type WorkflowsListWorkflowDefinitionsResponse =
+  Array<WorkflowDefinitionRead>
 
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
@@ -5547,14 +5510,14 @@ export type WorkflowsGetWorkflowDefinitionData = {
   workspaceId: string
 }
 
-export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type WorkflowsCreateWorkflowDefinitionData = {
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -5684,6 +5647,7 @@ export type ActionsGetActionResponse = ActionRead
 export type ActionsUpdateActionData = {
   actionId: string
   requestBody: ActionUpdate
+  workflowId: string
   workspaceId: string
 }
 
@@ -5691,6 +5655,7 @@ export type ActionsUpdateActionResponse = ActionRead
 
 export type ActionsDeleteActionData = {
   actionId: string
+  workflowId: string
   workspaceId: string
 }
 
@@ -5863,21 +5828,21 @@ export type SchedulesListSchedulesData = {
   workspaceId: string
 }
 
-export type SchedulesListSchedulesResponse = Array<Schedule>
+export type SchedulesListSchedulesResponse = Array<ScheduleRead>
 
 export type SchedulesCreateScheduleData = {
   requestBody: ScheduleCreate
   workspaceId: string
 }
 
-export type SchedulesCreateScheduleResponse = Schedule
+export type SchedulesCreateScheduleResponse = ScheduleRead
 
 export type SchedulesGetScheduleData = {
   scheduleId: string
   workspaceId: string
 }
 
-export type SchedulesGetScheduleResponse = Schedule
+export type SchedulesGetScheduleResponse = ScheduleRead
 
 export type SchedulesUpdateScheduleData = {
   requestBody: ScheduleUpdate
@@ -5885,7 +5850,7 @@ export type SchedulesUpdateScheduleData = {
   workspaceId: string
 }
 
-export type SchedulesUpdateScheduleResponse = Schedule
+export type SchedulesUpdateScheduleResponse = ScheduleRead
 
 export type SchedulesDeleteScheduleData = {
   scheduleId: string
@@ -5899,7 +5864,7 @@ export type SchedulesSearchSchedulesData = {
   workspaceId: string
 }
 
-export type SchedulesSearchSchedulesResponse = Array<Schedule>
+export type SchedulesSearchSchedulesResponse = Array<ScheduleRead>
 
 export type TagsListTagsData = {
   workspaceId: string
@@ -7481,7 +7446,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowDefinition>
+        200: Array<WorkflowDefinitionRead>
         /**
          * Validation Error
          */
@@ -7496,7 +7461,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -7509,7 +7474,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -8040,7 +8005,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */
@@ -8053,7 +8018,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8068,7 +8033,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8081,7 +8046,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8109,7 +8074,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */

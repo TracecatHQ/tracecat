@@ -113,16 +113,10 @@ export const $ActionCreate = {
       title: "Title",
     },
     description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      maxLength: 1000,
       title: "Description",
+      default: "",
     },
     inputs: {
       type: "string",
@@ -10474,124 +10468,6 @@ export const $SAMLSettingsUpdate = {
   title: "SAMLSettingsUpdate",
 } as const
 
-export const $Schedule = {
-  properties: {
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    status: {
-      type: "string",
-      title: "Status",
-      default: "online",
-    },
-    cron: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Cron",
-    },
-    inputs: {
-      additionalProperties: true,
-      type: "object",
-      title: "Inputs",
-    },
-    every: {
-      anyOf: [
-        {
-          type: "string",
-          format: "duration",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Every",
-      description: "ISO 8601 duration string",
-    },
-    offset: {
-      anyOf: [
-        {
-          type: "string",
-          format: "duration",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Offset",
-      description: "ISO 8601 duration string",
-    },
-    start_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Start At",
-      description: "ISO 8601 datetime string",
-    },
-    end_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "End At",
-      description: "ISO 8601 datetime string",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description:
-        "The maximum number of seconds to wait for the workflow to complete",
-    },
-    workflow_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workflow Id",
-    },
-  },
-  type: "object",
-  required: ["owner_id", "workflow_id"],
-  title: "Schedule",
-} as const
-
 export const $ScheduleCreate = {
   properties: {
     workflow_id: {
@@ -10699,6 +10575,132 @@ export const $ScheduleCreate = {
   type: "object",
   required: ["workflow_id"],
   title: "ScheduleCreate",
+} as const
+
+export const $ScheduleRead = {
+  properties: {
+    id: {
+      type: "string",
+      pattern: "sch-[0-9a-f]{32}",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+    },
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+    },
+    timeout: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+    },
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "created_at",
+    "updated_at",
+    "workflow_id",
+    "status",
+  ],
+  title: "ScheduleRead",
 } as const
 
 export const $ScheduleSearch = {
@@ -14753,21 +14755,6 @@ export const $WebhookMethod = {
 
 export const $WebhookRead = {
   properties: {
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     id: {
       type: "string",
       title: "Id",
@@ -14830,15 +14817,7 @@ export const $WebhookRead = {
     },
   },
   type: "object",
-  required: [
-    "owner_id",
-    "id",
-    "secret",
-    "status",
-    "filters",
-    "workflow_id",
-    "url",
-  ],
+  required: ["id", "secret", "status", "workflow_id", "url"],
   title: "WebhookRead",
 } as const
 
@@ -14964,8 +14943,44 @@ export const $WorkflowCommitResponse = {
   title: "WorkflowCommitResponse",
 } as const
 
-export const $WorkflowDefinition = {
+export const $WorkflowDefinitionRead = {
   properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    content: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -14976,52 +14991,18 @@ export const $WorkflowDefinition = {
       format: "date-time",
       title: "Updated At",
     },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    version: {
-      type: "integer",
-      title: "Version",
-      description: "DSL spec version",
-    },
-    workflow_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workflow Id",
-    },
-    content: {
-      additionalProperties: true,
-      type: "object",
-      title: "Content",
-    },
   },
   type: "object",
-  required: ["owner_id", "version", "workflow_id", "content"],
-  title: "WorkflowDefinition",
-  description: `A workflow definition.
-
-This is the underlying representation/snapshot of a workflow in the system, which
-can directly execute in the runner.
-
-Shoulds
--------
-1. Be convertible into a Workspace Workflow + Acitons
-2. Be convertible into a YAML DSL
-3. Be able to be versioned
-
-Shouldn'ts
-----------
-1. Have any stateful information
-
-Relationships
--------------
-- 1 Workflow to many WorkflowDefinitions`,
+  required: [
+    "id",
+    "workflow_id",
+    "owner_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "WorkflowDefinitionRead",
+  description: "API response model for persisted workflow definitions.",
 } as const
 
 export const $WorkflowDefinitionReadMinimal = {
@@ -16107,7 +16088,7 @@ export const $WorkflowRead = {
     },
     schedules: {
       items: {
-        $ref: "#/components/schemas/Schedule",
+        $ref: "#/components/schemas/ScheduleRead",
       },
       type: "array",
       title: "Schedules",
