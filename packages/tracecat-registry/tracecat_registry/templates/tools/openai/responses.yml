@@ -31,6 +31,10 @@ definition:
       type: str | None
       description: Base URL for OpenAI API. Defaults to OpenAI's API endpoint.
       default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
   steps:
     - ref: call_openai_responses
       action: ai.action
@@ -41,4 +45,5 @@ definition:
         instructions: ${{ inputs.instructions }}
         output_type: ${{ inputs.text_format }}
         base_url: ${{ inputs.base_url || VARS.openai.base_url }}
+        model_settings: ${{ inputs.model_settings }}
   returns: ${{ steps.call_openai_responses.result }}

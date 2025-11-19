@@ -98,6 +98,7 @@ class AgentConfig:
     tool_approvals: dict[str, bool] | None = None
     # MCP
     mcp_servers: list[MCPServerConfig] | None = None
+    model_settings: dict[str, Any] | None = None
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

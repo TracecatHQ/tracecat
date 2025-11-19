@@ -63,7 +63,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)
     _output_type = _parse_output_type(config.output_type) if config.output_type else str
-    _model_settings = None
+    _model_settings = config.model_settings
 
     # Add verbosity prompt
     verbosity_prompt = VerbosityPrompt()

@@ -23,6 +23,10 @@ definition:
         Output format to use. Either JSONSchema
         or a supported type (bool, float, int, str, list[bool], list[float], list[int], list[str]).
       default: null
+    model_settings:
+      type: dict[str, Any] | None
+      description: Model-specific settings.
+      default: null
     base_url:
       type: str | None
       description: Base URL for Ollama Chat API
@@ -36,5 +40,6 @@ definition:
         model_provider: ollama
         instructions: ${{ inputs.instructions }}
         output_type: ${{ inputs.output_type }}
+        model_settings: ${{ inputs.model_settings }}
         base_url: ${{ inputs.base_url || VARS.ollama.base_url }}
   returns: ${{ steps.call_ollama.result }}
