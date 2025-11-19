@@ -51,6 +51,7 @@ interface ChatInterfaceProps {
   entityType: ChatEntity
   entityId: string
   onChatSelect?: (chatId: string) => void
+  bodyClassName?: string
 }
 
 export function ChatInterface({
@@ -58,6 +59,7 @@ export function ChatInterface({
   entityType,
   entityId,
   onChatSelect,
+  bodyClassName,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
@@ -73,7 +75,7 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const presetsEnabled = entityType === "case"
+  const presetsEnabled = entityType === "case" || entityType === "copilot"
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
     { enabled: presetsEnabled }
@@ -346,7 +348,7 @@ export function ChatInterface({
       </div>
 
       {/* Chat Body */}
-      <div className="flex flex-1 min-h-0 flex-col">
+      <div className={cn("flex flex-1 min-h-0 flex-col", bodyClassName)}>
         <ChatBody
           chatId={selectedChatId}
           workspaceId={workspaceId}

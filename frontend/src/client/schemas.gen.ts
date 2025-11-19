@@ -4503,7 +4503,7 @@ export const $ChatCreate = {
 
 export const $ChatEntity = {
   type: "string",
-  enum: ["case", "agent_preset", "agent_preset_builder"],
+  enum: ["case", "agent_preset", "agent_preset_builder", "copilot"],
   title: "ChatEntity",
   description: "The type of entity associated with a chat.",
 } as const

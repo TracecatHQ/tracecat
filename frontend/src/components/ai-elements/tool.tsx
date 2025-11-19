@@ -23,7 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { CodeBlock } from "./code-block"
+import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
 export type ToolProps = ComponentProps<typeof Collapsible>
 
@@ -129,7 +129,9 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
       Parameters
     </h4>
     <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
+      <CodeBlock code={JSON.stringify(input, null, 2)} language="json">
+        <CodeBlockCopyButton />
+      </CodeBlock>
     </div>
   </div>
 )
@@ -174,10 +176,16 @@ export const ToolOutput = ({
       Output = null
     } else if (typeof output === "object") {
       Output = (
-        <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
+        <CodeBlock code={JSON.stringify(output, null, 2)} language="json">
+          <CodeBlockCopyButton />
+        </CodeBlock>
       )
     } else if (typeof output === "string") {
-      Output = <CodeBlock code={output} language="json" />
+      Output = (
+        <CodeBlock code={output} language="json">
+          <CodeBlockCopyButton />
+        </CodeBlock>
+      )
     } else {
       Output = <div>{output as ReactNode}</div>
     }

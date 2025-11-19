@@ -31,7 +31,8 @@ export function isChatEntity(value: unknown): value is ChatEntity {
   return (
     value === "case" ||
     value === "agent_preset" ||
-    value === "agent_preset_builder"
+    value === "agent_preset_builder" ||
+    value === "copilot"
   )
 }
 
@@ -202,6 +203,12 @@ export const ENTITY_TO_INVALIDATION: Record<
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
+    },
+  },
+  copilot: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for copilot
     },
   },
 }

@@ -1282,7 +1282,11 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case" | "agent_preset" | "agent_preset_builder"
+export type ChatEntity =
+  | "case"
+  | "agent_preset"
+  | "agent_preset_builder"
+  | "copilot"
 
 /**
  * Model for chat metadata with a single message.

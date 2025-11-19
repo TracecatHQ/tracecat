@@ -17,7 +17,11 @@ from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.config import TRACECAT__AGENT_MAX_REQUESTS, TRACECAT__AGENT_MAX_TOOL_CALLS
+from tracecat.config import (
+    TRACECAT__AGENT_MAX_REQUESTS,
+    TRACECAT__AGENT_MAX_RETRIES,
+    TRACECAT__AGENT_MAX_TOOL_CALLS,
+)
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
@@ -75,9 +79,9 @@ async def run_agent(
     instructions: str | None = None,
     output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
-    max_tool_calls: int = 5,
-    max_requests: int = 20,
-    retries: int = 3,
+    max_tool_calls: int = TRACECAT__AGENT_MAX_TOOL_CALLS,
+    max_requests: int = TRACECAT__AGENT_MAX_REQUESTS,
+    retries: int = TRACECAT__AGENT_MAX_RETRIES,
     base_url: str | None = None,
     deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentOutput:
