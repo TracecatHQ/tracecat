@@ -255,12 +255,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     )
 
     return integrations
-      .filter(
-        (integration) =>
-          providerMap.has(integration.provider_id) &&
-          integration.status === "connected" &&
-          !integration.is_expired
-      )
       .map((integration) => {
         const provider = providerMap.get(integration.provider_id)!
         // Remove " MCP" suffix from provider names for cleaner display
@@ -273,6 +267,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       })
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [integrations, integrationProviders])
+
+  console.log("mcpIntegrations", mcpIntegrations)
 
   const mcpIntegrationsIsLoading =
     integrationsIsLoading || integrationProvidersIsLoading
