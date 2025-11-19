@@ -1,48 +1,21 @@
-from __future__ import annotations
-
 import textwrap
-from datetime import datetime
-from typing import Any
-from uuid import UUID
 
 import yaml
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel
 
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.db.models import Case
-
-
-class CasePromptData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    case_number: int
-    summary: str
-    description: str
-    status: CaseStatus
-    priority: CasePriority
-    severity: CaseSeverity
-    payload: dict[str, Any] | None = None
-    created_at: datetime
-    updated_at: datetime
-    assignee_id: UUID | None = None
-
-    @computed_field
-    def short_id(self) -> str | None:
-        return f"CASE-{self.case_number:04d}"
 
 
 class CaseCopilotPrompts(BaseModel):
     """Prompts for the case copilot chat assistant."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     case: Case
 
     @property
     def instructions(self) -> str:
         """Build the instructions for the case copilot."""
         updated_at = self.case.updated_at.isoformat()
-        case_data = yaml.dump(self._serialize_case(), indent=2)
+        case_data = yaml.dump(self.case.to_dict(), indent=2)
         return textwrap.dedent(f"""
             You are a helpful case management assistant that helps analysts in security and IT operations resolve cases / tickets efficiently and accurately. You will be given a case with a summary, description, and payload inside the <Case> tag.
 
@@ -63,20 +36,3 @@ class CaseCopilotPrompts(BaseModel):
         raise NotImplementedError(
             "User prompt is not implemented for the case copilot."
         )
-
-    def _serialize_case(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation of the case."""
-        prompt_case = CasePromptData.model_validate(self.case, from_attributes=True)
-        case_data = prompt_case.model_dump(mode="json", exclude_none=True)
-        tags = getattr(self.case, "__dict__", {}).get("tags")
-        if tags:
-            case_data["tags"] = [
-                {
-                    "id": str(tag.id),
-                    "name": tag.name,
-                    "ref": tag.ref,
-                    "color": tag.color,
-                }
-                for tag in tags
-            ]
-        return case_data
