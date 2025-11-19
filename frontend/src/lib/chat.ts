@@ -365,10 +365,5 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
       finalMessages.push({ ...message, parts: newParts })
     }
   }
-  console.log({
-    states,
-    ignorePos,
-    finalMessages,
-  })
   return finalMessages
 }

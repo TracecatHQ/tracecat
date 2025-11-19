@@ -268,8 +268,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [integrations, integrationProviders])
 
-  console.log("mcpIntegrations", mcpIntegrations)
-
   const mcpIntegrationsIsLoading =
     integrationsIsLoading || integrationProvidersIsLoading
   const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">("presets")

@@ -16,6 +16,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.providers.base import MCPAuthProvider
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
+from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 
 
@@ -166,7 +167,7 @@ class AgentPresetService(BaseWorkspaceService):
                 )
 
         config = self._preset_to_agent_config(preset)
-        return await self._attach_mcp_integration(config, preset.mcp_integrations)
+        return await self._attach_mcp_integrations(config, preset.mcp_integrations)
 
     async def _normalize_and_validate_slug(
         self,
@@ -259,7 +260,7 @@ class AgentPresetService(BaseWorkspaceService):
             retries=preset.retries,
         )
 
-    async def _attach_mcp_integration(
+    async def _attach_mcp_integrations(
         self, config: AgentConfig, mcp_integrations: list[str] | None
     ) -> AgentConfig:
         """Resolve MCP provider URLs and authorization headers from selected integrations."""
@@ -293,9 +294,16 @@ class AgentPresetService(BaseWorkspaceService):
             await integrations_service.refresh_token_if_needed(integration)
             access_token = await integrations_service.get_access_token(integration)
             if not access_token:
-                raise TracecatValidationError(
-                    f"MCP integration {integration.provider_id!r} has no access token"
+                logger.warning(
+                    "Skipping MCP integration %r: no access token (likely disconnected)",
+                    integration.provider_id,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "provider_id": integration.provider_id,
+                        "integration_status": integration.status,
+                    },
                 )
+                continue
 
             token_type = integration.token_type or "Bearer"
             mcp_servers.append(
