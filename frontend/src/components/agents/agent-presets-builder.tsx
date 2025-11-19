@@ -23,7 +23,7 @@ import {
   Type,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type MouseEvent,
   useCallback,
@@ -221,6 +221,8 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
 
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
@@ -233,7 +235,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
-  const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">("presets")
+
+  const currentTab = searchParams?.get("tab") === "chat" ? "chat" : "presets"
+
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
@@ -250,15 +254,21 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       if (normalizedId === activePresetId) {
         return
       }
-      router.replace(`/workspaces/${workspaceId}/agents/${normalizedId}`)
+      const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
+      const params = new URLSearchParams(searchParams?.toString())
+      params.set("tab", currentTab)
+      const url = params.toString()
+        ? `${nextPath}?${params.toString()}`
+        : nextPath
+      router.replace(url)
     },
-    [activePresetId, router, workspaceId]
+    [activePresetId, router, searchParams, currentTab, workspaceId]
   )
 
   // Fetch full preset data when a preset is selected (not in create mode)
   const selectedPresetId =
     activePresetId === NEW_PRESET_ID ? null : activePresetId
-  const { preset: selectedPreset } = useAgentPreset(
+  const { preset: selectedPreset, presetIsLoading } = useAgentPreset(
     workspaceId,
     selectedPresetId,
     {
@@ -286,13 +296,22 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     }
   }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
 
-  const chatTabDisabled = !selectedPreset
+  const chatTabDisabled =
+    !selectedPreset && !presetIsLoading && !featureFlagsLoading
 
   useEffect(() => {
-    if (chatTabDisabled && sidebarTab === "chat") {
-      setSidebarTab("presets")
+    if (chatTabDisabled && currentTab === "chat") {
+      if (!pathname) {
+        return
+      }
+      const params = new URLSearchParams(searchParams?.toString())
+      params.set("tab", "presets")
+      const url = params.toString()
+        ? `${pathname}?${params.toString()}`
+        : pathname
+      router.replace(url)
     }
-  }, [chatTabDisabled, sidebarTab])
+  }, [chatTabDisabled, pathname, router, searchParams, currentTab])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -384,12 +403,21 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         <ResizablePanel defaultSize={26} minSize={18}>
           <div className="flex h-full flex-col border-r bg-muted/40">
             <Tabs
-              value={sidebarTab}
+              value={currentTab}
               onValueChange={(value) => {
                 if (value === "chat" && chatTabDisabled) {
                   return
                 }
-                setSidebarTab(value as "presets" | "chat")
+                if (!pathname) {
+                  return
+                }
+                const nextTab = value as "presets" | "chat"
+                const params = new URLSearchParams(searchParams?.toString())
+                params.set("tab", nextTab)
+                const url = params.toString()
+                  ? `${pathname}?${params.toString()}`
+                  : pathname
+                router.replace(url)
               }}
               className="flex h-full flex-col"
             >
