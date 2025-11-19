@@ -304,7 +304,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       setSidebarTab("presets")
       const params = new URLSearchParams(searchParams?.toString())
       params.set("tab", "presets")
-      const url = params.toString() ? `${pathname}?${params.toString()}` : pathname
+      const url = params.toString()
+        ? `${pathname}?${params.toString()}`
+        : pathname
       router.replace(url)
     }
   }, [chatTabDisabled, pathname, router, searchParams, sidebarTab])
