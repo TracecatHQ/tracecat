@@ -235,10 +235,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
-  const [sidebarTab, setSidebarTab] = useState<"presets" | "chat">(() => {
-    const tabParam = searchParams?.get("tab")
-    return tabParam === "chat" ? "chat" : "presets"
-  })
+
+  const currentTab = searchParams?.get("tab") === "chat" ? "chat" : "presets"
+
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
@@ -257,13 +256,13 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       }
       const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
       const params = new URLSearchParams(searchParams?.toString())
-      params.set("tab", sidebarTab)
+      params.set("tab", currentTab)
       const url = params.toString()
         ? `${nextPath}?${params.toString()}`
         : nextPath
       router.replace(url)
     },
-    [activePresetId, router, searchParams, sidebarTab, workspaceId]
+    [activePresetId, router, searchParams, currentTab, workspaceId]
   )
 
   // Fetch full preset data when a preset is selected (not in create mode)
@@ -301,8 +300,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     !selectedPreset && !presetIsLoading && !featureFlagsLoading
 
   useEffect(() => {
-    if (chatTabDisabled && sidebarTab === "chat") {
-      setSidebarTab("presets")
+    if (chatTabDisabled && currentTab === "chat") {
       if (!pathname) {
         return
       }
@@ -313,17 +311,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         : pathname
       router.replace(url)
     }
-  }, [chatTabDisabled, pathname, router, searchParams, sidebarTab])
-
-  useEffect(() => {
-    const tabParam = searchParams?.get("tab")
-    if (tabParam === "chat" && !chatTabDisabled && sidebarTab !== "chat") {
-      setSidebarTab("chat")
-    }
-    if (tabParam !== "chat" && sidebarTab !== "presets") {
-      setSidebarTab("presets")
-    }
-  }, [chatTabDisabled, searchParams, sidebarTab])
+  }, [chatTabDisabled, pathname, router, searchParams, currentTab])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -415,7 +403,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         <ResizablePanel defaultSize={26} minSize={18}>
           <div className="flex h-full flex-col border-r bg-muted/40">
             <Tabs
-              value={sidebarTab}
+              value={currentTab}
               onValueChange={(value) => {
                 if (value === "chat" && chatTabDisabled) {
                   return
@@ -424,7 +412,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
                   return
                 }
                 const nextTab = value as "presets" | "chat"
-                setSidebarTab(nextTab)
                 const params = new URLSearchParams(searchParams?.toString())
                 params.set("tab", nextTab)
                 const url = params.toString()
