@@ -269,7 +269,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   // Fetch full preset data when a preset is selected (not in create mode)
   const selectedPresetId =
     activePresetId === NEW_PRESET_ID ? null : activePresetId
-  const { preset: selectedPreset } = useAgentPreset(
+  const { preset: selectedPreset, presetIsLoading } = useAgentPreset(
     workspaceId,
     selectedPresetId,
     {
@@ -297,11 +297,15 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     }
   }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
 
-  const chatTabDisabled = !selectedPreset
+  const chatTabDisabled =
+    !selectedPreset && !presetIsLoading && !featureFlagsLoading
 
   useEffect(() => {
     if (chatTabDisabled && sidebarTab === "chat") {
       setSidebarTab("presets")
+      if (!pathname) {
+        return
+      }
       const params = new URLSearchParams(searchParams?.toString())
       params.set("tab", "presets")
       const url = params.toString()
@@ -414,6 +418,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
               value={sidebarTab}
               onValueChange={(value) => {
                 if (value === "chat" && chatTabDisabled) {
+                  return
+                }
+                if (!pathname) {
                   return
                 }
                 const nextTab = value as "presets" | "chat"
