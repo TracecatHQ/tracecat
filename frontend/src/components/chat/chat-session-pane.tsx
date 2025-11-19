@@ -12,7 +12,6 @@ import {
 } from "ai"
 import {
   CheckIcon,
-  CopyIcon,
   HammerIcon,
   PencilIcon,
   RefreshCcwIcon,
@@ -79,7 +78,6 @@ import {
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
-  getAssistantText,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -134,6 +132,27 @@ export function ChatSessionPane({
       messages: uiMessages,
       modelInfo,
     })
+
+  const isWaitingForResponse = useMemo(() => {
+    if (status === "submitted") return true
+    if (status === "streaming") {
+      const lastMessage = messages[messages.length - 1]
+      if (!lastMessage || lastMessage.role !== "assistant") return true
+
+      const lastPart = lastMessage.parts[lastMessage.parts.length - 1]
+      if (!lastPart) return true
+
+      const isStreamingVisual =
+        (lastPart.type === "text" && lastPart.text.length > 0) ||
+        (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
+        (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
+
+      if (lastPart.type === "data-approval-request") return false
+
+      return !isStreamingVisual
+    }
+    return false
+  }, [status, messages])
 
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
@@ -287,53 +306,36 @@ export function ChatSessionPane({
                       onSubmitApprovals={handleSubmitApprovals}
                     />
                   ))}
-                  {role === "assistant" && parts && parts.length > 0 && (
-                    // Render response actions for assistant messages and reveal them on hover for older messages.
-                    <Actions
-                      className={cn(
-                        // Apply a smooth transition so the actions fade in and out gracefully.
-                        "transition-opacity duration-200 ease-out",
-                        // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                        !isLastMessage &&
-                          "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                      )}
-                    >
-                      {parts.some((part) => part.type === "text") && (
-                        <Action
-                          size="sm"
-                          onClick={() => {
-                            const assistantText = getAssistantText(parts)
-                            if (assistantText.length > 0) {
-                              navigator.clipboard.writeText(assistantText)
-                              toast({
-                                title: "Copied to clipboard",
-                                description:
-                                  "The assistant's response has been copied to your clipboard.",
-                              })
-                            }
-                          }}
-                          label="Copy"
-                          tooltip="Copy"
-                        >
-                          <CopyIcon className="size-3" />
-                        </Action>
-                      )}
-                      {isLastMessage && (
-                        <Action
-                          size="sm"
-                          onClick={() => regenerate()}
-                          label="Retry"
-                          tooltip="Retry"
-                        >
-                          <RefreshCcwIcon className="size-3" />
-                        </Action>
-                      )}
-                    </Actions>
-                  )}
+                  {role === "assistant" &&
+                    parts &&
+                    parts.length > 0 &&
+                    !isWaitingForResponse && (
+                      // Render response actions for assistant messages and reveal them on hover for older messages.
+                      <Actions
+                        className={cn(
+                          // Apply a smooth transition so the actions fade in and out gracefully.
+                          "transition-opacity duration-200 ease-out",
+                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                          !isLastMessage &&
+                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                        )}
+                      >
+                        {isLastMessage && (
+                          <Action
+                            size="sm"
+                            onClick={() => regenerate()}
+                            label="Retry"
+                            tooltip="Retry"
+                          >
+                            <RefreshCcwIcon className="size-3" />
+                          </Action>
+                        )}
+                      </Actions>
+                    )}
                 </div>
               )
             })}
-            {status === "submitted" && (
+            {isWaitingForResponse && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
