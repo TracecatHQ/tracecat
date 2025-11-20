@@ -89,7 +89,6 @@ class AgentPresetRead(AgentPresetBase):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
-            mcp_integrations=self.mcp_integrations,
             retries=self.retries,
         )
 

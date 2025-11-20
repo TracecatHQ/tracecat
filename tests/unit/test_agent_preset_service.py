@@ -98,7 +98,7 @@ def agent_preset_create_params() -> AgentPresetCreate:
         actions=None,
         namespaces=None,
         tool_approvals=None,
-        mcp_integrations=None,  
+        mcp_integrations=None,
         retries=3,
     )
 
