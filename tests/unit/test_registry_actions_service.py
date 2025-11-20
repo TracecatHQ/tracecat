@@ -606,4 +606,4 @@ async def test_sync_actions_from_repository_mixed_valid_and_malformed(
     # before or after some actions are registered
     # This test documents the current behavior: no transaction rollback means
     # we could have partial state
-    assert isinstance(actions, list)  # Just verify we can query
+    assert len(actions) == 0
