@@ -307,8 +307,36 @@ def RoleACL(
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Any:
     """
-    Check the user or service against the authentication requirements and return a role.
-    Returns the correct FastAPI auth dependency.
+    Factory for FastAPI dependency that enforces role-based access control.
+
+    This function creates a dependency for authenticating and authorizing requests
+    based on user/service role, workspace membership, and required access level.
+    It ensures that the caller meets specified requirements and, if successful,
+    returns a validated `Role` object describing their permissions.
+
+    Args:
+        allow_user (bool, optional): Allow authentication via user session/JWT. Defaults to True.
+        allow_service (bool, optional): Allow authentication via service API key. Defaults to False.
+        require_workspace (Literal["yes", "no", "optional"], optional): Specifies if a workspace ID is required.
+            - "yes": Workspace ID is required.
+            - "no": Workspace ID is not required.
+            - "optional": Workspace ID may be omitted.
+            Defaults to "yes".
+        min_access_level (AccessLevel | None, optional): Minimum organization access level required for the request. Defaults to None.
+        workspace_id_in_path (bool, optional): Whether to extract `workspace_id` from the path rather than the query string.
+            Defaults to False.
+        require_workspace_roles (WorkspaceRole | list[WorkspaceRole] | None, optional): Required workspace role(s)
+            for user requests. Ignored for service API keys. Defaults to None.
+
+    Returns:
+        Any: A FastAPI dependency that yields a `Role` instance upon successful authentication and authorization.
+        If validation fails, raises an HTTPException (401 or 403).
+
+    Raises:
+        ValueError: If invalid or conflicting options are provided (such as `workspace_id_in_path=True`
+            with `require_workspace="optional"`).
+        HTTPException: If authentication fails or the caller lacks required permissions.
+
     """
     if not any((allow_user, allow_service, require_workspace)):
         raise ValueError("Must allow either user, service, or require workspace")

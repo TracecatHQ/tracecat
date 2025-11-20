@@ -19,7 +19,8 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
@@ -54,13 +55,13 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
-WorkspaceAdminUser = Annotated[
+WorkspaceEditorUser = Annotated[
     Role,
     RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace_roles=[WorkspaceRole.ADMIN, WorkspaceRole.EDITOR],
     ),
 ]
 
@@ -117,7 +118,7 @@ async def list_tables(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     params: TableCreate,
 ) -> None:
@@ -188,7 +189,7 @@ async def get_table(
 
 @router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableUpdate,
@@ -221,7 +222,7 @@ async def update_table(
 
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
 ) -> None:
@@ -239,7 +240,7 @@ async def delete_table(
 
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
 async def create_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableColumnCreate,
@@ -276,7 +277,7 @@ async def create_column(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def update_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -318,7 +319,7 @@ async def update_column(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -425,7 +426,7 @@ async def insert_row(
 
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_row(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -494,7 +495,7 @@ async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
 
 @router.post("/import", status_code=status.HTTP_201_CREATED)
 async def import_table_from_csv(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     file: UploadFile = File(...),
     table_name: str | None = Form(default=None),

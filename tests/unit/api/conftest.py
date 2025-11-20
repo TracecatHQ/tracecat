@@ -25,7 +25,7 @@ from tracecat.secrets.router import (
     WorkspaceUser as SecretsWorkspaceUser,
 )
 from tracecat.tables.router import (
-    WorkspaceAdminUser as TablesWorkspaceAdminUser,
+    WorkspaceEditorUser as TablesWorkspaceEditorUser,
 )
 from tracecat.tables.router import (
     WorkspaceUser as TablesWorkspaceUser,
@@ -70,7 +70,7 @@ def client() -> Generator[TestClient, None, None]:
         WorkspaceAdminUser,
         OrgAdminUser,
         TablesWorkspaceUser,
-        TablesWorkspaceAdminUser,
+        TablesWorkspaceEditorUser,
     ]
 
     for annotated_type in role_dependencies:

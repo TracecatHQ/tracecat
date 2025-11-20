@@ -6,9 +6,10 @@ import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import Role
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Table
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
@@ -28,6 +29,33 @@ pytestmark = pytest.mark.usefixtures("db")
 async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesService:
     """Fixture to create a TablesService instance using an admin role."""
     return TablesService(session=session, role=svc_admin_role)
+
+
+@pytest.fixture(scope="function")
+async def svc_editor_role(svc_workspace) -> Role:  # type: ignore[override]
+    """Workspace editor role for tables tests."""
+    return Role(
+        type="user",
+        access_level=AccessLevel.BASIC,
+        workspace_id=svc_workspace.id,
+        workspace_role=WorkspaceRole.EDITOR,
+        user_id=uuid4(),
+        service_id="tracecat-api",
+    )
+
+
+@pytest.fixture(scope="function")
+async def tables_service_editor(
+    session: AsyncSession, svc_editor_role: Role
+) -> TablesService:
+    """TablesService bound to a workspace editor role."""
+    return TablesService(session=session, role=svc_editor_role)
+
+
+@pytest.fixture(scope="function")
+async def tables_service_basic(session: AsyncSession, svc_role: Role) -> TablesService:
+    """TablesService bound to a basic member without workspace role."""
+    return TablesService(session=session, role=svc_role)
 
 
 # New fixture to create a table with 'name' and 'age' columns for row tests
@@ -67,6 +95,29 @@ class TestTablesService:
         # Retrieve by id
         retrieved_by_id = await tables_service.get_table(created_table.id)
         assert retrieved_by_id.id == created_table.id
+
+    async def test_editor_can_create_and_delete_table(
+        self, tables_service_editor: TablesService
+    ) -> None:
+        """Workspace editors should be allowed to mutate tables."""
+
+        table = await tables_service_editor.create_table(
+            TableCreate(name="editor_table")
+        )
+        fetched = await tables_service_editor.get_table(table.id)
+        assert fetched.name == "editor_table"
+
+        await tables_service_editor.delete_table(table)
+        with pytest.raises(TracecatNotFoundError):
+            await tables_service_editor.get_table(table.id)
+
+    async def test_basic_member_cannot_create_table(
+        self, tables_service_basic: TablesService
+    ) -> None:
+        """Members lacking a workspace role should be rejected for DDL."""
+
+        with pytest.raises(TracecatAuthorizationError):
+            await tables_service_basic.create_table(TableCreate(name="blocked_table"))
 
     async def test_list_tables(self, tables_service: TablesService) -> None:
         """Test listing tables after creating multiple tables."""
