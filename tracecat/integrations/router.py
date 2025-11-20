@@ -484,7 +484,7 @@ async def delete_integration(
 
     # For custom providers, delete the provider definition even if no integration exists
     if integration is None:
-        if provider_info.key.id.startswith("custom-"):
+        if provider_info.key.id.startswith(("custom_", "custom-")):
             # Delete the custom provider definition if it exists
             await svc.delete_custom_provider(provider_key=provider_info.key)
             return
