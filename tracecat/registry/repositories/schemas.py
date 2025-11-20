@@ -8,7 +8,10 @@ from tracecat.registry.actions.schemas import (
     RegistryActionRead,
     RegistryActionValidationErrorInfo,
 )
-from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN, DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
 
 
 class RegistryRepositoryRead(BaseModel):
