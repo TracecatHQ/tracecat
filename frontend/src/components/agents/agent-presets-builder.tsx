@@ -258,6 +258,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     )
 
     return integrations
+      .filter((integration) => providerMap.has(integration.provider_id))
       .map((integration) => {
         const provider = providerMap.get(integration.provider_id)!
         // Remove " MCP" suffix from provider names for cleaner display
