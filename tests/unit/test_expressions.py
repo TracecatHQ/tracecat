@@ -10,7 +10,9 @@ from httpx import Response
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.db.schemas import BaseSecret
+from tracecat.auth.types import Role
+from tracecat.db.models import Secret
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import (
     ExprContext,
     ExprType,
@@ -20,6 +22,7 @@ from tracecat.expressions.common import (
 )
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
+    collect_expressions,
     eval_templated_object,
     extract_expressions,
     extract_templated_secrets,
@@ -35,11 +38,52 @@ from tracecat.expressions.validator.validator import (
     TemplateActionValidationContext,
 )
 from tracecat.logger import logger
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue
-from tracecat.types.exceptions import TracecatExpressionError
+from tracecat.secrets.enums import SecretType
+from tracecat.secrets.schemas import SecretKeyValue, SecretRead
 from tracecat.validation.common import get_validators
-from tracecat.validation.models import ExprValidationResult, ValidationDetail
+from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
+from tracecat.variables.schemas import VariableCreate
+from tracecat.variables.service import VariablesService
+
+
+@pytest.fixture
+def evaluator() -> ExprEvaluator:
+    return ExprEvaluator()
+
+
+@pytest.mark.parametrize(
+    "base,indexes,expected",
+    [
+        (["hello", "world"], (1,), "world"),
+        ((1, 2, 3), (0,), 1),
+        ("tracecat", (-1,), "t"),
+        (([["nested"]], 1), (0, 0, 0), "nested"),
+        ({"foo": {"bar": 42}}, ("foo", "bar"), 42),
+    ],
+)
+def test_primary_expr_indexing(
+    evaluator: ExprEvaluator, base, indexes, expected
+) -> None:
+    assert evaluator.primary_expr(base, *indexes) == expected
+
+
+@pytest.mark.parametrize(
+    "base,indexes,error_message",
+    [
+        ([1, 2], (5,), "Sequence index 5 out of range"),
+        ([1, 2], ("0",), "Sequence indices must be integers"),
+        (42, (0,), "Object of type 'int' is not indexable"),
+        ({"foo": 1}, ("bar",), "Key 'bar' not found for mapping access"),
+    ],
+)
+def test_primary_expr_indexing_errors(
+    evaluator: ExprEvaluator, base, indexes, error_message: str
+) -> None:
+    with pytest.raises(TracecatExpressionError) as exc:
+        evaluator.primary_expr(base, *indexes)
+    assert error_message in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -166,22 +210,24 @@ def test_eval_jsonpath():
     [
         ("${{ACTIONS.webhook.result}}", 1),
         ("${{ ACTIONS.webhook.result -> int }}", 1),
-        ("${{ INPUTS.arg1 -> int }}", 1),
-        ("${{ INPUTS.arg1 }}", 1),  # Doesn't cast
-        ("${{ INPUTS.arg2 -> str }}", "2"),
+        ("${{ TRIGGER.data.arg1 -> int }}", 1),
+        ("${{ TRIGGER.data.arg1 }}", 1),  # Doesn't cast
+        ("${{ TRIGGER.data.arg2 -> str }}", "2"),
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
         (
-            "${{ FN.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
+            "${{ FN.add(TRIGGER.data.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
             10000,
         ),
     ],
 )
 def test_templated_expression_result(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
-            "arg1": 1,
-            "arg2": 2,
+        ExprContext.TRIGGER: {
+            "data": {
+                "arg1": 1,
+                "arg2": 2,
+            },
         },
         ExprContext.ACTIONS: {
             "webhook": {"result": 1},
@@ -209,20 +255,22 @@ def test_templated_expression_result(expression, expected_result):
             1234.5,
         ),
         (
-            "${{ FN.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
+            "${{ FN.less_than(TRIGGER.data.arg1, TRIGGER.data.arg2) -> bool }}",
             True,
         ),
         (
-            "${{ FN.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
+            "${{ FN.is_equal(TRIGGER.data.arg1, ACTIONS.webhook.result) -> bool }}",
             True,
         ),
     ],
 )
 def test_templated_expression_function(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
-            "arg1": 1,
-            "arg2": 2,
+        ExprContext.TRIGGER: {
+            "data": {
+                "arg1": 1,
+                "arg2": 2,
+            },
         },
         ExprContext.ACTIONS: {
             "webhook": {"result": 1},
@@ -271,7 +319,49 @@ def test_find_secrets():
     assert sorted(extract_templated_secrets(mock_templated_kwargs)) == sorted(expected)
 
 
-def test_evaluate_templated_secret(test_role):
+def test_find_secrets_in_complex_expression():
+    # Should detect secret usages nested within a function call
+    expr = '${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}'
+    secrets = extract_templated_secrets(expr)
+    assert sorted(secrets) == sorted(
+        [
+            "zendesk.ZENDESK_EMAIL",
+            "zendesk.ZENDESK_API_TOKEN",
+        ]
+    )
+
+
+# ------------------------------ New fixtures ------------------------------ #
+
+
+@pytest.fixture
+def simple_secret_expr():
+    return "${{ SECRETS.alpha.KEY }}"
+
+
+@pytest.fixture
+def complex_secret_expr():
+    return "${{ FN.join(':', [SECRETS.alpha.KEY, SECRETS.beta.SECRET, 'tail']) }}"
+
+
+@pytest.fixture
+def mixed_args_obj(simple_secret_expr, complex_secret_expr):
+    return {
+        "headers": {
+            "Auth": complex_secret_expr,
+            "Init": simple_secret_expr,
+        },
+        "payload": [
+            "no templates here",
+            "${{ 'prefix-' + SECRETS.gamma.TOKEN }}",
+        ],
+    }
+
+
+# ------------------------------ Corner case tests ------------------------------ #
+
+
+def test_evaluate_templated_secret(test_role: Role):
     TEST_SECRETS = {
         "my_secret": [
             SecretKeyValue(key="TEST_API_KEY_1", value=SecretStr("1234567890")),
@@ -330,7 +420,7 @@ def test_evaluate_templated_secret(test_role):
 
     base_secrets_url = f"{config.TRACECAT__API_URL}/secrets"
 
-    def format_secrets_as_json(secrets: list[BaseSecret]) -> dict[str, str]:
+    def format_secrets_as_json(secrets: list[SecretRead]) -> dict[str, str]:
         """Format secrets as a dict."""
         secret_dict = {}
         for secret in secrets:
@@ -342,18 +432,23 @@ def test_evaluate_templated_secret(test_role):
             }
         return secret_dict
 
-    def get_secret(secret_name: str):
+    def get_secret(secret_name: str) -> SecretRead:
         with httpx.Client(base_url=config.TRACECAT__API_URL) as client:
             response = client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
-        return BaseSecret.model_validate(response.json())
+        return SecretRead.model_validate(response.json())
 
     with respx.mock:
         # Mock workflow getter from API side
         for secret_name, secret_keys in TEST_SECRETS.items():
-            secret = BaseSecret(
+            secret = Secret(
+                id=f"secret_{uuid.uuid4().hex}",
                 name=secret_name,
                 owner_id=uuid.uuid4(),
+                # Explicitly set the concrete secret type so enums can be resolved during serialization.
+                type=SecretType.CUSTOM.value,
+                # Ensure the environment matches the default API environment to mimic production payloads.
+                environment=DEFAULT_SECRETS_ENVIRONMENT,
                 encrypted_keys=encrypt_keyvalues(
                     secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
                 ),
@@ -361,13 +456,11 @@ def test_evaluate_templated_secret(test_role):
                 updated_at=datetime.now(),
                 tags=None,
             )
+            secret_payload = SecretRead.from_database(secret).model_dump(mode="json")
 
             # Mock hitting get secrets endpoint
             respx.get(f"{base_secrets_url}/{secret_name}").mock(
-                return_value=Response(
-                    200,
-                    json=secret.model_dump(mode="json"),
-                )
+                return_value=Response(200, json=secret_payload)
             )
 
         # Start test
@@ -472,6 +565,8 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("       ACTIONS.action_test.baz    ", 2),
         ("ACTIONS.action_test", {"bar": 1, "baz": 2}),
         ("   ACTIONS.action_test", {"bar": 1, "baz": 2}),
+        ("VARS.api_config.base_url", "https://example.com"),
+        ("VARS.api_config.timeout", 30),
         # Secret expressions
         ("SECRETS.secret_test.KEY", "SECRET"),
         ("   SECRETS.secret_test.KEY    ", "SECRET"),
@@ -479,7 +574,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.concat(ENV.item, '5')", "ITEM5"),
         ("FN.add(5, 2)", 7),
         ("  FN.is_null(None)   ", True),
-        ("FN.contains('a', INPUTS.my.module.items)", True),
+        ("FN.contains('a', TRIGGER.data.my.module.items)", True),
         ("FN.length([1, 2, 3])", 3),
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
@@ -490,7 +585,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
             ["Hey Alice!", "Hey Bob!", "Hey Charlie!"],
         ),
         (
-            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], INPUTS.adjectives)",
+            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], TRIGGER.data.adjectives)",
             [
                 "Hello, Alice! You are cool.",
                 "Hello, Bob! You are awesome.",
@@ -503,15 +598,15 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ),
         # Ternary expressions
         (
-            "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
+            "'It contains 1' if FN.contains(1, TRIGGER.data.list) else 'it does not contain 1'",
             "It contains 1",
         ),
-        ("True if FN.contains('key1', INPUTS.dict) else False", True),
-        ("True if FN.contains('key2', INPUTS.dict) else False", False),
-        ("True if FN.does_not_contain('key2', INPUTS.dict) else False", True),
-        ("True if FN.does_not_contain('key1', INPUTS.dict) else False", False),
+        ("True if FN.contains('key1', TRIGGER.data.dict) else False", True),
+        ("True if FN.contains('key2', TRIGGER.data.dict) else False", False),
+        ("True if FN.does_not_contain('key2', TRIGGER.data.dict) else False", True),
+        ("True if FN.does_not_contain('key1', TRIGGER.data.dict) else False", False),
         (
-            "None if FN.does_not_contain('key1', INPUTS.dict) else INPUTS.dict.key1",
+            "None if FN.does_not_contain('key1', TRIGGER.data.dict) else TRIGGER.data.dict.key1",
             1,
         ),
         (
@@ -525,7 +620,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("True if TRIGGER.hits2._source.host.ip else False", False),
         # Truthy expressions
         ("TRIGGER.hits2._source.host.ip", None),
-        ("INPUTS.people[4].name", None),
+        ("TRIGGER.data.people[4].name", None),
         # Typecast expressions
         ("int(5)", 5),
         ("float(5.0)", 5.0),
@@ -566,12 +661,51 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("var.y", "100"),
         ("var.y -> int", 100),
         # Test jsonpath
-        ("INPUTS.people[1].name", "Bob"),
-        ("INPUTS.people[2].age -> str", "50"),
-        ("INPUTS.people[*].age", [30, 40, 50]),
-        ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
-        ("INPUTS.people[*].gender", ["female", "male"]),
-        # ('INPUTS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
+        ("TRIGGER.data.people[1].name", "Bob"),
+        ("TRIGGER.data.people[2].age -> str", "50"),
+        ("TRIGGER.data.people[*].age", [30, 40, 50]),
+        ("TRIGGER.data.people[*].name", ["Alice", "Bob", "Charlie"]),
+        ("TRIGGER.data.people[*].gender", ["female", "male"]),
+        # ('TRIGGER.data.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
+        # Test direct indexing expressions
+        ## List indexing
+        ("ACTIONS.test_list[0]", "hello"),
+        ("ACTIONS.test_list[1]", "world"),
+        ("ACTIONS.test_list[3]", "bar"),
+        ("ACTIONS.test_list[-1]", "bar"),
+        ("ACTIONS.test_list[-2]", "foo"),
+        ## String indexing
+        ("ACTIONS.test_string[0]", "t"),
+        ("ACTIONS.test_string[-1]", "t"),
+        ("ACTIONS.test_string[5]", "c"),
+        ## Tuple indexing
+        ("ACTIONS.test_tuple[0]", 10),
+        ("ACTIONS.test_tuple[1]", 20),
+        ("ACTIONS.test_tuple[2]", 30),
+        ("ACTIONS.test_tuple[-1]", 30),
+        ## Nested indexing
+        ("ACTIONS.nested_structure['level1']['level2'][0]['name']", "nested_item"),
+        ("ACTIONS.nested_structure['level1']['level2'][0]['value']", 99),
+        ("ACTIONS.mixed_nested[0][0][0]", "deep"),
+        ("ACTIONS.mixed_nested[1][0][0]", "value"),
+        ## Mixed dot and bracket notation
+        ("ACTIONS.nested_structure.level1.level2[0].name", "nested_item"),
+        ("ACTIONS.nested_structure.level1['level2'][0]['value']", 99),
+        ## List indexing with existing data
+        ("TRIGGER.data.list[0]", 1),
+        ("TRIGGER.data.list[1]", 2),
+        ("TRIGGER.data.list[-1]", 3),
+        ("TRIGGER.data.adjectives[0]", "cool"),
+        ("TRIGGER.data.adjectives[2]", "happy"),
+        ("TRIGGER.data.my.module.items[0]", "a"),
+        ("TRIGGER.data.my.module.items[1]", "b"),
+        ("TRIGGER.data.my.module.items[-1]", "c"),
+        ## Function result indexing
+        ("FN.split('hello,world,foo', ',')[0]", "hello"),
+        ("FN.split('hello,world,foo', ',')[1]", "world"),
+        ("FN.split('hello,world,foo', ',')[-1]", "foo"),
+        ("FN.split(TRIGGER.data.text, 'e')[0]", "t"),
+        ("FN.split(TRIGGER.data.text, 'e')[1]", "st"),
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -590,7 +724,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("True || (1 != 1)", True),
         # Advanced jsonpath
         ## Filtering
-        ("INPUTS..name", ["Alice", "Bob", "Charlie", "Bob"]),
+        ("TRIGGER.data..name", ["John", "Alice", "Bob", "Charlie", "Bob"]),
         ("ACTIONS.users[?active == true].name", ["Alice", "Charlie"]),
         (
             "ACTIONS.users[?age >= 40]",
@@ -638,6 +772,13 @@ def test_expression_parser(expr, expected):
                 "bar": 1,
                 "baz": 2,
             },
+            "test_list": ["hello", "world", "foo", "bar"],
+            "test_string": "tracecat",
+            "test_tuple": (10, 20, 30),
+            "nested_structure": {
+                "level1": {"level2": [{"name": "nested_item", "value": 99}]}
+            },
+            "mixed_nested": [[["deep"]], [["value"]]],
             "users": [
                 {
                     "name": "Alice",
@@ -678,38 +819,11 @@ def test_expression_parser(expr, expected):
                 "KEY": "SECRET",
             },
         },
-        ExprContext.INPUTS: {
-            "list": [1, 2, 3],
-            "dict": {
-                "key1": 1,
-            },
-            "my": {
-                "module": {
-                    "items": ["a", "b", "c"],
-                },
-            },
-            "adjectives": ["cool", "awesome", "happy"],
-            "people": [
-                {
-                    "name": "Alice",
-                    "age": 30,
-                    "gender": "female",
-                },
-                {
-                    "name": "Bob",
-                    "age": 40,
-                    "gender": "male",
-                },
-                {
-                    "name": "Charlie",
-                    "age": 50,
-                },
-            ],
-            "user@tracecat.com": {
-                "name": "Bob",
-            },
-            "numbers": [1, 2, 3],
-            "text": "test",
+        ExprContext.VARS: {
+            "api_config": {
+                "base_url": "https://example.com",
+                "timeout": 30,
+            }
         },
         ExprContext.ENV: {
             "item": "ITEM",
@@ -719,6 +833,37 @@ def test_expression_parser(expr, expected):
             "data": {
                 "name": "John",
                 "age": 30,
+                "list": [1, 2, 3],
+                "dict": {
+                    "key1": 1,
+                },
+                "my": {
+                    "module": {
+                        "items": ["a", "b", "c"],
+                    },
+                },
+                "adjectives": ["cool", "awesome", "happy"],
+                "people": [
+                    {
+                        "name": "Alice",
+                        "age": 30,
+                        "gender": "female",
+                    },
+                    {
+                        "name": "Bob",
+                        "age": 40,
+                        "gender": "male",
+                    },
+                    {
+                        "name": "Charlie",
+                        "age": 50,
+                    },
+                ],
+                "user@tracecat.com": {
+                    "name": "Bob",
+                },
+                "numbers": [1, 2, 3],
+                "text": "test",
             },
             "value": "100",
             "hits": {
@@ -1042,7 +1187,6 @@ def assert_validation_detail(
                     "url": "${{ int(100) }}",
                 },
                 "test2": "fail 1 ${{ ACTIONS.my_action.invalid }} ",
-                "test3": "fail 2 ${{ int(INPUTS.my_action.invalid_inner) }} ",
             },
             [
                 {
@@ -1051,28 +1195,9 @@ def assert_validation_detail(
                     "contains_msg": "invalid",
                 },
                 {
-                    "type": ExprType.INPUT,
-                    "status": "error",
-                    "contains_msg": "invalid_inner",
-                },
-                {
                     "type": ExprType.TYPECAST,
                     "status": "error",
                     "contains_msg": "fails",
-                },
-            ],
-        ),
-        (
-            {
-                "test": {
-                    "data": "INLINE: ${{ INPUTS.invalid }}",
-                },
-            },
-            [
-                {
-                    "type": ExprType.INPUT,
-                    "status": "error",
-                    "contains_msg": "invalid",
                 },
             ],
         ),
@@ -1097,7 +1222,6 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},
-        inputs_context={"arg": 2},
     )
     validators = get_validators()
 
@@ -1115,6 +1239,52 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
 
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_detail(actual, **ex)
+
+
+@pytest.mark.anyio
+async def test_expr_validator_vars_key_depth_limit(test_role, env_sandbox):
+    async with VariablesService.with_session(role=test_role) as service:
+        await service.create_variable(
+            VariableCreate(
+                name="config",
+                values={
+                    "base_url": "https://example.com",
+                    "api": {
+                        "base_url": "https://example.com/api",
+                    },
+                },
+            )
+        )
+
+    validation_context = ExprValidationContext(action_refs=set())
+
+    async with ExprValidator(
+        validation_context=validation_context
+    ) as success_validator:
+        for template in extract_expressions("${{ VARS.config.base_url }}"):
+            template.validate(success_validator)
+    assert success_validator.errors() == []
+
+    async with ExprValidator(validation_context=validation_context) as depth_validator:
+        for template in extract_expressions("${{ VARS.config.api.base_url }}"):
+            template.validate(depth_validator)
+    depth_errors = depth_validator.errors()
+    assert len(depth_errors) == 1
+    depth_error = depth_errors[0]
+    assert depth_error.type == ExprType.VARIABLE
+    assert "support at most one key segment" in depth_error.msg
+
+    parser = ExprParser()
+    evaluator = ExprEvaluator(
+        operand={ExprContext.VARS: {"config": {"api": {"base_url": "value"}}}},
+        strict=True,
+    )
+    parse_tree = parser.parse("VARS.config.api.base_url")
+    assert parse_tree is not None
+    with pytest.raises(
+        TracecatExpressionError, match="support at most one key segment"
+    ):
+        evaluator.evaluate(parse_tree)
 
 
 @pytest.mark.parametrize(
@@ -1232,15 +1402,6 @@ async def test_template_action_validator(expr, expected):
                 "type": ExprType.ACTION,
                 "status": "error",
                 "contains_msg": "ACTIONS expressions are not supported in Template Actions",
-            },
-        ),
-        # Test that INPUT expressions are not supported
-        (
-            "${{ INPUTS.some_input }}",
-            {
-                "type": ExprType.INPUT,
-                "status": "error",
-                "contains_msg": "INPUTS expressions are not supported in Template Actions",
             },
         ),
         # Test that TRIGGER expressions are not supported
@@ -1426,7 +1587,6 @@ async def test_validate_workflow_key_expressions(expr, expected):
     """Test validation of expressions in workflow dictionary keys."""
     validation_context = ExprValidationContext(
         action_refs={"my_action"},  # Only my_action is valid
-        inputs_context={},
     )
     validators = get_validators()
 
@@ -1764,3 +1924,137 @@ def test_build_lambda_input_sanitization() -> None:
     # Test with string input (should not be wrapped)
     str_lambda = build_safe_lambda("lambda x: x.upper()")
     assert str_lambda("hello") == "HELLO"
+
+
+def test_multiple_secrets_in_single_template():
+    expr = "${{ FN.concat(SECRETS.a.K1, '-', SECRETS.a.K2, '-', SECRETS.b.K3) }}"
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "a.K2", "b.K3"])
+
+
+def test_trims_whitespace_and_newlines_inside_template():
+    expr = "${{  FN.to_base64(  SECRETS.a.K1  +\n  '-'  +  SECRETS.b.K2  )  }}"
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "b.K2"])
+
+
+def test_multiple_templates_in_one_string():
+    s = "before ${{ SECRETS.a.K1 }} mid ${{ FN.upper(SECRETS.b.K2) }} after"
+    got = sorted(extract_templated_secrets(s))
+    assert got == sorted(["a.K1", "b.K2"])
+
+
+def test_detection_in_dict_keys_and_values():
+    obj = {
+        "${{ FN.lower(SECRETS.a.K1) }}": "${{ SECRETS.b.K2 }}",
+        "k2": "${{ FN.len(SECRETS.c.K3) }}",
+    }
+    got = sorted(extract_templated_secrets(obj))
+    assert got == sorted(["a.K1", "b.K2", "c.K3"])
+
+
+def test_underscore_and_case_in_identifiers():
+    expr = "${{ FN.f(SECRETS.alpha_beta.GAMMA_DELTA + SECRETS.xYz.A_b1) }}"
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["alpha_beta.GAMMA_DELTA", "xYz.A_b1"])
+
+
+def test_duplicates_are_deduped():
+    expr = "${{ SECRETS.a.K1 + SECRETS.a.K1 + FN.id(SECRETS.a.K1) + SECRETS.b.K2 }}"
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "b.K2"])  # no duplicates
+
+
+def test_ignores_non_template_mentions():
+    s = "SECRETS.a.K1 not inside template; and ${{ 'SECRETS.a.K1' }} as string"
+    got = extract_templated_secrets(s)
+    assert got == []
+
+
+def test_mixed_nested_object():
+    mixed_args_obj = {
+        "config": {
+            "auth": "${{ SECRETS.alpha.KEY }}",
+            "nested": {"value": "${{ FN.concat(SECRETS.beta.SECRET, '-suffix') }}"},
+        },
+        "items": [
+            "${{ SECRETS.gamma.TOKEN }}",
+            {"inner": "${{ SECRETS.alpha.KEY }}"},  # duplicate should be deduped
+        ],
+    }
+    got = sorted(extract_templated_secrets(mixed_args_obj))
+    assert got == sorted(["alpha.KEY", "beta.SECRET", "gamma.TOKEN"])
+
+
+def test_collect_expressions_captures_vars_references():
+    """Test that collect_expressions correctly captures VARS expressions.
+
+    This verifies that the ExprPathCollector visitor method is named 'vars'
+    to match the grammar, not 'variables'. The grammar emits 'vars' nodes,
+    so the visitor method must be named accordingly.
+    """
+    # Test single VARS reference
+    obj = {"param": "${{ VARS.my_variable }}"}
+    result = collect_expressions(obj)
+    assert result.variables == {"my_variable"}
+
+    # Test multiple VARS references
+    obj = {
+        "api_url": "${{ VARS.api_config.base_url }}",
+        "timeout": "${{ VARS.api_config.timeout }}",
+        "retry_count": "${{ VARS.retry_settings.max_retries }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"api_config", "retry_settings"}
+
+    # Test VARS with SECRETS together
+    obj = {
+        "auth": "${{ SECRETS.my_secret.API_KEY }}",
+        "endpoint": "${{ VARS.endpoints.production }}",
+    }
+    result = collect_expressions(obj)
+    assert result.secrets == {"my_secret.API_KEY"}
+    assert result.variables == {"endpoints"}
+
+    # Test VARS in complex expressions
+    obj = {
+        "url": "${{ FN.concat(VARS.base_url, '/api/v1') }}",
+        "headers": {
+            "Authorization": "${{ SECRETS.auth.TOKEN }}",
+            "X-API-Version": "${{ VARS.api_version }}",
+        },
+    }
+    result = collect_expressions(obj)
+    assert result.secrets == {"auth.TOKEN"}
+    assert result.variables == {"base_url", "api_version"}
+
+    # Test multiple references to same variable (should dedupe)
+    obj = {
+        "url1": "${{ VARS.config }}",
+        "url2": "${{ VARS.config.nested }}",
+        "url3": "${{ FN.upper(VARS.config) }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"config"}
+
+    # Test nested VARS in lists
+    obj = {
+        "items": [
+            "${{ VARS.item1 }}",
+            {"nested": "${{ VARS.item2 }}"},
+            "${{ FN.format('{} - {}', VARS.item3, VARS.item1) }}",  # item1 duplicate
+        ],
+    }
+    result = collect_expressions(obj)
+    assert result.variables == {"item1", "item2", "item3"}
+
+    # Test that non-VARS expressions don't create false positives
+    obj = {
+        "action": "${{ ACTIONS.my_action.result }}",
+        "trigger": "${{ TRIGGER.data }}",
+        "env": "${{ ENV.some_var }}",
+        "local": "${{ var.x }}",
+    }
+    result = collect_expressions(obj)
+    assert result.variables == set()  # No VARS expressions
+    assert result.secrets == set()  # No SECRETS expressions

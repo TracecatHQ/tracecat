@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get specific request
+  description: Get a specific Okta Access Request ticket by ID.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/getRequest
+  namespace: tools.okta_oar
+  name: get_specific_request
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    request_id:
+      type: str
+      description: ID of the access request to retrieve
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.okta_oar.base_url }}/governance/api/v1/requests/${{ inputs.request_id }}
+        method: GET
+        headers:
+          Authorization: ${{ FN.concat("SSWS ", SECRETS.okta.OKTA_API_TOKEN) }}
+          Accept: application/json
+          Content-Type: application/json
+  returns: ${{ steps.call_api.result.data }}

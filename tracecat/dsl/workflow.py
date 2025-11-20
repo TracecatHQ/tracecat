@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-import json
 import re
 import uuid
 from collections.abc import Generator, Iterable
@@ -10,7 +9,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import (
+    RetryPolicy,
+    SearchAttributePair,
+    TypedSearchAttributes,
+)
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -25,8 +28,24 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from tracecat_ee.agent.actions import (
+        ApprovalsAgentActionArgs,
+        PresetApprovalsAgentActionArgs,
+    )
+    from tracecat_ee.agent.types import AgentWorkflowID
+    from tracecat_ee.agent.workflows.durable import (
+        AgentWorkflowArgs,
+        DurableAgentWorkflow,
+    )
 
     from tracecat import config, identifiers
+    from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.preset.activities import (
+        ResolveAgentPresetConfigActivityInput,
+        resolve_agent_preset_config_activity,
+    )
+    from tracecat.agent.schemas import RunAgentArgs
+    from tracecat.agent.types import AgentConfig
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
         ctx_interaction,
@@ -41,6 +60,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
+        AgentActionMemo,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
@@ -54,9 +74,9 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
-    from tracecat.dsl.models import (
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
+    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.schemas import (
+        ROOT_STREAM,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
@@ -68,40 +88,81 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
         TriggerInputs,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
+        NormalizeTriggerInputsActivityInputs,
         ValidateTriggerInputsActivityInputs,
+        format_input_schema_validation_error,
+        normalize_trigger_inputs_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.models import InteractionInput, InteractionResult
+    from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
-    from tracecat.executor.service import evaluate_templated_args, iter_for_each
-    from tracecat.expressions.common import ExprContext
-    from tracecat.expressions.core import extract_expressions
-    from tracecat.expressions.eval import eval_templated_object
-    from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
-    from tracecat.logger import logger
-    from tracecat.types.exceptions import (
+    from tracecat.exceptions import (
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.validation.models import DSLValidationResult
-    from tracecat.workflow.executions.enums import TriggerType
-    from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
+    from tracecat.executor.service import evaluate_templated_args, iter_for_each
+    from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
+    from tracecat.expressions.eval import eval_templated_object
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+    from tracecat.identifiers.workflow import (
+        WorkflowExecutionID,
+        WorkflowID,
+        exec_id_to_parts,
+    )
+    from tracecat.logger import logger
+    from tracecat.validation.schemas import (
+        DSLValidationResult,
+        ValidationDetailListTA,
+    )
+    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+    from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
     from tracecat.workflow.management.management import WorkflowsManagementService
-    from tracecat.workflow.management.models import (
+    from tracecat.workflow.management.schemas import (
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveWorkflowAliasActivityInputs,
     )
-    from tracecat.workflow.schedules.models import GetScheduleActivityInputs
+    from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
+
+
+def _inherit_search_attributes_with_alias(
+    base_attrs: TypedSearchAttributes | None,
+    alias: str,
+) -> TypedSearchAttributes:
+    pairs: list[SearchAttributePair[Any]] = [
+        TemporalSearchAttr.ALIAS.create_pair(alias)
+    ]
+    if base_attrs:
+        pairs.extend(
+            p
+            for p in base_attrs.search_attributes
+            if p.key != TemporalSearchAttr.ALIAS.key
+        )
+    return TypedSearchAttributes(search_attributes=pairs)
+
+
+def _build_agent_child_search_attributes(
+    info: workflow.Info,
+    action_ref: str,
+) -> TypedSearchAttributes:
+    try:
+        parent_wf_id, _ = exec_id_to_parts(info.workflow_id)
+    except ValueError as e:
+        raise RuntimeError(
+            f"Malformed workflow ID when building agent child search attributes: {info.workflow_id}"
+        ) from e
+    alias = build_agent_alias(parent_wf_id, action_ref)
+    return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
 
 
 @workflow.defn
@@ -112,6 +173,7 @@ class DSLWorkflow:
     def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
         self.start_to_close_timeout = args.timeout
+        """The activity execution timeout."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
@@ -302,25 +364,49 @@ class DSLWorkflow:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = args.trigger_inputs or {}
 
-        try:
-            validation_result = await self._validate_trigger_inputs(trigger_inputs)
-            logger.info("Trigger inputs are valid", validation_result=validation_result)
-        except ValidationError as e:
-            logger.error("Failed to validate trigger inputs", error=e.errors())
-            raise ApplicationError(
-                (
-                    "Failed to validate trigger inputs"
-                    f"\n\n{json.dumps(e.errors(), indent=2)}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+        # Validate and apply defaults from input schema to trigger inputs
+        if input_schema := self.dsl.entrypoint.expects:
+            try:
+                trigger_inputs = await workflow.execute_activity(
+                    normalize_trigger_inputs_activity,
+                    arg=NormalizeTriggerInputsActivityInputs(
+                        input_schema=input_schema, trigger_inputs=trigger_inputs
+                    ),
+                    start_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+            except ActivityError as e:
+                match cause := e.cause:
+                    case ApplicationError(type=t, details=details) if (
+                        t == ValidationError.__name__
+                    ):
+                        logger.info(
+                            "Validation error when normalizing trigger inputs",
+                            error=e,
+                            details=details,
+                        )
+                        [val_detail] = details
+                        validated = ValidationDetailListTA.validate_python(val_detail)
+                        raise ApplicationError(
+                            format_input_schema_validation_error(validated),
+                            details,
+                            non_retryable=True,
+                            type=ValidationError.__name__,
+                        ) from cause
+                    case _:
+                        logger.warning(
+                            "Unexpected error cause when normalizing trigger inputs",
+                            error=e,
+                        )
+                        raise ApplicationError(
+                            "Failed to normalize trigger inputs",
+                            non_retryable=True,
+                            type=e.__class__.__name__,
+                        ) from cause
 
         # Prepare user facing context
-
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
-            ExprContext.INPUTS: self.dsl.inputs,
             ExprContext.TRIGGER: trigger_inputs,
             ExprContext.ENV: DSLEnvironment(
                 workflow={
@@ -350,7 +436,8 @@ class DSLWorkflow:
         self.logger.info(
             "Running DSL task workflow",
             runtime_config=self.runtime_config,
-            timeout=self.start_to_close_timeout,
+            activity_timeout=self.start_to_close_timeout,
+            execution_timeout=wf_info.execution_timeout,
         )
 
         self.scheduler = DSLScheduler(
@@ -369,13 +456,13 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'=' * 20} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 20}\n\n{info.exception!s}"
+                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
                 if (details := info.details)
             )
             # NOTE: This error is shown in the final activity in the workflow history
             raise ApplicationError(
-                f"Workflow failed with {n_exc} task exception(s)\n\n{formatted_exc}",
+                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
                 # We should add the details of the exceptions to the error message because this will get captured
                 # in the error handler workflow
                 {ref: info.details for ref, info in task_exceptions.items()},
@@ -520,6 +607,115 @@ class DSLWorkflow:
                     # In contrast, task.args are the runtime args that the parent workflow provided
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
+                    )
+                case PlatformAction.AI_APPROVALS_AGENT:
+                    logger.info("Executing approvals agent", task=task)
+                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
+                    if not approvals_enabled:
+                        raise ApplicationError(
+                            "Approvals AI agent feature is not enabled.",
+                            non_retryable=True,
+                            type="FeatureDisabledError",
+                        )
+                    # Evaluate templated arguments before invoking the agent workflow.
+                    agent_operand = self._build_action_context(task, stream_id)
+                    evaluated_args = eval_templated_object(
+                        task.args, operand=agent_operand
+                    )
+                    action_args = ApprovalsAgentActionArgs(**evaluated_args)
+                    wf_info = workflow.info()
+                    child_search_attributes = (
+                        _build_agent_child_search_attributes(wf_info, task.ref)
+                        if approvals_enabled
+                        else wf_info.typed_search_attributes
+                    )
+                    session_id = workflow.uuid4()
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
+                            user_prompt=action_args.user_prompt,
+                            session_id=session_id,
+                            config=AgentConfig(
+                                model_name=action_args.model_name,
+                                model_provider=action_args.model_provider,
+                                instructions=action_args.instructions,
+                                output_type=action_args.output_type,
+                                model_settings=action_args.model_settings,
+                                retries=action_args.retries,
+                                base_url=action_args.base_url,
+                                actions=action_args.actions,
+                                tool_approvals=action_args.tool_approvals,
+                            ),
+                        ),
+                    )
+                    action_result: Any = await workflow.execute_child_workflow(
+                        DurableAgentWorkflow.run,
+                        arg=arg,
+                        id=AgentWorkflowID(session_id),
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        # Propagate the parent workflow attributes to the child workflow
+                        task_queue=wf_info.task_queue,
+                        execution_timeout=wf_info.execution_timeout,
+                        task_timeout=wf_info.task_timeout,
+                        search_attributes=child_search_attributes,
+                        memo=AgentActionMemo(
+                            action_ref=task.ref,
+                            action_title=task.title,
+                            stream_id=stream_id or ROOT_STREAM,
+                        ).model_dump(),
+                    )
+                case PlatformAction.AI_PRESET_APPROVALS_AGENT:
+                    logger.info("Executing preset approvals agent", task=task)
+                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
+                    if not approvals_enabled:
+                        raise ApplicationError(
+                            "Approvals AI agent feature is not enabled.",
+                            non_retryable=True,
+                            type="FeatureDisabledError",
+                        )
+                    agent_operand = self._build_action_context(task, stream_id)
+                    evaluated_args = eval_templated_object(
+                        task.args, operand=agent_operand
+                    )
+                    preset_action_args = PresetApprovalsAgentActionArgs(
+                        **evaluated_args
+                    )
+                    preset_config = await workflow.execute_activity(
+                        resolve_agent_preset_config_activity,
+                        ResolveAgentPresetConfigActivityInput(
+                            role=self.role, preset_slug=preset_action_args.preset
+                        ),
+                        start_to_close_timeout=timedelta(seconds=30),
+                    )
+                    wf_info = workflow.info()
+                    child_search_attributes = (
+                        _build_agent_child_search_attributes(wf_info, task.ref)
+                        if approvals_enabled
+                        else wf_info.typed_search_attributes
+                    )
+                    session_id = workflow.uuid4()
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
+                            user_prompt=preset_action_args.user_prompt,
+                            session_id=session_id,
+                            config=preset_config,
+                        ),
+                    )
+                    action_result = await workflow.execute_child_workflow(
+                        DurableAgentWorkflow.run,
+                        arg=arg,
+                        id=AgentWorkflowID(session_id),
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        task_queue=wf_info.task_queue,
+                        execution_timeout=wf_info.execution_timeout,
+                        task_timeout=wf_info.task_timeout,
+                        search_attributes=child_search_attributes,
+                        memo=AgentActionMemo(
+                            action_ref=task.ref,
+                            action_title=task.title,
+                            stream_id=stream_id or ROOT_STREAM,
+                        ).model_dump(),
                     )
                 case _:
                     # Below this point, we're executing the task
@@ -750,8 +946,15 @@ class DSLWorkflow:
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
+        # Evaluate the workflow alias as a templated expression
+        evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
+        if not isinstance(evaluated_alias, str):
+            raise TypeError(
+                f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
+            )
+
         activity_inputs = ResolveWorkflowAliasActivityInputs(
-            workflow_alias=wf_alias, role=self.role
+            workflow_alias=evaluated_alias, role=self.role
         )
         wf_id = await workflow.execute_activity(
             WorkflowsManagementService.resolve_workflow_alias_activity,
@@ -760,7 +963,7 @@ class DSLWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not wf_id:
-            raise ValueError(f"Workflow alias {wf_alias} not found")
+            raise ValueError(f"Workflow alias {evaluated_alias!r} not found")
         return wf_id
 
     async def _get_workflow_definition(
@@ -891,15 +1094,10 @@ class DSLWorkflow:
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
         # Parent stream
         stream_id = ctx_stream_id.get()
-        new_action_context: dict[str, Any] = {}
-        action_ref = task.ref
         self.logger.debug(
-            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+            "Noop gather action", action_ref=task.ref, stream_id=stream_id
         )
-        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-        new_action_context[action_ref] = res
-
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        new_context = self._build_action_context(task, stream_id)
 
         arg = RunActionInput(
             task=task,
@@ -920,24 +1118,47 @@ class DSLWorkflow:
             ),
         )
 
+    def _build_action_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Construct the execution context for an action with resolved dependencies."""
+        expr_ctxs = extract_expressions(task.model_dump())
+        resolved_actions: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            resolved_actions[action_ref] = (
+                self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+            )
+
+        return {**self.context, ExprContext.ACTIONS: resolved_actions}
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
-        expr_ctxs = extract_expressions(task.model_dump())
-        new_action_context: dict[str, Any] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
-            res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-            new_action_context[action_ref] = res
+        new_context = self._build_action_context(task, stream_id)
 
-        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+        # Check if action has environment override
+        run_context = self.run_context
+        if task.environment is not None:
+            # Evaluate the environment expression
+            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            # Create a new run context with the overridden environment
+            run_context = self.run_context.model_copy(
+                update={"environment": evaluated_env}
+            )
+
+        # Tells us where to get the redis stream
+        session_id = (
+            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
+        )
 
         arg = RunActionInput(
             task=task,
-            run_context=self.run_context,
+            run_context=run_context,
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
+            session_id=session_id,
         )
 
         return await workflow.execute_activity(
@@ -1017,8 +1238,8 @@ class DSLWorkflow:
         return await workflow.execute_activity(
             WorkflowsManagementService.get_error_handler_workflow_id,
             arg=GetErrorHandlerWorkflowIDActivityInputs(args=args, role=self.role),
-            start_to_close_timeout=args.timeout,
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     async def _prepare_error_handler_workflow(

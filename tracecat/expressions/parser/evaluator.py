@@ -1,18 +1,19 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar, cast
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import functions
 from tracecat.expressions.common import (
+    MAX_VARS_PATH_DEPTH,
     ExprContext,
     ExprOperand,
     IterableExpr,
     eval_jsonpath,
 )
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
 
@@ -62,6 +63,28 @@ class ExprEvaluator(Transformer):
     def context(self, value: Any):
         logger.trace("Visiting context:", args=value)
         return value
+
+    @v_args(inline=True)
+    def base_expr(self, value: Any):
+        logger.trace("Visiting base_expr:", value=value)
+        return value
+
+    @v_args(inline=True)
+    def indexer(self, index: Any):
+        logger.trace("Visiting indexer:", index=index)
+        return index
+
+    @v_args(inline=True)
+    def primary_expr(self, base: Any, *indexers: Any):
+        logger.trace(
+            "Visiting primary_expr:",
+            base=base,
+            indexers=indexers,
+        )
+        result = base
+        for index in indexers:
+            result = self._apply_index(result, index)
+        return result
 
     @v_args(inline=True)
     def iterator(self, iter_var_expr: str, collection: Any):
@@ -118,10 +141,20 @@ class ExprEvaluator(Transformer):
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
-    def inputs(self, jsonpath: str):
-        logger.trace("Visiting inputs:", args=jsonpath)
-        expr = ExprContext.INPUTS + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+    def vars(self, path: str):
+        logger.trace("Visiting vars:", path=path)
+        trimmed = path.lstrip(".")
+        parts = trimmed.split(".") if trimmed else []
+        key_segments = parts[1:] if len(parts) > 1 else []
+        if len(key_segments) > MAX_VARS_PATH_DEPTH:
+            formatted = ".".join(parts)
+            raise TracecatExpressionError(
+                "VARS expressions currently support at most one key segment "
+                "(`VARS.<name>.<key>`). "
+                f"Got VARS.{formatted!s} with {len(key_segments)} key segments after the variable name."
+            )
+        expr = ExprContext.VARS + path
+        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
@@ -359,3 +392,33 @@ class ExprEvaluator(Transformer):
     def BRACKET_ACCESS(self, token: Token):
         logger.trace("Visiting BRACKET_ACCESS:", value=token.value)
         return token.value
+
+    def _apply_index(self, value: Any, index: Any) -> Any:
+        self.logger.trace("Applying index", value=value, index=index)
+        if isinstance(value, Mapping):
+            try:
+                return value[index]
+            except KeyError as exc:
+                raise TracecatExpressionError(
+                    f"Key {index!r} not found for mapping access"
+                ) from exc
+            except TypeError as exc:
+                raise TracecatExpressionError(
+                    f"Invalid key type {type(index).__name__!r} for mapping access"
+                ) from exc
+
+        if isinstance(value, Sequence):
+            if not isinstance(index, int):
+                raise TracecatExpressionError(
+                    f"Sequence indices must be integers, got {type(index).__name__!r}"
+                )
+            try:
+                return value[index]
+            except IndexError as exc:
+                raise TracecatExpressionError(
+                    f"Sequence index {index} out of range"
+                ) from exc
+
+        raise TracecatExpressionError(
+            f"Object of type {type(value).__name__!r} is not indexable"
+        )

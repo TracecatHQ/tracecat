@@ -70,6 +70,18 @@ export const $ActionControlFlow = {
       description:
         "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description: "Override environment for this action's execution",
+    },
   },
   type: "object",
   title: "ActionControlFlow",
@@ -101,16 +113,10 @@ export const $ActionCreate = {
       title: "Title",
     },
     description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      maxLength: 1000,
       title: "Description",
+      default: "",
     },
     inputs: {
       type: "string",
@@ -344,6 +350,7 @@ export const $ActionStatement = {
       description: "Action type. Equivalent to the UDF key.",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
       description: "Arguments for the action",
@@ -444,6 +451,19 @@ export const $ActionStatement = {
         "The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.",
       default: "all",
     },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description:
+        "Override environment for this action's execution. Can be a template expression.",
+    },
   },
   type: "object",
   required: ["ref", "action"],
@@ -462,6 +482,7 @@ export const $ActionStep = {
       title: "Action",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
     },
@@ -636,6 +657,7 @@ export const $ActionValidationResult = {
     validated_args: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -651,12 +673,206 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AgentApprovalSubmission = {
+  properties: {
+    approvals: {
+      $ref: "#/components/schemas/ApprovalMap",
+    },
+  },
+  type: "object",
+  required: ["approvals"],
+  title: "AgentApprovalSubmission",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
       title: "Output",
     },
-    files: {
+    message_history: {
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/ModelRequest",
+              },
+              {
+                $ref: "#/components/schemas/ModelResponse",
+              },
+            ],
+            discriminator: {
+              propertyName: "kind",
+              mapping: {
+                request: "#/components/schemas/ModelRequest",
+                response: "#/components/schemas/ModelResponse",
+              },
+            },
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message History",
+    },
+    duration: {
+      type: "number",
+      title: "Duration",
+    },
+    usage: {
+      $ref: "#/components/schemas/RunUsage",
+    },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    trace_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Trace Id",
+    },
+  },
+  type: "object",
+  required: ["output", "duration", "usage", "session_id"],
+  title: "AgentOutput",
+} as const
+
+export const $AgentPreset = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "agent-preset",
+      title: "Component Id",
+      default: "agent-preset",
+    },
+  },
+  type: "object",
+  title: "AgentPreset",
+} as const
+
+export const $AgentPresetCreate = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
       anyOf: [
         {
           additionalProperties: {
@@ -668,47 +884,704 @@ export const $AgentOutput = {
           type: "null",
         },
       ],
-      title: "Files",
+      title: "Mcp Server Headers",
     },
-    message_history: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/ModelRequest",
-          },
-          {
-            $ref: "#/components/schemas/ModelResponse",
-          },
-        ],
-        discriminator: {
-          propertyName: "kind",
-          mapping: {
-            request: "#/components/schemas/ModelRequest",
-            response: "#/components/schemas/ModelResponse",
-          },
-        },
-      },
-      type: "array",
-      title: "Message History",
-    },
-    duration: {
-      type: "number",
-      title: "Duration",
-    },
-    usage: {
+    model_settings: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Usage",
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["model_name", "model_provider", "name"],
+  title: "AgentPresetCreate",
+  description: "Payload for creating a new agent preset.",
+} as const
+
+export const $AgentPresetRead = {
+  properties: {
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
         },
         {
           type: "null",
         },
       ],
     },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
   },
   type: "object",
-  required: ["output", "message_history", "duration"],
-  title: "AgentOutput",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetRead",
+  description: "API model for reading agent presets.",
+} as const
+
+export const $AgentPresetReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "name",
+    "slug",
+    "description",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetReadMinimal",
+  description: "Minimal API model for reading agent presets in list endpoints.",
+} as const
+
+export const $AgentPresetUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_server_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Url",
+    },
+    mcp_server_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Server Headers",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
+    retries: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retries",
+    },
+  },
+  type: "object",
+  title: "AgentPresetUpdate",
+  description: "Payload for updating an existing agent preset.",
+} as const
+
+export const $AgentSessionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    parent_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Run Id",
+    },
+    root_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Id",
+    },
+    root_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Run Id",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowExecutionStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approvals: {
+      items: {
+        $ref: "#/components/schemas/ApprovalRead",
+      },
+      type: "array",
+      title: "Approvals",
+    },
+    parent_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    root_workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    action_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Ref",
+    },
+    action_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Title",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "parent_run_id"],
+  title: "AgentSessionRead",
+} as const
+
+export const $AgentSettingsRead = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+    },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+    },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+    },
+  },
+  type: "object",
+  required: [
+    "agent_default_model",
+    "agent_fixed_args",
+    "agent_case_chat_prompt",
+    "agent_case_chat_inject_content",
+  ],
+  title: "AgentSettingsRead",
+} as const
+
+export const $AgentSettingsUpdate = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+      description: "The default AI model to use for agent operations.",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+      description:
+        "Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+      description:
+        "Additional instructions for case chat agent; prepended to UI-provided instructions.",
+      default: "",
+    },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+      description:
+        "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSettingsUpdate",
 } as const
 
 export const $AppSettingsRead = {
@@ -794,7 +1667,7 @@ export const $AppSettingsUpdate = {
       type: "boolean",
       title: "App Editor Pill Decorations Enabled",
       description:
-        "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+        "Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.",
       default: false,
     },
     app_action_form_mode_enabled: {
@@ -808,6 +1681,47 @@ export const $AppSettingsUpdate = {
   type: "object",
   title: "AppSettingsUpdate",
   description: "Settings for OAuth authentication.",
+} as const
+
+export const $ApprovalDecision = {
+  properties: {
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    action: {
+      type: "string",
+      enum: ["approve", "override", "deny"],
+      title: "Action",
+    },
+    override_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Override Args",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["tool_call_id", "action"],
+  title: "ApprovalDecision",
+  description: "Operator decision for a pending approval.",
 } as const
 
 export const $ApprovalInteraction = {
@@ -867,6 +1781,153 @@ export const $ApprovalInteraction = {
   required: ["type"],
   title: "ApprovalInteraction",
   description: "Configuration for an approval interaction.",
+} as const
+
+export const $ApprovalMap = {
+  additionalProperties: {
+    anyOf: [
+      {
+        type: "boolean",
+      },
+      {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/ToolApproved",
+          },
+          {
+            $ref: "#/components/schemas/ToolDenied",
+          },
+        ],
+        discriminator: {
+          propertyName: "kind",
+          mapping: {
+            "tool-approved": "#/components/schemas/ToolApproved",
+            "tool-denied": "#/components/schemas/ToolDenied",
+          },
+        },
+      },
+    ],
+  },
+  type: "object",
+} as const
+
+export const $ApprovalRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    status: {
+      $ref: "#/components/schemas/ApprovalStatus",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    tool_call_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Args",
+    },
+    decision: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Decision",
+    },
+    approved_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    approved_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Approved At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "session_id",
+    "tool_call_id",
+    "tool_name",
+    "status",
+    "reason",
+    "tool_call_args",
+    "decision",
+    "approved_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ApprovalRead",
+  description: "Serialized approval record.",
+} as const
+
+export const $ApprovalStatus = {
+  type: "string",
+  enum: ["pending", "approved", "rejected"],
+  title: "ApprovalStatus",
+  description: "Possible states for a deferred tool approval.",
 } as const
 
 export const $AssigneeChangedEventRead = {
@@ -1069,16 +2130,57 @@ export const $AudioUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
     kind: {
       type: "string",
       const: "audio-url",
       title: "Kind",
       default: "audio-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type", "identifier"],
   title: "AudioUrl",
+  description: "A URL to an audio file.",
 } as const
 
 export const $AuthSettingsRead = {
@@ -1169,7 +2271,14 @@ export const $BinaryContent = {
       anyOf: [
         {
           type: "string",
-          enum: ["audio/wav", "audio/mpeg"],
+          enum: [
+            "audio/wav",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aiff",
+            "audio/aac",
+          ],
         },
         {
           type: "string",
@@ -1194,16 +2303,102 @@ export const $BinaryContent = {
       ],
       title: "Media Type",
     },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
     kind: {
       type: "string",
       const: "binary",
       title: "Kind",
       default: "binary",
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `Identifier for the binary content, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`BinaryContent\`.
+
+This identifier is only automatically passed to the model when the \`BinaryContent\` is returned by a tool.
+If you're passing the \`BinaryContent\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`BinaryContent\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["data", "media_type"],
+  required: ["data", "media_type", "identifier"],
   title: "BinaryContent",
+  description: "Binary content, e.g. an audio or image file.",
+} as const
+
+export const $Body_auth_auth_database_login = {
+  properties: {
+    grant_type: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^password$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Grant Type",
+    },
+    username: {
+      type: "string",
+      title: "Username",
+    },
+    password: {
+      type: "string",
+      format: "password",
+      title: "Password",
+    },
+    scope: {
+      type: "string",
+      title: "Scope",
+      default: "",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      format: "password",
+      title: "Client Secret",
+    },
+  },
+  type: "object",
+  required: ["username", "password"],
+  title: "Body_auth-auth:database.login",
 } as const
 
 export const $Body_auth_reset_forgot_password = {
@@ -1276,7 +2471,7 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
-export const $Body_cases_create_attachment = {
+export const $Body_case_attachments_create_attachment = {
   properties: {
     file: {
       type: "string",
@@ -1286,7 +2481,7 @@ export const $Body_cases_create_attachment = {
   },
   type: "object",
   required: ["file"],
-  title: "Body_cases-create_attachment",
+  title: "Body_case-attachments-create_attachment",
 } as const
 
 export const $Body_tables_import_csv = {
@@ -1304,6 +2499,30 @@ export const $Body_tables_import_csv = {
   type: "object",
   required: ["file", "column_mapping"],
   title: "Body_tables-import_csv",
+} as const
+
+export const $Body_tables_import_table_from_csv = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_tables-import_table_from_csv",
 } as const
 
 export const $Body_workflows_create_workflow = {
@@ -1354,6 +2573,149 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $BuiltinToolCallEvent = {
+  properties: {
+    part: {
+      $ref: "#/components/schemas/BuiltinToolCallPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "builtin_tool_call",
+      title: "Event Kind",
+      default: "builtin_tool_call",
+    },
+  },
+  type: "object",
+  required: ["part"],
+  title: "BuiltinToolCallEvent",
+  description: "An event indicating the start to a call to a built-in tool.",
+  deprecated: true,
+} as const
+
+export const $BuiltinToolCallPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Args",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "builtin-tool-call",
+      title: "Part Kind",
+      default: "builtin-tool-call",
+    },
+  },
+  type: "object",
+  required: ["tool_name"],
+  title: "BuiltinToolCallPart",
+  description: "A tool call to a built-in tool.",
+} as const
+
+export const $BuiltinToolResultEvent = {
+  properties: {
+    result: {
+      $ref: "#/components/schemas/BuiltinToolReturnPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "builtin_tool_result",
+      title: "Event Kind",
+      default: "builtin_tool_result",
+    },
+  },
+  type: "object",
+  required: ["result"],
+  title: "BuiltinToolResultEvent",
+  description: "An event indicating the result of a built-in tool call.",
+  deprecated: true,
+} as const
+
+export const $BuiltinToolReturnPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    content: {
+      title: "Content",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    metadata: {
+      title: "Metadata",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "builtin-tool-return",
+      title: "Part Kind",
+      default: "builtin-tool-return",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "content"],
+  title: "BuiltinToolReturnPart",
+  description: "A tool return message from a built-in tool.",
 } as const
 
 export const $CaseAttachmentDownloadResponse = {
@@ -1598,6 +2960,7 @@ export const $CaseCreate = {
     fields: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -1617,6 +2980,18 @@ export const $CaseCreate = {
         },
       ],
       title: "Assignee Id",
+    },
+    payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
     },
   },
   type: "object",
@@ -1673,6 +3048,429 @@ export const $CaseCustomFieldRead = {
   title: "CaseCustomFieldRead",
 } as const
 
+export const $CaseDurationAnchorSelection = {
+  type: "string",
+  enum: ["first", "last"],
+  title: "CaseDurationAnchorSelection",
+  description:
+    "Strategies for choosing which matching event should anchor a duration.",
+} as const
+
+export const $CaseDurationCreate = {
+  properties: {
+    definition_id: {
+      type: "string",
+      format: "uuid",
+      title: "Definition Id",
+      description:
+        "Identifier of the case duration definition generating this duration.",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+      description: "Case event that started the duration, if available.",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+      description: "Case event that ended the duration, if available.",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+      description: "Timestamp when the duration began.",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+      description: "Timestamp when the duration ended.",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+      description: "Total elapsed time between start and end timestamps.",
+    },
+  },
+  type: "object",
+  required: ["definition_id"],
+  title: "CaseDurationCreate",
+  description: "Create payload for case duration records.",
+} as const
+
+export const $CaseDurationDefinitionCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      title: "Name",
+      description: "Human readable name for the metric.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description providing more context.",
+    },
+    start_anchor: {
+      $ref: "#/components/schemas/CaseDurationEventAnchor",
+      description: "Event configuration that marks the start of the duration.",
+    },
+    end_anchor: {
+      $ref: "#/components/schemas/CaseDurationEventAnchor",
+      description: "Event configuration that marks the end of the duration.",
+    },
+  },
+  type: "object",
+  required: ["name", "start_anchor", "end_anchor"],
+  title: "CaseDurationDefinitionCreate",
+  description: "Create payload for case duration definitions.",
+} as const
+
+export const $CaseDurationDefinitionRead = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      title: "Name",
+      description: "Human readable name for the metric.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description providing more context.",
+    },
+    start_anchor: {
+      $ref: "#/components/schemas/CaseDurationEventAnchor",
+      description: "Event configuration that marks the start of the duration.",
+    },
+    end_anchor: {
+      $ref: "#/components/schemas/CaseDurationEventAnchor",
+      description: "Event configuration that marks the end of the duration.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+  },
+  type: "object",
+  required: ["name", "start_anchor", "end_anchor", "id"],
+  title: "CaseDurationDefinitionRead",
+  description: "Read model for case duration definitions.",
+} as const
+
+export const $CaseDurationDefinitionUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    start_anchor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseDurationEventAnchor",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    end_anchor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseDurationEventAnchor",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "CaseDurationDefinitionUpdate",
+  description: "Patch payload for case duration definitions.",
+} as const
+
+export const $CaseDurationEventAnchor = {
+  properties: {
+    event_type: {
+      $ref: "#/components/schemas/CaseEventType",
+      description: "Case event type that should be matched for this anchor.",
+    },
+    timestamp_path: {
+      type: "string",
+      title: "Timestamp Path",
+      description:
+        "Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.",
+      default: "created_at",
+    },
+    field_filters: {
+      additionalProperties: true,
+      type: "object",
+      title: "Field Filters",
+      description:
+        "Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.",
+    },
+    selection: {
+      $ref: "#/components/schemas/CaseDurationAnchorSelection",
+      description:
+        "Whether to use the first or last matching event for this anchor. Defaults to the first match.",
+      default: "first",
+    },
+  },
+  type: "object",
+  required: ["event_type"],
+  title: "CaseDurationEventAnchor",
+  description:
+    "Selection criteria describing an event boundary for a duration.",
+} as const
+
+export const $CaseDurationRead = {
+  properties: {
+    definition_id: {
+      type: "string",
+      format: "uuid",
+      title: "Definition Id",
+      description:
+        "Identifier of the case duration definition generating this duration.",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+      description: "Case event that started the duration, if available.",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+      description: "Case event that ended the duration, if available.",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+      description: "Timestamp when the duration began.",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+      description: "Timestamp when the duration ended.",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+      description: "Total elapsed time between start and end timestamps.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+  },
+  type: "object",
+  required: ["definition_id", "id", "case_id"],
+  title: "CaseDurationRead",
+  description: "Read model for case duration records.",
+} as const
+
+export const $CaseDurationUpdate = {
+  properties: {
+    definition_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Id",
+    },
+    start_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Event Id",
+    },
+    end_event_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Event Id",
+    },
+    started_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Started At",
+    },
+    ended_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ended At",
+    },
+    duration: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Duration",
+    },
+  },
+  type: "object",
+  title: "CaseDurationUpdate",
+  description: "Patch payload for case duration records.",
+} as const
+
 export const $CaseEventRead = {
   oneOf: [
     {
@@ -1683,6 +3481,9 @@ export const $CaseEventRead = {
     },
     {
       $ref: "#/components/schemas/ReopenedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CaseViewedEventRead",
     },
     {
       $ref: "#/components/schemas/UpdatedEventRead",
@@ -1708,6 +3509,33 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AttachmentDeletedEventRead",
     },
+    {
+      $ref: "#/components/schemas/TagAddedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TagRemovedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/PayloadChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskStatusChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskPriorityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskWorkflowChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskDeletedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/TaskAssigneeChangedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1721,12 +3549,54 @@ export const $CaseEventRead = {
       case_created: "#/components/schemas/CreatedEventRead",
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
+      case_viewed: "#/components/schemas/CaseViewedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
+      payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
+      tag_added: "#/components/schemas/TagAddedEventRead",
+      tag_removed: "#/components/schemas/TagRemovedEventRead",
+      task_assignee_changed:
+        "#/components/schemas/TaskAssigneeChangedEventRead",
+      task_created: "#/components/schemas/TaskCreatedEventRead",
+      task_deleted: "#/components/schemas/TaskDeletedEventRead",
+      task_priority_changed:
+        "#/components/schemas/TaskPriorityChangedEventRead",
+      task_status_changed: "#/components/schemas/TaskStatusChangedEventRead",
+      task_workflow_changed:
+        "#/components/schemas/TaskWorkflowChangedEventRead",
     },
   },
+} as const
+
+export const $CaseEventType = {
+  type: "string",
+  enum: [
+    "case_created",
+    "case_updated",
+    "case_closed",
+    "case_reopened",
+    "case_viewed",
+    "priority_changed",
+    "severity_changed",
+    "status_changed",
+    "fields_changed",
+    "assignee_changed",
+    "attachment_created",
+    "attachment_deleted",
+    "tag_added",
+    "tag_removed",
+    "payload_changed",
+    "task_created",
+    "task_deleted",
+    "task_status_changed",
+    "task_priority_changed",
+    "task_workflow_changed",
+    "task_assignee_changed",
+  ],
+  title: "CaseEventType",
+  description: "Case activity type values.",
 } as const
 
 export const $CaseEventsWithUsers = {
@@ -1781,6 +3651,20 @@ export const $CaseFieldCreate = {
         },
       ],
       title: "Default",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",
@@ -1891,6 +3775,20 @@ export const $CaseFieldUpdate = {
       title: "Is Index",
       description: "Whether the column is an index",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
   },
   type: "object",
   title: "CaseFieldUpdate",
@@ -1967,6 +3865,25 @@ export const $CaseRead = {
         },
       ],
     },
+    payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/CaseTagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
   },
   type: "object",
   required: [
@@ -1980,6 +3897,7 @@ export const $CaseRead = {
     "severity",
     "description",
     "fields",
+    "payload",
   ],
   title: "CaseRead",
 } as const
@@ -2027,6 +3945,23 @@ export const $CaseReadMinimal = {
           type: "null",
         },
       ],
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/CaseTagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    num_tasks_completed: {
+      type: "integer",
+      title: "Num Tasks Completed",
+      default: 0,
+    },
+    num_tasks_total: {
+      type: "integer",
+      title: "Num Tasks Total",
+      default: 0,
     },
   },
   type: "object",
@@ -2082,6 +4017,292 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
+} as const
+
+export const $CaseTagCreate = {
+  properties: {
+    tag_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "string",
+        },
+      ],
+      maxLength: 100,
+      minLength: 1,
+      title: "Tag Id",
+      description: "Tag ID (UUID) or ref",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "CaseTagCreate",
+} as const
+
+export const $CaseTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "CaseTagRead",
+  description: "Tag data.",
+} as const
+
+export const $CaseTaskCreate = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+      default: "unknown",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+      default: "todo",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  required: ["title"],
+  title: "CaseTaskCreate",
+} as const
+
+export const $CaseTaskRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "case_id",
+    "title",
+    "description",
+    "priority",
+    "status",
+    "workflow_id",
+  ],
+  title: "CaseTaskRead",
+} as const
+
+export const $CaseTaskStatus = {
+  type: "string",
+  enum: ["todo", "in_progress", "completed", "blocked"],
+  title: "CaseTaskStatus",
+  description: "Case task status values.",
+} as const
+
+export const $CaseTaskUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    priority: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseTaskStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+  },
+  type: "object",
+  title: "CaseTaskUpdate",
 } as const
 
 export const $CaseUpdate = {
@@ -2141,6 +4362,7 @@ export const $CaseUpdate = {
     fields: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -2161,9 +4383,503 @@ export const $CaseUpdate = {
       ],
       title: "Assignee Id",
     },
+    payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   title: "CaseUpdate",
+} as const
+
+export const $CaseViewedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "case_viewed",
+      title: "Type",
+      default: "case_viewed",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "CaseViewedEventRead",
+  description: "Event for when a case is viewed.",
+} as const
+
+export const $ChatCreate = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent for this chat",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Optional agent preset to use for the chat session",
+    },
+  },
+  type: "object",
+  required: ["title", "entity_type", "entity_id"],
+  title: "ChatCreate",
+  description: "Request model for creating a new chat.",
+} as const
+
+export const $ChatEntity = {
+  type: "string",
+  enum: ["case", "agent_preset", "agent_preset_builder", "copilot"],
+  title: "ChatEntity",
+  description: "The type of entity associated with a chat.",
+} as const
+
+export const $ChatMessage = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    message: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ModelRequest",
+        },
+        {
+          $ref: "#/components/schemas/ModelResponse",
+        },
+      ],
+      title: "Message",
+      description: "The message from the chat",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          request: "#/components/schemas/ModelRequest",
+          response: "#/components/schemas/ModelResponse",
+        },
+      },
+    },
+  },
+  type: "object",
+  required: ["id", "message"],
+  title: "ChatMessage",
+  description: "Model for chat metadata with a single message.",
+} as const
+
+export const $ChatRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
+    },
+    messages: {
+      items: {
+        $ref: "#/components/schemas/ChatMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatRead",
+  description: "Model for chat metadata with message history.",
+} as const
+
+export const $ChatReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatReadMinimal",
+  description: "Model for chat metadata without messages.",
+} as const
+
+export const $ChatReadVercel = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset associated with the chat, if any",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+      description: "Last processed Redis stream ID for this chat",
+    },
+    messages: {
+      items: {
+        $ref: "#/components/schemas/UIMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatReadVercel",
+  description: "Model for chat metadata with message history in Vercel format.",
+} as const
+
+export const $ChatUpdate = {
+  properties: {
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Chat title",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "Agent preset to use for the chat session (set to null for default instructions)",
+    },
+  },
+  type: "object",
+  title: "ChatUpdate",
+  description: "Request model for updating chat properties.",
 } as const
 
 export const $ClosedEventRead = {
@@ -2235,6 +4951,28 @@ export const $Code = {
   },
   type: "object",
   title: "Code",
+} as const
+
+export const $ContinueRunRequest = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "continue",
+      title: "Kind",
+      default: "continue",
+    },
+    decisions: {
+      items: {
+        $ref: "#/components/schemas/ApprovalDecision",
+      },
+      type: "array",
+      title: "Decisions",
+    },
+  },
+  type: "object",
+  required: ["decisions"],
+  title: "ContinueRunRequest",
+  description: "Payload to continue a CE run after collecting approvals.",
 } as const
 
 export const $CreatedEventRead = {
@@ -2472,6 +5210,105 @@ export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   title: "CursorPaginatedResponse[WorkflowReadMinimal]",
 } as const
 
+export const $CustomOAuthProviderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 3,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
+    authorization_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Authorization Endpoint",
+      description: "OAuth authorization endpoint URL",
+    },
+    token_endpoint: {
+      type: "string",
+      minLength: 8,
+      title: "Token Endpoint",
+      description: "OAuth token endpoint URL",
+    },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "Default OAuth scopes to request",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 3,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+      description: "Optional custom identifier for the provider",
+    },
+    client_id: {
+      type: "string",
+      maxLength: 512,
+      minLength: 1,
+      title: "Client Id",
+      description: "OAuth client identifier",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "grant_type",
+    "authorization_endpoint",
+    "token_endpoint",
+    "client_id",
+  ],
+  title: "CustomOAuthProviderCreate",
+  description: "Request payload for creating a custom OAuth provider.",
+} as const
+
 export const $DSLConfig_Input = {
   properties: {
     scheduler: {
@@ -2492,8 +5329,8 @@ export const $DSLConfig_Input = {
       type: "number",
       title: "Timeout",
       description:
-        "The maximum number of seconds to wait for the workflow to complete.",
-      default: 300,
+        "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
+      default: 0,
     },
   },
   type: "object",
@@ -2516,8 +5353,8 @@ export const $DSLConfig_Output = {
       type: "number",
       title: "Timeout",
       description:
-        "The maximum number of seconds to wait for the workflow to complete.",
-      default: 300,
+        "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
+      default: 0,
     },
   },
   type: "object",
@@ -2591,11 +5428,6 @@ export const $DSLInput = {
       },
       type: "array",
       title: "Triggers",
-    },
-    inputs: {
-      type: "object",
-      title: "Inputs",
-      description: "Static input parameters",
     },
     returns: {
       anyOf: [
@@ -2680,7 +5512,7 @@ export const $DSLRunArgs = {
       type: "string",
       format: "duration",
       title: "Timeout",
-      description: "The maximum time to wait for the workflow to complete.",
+      description: "Platform activity start-to-close timeout.",
     },
     schedule_id: {
       anyOf: [
@@ -2751,11 +5583,49 @@ export const $DSLValidationResult = {
   description: "Result of validating a generic input.",
 } as const
 
+export const $DataUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      pattern: "^data-.+$",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    data: {
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["type", "data"],
+  title: "DataUIPart",
+  description: "A custom data part, where type matches 'data-...'.",
+} as const
+
 export const $DocumentUrl = {
   properties: {
     url: {
       type: "string",
       title: "Url",
+    },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
     },
     kind: {
       type: "string",
@@ -2763,10 +5633,209 @@ export const $DocumentUrl = {
       title: "Kind",
       default: "document-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
+  description: "The URL of the document.",
+} as const
+
+export const $DynamicToolUIPartInputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input"],
+  title: "DynamicToolUIPartInputAvailable",
+} as const
+
+export const $DynamicToolUIPartInputStreaming = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-streaming",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state"],
+  title: "DynamicToolUIPartInputStreaming",
+} as const
+
+export const $DynamicToolUIPartOutputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+    preliminary: {
+      type: "boolean",
+      title: "Preliminary",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input", "output"],
+  title: "DynamicToolUIPartOutputAvailable",
+} as const
+
+export const $DynamicToolUIPartOutputError = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dynamic-tool",
+      title: "Type",
+    },
+    toolName: {
+      type: "string",
+      title: "Toolname",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-error",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "string",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolName", "toolCallId", "state", "input", "errorText"],
+  title: "DynamicToolUIPartOutputError",
 } as const
 
 export const $EditorActionRead = {
@@ -2824,12 +5893,16 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/WorkflowAlias",
     },
+    {
+      $ref: "#/components/schemas/AgentPreset",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
     propertyName: "component_id",
     mapping: {
       "action-type": "#/components/schemas/ActionType",
+      "agent-preset": "#/components/schemas/AgentPreset",
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
@@ -2919,8 +5992,13 @@ export const $ErrorDetails = {
       title: "Input",
     },
     ctx: {
+      additionalProperties: true,
       type: "object",
       title: "Ctx",
+    },
+    url: {
+      type: "string",
+      title: "Url",
     },
   },
   type: "object",
@@ -2959,6 +6037,7 @@ export const $EventFailure = {
     cause: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -3095,6 +6174,10 @@ export const $EventGroup_TypeVar_ = {
             "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
+          type: "string",
+          pattern: "^agent/[0-9a-f]8-[0-9a-f]4-[0-9a-f]4-[0-9a-f]4-[0-9a-f]12$",
+        },
+        {
           type: "null",
         },
       ],
@@ -3149,8 +6232,8 @@ export const $ExprContext = {
   enum: [
     "ACTIONS",
     "SECRETS",
+    "VARS",
     "FN",
-    "INPUTS",
     "ENV",
     "TRIGGER",
     "var",
@@ -3178,6 +6261,7 @@ export const $ExprType = {
     "trigger",
     "template_action_step",
     "template_action_input",
+    "variable",
   ],
   title: "ExprType",
 } as const
@@ -3286,6 +6370,36 @@ export const $ExpressionValidationResponse = {
   title: "ExpressionValidationResponse",
 } as const
 
+export const $FeatureFlag = {
+  type: "string",
+  enum: [
+    "git-sync",
+    "agent-sandbox",
+    "agent-approvals",
+    "agent-presets",
+    "case-durations",
+    "case-tasks",
+  ],
+  title: "FeatureFlag",
+  description: "Feature flag enum.",
+} as const
+
+export const $FeatureFlagsRead = {
+  properties: {
+    enabled_features: {
+      items: {
+        $ref: "#/components/schemas/FeatureFlag",
+      },
+      type: "array",
+      title: "Enabled Features",
+    },
+  },
+  type: "object",
+  required: ["enabled_features"],
+  title: "FeatureFlagsRead",
+  description: "Response model for feature flags.",
+} as const
+
 export const $FieldChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -3355,6 +6469,116 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $FilePart = {
+  properties: {
+    content: {
+      $ref: "#/components/schemas/BinaryContent",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "file",
+      title: "Part Kind",
+      default: "file",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "FilePart",
+  description: "A file response from a model.",
+} as const
+
+export const $FileUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "file",
+      title: "Type",
+    },
+    mediaType: {
+      type: "string",
+      title: "Mediatype",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "mediaType", "url"],
+  title: "FileUIPart",
+  description: "A file part of a message.",
+} as const
+
+export const $FinalResultEvent = {
+  properties: {
+    tool_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name",
+    },
+    tool_call_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Id",
+    },
+    event_kind: {
+      type: "string",
+      const: "final_result",
+      title: "Event Kind",
+      default: "final_result",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "tool_call_id"],
+  title: "FinalResultEvent",
 } as const
 
 export const $Float = {
@@ -3451,6 +6675,86 @@ export const $FolderDirectoryItem = {
   title: "FolderDirectoryItem",
 } as const
 
+export const $FunctionToolCallEvent = {
+  properties: {
+    part: {
+      $ref: "#/components/schemas/ToolCallPart",
+    },
+    event_kind: {
+      type: "string",
+      const: "function_tool_call",
+      title: "Event Kind",
+      default: "function_tool_call",
+    },
+  },
+  type: "object",
+  required: ["part"],
+  title: "FunctionToolCallEvent",
+  description: "An event indicating the start to a call to a function tool.",
+} as const
+
+export const $FunctionToolResultEvent = {
+  properties: {
+    result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ToolReturnPart",
+        },
+        {
+          $ref: "#/components/schemas/RetryPromptPart",
+        },
+      ],
+      title: "Result",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+    event_kind: {
+      type: "string",
+      const: "function_tool_result",
+      title: "Event Kind",
+      default: "function_tool_result",
+    },
+  },
+  type: "object",
+  required: ["result"],
+  title: "FunctionToolResultEvent",
+  description: "An event indicating the result of a function tool call.",
+} as const
+
 export const $GetWorkflowDefinitionActivityInputs = {
   properties: {
     role: {
@@ -3485,6 +6789,267 @@ export const $GetWorkflowDefinitionActivityInputs = {
   type: "object",
   required: ["role", "workflow_id"],
   title: "GetWorkflowDefinitionActivityInputs",
+} as const
+
+export const $GitCommitInfo = {
+  properties: {
+    sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Sha",
+      description: "The commit SHA hash",
+    },
+    message: {
+      type: "string",
+      maxLength: 1000,
+      title: "Message",
+      description: "The commit message",
+    },
+    author: {
+      type: "string",
+      maxLength: 255,
+      title: "Author",
+      description: "The commit author name",
+    },
+    author_email: {
+      type: "string",
+      maxLength: 255,
+      title: "Author Email",
+      description: "The commit author email",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      title: "Date",
+      description: "The commit date in ISO format",
+    },
+    tags: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tags",
+      description: "List of tags associated with this commit",
+    },
+  },
+  type: "object",
+  required: ["sha", "message", "author", "author_email", "date"],
+  title: "GitCommitInfo",
+  description: "Git commit information for repository management.",
+} as const
+
+export const $GitHubAppCredentialsRequest = {
+  properties: {
+    app_id: {
+      type: "string",
+      title: "App Id",
+      description: "GitHub App ID",
+    },
+    private_key: {
+      type: "string",
+      format: "password",
+      title: "Private Key",
+      description: "GitHub App private key in PEM format",
+      writeOnly: true,
+    },
+    webhook_secret: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webhook Secret",
+      description: "GitHub App webhook secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "GitHub App client ID",
+    },
+  },
+  type: "object",
+  required: ["app_id", "private_key"],
+  title: "GitHubAppCredentialsRequest",
+  description: "Request to register or update GitHub App credentials.",
+} as const
+
+export const $GitHubAppCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    has_webhook_secret: {
+      type: "boolean",
+      title: "Has Webhook Secret",
+      default: false,
+    },
+    has_client_id: {
+      type: "boolean",
+      title: "Has Client Id",
+      default: false,
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "GitHubAppCredentialsStatus",
+  description: "Status of GitHub App credentials.",
+} as const
+
+export const $GitHubAppManifest = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    hook_attributes: {
+      $ref: "#/components/schemas/GitHubWebhookAttributes",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+    },
+    callback_urls: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Callback Urls",
+    },
+    setup_url: {
+      type: "string",
+      title: "Setup Url",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    public: {
+      type: "boolean",
+      title: "Public",
+    },
+    default_permissions: {
+      $ref: "#/components/schemas/GitHubAppPermissions",
+    },
+    default_events: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default Events",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "url",
+    "hook_attributes",
+    "redirect_url",
+    "callback_urls",
+    "setup_url",
+    "description",
+    "public",
+    "default_permissions",
+    "default_events",
+  ],
+  title: "GitHubAppManifest",
+  description: "GitHub App manifest for creating enterprise apps.",
+} as const
+
+export const $GitHubAppManifestResponse = {
+  properties: {
+    manifest: {
+      $ref: "#/components/schemas/GitHubAppManifest",
+    },
+    instructions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Instructions",
+    },
+  },
+  type: "object",
+  required: ["manifest", "instructions"],
+  title: "GitHubAppManifestResponse",
+  description: "GitHub App manifest response.",
+} as const
+
+export const $GitHubAppPermissions = {
+  properties: {
+    contents: {
+      type: "string",
+      title: "Contents",
+    },
+    metadata: {
+      type: "string",
+      title: "Metadata",
+    },
+    pull_requests: {
+      type: "string",
+      title: "Pull Requests",
+    },
+  },
+  type: "object",
+  required: ["contents", "metadata", "pull_requests"],
+  title: "GitHubAppPermissions",
+  description: "Type definition for GitHub App default permissions.",
+} as const
+
+export const $GitHubWebhookAttributes = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+    },
+  },
+  type: "object",
+  required: ["url", "active"],
+  title: "GitHubWebhookAttributes",
+  description: "Type definition for GitHub webhook attributes.",
 } as const
 
 export const $GitSettingsRead = {
@@ -3581,16 +7146,80 @@ export const $ImageUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
     kind: {
       type: "string",
       const: "image-url",
       title: "Kind",
       default: "image-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
+  description: "A URL to an image.",
+} as const
+
+export const $InferredColumn = {
+  properties: {
+    csv_header: {
+      type: "string",
+      title: "Csv Header",
+      description: "Original column header in the CSV file",
+    },
+    field_name: {
+      type: "string",
+      title: "Field Name",
+      description: "Column name created in Tracecat",
+    },
+    field_type: {
+      $ref: "#/components/schemas/SqlType",
+      description: "Inferred SQL type for the column",
+    },
+  },
+  type: "object",
+  required: ["csv_header", "field_name", "field_type"],
+  title: "InferredColumn",
+  description: "Inferred column mapping between CSV headers and table columns.",
 } as const
 
 export const $Integer = {
@@ -3698,7 +7327,7 @@ export const $IntegrationRead = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -3710,9 +7339,30 @@ export const $IntegrationRead = {
       type: "string",
       title: "Provider Id",
     },
-    provider_config: {
-      type: "object",
-      title: "Provider Config",
+    authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Endpoint",
+      description:
+        "OAuth authorization endpoint configured for this integration.",
+    },
+    token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint",
+      description: "OAuth token endpoint configured for this integration.",
     },
     token_type: {
       type: "string",
@@ -3786,7 +7436,6 @@ export const $IntegrationRead = {
     "created_at",
     "updated_at",
     "provider_id",
-    "provider_config",
     "token_type",
     "expires_at",
     "status",
@@ -3898,17 +7547,33 @@ export const $IntegrationUpdate = {
       title: "Client Secret",
       description: "OAuth client secret for the provider",
     },
-    provider_config: {
+    authorization_endpoint: {
       anyOf: [
         {
-          type: "object",
+          type: "string",
+          minLength: 8,
         },
         {
           type: "null",
         },
       ],
-      title: "Provider Config",
-      description: "Provider-specific configuration",
+      title: "Authorization Endpoint",
+      description:
+        "OAuth authorization endpoint URL. Overrides provider defaults when set.",
+    },
+    token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 8,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint",
+      description:
+        "OAuth token endpoint URL. Overrides provider defaults when set.",
     },
     scopes: {
       anyOf: [
@@ -3980,6 +7645,7 @@ export const $InteractionInput = {
       title: "Action Ref",
     },
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -4017,6 +7683,7 @@ export const $InteractionRead = {
     request_payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -4028,6 +7695,7 @@ export const $InteractionRead = {
     response_payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -4133,6 +7801,83 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $ModelConfig = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description:
+        "The name of the model. This is used to identify the model in the system.",
+    },
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description:
+        "The provider of the model. This is used to determine which organization secret to use for this model.",
+    },
+    org_secret_name: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Org Secret Name",
+      description:
+        "The name of the organization secret to use for this model. This secret must be configured in the organization settings.",
+    },
+    secrets: {
+      $ref: "#/components/schemas/ModelSecretConfig",
+      description:
+        "The secrets to use for this model. This is used to determine which organization secret to use for this model.",
+    },
+  },
+  type: "object",
+  required: ["name", "provider", "org_secret_name", "secrets"],
+  title: "ModelConfig",
+} as const
+
+export const $ModelCredentialCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+    },
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials (e.g., api_key)",
+    },
+  },
+  type: "object",
+  required: ["provider", "credentials"],
+  title: "ModelCredentialCreate",
+  description: "Model for creating model credentials.",
+} as const
+
+export const $ModelCredentialUpdate = {
+  properties: {
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials to update",
+    },
+  },
+  type: "object",
+  required: ["credentials"],
+  title: "ModelCredentialUpdate",
+  description: "Model for updating model credentials.",
+} as const
+
 export const $ModelRequest = {
   properties: {
     parts: {
@@ -4185,6 +7930,8 @@ export const $ModelRequest = {
   type: "object",
   required: ["parts"],
   title: "ModelRequest",
+  description:
+    "A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.",
 } as const
 
 export const $ModelResponse = {
@@ -4198,11 +7945,27 @@ export const $ModelResponse = {
           {
             $ref: "#/components/schemas/ToolCallPart",
           },
+          {
+            $ref: "#/components/schemas/BuiltinToolCallPart",
+          },
+          {
+            $ref: "#/components/schemas/BuiltinToolReturnPart",
+          },
+          {
+            $ref: "#/components/schemas/ThinkingPart",
+          },
+          {
+            $ref: "#/components/schemas/FilePart",
+          },
         ],
         discriminator: {
           propertyName: "part_kind",
           mapping: {
+            "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
+            "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+            file: "#/components/schemas/FilePart",
             text: "#/components/schemas/TextPart",
+            thinking: "#/components/schemas/ThinkingPart",
             "tool-call": "#/components/schemas/ToolCallPart",
           },
         },
@@ -4211,7 +7974,7 @@ export const $ModelResponse = {
       title: "Parts",
     },
     usage: {
-      $ref: "#/components/schemas/Usage",
+      $ref: "#/components/schemas/RequestUsage",
     },
     model_name: {
       anyOf: [
@@ -4235,10 +7998,79 @@ export const $ModelResponse = {
       title: "Kind",
       default: "response",
     },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
+    provider_response_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Response Id",
+    },
+    finish_reason: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["stop", "length", "content_filter", "tool_call", "error"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Finish Reason",
+    },
   },
   type: "object",
   required: ["parts"],
   title: "ModelResponse",
+  description:
+    "A response from a model, e.g. a message from the model to the Pydantic AI app.",
+} as const
+
+export const $ModelSecretConfig = {
+  properties: {
+    required: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required",
+    },
+    optional: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Optional",
+    },
+  },
+  type: "object",
+  title: "ModelSecretConfig",
 } as const
 
 export const $OAuth2AuthorizeResponse = {
@@ -4291,7 +8123,7 @@ export const $OrgMemberRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -4364,6 +8196,166 @@ export const $OrgMemberRead = {
   title: "OrgMemberRead",
 } as const
 
+export const $OutputType = {
+  anyOf: [
+    {
+      type: "string",
+      enum: [
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+      ],
+    },
+    {
+      additionalProperties: true,
+      type: "object",
+    },
+  ],
+} as const
+
+export const $PartDeltaEvent = {
+  properties: {
+    index: {
+      type: "integer",
+      title: "Index",
+    },
+    delta: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/TextPartDelta",
+        },
+        {
+          $ref: "#/components/schemas/ThinkingPartDelta",
+        },
+        {
+          $ref: "#/components/schemas/ToolCallPartDelta",
+        },
+      ],
+      title: "Delta",
+      discriminator: {
+        propertyName: "part_delta_kind",
+        mapping: {
+          text: "#/components/schemas/TextPartDelta",
+          thinking: "#/components/schemas/ThinkingPartDelta",
+          tool_call: "#/components/schemas/ToolCallPartDelta",
+        },
+      },
+    },
+    event_kind: {
+      type: "string",
+      const: "part_delta",
+      title: "Event Kind",
+      default: "part_delta",
+    },
+  },
+  type: "object",
+  required: ["index", "delta"],
+  title: "PartDeltaEvent",
+} as const
+
+export const $PartStartEvent = {
+  properties: {
+    index: {
+      type: "integer",
+      title: "Index",
+    },
+    part: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/TextPart",
+        },
+        {
+          $ref: "#/components/schemas/ToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolReturnPart",
+        },
+        {
+          $ref: "#/components/schemas/ThinkingPart",
+        },
+        {
+          $ref: "#/components/schemas/FilePart",
+        },
+      ],
+      title: "Part",
+      discriminator: {
+        propertyName: "part_kind",
+        mapping: {
+          "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
+          "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+          file: "#/components/schemas/FilePart",
+          text: "#/components/schemas/TextPart",
+          thinking: "#/components/schemas/ThinkingPart",
+          "tool-call": "#/components/schemas/ToolCallPart",
+        },
+      },
+    },
+    event_kind: {
+      type: "string",
+      const: "part_start",
+      title: "Event Kind",
+      default: "part_start",
+    },
+  },
+  type: "object",
+  required: ["index", "part"],
+  title: "PartStartEvent",
+} as const
+
+export const $PayloadChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "payload_changed",
+      title: "Type",
+      default: "payload_changed",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "PayloadChangedEventRead",
+  description: "Event for when a case payload is changed.",
+} as const
+
 export const $PriorityChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -4416,11 +8408,77 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
-export const $ProviderCategory = {
-  type: "string",
-  enum: ["auth", "communication", "cloud", "monitoring", "alerting", "other"],
-  title: "ProviderCategory",
-  description: "Category of a provider.",
+export const $ProviderCredentialConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description: "The provider name",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the provider",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/ProviderCredentialField",
+      },
+      type: "array",
+      title: "Fields",
+      description: "Required credential fields",
+    },
+  },
+  type: "object",
+  required: ["provider", "label", "fields"],
+  title: "ProviderCredentialConfig",
+  description: "Model for provider credential configuration.",
+} as const
+
+export const $ProviderCredentialField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Key",
+      description: "The environment variable key for this credential",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the field",
+    },
+    type: {
+      type: "string",
+      enum: ["text", "password"],
+      title: "Type",
+      description: "Input type: 'text' or 'password'",
+    },
+    description: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Description",
+      description: "Help text describing this credential",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      description: "Whether this field is required",
+      default: true,
+    },
+  },
+  type: "object",
+  required: ["key", "label", "type", "description"],
+  title: "ProviderCredentialField",
+  description: "Model for defining credential fields required by a provider.",
 } as const
 
 export const $ProviderMetadata = {
@@ -4469,14 +8527,6 @@ export const $ProviderMetadata = {
       title: "Requires Config",
       description: "Whether this provider requires additional configuration",
       default: false,
-    },
-    categories: {
-      items: {
-        $ref: "#/components/schemas/ProviderCategory",
-      },
-      type: "array",
-      title: "Categories",
-      description: "Categories of the provider (e.g., auth, communication)",
     },
     setup_steps: {
       items: {
@@ -4546,11 +8596,67 @@ export const $ProviderRead = {
     scopes: {
       $ref: "#/components/schemas/ProviderScopes",
     },
-    schema: {
+    config_schema: {
       $ref: "#/components/schemas/ProviderSchema",
     },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
+    },
+    default_authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Authorization Endpoint",
+    },
+    default_token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Token Endpoint",
+    },
+    authorization_endpoint_help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Endpoint Help",
+    },
+    token_endpoint_help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint Help",
     },
     redirect_uri: {
       anyOf: [
@@ -4565,7 +8671,13 @@ export const $ProviderRead = {
     },
   },
   type: "object",
-  required: ["grant_type", "metadata", "scopes", "integration_status"],
+  required: [
+    "grant_type",
+    "metadata",
+    "scopes",
+    "config_schema",
+    "integration_status",
+  ],
   title: "ProviderRead",
 } as const
 
@@ -4587,13 +8699,6 @@ export const $ProviderReadMinimal = {
       type: "boolean",
       title: "Requires Config",
     },
-    categories: {
-      items: {
-        $ref: "#/components/schemas/ProviderCategory",
-      },
-      type: "array",
-      title: "Categories",
-    },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -4611,7 +8716,6 @@ export const $ProviderReadMinimal = {
     "name",
     "description",
     "requires_config",
-    "categories",
     "integration_status",
     "enabled",
     "grant_type",
@@ -4622,6 +8726,7 @@ export const $ProviderReadMinimal = {
 export const $ProviderSchema = {
   properties: {
     json_schema: {
+      additionalProperties: true,
       type: "object",
       title: "Json Schema",
     },
@@ -4640,36 +8745,137 @@ export const $ProviderScopes = {
       },
       type: "array",
       title: "Default",
-      description: "Default scopes for this provider. Ultra thin layer",
-    },
-    allowed_patterns: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Allowed Patterns",
-      description:
-        "Regex patterns to validate additional scopes for this provider.",
-    },
-    accepts_additional_scopes: {
-      type: "boolean",
-      title: "Accepts Additional Scopes",
-      description:
-        "Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.",
-      default: true,
+      description: "Default scopes for this provider.",
     },
   },
   type: "object",
   required: ["default"],
   title: "ProviderScopes",
   description: "Scope metadata for a provider.",
+} as const
+
+export const $PullDiagnostic = {
+  properties: {
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+    },
+    error_type: {
+      type: "string",
+      enum: [
+        "conflict",
+        "validation",
+        "dependency",
+        "parse",
+        "github",
+        "system",
+        "transaction",
+      ],
+      title: "Error Type",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    details: {
+      additionalProperties: true,
+      type: "object",
+      title: "Details",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_path",
+    "workflow_title",
+    "error_type",
+    "message",
+    "details",
+  ],
+  title: "PullDiagnostic",
+} as const
+
+export const $PullResult = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    workflows_found: {
+      type: "integer",
+      title: "Workflows Found",
+    },
+    workflows_imported: {
+      type: "integer",
+      title: "Workflows Imported",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/PullDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: [
+    "success",
+    "commit_sha",
+    "workflows_found",
+    "workflows_imported",
+    "diagnostics",
+    "message",
+  ],
+  title: "PullResult",
+} as const
+
+export const $ReasoningUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "reasoning",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    state: {
+      type: "string",
+      enum: ["streaming", "done"],
+      title: "State",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "ReasoningUIPart",
+  description: "A reasoning part of a message.",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -4852,6 +9058,7 @@ export const $RegistryActionCreate = {
 export const $RegistryActionInterface = {
   properties: {
     expects: {
+      additionalProperties: true,
       type: "object",
       title: "Expects",
     },
@@ -4870,6 +9077,11 @@ export const $RegistryActionOptions = {
       type: "boolean",
       title: "Include In Schema",
       default: true,
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      default: false,
     },
   },
   type: "object",
@@ -5428,6 +9640,11 @@ export const $RegistryOAuthSecret_Input = {
       enum: ["authorization_code", "client_credentials"],
       title: "Grant Type",
     },
+    optional: {
+      type: "boolean",
+      title: "Optional",
+      default: false,
+    },
   },
   type: "object",
   required: ["provider_id", "grant_type"],
@@ -5451,6 +9668,11 @@ export const $RegistryOAuthSecret_Output = {
       type: "string",
       enum: ["authorization_code", "client_credentials"],
       title: "Grant Type",
+    },
+    optional: {
+      type: "boolean",
+      title: "Optional",
+      default: false,
     },
     name: {
       type: "string",
@@ -5595,6 +9817,29 @@ export const $RegistryRepositoryReadMinimal = {
   type: "object",
   required: ["id", "origin", "last_synced_at", "commit_sha"],
   title: "RegistryRepositoryReadMinimal",
+} as const
+
+export const $RegistryRepositorySync = {
+  properties: {
+    target_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 40,
+          minLength: 40,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Commit Sha",
+      description:
+        "The specific commit SHA to sync to. If None, syncs to HEAD.",
+    },
+  },
+  type: "object",
+  title: "RegistryRepositorySync",
+  description: "Parameters for syncing a repository to a specific commit.",
 } as const
 
 export const $RegistryRepositoryUpdate = {
@@ -5786,6 +10031,55 @@ export const $ReopenedEventRead = {
   description: "Event for when a case is reopened.",
 } as const
 
+export const $RequestUsage = {
+  properties: {
+    input_tokens: {
+      type: "integer",
+      title: "Input Tokens",
+      default: 0,
+    },
+    cache_write_tokens: {
+      type: "integer",
+      title: "Cache Write Tokens",
+      default: 0,
+    },
+    cache_read_tokens: {
+      type: "integer",
+      title: "Cache Read Tokens",
+      default: 0,
+    },
+    output_tokens: {
+      type: "integer",
+      title: "Output Tokens",
+      default: 0,
+    },
+    input_audio_tokens: {
+      type: "integer",
+      title: "Input Audio Tokens",
+      default: 0,
+    },
+    cache_audio_read_tokens: {
+      type: "integer",
+      title: "Cache Audio Read Tokens",
+      default: 0,
+    },
+    output_audio_tokens: {
+      type: "integer",
+      title: "Output Audio Tokens",
+      default: 0,
+    },
+    details: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Details",
+    },
+  },
+  type: "object",
+  title: "RequestUsage",
+} as const
+
 export const $ResponseInteraction = {
   properties: {
     type: {
@@ -5858,6 +10152,18 @@ export const $RetryPromptPart = {
   type: "object",
   required: ["content"],
   title: "RetryPromptPart",
+  description: `A message back to a model asking it to try again.
+
+This can be sent for a number of reasons:
+
+* Pydantic validation of tool arguments failed, here content is derived from a Pydantic
+  [\`ValidationError\`][pydantic_core.ValidationError]
+* a tool raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception
+* no tool was found for the tool name
+* the model returned plain text when a structured response was expected
+* Pydantic validation of a structured response failed, here content is derived from a Pydantic
+  [\`ValidationError\`][pydantic_core.ValidationError]
+* an output validator raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception`,
 } as const
 
 export const $Role = {
@@ -5871,7 +10177,7 @@ export const $Role = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -5893,7 +10199,7 @@ export const $Role = {
       anyOf: [
         {
           type: "string",
-          format: "uuid4",
+          format: "uuid",
         },
         {
           type: "null",
@@ -5955,6 +10261,7 @@ export const $RunActionInput = {
       $ref: "#/components/schemas/ActionStatement",
     },
     exec_context: {
+      additionalProperties: true,
       propertyNames: {
         $ref: "#/components/schemas/ExprContext",
       },
@@ -5978,6 +10285,18 @@ export const $RunActionInput = {
       type: "string",
       title: "Stream Id",
       default: "<root>:0",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
     },
   },
   type: "object",
@@ -6014,6 +10333,65 @@ export const $RunContext = {
   title: "RunContext",
   description:
     "This is the runtime context model for a workflow run. Passed into activities.",
+} as const
+
+export const $RunUsage = {
+  properties: {
+    input_tokens: {
+      type: "integer",
+      title: "Input Tokens",
+      default: 0,
+    },
+    cache_write_tokens: {
+      type: "integer",
+      title: "Cache Write Tokens",
+      default: 0,
+    },
+    cache_read_tokens: {
+      type: "integer",
+      title: "Cache Read Tokens",
+      default: 0,
+    },
+    output_tokens: {
+      type: "integer",
+      title: "Output Tokens",
+      default: 0,
+    },
+    input_audio_tokens: {
+      type: "integer",
+      title: "Input Audio Tokens",
+      default: 0,
+    },
+    cache_audio_read_tokens: {
+      type: "integer",
+      title: "Cache Audio Read Tokens",
+      default: 0,
+    },
+    output_audio_tokens: {
+      type: "integer",
+      title: "Output Audio Tokens",
+      default: 0,
+    },
+    details: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Details",
+    },
+    requests: {
+      type: "integer",
+      title: "Requests",
+      default: 0,
+    },
+    tool_calls: {
+      type: "integer",
+      title: "Tool Calls",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "RunUsage",
 } as const
 
 export const $SAMLDatabaseLoginResponse = {
@@ -6090,116 +10468,6 @@ export const $SAMLSettingsUpdate = {
   title: "SAMLSettingsUpdate",
 } as const
 
-export const $Schedule = {
-  properties: {
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    status: {
-      type: "string",
-      title: "Status",
-      default: "online",
-    },
-    cron: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Cron",
-    },
-    inputs: {
-      type: "object",
-      title: "Inputs",
-    },
-    every: {
-      type: "string",
-      format: "duration",
-      title: "Every",
-      description: "ISO 8601 duration string",
-    },
-    offset: {
-      anyOf: [
-        {
-          type: "string",
-          format: "duration",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Offset",
-      description: "ISO 8601 duration string",
-    },
-    start_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Start At",
-      description: "ISO 8601 datetime string",
-    },
-    end_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "End At",
-      description: "ISO 8601 datetime string",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description:
-        "The maximum number of seconds to wait for the workflow to complete",
-    },
-    workflow_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workflow Id",
-    },
-  },
-  type: "object",
-  required: ["owner_id", "every", "workflow_id"],
-  title: "Schedule",
-} as const
-
 export const $ScheduleCreate = {
   properties: {
     workflow_id: {
@@ -6218,6 +10486,7 @@ export const $ScheduleCreate = {
     inputs: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -6238,8 +10507,15 @@ export const $ScheduleCreate = {
       title: "Cron",
     },
     every: {
-      type: "string",
-      format: "duration",
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Every",
       description: "ISO 8601 duration string",
     },
@@ -6293,12 +10569,138 @@ export const $ScheduleCreate = {
       title: "Timeout",
       description:
         "The maximum number of seconds to wait for the workflow to complete",
-      default: 300,
+      default: 0,
     },
   },
   type: "object",
-  required: ["workflow_id", "every"],
+  required: ["workflow_id"],
   title: "ScheduleCreate",
+} as const
+
+export const $ScheduleRead = {
+  properties: {
+    id: {
+      type: "string",
+      pattern: "sch-[0-9a-f]{32}",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+    },
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+    },
+    timeout: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+    },
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "created_at",
+    "updated_at",
+    "workflow_id",
+    "status",
+  ],
+  title: "ScheduleRead",
 } as const
 
 export const $ScheduleSearch = {
@@ -6370,6 +10772,7 @@ export const $ScheduleUpdate = {
     inputs: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -6662,7 +11065,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key"],
+  enum: ["custom", "ssh-key", "github-app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -6885,6 +11288,32 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $Session_Any_ = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    events: {
+      anyOf: [
+        {
+          items: {},
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Events",
+      description: "The events in the session.",
+    },
+  },
+  type: "object",
+  required: ["id"],
+  title: "Session[Any]",
+} as const
+
 export const $SeverityChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -6937,6 +11366,78 @@ export const $SeverityChangedEventRead = {
   description: "Event for when a case severity is changed.",
 } as const
 
+export const $SourceDocumentUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "source-document",
+      title: "Type",
+    },
+    sourceId: {
+      type: "string",
+      title: "Sourceid",
+    },
+    mediaType: {
+      type: "string",
+      title: "Mediatype",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "sourceId", "mediaType", "title"],
+  title: "SourceDocumentUIPart",
+  description: "A document source part of a message.",
+} as const
+
+export const $SourceUrlUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "source-url",
+      title: "Type",
+    },
+    sourceId: {
+      type: "string",
+      title: "Sourceid",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "sourceId", "url"],
+  title: "SourceUrlUIPart",
+  description: "A source URL part of a message.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -6950,11 +11451,14 @@ export const $SqlType = {
     "TEXT",
     "INTEGER",
     "NUMERIC",
+    "DATE",
     "BOOLEAN",
     "TIMESTAMP",
     "TIMESTAMPTZ",
     "JSONB",
     "UUID",
+    "SELECT",
+    "MULTI_SELECT",
   ],
   title: "SqlType",
   description: "Supported SQL types.",
@@ -7010,6 +11514,20 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $StepStartUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "step-start",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "StepStartUIPart",
+  description: "A step boundary part of a message.",
 } as const
 
 export const $SyntaxToken = {
@@ -7068,6 +11586,9 @@ export const $SystemPromptPart = {
   type: "object",
   required: ["content"],
   title: "SystemPromptPart",
+  description: `A system prompt, generally written by the application developer.
+
+This gives the model context and guidance on how to respond.`,
 } as const
 
 export const $TableColumnCreate = {
@@ -7099,6 +11620,20 @@ export const $TableColumnCreate = {
       ],
       title: "Default",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
   },
   type: "object",
   required: ["name", "type"],
@@ -7110,7 +11645,7 @@ export const $TableColumnRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -7138,6 +11673,20 @@ export const $TableColumnRead = {
       type: "boolean",
       title: "Is Index",
       default: false,
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",
@@ -7209,6 +11758,20 @@ export const $TableColumnUpdate = {
       title: "Is Index",
       description: "Whether the column is an index",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
   },
   type: "object",
   title: "TableColumnUpdate",
@@ -7239,11 +11802,34 @@ export const $TableCreate = {
   description: "Create model for a table.",
 } as const
 
+export const $TableImportResponse = {
+  properties: {
+    table: {
+      $ref: "#/components/schemas/TableRead",
+    },
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted",
+    },
+    column_mapping: {
+      items: {
+        $ref: "#/components/schemas/InferredColumn",
+      },
+      type: "array",
+      title: "Column Mapping",
+    },
+  },
+  type: "object",
+  required: ["table", "rows_inserted", "column_mapping"],
+  title: "TableImportResponse",
+  description: "Response model for importing a table from CSV.",
+} as const
+
 export const $TableRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -7268,7 +11854,7 @@ export const $TableReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -7285,6 +11871,7 @@ export const $TableReadMinimal = {
 export const $TableRowInsert = {
   properties: {
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -7304,10 +11891,16 @@ export const $TableRowInsertBatch = {
   properties: {
     rows: {
       items: {
+        additionalProperties: true,
         type: "object",
       },
       type: "array",
       title: "Rows",
+    },
+    upsert: {
+      type: "boolean",
+      title: "Upsert",
+      default: false,
     },
   },
   type: "object",
@@ -7333,7 +11926,7 @@ export const $TableRowRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     created_at: {
@@ -7374,6 +11967,65 @@ export const $TableUpdate = {
   type: "object",
   title: "TableUpdate",
   description: "Update model for a table.",
+} as const
+
+export const $TagAddedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "tag_added",
+      title: "Type",
+      default: "tag_added",
+    },
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+    tag_ref: {
+      type: "string",
+      title: "Tag Ref",
+    },
+    tag_name: {
+      type: "string",
+      title: "Tag Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["tag_id", "tag_ref", "tag_name", "created_at"],
+  title: "TagAddedEventRead",
+  description: "Event for when a tag is added to a case.",
 } as const
 
 export const $TagCreate = {
@@ -7420,7 +12072,7 @@ export const $TagRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -7428,6 +12080,12 @@ export const $TagRead = {
       maxLength: 50,
       minLength: 1,
       title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+      description:
+        "Slug-like identifier derived from name, used for API lookups",
     },
     color: {
       anyOf: [
@@ -7443,9 +12101,68 @@ export const $TagRead = {
     },
   },
   type: "object",
-  required: ["id", "name"],
+  required: ["id", "name", "ref"],
   title: "TagRead",
   description: "Model for reading tag data with validation.",
+} as const
+
+export const $TagRemovedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "tag_removed",
+      title: "Type",
+      default: "tag_removed",
+    },
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+    tag_ref: {
+      type: "string",
+      title: "Tag Ref",
+    },
+    tag_name: {
+      type: "string",
+      title: "Tag Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["tag_id", "tag_ref", "tag_name", "created_at"],
+  title: "TagRemovedEventRead",
+  description: "Event for when a tag is removed from a case.",
 } as const
 
 export const $TagUpdate = {
@@ -7479,6 +12196,417 @@ export const $TagUpdate = {
   type: "object",
   title: "TagUpdate",
   description: "Model for updating existing tags with validation.",
+} as const
+
+export const $TaskAssigneeChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_assignee_changed",
+      title: "Type",
+      default: "task_assignee_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskAssigneeChangedEventRead",
+  description: "Event for when a task assignee is changed.",
+} as const
+
+export const $TaskCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_created",
+      title: "Type",
+      default: "task_created",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "created_at"],
+  title: "TaskCreatedEventRead",
+  description: "Event for when a task is created for a case.",
+} as const
+
+export const $TaskDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_deleted",
+      title: "Type",
+      default: "task_deleted",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "created_at"],
+  title: "TaskDeletedEventRead",
+  description: "Event for when a task is deleted for a case.",
+} as const
+
+export const $TaskPriorityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_priority_changed",
+      title: "Type",
+      default: "task_priority_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    new: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskPriorityChangedEventRead",
+  description: "Event for when a task priority is changed.",
+} as const
+
+export const $TaskStatusChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_status_changed",
+      title: "Type",
+      default: "task_status_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseTaskStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskStatusChangedEventRead",
+  description: "Event for when a task status is changed.",
+} as const
+
+export const $TaskWorkflowChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "task_workflow_changed",
+      title: "Type",
+      default: "task_workflow_changed",
+    },
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["task_id", "title", "old", "new", "created_at"],
+  title: "TaskWorkflowChangedEventRead",
+  description: "Event for when a task workflow is changed.",
 } as const
 
 export const $TemplateAction_Input = {
@@ -7622,6 +12750,7 @@ export const $TemplateActionDefinition_Input = {
           type: "array",
         },
         {
+          additionalProperties: true,
           type: "object",
         },
       ],
@@ -7749,6 +12878,7 @@ export const $TemplateActionDefinition_Output = {
           type: "array",
         },
         {
+          additionalProperties: true,
           type: "object",
         },
       ],
@@ -7900,6 +13030,17 @@ export const $TextPart = {
       type: "string",
       title: "Content",
     },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
     part_kind: {
       type: "string",
       const: "text",
@@ -7910,6 +13051,156 @@ export const $TextPart = {
   type: "object",
   required: ["content"],
   title: "TextPart",
+  description: "A plain text response from a model.",
+} as const
+
+export const $TextPartDelta = {
+  properties: {
+    content_delta: {
+      type: "string",
+      title: "Content Delta",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "text",
+      title: "Part Delta Kind",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["content_delta"],
+  title: "TextPartDelta",
+  description:
+    "A partial update (delta) for a `TextPart` to append new text content.",
+} as const
+
+export const $TextUIPart = {
+  properties: {
+    type: {
+      type: "string",
+      const: "text",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    state: {
+      type: "string",
+      enum: ["streaming", "done"],
+      title: "State",
+    },
+    providerMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Providermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "TextUIPart",
+  description: "A text part of a message.",
+} as const
+
+export const $ThinkingPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
+    signature: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signature",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "thinking",
+      title: "Part Kind",
+      default: "thinking",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "ThinkingPart",
+  description: "A thinking response from a model.",
+} as const
+
+export const $ThinkingPartDelta = {
+  properties: {
+    content_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Delta",
+    },
+    signature_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signature Delta",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "thinking",
+      title: "Part Delta Kind",
+      default: "thinking",
+    },
+  },
+  type: "object",
+  title: "ThinkingPartDelta",
 } as const
 
 export const $Toggle = {
@@ -7935,6 +13226,31 @@ export const $Toggle = {
   title: "Toggle",
 } as const
 
+export const $ToolApproved = {
+  properties: {
+    override_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Override Args",
+    },
+    kind: {
+      type: "string",
+      const: "tool-approved",
+      title: "Kind",
+      default: "tool-approved",
+    },
+  },
+  type: "object",
+  title: "ToolApproved",
+} as const
+
 export const $ToolCallPart = {
   properties: {
     tool_name: {
@@ -7947,7 +13263,11 @@ export const $ToolCallPart = {
           type: "string",
         },
         {
+          additionalProperties: true,
           type: "object",
+        },
+        {
+          type: "null",
         },
       ],
       title: "Args",
@@ -7955,6 +13275,17 @@ export const $ToolCallPart = {
     tool_call_id: {
       type: "string",
       title: "Tool Call Id",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
     },
     part_kind: {
       type: "string",
@@ -7964,8 +13295,141 @@ export const $ToolCallPart = {
     },
   },
   type: "object",
-  required: ["tool_name", "args"],
+  required: ["tool_name"],
   title: "ToolCallPart",
+  description: "A tool call from a model.",
+} as const
+
+export const $ToolCallPartDelta = {
+  properties: {
+    tool_name_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name Delta",
+    },
+    args_delta: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Args Delta",
+    },
+    tool_call_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Id",
+    },
+    part_delta_kind: {
+      type: "string",
+      const: "tool_call",
+      title: "Part Delta Kind",
+      default: "tool_call",
+    },
+  },
+  type: "object",
+  title: "ToolCallPartDelta",
+} as const
+
+export const $ToolDenied = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+      default: "The tool call was denied.",
+    },
+    kind: {
+      type: "string",
+      const: "tool-denied",
+      title: "Kind",
+      default: "tool-denied",
+    },
+  },
+  type: "object",
+  title: "ToolDenied",
+  description:
+    "Indicates that a tool call has been denied and that a denial message should be returned to the model.",
+} as const
+
+export const $ToolReturn = {
+  properties: {
+    return_value: {
+      title: "Return Value",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+    metadata: {
+      title: "Metadata",
+    },
+    kind: {
+      type: "string",
+      const: "tool-return",
+      title: "Kind",
+      default: "tool-return",
+    },
+  },
+  type: "object",
+  required: ["return_value"],
+  title: "ToolReturn",
+  description: `A structured return value for tools that need to provide both a return value and custom content to the model.
+
+This class allows tools to return complex responses that include:
+- A return value for actual tool return
+- Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
+- Optional metadata for application use`,
 } as const
 
 export const $ToolReturnPart = {
@@ -7981,6 +13445,9 @@ export const $ToolReturnPart = {
       type: "string",
       title: "Tool Call Id",
     },
+    metadata: {
+      title: "Metadata",
+    },
     timestamp: {
       type: "string",
       format: "date-time",
@@ -7994,8 +13461,184 @@ export const $ToolReturnPart = {
     },
   },
   type: "object",
-  required: ["tool_name", "content", "tool_call_id"],
+  required: ["tool_name", "content"],
   title: "ToolReturnPart",
+  description:
+    "A tool return message, this encodes the result of running a tool.",
+} as const
+
+export const $ToolUIPartInputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "input"],
+  title: "ToolUIPartInputAvailable",
+} as const
+
+export const $ToolUIPartInputStreaming = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "input-streaming",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state"],
+  title: "ToolUIPartInputStreaming",
+} as const
+
+export const $ToolUIPartOutputAvailable = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-available",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    output: {
+      title: "Output",
+    },
+    errorText: {
+      type: "null",
+      title: "Errortext",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+    preliminary: {
+      type: "boolean",
+      title: "Preliminary",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "input", "output"],
+  title: "ToolUIPartOutputAvailable",
+} as const
+
+export const $ToolUIPartOutputError = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    toolCallId: {
+      type: "string",
+      title: "Toolcallid",
+    },
+    state: {
+      type: "string",
+      const: "output-error",
+      title: "State",
+    },
+    input: {
+      title: "Input",
+    },
+    rawInput: {
+      title: "Rawinput",
+    },
+    output: {
+      type: "null",
+      title: "Output",
+    },
+    errorText: {
+      type: "string",
+      title: "Errortext",
+    },
+    providerExecuted: {
+      type: "boolean",
+      title: "Providerexecuted",
+    },
+    callProviderMetadata: {
+      additionalProperties: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "object",
+      title: "Callprovidermetadata",
+    },
+  },
+  type: "object",
+  required: ["type", "toolCallId", "state", "errorText"],
+  title: "ToolUIPartOutputError",
 } as const
 
 export const $Trigger = {
@@ -8011,6 +13654,7 @@ export const $Trigger = {
       title: "Ref",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
     },
@@ -8025,6 +13669,88 @@ export const $TriggerType = {
   enum: ["manual", "scheduled", "webhook"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
+} as const
+
+export const $UIMessage = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    role: {
+      type: "string",
+      enum: ["system", "user", "assistant"],
+      title: "Role",
+    },
+    metadata: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+    },
+    parts: {
+      items: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/TextUIPart",
+          },
+          {
+            $ref: "#/components/schemas/ReasoningUIPart",
+          },
+          {
+            $ref: "#/components/schemas/SourceUrlUIPart",
+          },
+          {
+            $ref: "#/components/schemas/SourceDocumentUIPart",
+          },
+          {
+            $ref: "#/components/schemas/FileUIPart",
+          },
+          {
+            $ref: "#/components/schemas/StepStartUIPart",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartInputStreaming",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartInputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartOutputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/DynamicToolUIPartOutputError",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartInputStreaming",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartInputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartOutputAvailable",
+          },
+          {
+            $ref: "#/components/schemas/ToolUIPartOutputError",
+          },
+          {
+            $ref: "#/components/schemas/DataUIPart",
+          },
+        ],
+      },
+      type: "array",
+      title: "Parts",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "role", "parts"],
+  title: "UIMessage",
+  description: `Pydantic model for AI SDK UI Messages, used for validation between
+frontend and backend.`,
 } as const
 
 export const $UpdatedEventRead = {
@@ -8098,65 +13824,6 @@ export const $UpdatedEventRead = {
   required: ["field", "old", "new", "created_at"],
   title: "UpdatedEventRead",
   description: "Event for when a case is updated.",
-} as const
-
-export const $Usage = {
-  properties: {
-    requests: {
-      type: "integer",
-      title: "Requests",
-      default: 0,
-    },
-    request_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Request Tokens",
-    },
-    response_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Response Tokens",
-    },
-    total_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Tokens",
-    },
-    details: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "integer",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Details",
-    },
-  },
-  type: "object",
-  title: "Usage",
 } as const
 
 export const $UserCreate = {
@@ -8284,6 +13951,10 @@ export const $UserPromptPart = {
   type: "object",
   required: ["content"],
   title: "UserPromptPart",
+  description: `A user prompt, generally written by the end user.
+
+Content comes from the \`user_prompt\` parameter of [\`Agent.run\`][pydantic_ai.agent.AbstractAgent.run],
+[\`Agent.run_sync\`][pydantic_ai.agent.AbstractAgent.run_sync], and [\`Agent.run_stream\`][pydantic_ai.agent.AbstractAgent.run_stream].`,
 } as const
 
 export const $UserRead = {
@@ -8339,6 +14010,7 @@ export const $UserRead = {
       title: "Last Name",
     },
     settings: {
+      additionalProperties: true,
       type: "object",
       title: "Settings",
     },
@@ -8346,6 +14018,49 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
+} as const
+
+export const $UserReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role"],
+  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {
@@ -8447,6 +14162,7 @@ export const $UserUpdate = {
     settings: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -8559,11 +14275,332 @@ export const $ValidationResult = {
   },
 } as const
 
+export const $VariableCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "[a-z0-9_]+",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      patternProperties: {
+        "[a-zA-Z0-9_]+": {},
+      },
+      propertyNames: {
+        maxLength: 255,
+        minLength: 1,
+      },
+      type: "object",
+      maxProperties: 1000,
+      minProperties: 1,
+      title: "Values",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+      default: "default",
+    },
+  },
+  type: "object",
+  required: ["name", "values"],
+  title: "VariableCreate",
+} as const
+
+export const $VariableRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      pattern: "[a-z0-9_]+",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "description",
+    "values",
+    "environment",
+    "tags",
+    "owner_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "VariableRead",
+} as const
+
+export const $VariableReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      pattern: "[a-z0-9_]+",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description", "values", "environment"],
+  title: "VariableReadMinimal",
+} as const
+
+export const $VariableUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+          pattern: "[a-z0-9_]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    values: {
+      anyOf: [
+        {
+          patternProperties: {
+            "[a-zA-Z0-9_]+": {},
+          },
+          propertyNames: {
+            maxLength: 255,
+            minLength: 1,
+          },
+          type: "object",
+          maxProperties: 1000,
+          minProperties: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Values",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+          maxProperties: 1000,
+          minProperties: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+  },
+  type: "object",
+  title: "VariableUpdate",
+} as const
+
+export const $VercelChatRequest = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "vercel",
+      title: "Kind",
+      default: "vercel",
+    },
+    message: {
+      $ref: "#/components/schemas/UIMessage",
+      description: "User message in Vercel UI format",
+    },
+    model: {
+      type: "string",
+      title: "Model",
+      description: "AI model to use",
+      default: "gpt-4o-mini",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Model Provider",
+      description: "AI model provider",
+      default: "openai",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "VercelChatRequest",
+  description: "Vercel AI SDK format request with structured UI messages.",
+} as const
+
 export const $VideoUrl = {
   properties: {
     url: {
       type: "string",
       title: "Url",
+    },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
     },
     kind: {
       type: "string",
@@ -8571,16 +14608,107 @@ export const $VideoUrl = {
       title: "Kind",
       default: "video-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+      description: `The identifier of the file, such as a unique ID.
+
+This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+and the tool can look up the file in question by iterating over the message history and finding the matching \`FileUrl\`.
+
+This identifier is only automatically passed to the model when the \`FileUrl\` is returned by a tool.
+If you're passing the \`FileUrl\` as a user message, it's up to you to include a separate text part with the identifier,
+e.g. "This is file <identifier>:" preceding the \`FileUrl\`.
+
+It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+distinguish multiple files.`,
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
+  description: "A URL to a video.",
 } as const
 
 export const $WaitStrategy = {
   type: "string",
   enum: ["wait", "detach"],
   title: "WaitStrategy",
+} as const
+
+export const $WebhookApiKeyGenerateResponse = {
+  properties: {
+    api_key: {
+      type: "string",
+      title: "Api Key",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["api_key", "preview", "created_at"],
+  title: "WebhookApiKeyGenerateResponse",
+} as const
+
+export const $WebhookApiKeyRead = {
+  properties: {
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["preview", "created_at"],
+  title: "WebhookApiKeyRead",
 } as const
 
 export const $WebhookCreate = {
@@ -8608,6 +14736,13 @@ export const $WebhookCreate = {
       ],
       title: "Entrypoint Ref",
     },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+    },
   },
   type: "object",
   title: "WebhookCreate",
@@ -8620,21 +14755,6 @@ export const $WebhookMethod = {
 
 export const $WebhookRead = {
   properties: {
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     id: {
       type: "string",
       title: "Id",
@@ -8657,7 +14777,15 @@ export const $WebhookRead = {
       ],
       title: "Entrypoint Ref",
     },
+    allowlisted_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Allowlisted Cidrs",
+    },
     filters: {
+      additionalProperties: true,
       type: "object",
       title: "Filters",
     },
@@ -8677,17 +14805,19 @@ export const $WebhookRead = {
       type: "string",
       title: "Url",
     },
+    api_key: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookApiKeyRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
-  required: [
-    "owner_id",
-    "id",
-    "secret",
-    "status",
-    "filters",
-    "workflow_id",
-    "url",
-  ],
+  required: ["id", "secret", "status", "workflow_id", "url"],
   title: "WebhookRead",
 } as const
 
@@ -8732,6 +14862,20 @@ export const $WebhookUpdate = {
         },
       ],
       title: "Entrypoint Ref",
+    },
+    allowlisted_cidrs: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowlisted Cidrs",
     },
   },
   type: "object",
@@ -8784,6 +14928,7 @@ export const $WorkflowCommitResponse = {
     metadata: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -8798,8 +14943,44 @@ export const $WorkflowCommitResponse = {
   title: "WorkflowCommitResponse",
 } as const
 
-export const $WorkflowDefinition = {
+export const $WorkflowDefinitionRead = {
   properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    content: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -8810,51 +14991,18 @@ export const $WorkflowDefinition = {
       format: "date-time",
       title: "Updated At",
     },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    version: {
-      type: "integer",
-      title: "Version",
-      description: "DSL spec version",
-    },
-    workflow_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workflow Id",
-    },
-    content: {
-      type: "object",
-      title: "Content",
-    },
   },
   type: "object",
-  required: ["owner_id", "version", "workflow_id", "content"],
-  title: "WorkflowDefinition",
-  description: `A workflow definition.
-
-This is the underlying representation/snapshot of a workflow in the system, which
-can directly execute in the runner.
-
-Shoulds
--------
-1. Be convertible into a Workspace Workflow + Acitons
-2. Be convertible into a YAML DSL
-3. Be able to be versioned
-
-Shouldn'ts
-----------
-1. Have any stateful information
-
-Relationships
--------------
-- 1 Workflow to many WorkflowDefinitions`,
+  required: [
+    "id",
+    "workflow_id",
+    "owner_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "WorkflowDefinitionRead",
+  description: "API response model for persisted workflow definitions.",
 } as const
 
 export const $WorkflowDefinitionReadMinimal = {
@@ -9006,6 +15154,64 @@ export const $WorkflowDirectoryItem = {
     "type",
   ],
   title: "WorkflowDirectoryItem",
+} as const
+
+export const $WorkflowDslPublish = {
+  properties: {
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+  },
+  type: "object",
+  title: "WorkflowDslPublish",
+} as const
+
+export const $WorkflowEntrypointValidationRequest = {
+  properties: {
+    expects: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/ExpectedField",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expects",
+    },
+  },
+  type: "object",
+  title: "WorkflowEntrypointValidationRequest",
+} as const
+
+export const $WorkflowEntrypointValidationResponse = {
+  properties: {
+    valid: {
+      type: "boolean",
+      title: "Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationResult",
+      },
+      type: "array",
+      title: "Errors",
+    },
+  },
+  type: "object",
+  required: ["valid"],
+  title: "WorkflowEntrypointValidationResponse",
 } as const
 
 export const $WorkflowEventType = {
@@ -9184,136 +15390,147 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
-  properties: {
-    source_event_id: {
-      type: "integer",
-      title: "Source Event Id",
+export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
+  {
+    properties: {
+      source_event_id: {
+        type: "integer",
+        title: "Source Event Id",
+      },
+      schedule_time: {
+        type: "string",
+        format: "date-time",
+        title: "Schedule Time",
+      },
+      start_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Start Time",
+      },
+      close_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Close Time",
+      },
+      curr_event_type: {
+        $ref: "#/components/schemas/WorkflowEventType",
+      },
+      status: {
+        $ref: "#/components/schemas/WorkflowExecutionEventStatus",
+      },
+      action_name: {
+        type: "string",
+        title: "Action Name",
+      },
+      action_ref: {
+        type: "string",
+        title: "Action Ref",
+      },
+      action_input: {
+        title: "Action Input",
+      },
+      action_result: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/AgentOutput",
+          },
+          {},
+          {
+            type: "null",
+          },
+        ],
+        title: "Action Result",
+      },
+      action_error: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/EventFailure",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
+      stream_id: {
+        type: "string",
+        title: "Stream Id",
+        default: "<root>:0",
+      },
+      child_wf_exec_id: {
+        anyOf: [
+          {
+            type: "string",
+            pattern:
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Child Wf Exec Id",
+      },
+      child_wf_count: {
+        type: "integer",
+        title: "Child Wf Count",
+        default: 0,
+      },
+      loop_index: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Loop Index",
+      },
+      child_wf_wait_strategy: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/WaitStrategy",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
+      session: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/Session_Any_",
+          },
+          {
+            type: "null",
+          },
+        ],
+      },
     },
-    schedule_time: {
-      type: "string",
-      format: "date-time",
-      title: "Schedule Time",
-    },
-    start_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Start Time",
-    },
-    close_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Close Time",
-    },
-    curr_event_type: {
-      $ref: "#/components/schemas/WorkflowEventType",
-    },
-    status: {
-      $ref: "#/components/schemas/WorkflowExecutionEventStatus",
-    },
-    action_name: {
-      type: "string",
-      title: "Action Name",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    action_input: {
-      title: "Action Input",
-    },
-    action_result: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/AgentOutput",
-        },
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Result",
-    },
-    action_error: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/EventFailure",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    stream_id: {
-      type: "string",
-      title: "Stream Id",
-      default: "<root>:0",
-    },
-    child_wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-          pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Child Wf Exec Id",
-    },
-    child_wf_count: {
-      type: "integer",
-      title: "Child Wf Count",
-      default: 0,
-    },
-    loop_index: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Loop Index",
-    },
-    child_wf_wait_strategy: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WaitStrategy",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  required: [
-    "source_event_id",
-    "schedule_time",
-    "curr_event_type",
-    "status",
-    "action_name",
-    "action_ref",
-  ],
-  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any]]",
-} as const
+    type: "object",
+    required: [
+      "source_event_id",
+      "schedule_time",
+      "curr_event_type",
+      "status",
+      "action_name",
+      "action_ref",
+    ],
+    title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
+  } as const
 
 export const $WorkflowExecutionEventStatus = {
   type: "string",
@@ -9448,122 +15665,123 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
-  properties: {
-    id: {
-      type: "string",
-      title: "Id",
-      description: "The ID of the workflow execution",
-    },
-    run_id: {
-      type: "string",
-      title: "Run Id",
-      description: "The run ID of the workflow execution",
-    },
-    start_time: {
-      type: "string",
-      format: "date-time",
-      title: "Start Time",
-      description: "The start time of the workflow execution",
-    },
-    execution_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Execution Time",
-      description: "When this workflow run started or should start.",
-    },
-    close_time: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Close Time",
-      description: "When the workflow was closed if closed.",
-    },
-    status: {
-      type: "string",
-      enum: [
-        "RUNNING",
-        "COMPLETED",
-        "FAILED",
-        "CANCELED",
-        "TERMINATED",
-        "CONTINUED_AS_NEW",
-        "TIMED_OUT",
-      ],
-    },
-    workflow_type: {
-      type: "string",
-      title: "Workflow Type",
-    },
-    task_queue: {
-      type: "string",
-      title: "Task Queue",
-    },
-    history_length: {
-      type: "integer",
-      title: "History Length",
-      description: "Number of events in the history",
-    },
-    parent_wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-          pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Wf Exec Id",
-    },
-    trigger_type: {
-      $ref: "#/components/schemas/TriggerType",
-    },
-    events: {
-      items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__",
+export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
+  {
+    properties: {
+      id: {
+        type: "string",
+        title: "Id",
+        description: "The ID of the workflow execution",
       },
-      type: "array",
-      title: "Events",
-      description: "Compact events in the workflow execution",
-    },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
+      run_id: {
+        type: "string",
+        title: "Run Id",
+        description: "The run ID of the workflow execution",
       },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
+      start_time: {
+        type: "string",
+        format: "date-time",
+        title: "Start Time",
+        description: "The start time of the workflow execution",
+      },
+      execution_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Execution Time",
+        description: "When this workflow run started or should start.",
+      },
+      close_time: {
+        anyOf: [
+          {
+            type: "string",
+            format: "date-time",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Close Time",
+        description: "When the workflow was closed if closed.",
+      },
+      status: {
+        type: "string",
+        enum: [
+          "RUNNING",
+          "COMPLETED",
+          "FAILED",
+          "CANCELED",
+          "TERMINATED",
+          "CONTINUED_AS_NEW",
+          "TIMED_OUT",
+        ],
+      },
+      workflow_type: {
+        type: "string",
+        title: "Workflow Type",
+      },
+      task_queue: {
+        type: "string",
+        title: "Task Queue",
+      },
+      history_length: {
+        type: "integer",
+        title: "History Length",
+        description: "Number of events in the history",
+      },
+      parent_wf_exec_id: {
+        anyOf: [
+          {
+            type: "string",
+            pattern:
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Parent Wf Exec Id",
+      },
+      trigger_type: {
+        $ref: "#/components/schemas/TriggerType",
+      },
+      events: {
+        items: {
+          $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
+        },
+        type: "array",
+        title: "Events",
+        description: "Compact events in the workflow execution",
+      },
+      interactions: {
+        items: {
+          $ref: "#/components/schemas/InteractionRead",
+        },
+        type: "array",
+        title: "Interactions",
+        description: "The interactions in the workflow execution",
+      },
     },
-  },
-  type: "object",
-  required: [
-    "id",
-    "run_id",
-    "start_time",
-    "status",
-    "workflow_type",
-    "task_queue",
-    "history_length",
-    "trigger_type",
-    "events",
-  ],
-  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any]]",
-} as const
+    type: "object",
+    required: [
+      "id",
+      "run_id",
+      "start_time",
+      "status",
+      "workflow_type",
+      "task_queue",
+      "history_length",
+      "trigger_type",
+      "events",
+    ],
+    title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
+  } as const
 
 export const $WorkflowExecutionReadMinimal = {
   properties: {
@@ -9663,6 +15881,15 @@ export const $WorkflowExecutionReadMinimal = {
     "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
+} as const
+
+export const $WorkflowExecutionStatus = {
+  type: "integer",
+  enum: [1, 2, 3, 4, 5, 6, 7],
+  title: "WorkflowExecutionStatus",
+  description: `Status of a workflow execution.
+
+See :py:class:\`temporalio.api.enums.v1.WorkflowExecutionStatus\`.`,
 } as const
 
 export const $WorkflowExecutionTerminate = {
@@ -9831,6 +16058,7 @@ export const $WorkflowRead = {
     object: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -9860,7 +16088,7 @@ export const $WorkflowRead = {
     },
     schedules: {
       items: {
-        $ref: "#/components/schemas/Schedule",
+        $ref: "#/components/schemas/ScheduleRead",
       },
       type: "array",
       title: "Schedules",
@@ -9876,10 +16104,6 @@ export const $WorkflowRead = {
       ],
       title: "Entrypoint",
     },
-    static_inputs: {
-      type: "object",
-      title: "Static Inputs",
-    },
     expects: {
       anyOf: [
         {
@@ -9893,6 +16117,18 @@ export const $WorkflowRead = {
         },
       ],
       title: "Expects",
+    },
+    expects_schema: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expects Schema",
     },
     returns: {
       title: "Returns",
@@ -9942,7 +16178,6 @@ export const $WorkflowRead = {
     "webhook",
     "schedules",
     "entrypoint",
-    "static_inputs",
     "returns",
     "config",
   ],
@@ -10074,11 +16309,61 @@ export const $WorkflowReadMinimal = {
   description: "Minimal version of WorkflowRead model for list endpoints.",
 } as const
 
+export const $WorkflowSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+  },
+  type: "object",
+  required: ["id", "title"],
+  title: "WorkflowSummary",
+} as const
+
+export const $WorkflowSyncPullRequest = {
+  properties: {
+    commit_sha: {
+      type: "string",
+      maxLength: 64,
+      minLength: 40,
+      title: "Commit Sha",
+      description: "Specific commit SHA to pull from",
+    },
+    dry_run: {
+      type: "boolean",
+      title: "Dry Run",
+      description: "Validate only, don't perform actual import",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["commit_sha"],
+  title: "WorkflowSyncPullRequest",
+  description: "Request model for pulling workflows from a Git repository.",
+} as const
+
 export const $WorkflowTagCreate = {
   properties: {
     tag_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Tag Id",
     },
   },
@@ -10131,6 +16416,7 @@ export const $WorkflowUpdate = {
     object: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -10171,17 +16457,6 @@ export const $WorkflowUpdate = {
         },
       ],
       title: "Icon Url",
-    },
-    static_inputs: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Static Inputs",
     },
     expects: {
       anyOf: [
@@ -10254,16 +16529,12 @@ export const $WorkspaceCreate = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsUpdate",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
     owner_id: {
       type: "string",
@@ -10281,7 +16552,7 @@ export const $WorkspaceMember = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     first_name: {
@@ -10334,7 +16605,7 @@ export const $WorkspaceMembershipCreate = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     role: {
@@ -10351,12 +16622,12 @@ export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "User Id",
     },
     workspace_id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Workspace Id",
     },
     role: {
@@ -10389,7 +16660,7 @@ export const $WorkspaceRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
@@ -10399,36 +16670,21 @@ export const $WorkspaceRead = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsRead",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
     owner_id: {
       type: "string",
       format: "uuid",
       title: "Owner Id",
     },
-    n_members: {
-      type: "integer",
-      title: "N Members",
-    },
-    members: {
-      items: {
-        $ref: "#/components/schemas/WorkspaceMember",
-      },
-      type: "array",
-      title: "Members",
-    },
   },
   type: "object",
-  required: ["id", "name", "owner_id", "n_members", "members"],
+  required: ["id", "name", "owner_id"],
   title: "WorkspaceRead",
 } as const
 
@@ -10436,20 +16692,16 @@ export const $WorkspaceReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     name: {
       type: "string",
       title: "Name",
     },
-    n_members: {
-      type: "integer",
-      title: "N Members",
-    },
   },
   type: "object",
-  required: ["id", "name", "n_members"],
+  required: ["id", "name"],
   title: "WorkspaceReadMinimal",
 } as const
 
@@ -10457,6 +16709,199 @@ export const $WorkspaceRole = {
   type: "string",
   enum: ["editor", "admin"],
   title: "WorkspaceRole",
+} as const
+
+export const $WorkspaceSettingsRead = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+    workflow_unlimited_timeout_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Unlimited Timeout Enabled",
+    },
+    workflow_default_timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Default Timeout Seconds",
+    },
+    allowed_attachment_extensions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Extensions",
+    },
+    allowed_attachment_mime_types: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Mime Types",
+    },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+    },
+    effective_allowed_attachment_extensions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Effective Allowed Attachment Extensions",
+      description:
+        "Returns workspace-specific extensions if set, otherwise system defaults.",
+      readOnly: true,
+    },
+    effective_allowed_attachment_mime_types: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Effective Allowed Attachment Mime Types",
+      description:
+        "Returns workspace-specific MIME types if set, otherwise system defaults.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: [
+    "effective_allowed_attachment_extensions",
+    "effective_allowed_attachment_mime_types",
+  ],
+  title: "WorkspaceSettingsRead",
+} as const
+
+export const $WorkspaceSettingsUpdate = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+    workflow_unlimited_timeout_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Unlimited Timeout Enabled",
+      description:
+        "Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.",
+    },
+    workflow_default_timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Default Timeout Seconds",
+      description:
+        "Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.",
+    },
+    allowed_attachment_extensions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Extensions",
+      description:
+        "Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.",
+    },
+    allowed_attachment_mime_types: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Mime Types",
+      description:
+        "Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+    },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+      description:
+        "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    },
+  },
+  type: "object",
+  title: "WorkspaceSettingsUpdate",
 } as const
 
 export const $WorkspaceUpdate = {
@@ -10477,16 +16922,12 @@ export const $WorkspaceUpdate = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsUpdate",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
   },
   type: "object",
@@ -10504,59 +16945,4 @@ export const $Yaml = {
   },
   type: "object",
   title: "Yaml",
-} as const
-
-export const $login = {
-  properties: {
-    grant_type: {
-      anyOf: [
-        {
-          type: "string",
-          pattern: "^password$",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Grant Type",
-    },
-    username: {
-      type: "string",
-      title: "Username",
-    },
-    password: {
-      type: "string",
-      title: "Password",
-    },
-    scope: {
-      type: "string",
-      title: "Scope",
-      default: "",
-    },
-    client_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Id",
-    },
-    client_secret: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Secret",
-    },
-  },
-  type: "object",
-  required: ["username", "password"],
-  title: "Body_auth-auth:database.login",
 } as const

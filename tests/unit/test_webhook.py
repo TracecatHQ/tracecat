@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -5,7 +6,8 @@ import pytest
 from fastapi import Request
 from fastapi.datastructures import FormData
 
-from tracecat.webhooks.dependencies import parse_webhook_payload
+from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
+from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
 
 
 class TestParseWebhookPayload:
@@ -159,3 +161,36 @@ class TestParseWebhookPayload:
 
         result = await parse_webhook_payload(request, "text/plain")
         assert result == test_data
+
+
+class TestWebhookNetworkHelpers:
+    def test_normalize_cidrs(self):
+        cidrs = ["192.168.1.0/24", "192.168.1.0/24", "10.0.0.1", "10.0.0.1/32"]
+        normalized = _normalize_cidrs(cidrs)
+        assert normalized == ["192.168.1.0/24", "10.0.0.1/32"]
+
+    def test_ip_allowed_positive(self):
+        assert _ip_allowed("192.168.1.5", ["192.168.1.0/24"]) is True
+
+    def test_ip_allowed_negative(self):
+        assert _ip_allowed("203.0.113.10", ["192.168.1.0/24"]) is False
+
+    def test_normalize_cidrs_rejects_ipv6(self):
+        with pytest.raises(ValueError, match="Only IPv4"):
+            _normalize_cidrs(["2001:db8::/32"])
+
+
+class TestWebhookApiKeyRead:
+    def test_is_active_true_when_not_revoked(self):
+        now = datetime.now(UTC)
+        api_key = WebhookApiKeyRead(
+            preview="tc_sk_abcd", created_at=now, revoked_at=None
+        )
+        assert api_key.is_active is True
+
+    def test_is_active_false_when_revoked(self):
+        now = datetime.now(UTC)
+        api_key = WebhookApiKeyRead(
+            preview="tc_sk_abcd", created_at=now, revoked_at=now
+        )
+        assert api_key.is_active is False

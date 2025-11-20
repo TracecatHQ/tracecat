@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get group
+  description: Get a group from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/users-and-groups#get-group
+  namespace: tools.gophish
+  name: get_group
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    group_id:
+      type: int
+      description: The ID of the group to get.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: get_group
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/groups/${{ inputs.group_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.get_group.result.data }}

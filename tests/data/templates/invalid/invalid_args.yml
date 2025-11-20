@@ -1,0 +1,18 @@
+type: action
+definition:
+  name: test_invalid_args
+  namespace: tools.test
+  display_name: Test Invalid Args
+  description: Template with unsupported argument names
+  title: Test Invalid Args
+  display_group: Testing
+  expects: {}
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://api.example.com
+        method: GET
+        # Invalid argument: 'json' is not accepted by core.http_request
+        json: "{}"
+  returns: ${{ steps.call_api.result }}

@@ -7,7 +7,8 @@ from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
-from temporalio.api.enums.v1 import EventType
+import temporalio.api.enums.v1
+from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     Client,
@@ -16,22 +17,20 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
-from temporalio.common import (
-    SearchAttributeKey,
-    SearchAttributePair,
-    TypedSearchAttributes,
-)
+from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Interaction
+from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
-from tracecat.dsl.models import Task, TriggerInputs
-from tracecat.dsl.validation import validate_trigger_inputs
+from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
@@ -40,8 +39,6 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -53,13 +50,14 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
+from tracecat.workflow.executions.constants import WF_FAILURE_REF
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
     WorkflowDispatchResponse,
@@ -67,6 +65,7 @@ from tracecat.workflow.executions.models import (
     WorkflowExecutionEvent,
     WorkflowExecutionEventCompact,
 )
+from tracecat.workspaces.service import WorkspaceService
 
 
 class WorkflowExecutionsService:
@@ -87,6 +86,42 @@ class WorkflowExecutionsService:
         self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
+
+    async def _resolve_execution_timeout(
+        self, seconds: float | int | None
+    ) -> datetime.timedelta | None:
+        """Resolve the execution timeout based on workspace settings and DSL config.
+
+        Precedence order:
+        1. If workspace unlimited timeout enabled → return None (unlimited)
+        2. Else if workspace default seconds > 0 → return timedelta
+        3. Else if DSL timeout > 0 → return timedelta
+        4. Otherwise → return None (unlimited)
+
+        Args:
+            seconds: The timeout in seconds (from DSL config or other source)
+
+        Returns:
+            timedelta if timeout should be applied, None for unlimited
+        """
+        if (ws_id := self.role.workspace_id) is not None:
+            async with WorkspaceService.with_session(role=self.role) as ws_svc:
+                workspace = await ws_svc.get_workspace(ws_id)
+                if workspace and isinstance(workspace.settings, dict):
+                    if bool(
+                        workspace.settings.get("workflow_unlimited_timeout_enabled")
+                    ):
+                        return None
+                    ws_default = workspace.settings.get(
+                        "workflow_default_timeout_seconds"
+                    )
+                    if isinstance(ws_default, int) and ws_default > 0:
+                        return datetime.timedelta(seconds=ws_default)
+
+        if seconds and seconds > 0:
+            return datetime.timedelta(seconds=float(seconds))
+
+        return None
 
     async def query_interaction_states(
         self,
@@ -127,7 +162,7 @@ class WorkflowExecutionsService:
     async def get_execution(
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
-        self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
+        self.logger.debug("Getting workflow execution", wf_exec_id=wf_exec_id)
         handle = self.handle(wf_exec_id)
         try:
             return await handle.describe()
@@ -177,8 +212,12 @@ class WorkflowExecutionsService:
         # Source event id is the event ID of the scheduled event
         # Position -> WFECompact
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
+        # Map of activity ID to compact event
+        activity2eventid: dict[str, int] = {}
 
-        async for event in self.handle(wf_exec_id).fetch_history_events(**kwargs):
+        handle = self.handle(wf_exec_id)
+
+        async for event in handle.fetch_history_events(**kwargs):
             if is_scheduled_event(event):
                 # Create a new source event
                 source = await WorkflowExecutionEventCompact.from_source_event(event)
@@ -189,6 +228,31 @@ class WorkflowExecutionsService:
                     )
                     continue
                 id2event[event.event_id] = source
+
+                # If it's a scheduled activity, track the activity ID
+                if (
+                    event.event_type
+                    == temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                ):
+                    activity_id = (
+                        event.activity_task_scheduled_event_attributes.activity_id
+                    )
+                    activity2eventid[activity_id] = event.event_id
+            # ── synthetic compact event for top-level workflow failure ──
+            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                failure = EventFailure.from_history_event(event)
+                id2event[event.event_id] = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(datetime.UTC),
+                    start_time=event.event_time.ToDatetime(datetime.UTC),
+                    close_time=event.event_time.ToDatetime(datetime.UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.FAILED,
+                    action_name=WF_FAILURE_REF,
+                    action_ref=WF_FAILURE_REF,
+                    action_error=failure,
+                )
+                continue
             else:
                 logger.trace("Processing event", event_type=event.event_type)
                 source_id = get_source_event_id(event)
@@ -219,8 +283,39 @@ class WorkflowExecutionsService:
                     source.action_result = await get_result(event)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
-        # For the resultant values, if there are duplicate source action_refs,
-        #  we should merge them into a single event.
+
+        desc = await handle.describe()
+        # Iterate over the pending activities and update the source event
+        for act in desc.raw_description.pending_activities:
+            if source_id := activity2eventid.get(act.activity_id):
+                source = id2event.get(source_id)
+                if source is None:
+                    logger.trace(
+                        "Source event not found for pending activity",
+                        source_id=source_id,
+                        activity_id=act.activity_id,
+                    )
+                    continue
+                if act.state == PendingActivityState.PENDING_ACTIVITY_STATE_STARTED:
+                    source.curr_event_type = WorkflowEventType.ACTIVITY_TASK_STARTED
+                    source.status = WorkflowExecutionEventStatus.STARTED
+                    if act.last_started_time:
+                        source.start_time = act.last_started_time.ToDatetime(
+                            datetime.UTC
+                        )
+                else:
+                    state_name = PendingActivityState.Name(act.state)
+                    logger.trace(
+                        "Skipping pending activity state update",
+                        activity_id=act.activity_id,
+                        pending_state=state_name,
+                    )
+            else:
+                logger.trace(
+                    "Pending activity without matching source event",
+                    activity_id=act.activity_id,
+                )
+
         task2events: dict[Task, WorkflowExecutionEventCompact] = {}
         for event in id2event.values():
             task = Task(ref=event.action_ref, stream_id=event.stream_id)
@@ -612,12 +707,6 @@ class WorkflowExecutionsService:
 
         Note: This method blocks until the workflow execution completes.
         """
-        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
-        if validation_result.status == "error":
-            logger.error(validation_result.msg, detail=validation_result.detail)
-            raise TracecatValidationError(
-                validation_result.msg, detail=validation_result.detail
-            )
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
@@ -644,6 +733,11 @@ class WorkflowExecutionsService:
             kwargs.setdefault(
                 "task_timeout", datetime.timedelta(seconds=float(task_timeout))
             )
+        # Resolve execution timeout based on workspace settings
+        if execution_timeout := await self._resolve_execution_timeout(
+            seconds=dsl.config.timeout
+        ):
+            kwargs["execution_timeout"] = execution_timeout
 
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
@@ -657,12 +751,13 @@ class WorkflowExecutionsService:
         pairs = [trigger_type.to_temporal_search_attr_pair()]
         if self.role.user_id is not None:
             pairs.append(
-                SearchAttributePair(
-                    key=SearchAttributeKey.for_keyword(
-                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-                    ),
-                    value=str(self.role.user_id),
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                    str(self.role.user_id)
                 )
+            )
+        if self.role.workspace_id is not None:
+            pairs.append(
+                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
             )
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
@@ -674,16 +769,33 @@ class WorkflowExecutionsService:
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                # We don't currently differentiate between exec and run timeout as we fail fast for workflows
-                execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 search_attributes=search_attrs,
                 **kwargs,
             )
         except WorkflowFailureError as e:
-            self.logger.error(
-                str(e), role=self.role, wf_exec_id=wf_exec_id, cause=e.cause
-            )
-            raise e
+            if isinstance(e.cause, TerminatedError):
+                self.logger.info(
+                    "Workflow execution terminated by user",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                # Don't re-raise for expected terminations
+                return WorkflowDispatchResponse(
+                    wf_id=wf_id,
+                    result={
+                        "status": "terminated",
+                        "message": "Workflow execution terminated by user",
+                    },
+                )
+            else:
+                self.logger.error(
+                    "Workflow execution failed",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                raise e
         except RPCError as e:
             self.logger.error(
                 f"Temporal service RPC error occurred while executing the workflow: {e}",

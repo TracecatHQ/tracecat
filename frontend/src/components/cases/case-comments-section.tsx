@@ -10,7 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import type React from "react"
-import { useState } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCommentRead } from "@/client"
@@ -91,53 +91,63 @@ export function CommentSection({
   }
   return (
     <div className="mx-auto w-full">
-      <div className="space-y-4 p-4">
-        {caseComments?.map((comment) => {
-          const user = new User(comment.user ?? SYSTEM_USER_READ)
-          const displayName = user.getDisplayName()
-          const isEditing = editingCommentId === comment.id
+      <div className="bg-card">
+        <div className="space-y-3">
+          {caseComments?.map((comment) => {
+            const user = new User(comment.user ?? SYSTEM_USER_READ)
+            const displayName = user.getDisplayName()
+            const isEditing = editingCommentId === comment.id
 
-          return (
-            <div key={comment.id} className="group flex gap-3">
-              <CaseUserAvatar user={user} />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {/* This should be user name */}
-                    <span className="text-sm font-medium">{displayName}</span>
-                    <CaseEventTimestamp
-                      createdAt={comment.created_at}
-                      lastEditedAt={comment.last_edited_at}
-                    />
+            return (
+              <div key={comment.id} className="group">
+                <div className="rounded-lg border border-border/40 bg-background p-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
+                  {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
+                  <div className="space-y-3">
+                    {/* Row 1 */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CaseUserAvatar user={user} size="sm" />
+                        {/* User display name */}
+                        <span className="text-sm font-medium text-foreground">
+                          {displayName}
+                        </span>
+                        <CaseEventTimestamp
+                          createdAt={comment.created_at}
+                          lastEditedAt={comment.last_edited_at}
+                        />
+                      </div>
+                      {!isEditing && (
+                        <CommentActionsWithEditing
+                          caseId={caseId}
+                          workspaceId={workspaceId}
+                          comment={comment}
+                          onEdit={() => setEditingCommentId(comment.id)}
+                        />
+                      )}
+                    </div>
+
+                    {/* Row 2 */}
+                    {isEditing ? (
+                      <InlineCommentEdit
+                        comment={comment}
+                        caseId={caseId}
+                        workspaceId={workspaceId}
+                        onStopEditing={() => setEditingCommentId(null)}
+                      />
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <CaseCommentViewer content={comment.content} />
+                      </div>
+                    )}
                   </div>
-                  {!isEditing && (
-                    <CommentActionsWithEditing
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                      comment={comment}
-                      onEdit={() => setEditingCommentId(comment.id)}
-                    />
-                  )}
                 </div>
-
-                {isEditing ? (
-                  <InlineCommentEdit
-                    comment={comment}
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                    onStopEditing={() => setEditingCommentId(null)}
-                  />
-                ) : (
-                  <CaseCommentViewer content={comment.content} />
-                )}
               </div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="p-4 pt-0">
-        <CommentTextBox caseId={caseId} workspaceId={workspaceId} />
+            )
+          })}
+        </div>
+        <div className="mt-3">
+          <CommentTextBox caseId={caseId} workspaceId={workspaceId} />
+        </div>
       </div>
     </div>
   )
@@ -178,6 +188,8 @@ function CommentTextBox({
     caseId,
     workspaceId,
   })
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -185,6 +197,25 @@ function CommentTextBox({
     },
     mode: "onSubmit",
   })
+
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    textarea.style.height = "auto"
+
+    const minHeight = 60
+    const nextHeight = Math.max(textarea.scrollHeight, minHeight)
+
+    textarea.style.height = `${nextHeight}px`
+    textarea.style.overflowY = "hidden"
+  }, [])
+
+  const contentValue = form.watch("content")
+
+  useLayoutEffect(() => {
+    adjustTextareaHeight()
+  }, [contentValue, adjustTextareaHeight])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Only submit if Cmd+Enter or Ctrl+Enter is pressed
@@ -208,7 +239,8 @@ function CommentTextBox({
   }
   return (
     <div className="flex w-full items-end gap-2">
-      <div className="relative flex w-full">
+      {/* Match styling of ChatInput */}
+      <div className="relative flex w-full gap-2 rounded-md border border-border/40 bg-background px-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleCommentSubmit)}
@@ -221,21 +253,30 @@ function CommentTextBox({
                 <FormItem className="w-full">
                   <FormControl>
                     <Textarea
+                      ref={(node) => {
+                        field.ref(node)
+                        textareaRef.current = node
+                      }}
+                      name={field.name}
+                      onBlur={field.onBlur}
                       placeholder="Leave a comment..."
-                      className="min-h-[80px] w-full resize-none rounded-md border-gray-200 bg-gray-50 pr-16 text-gray-800 placeholder:text-gray-400 focus-visible:ring-muted-foreground/30"
+                      className="shadow-none w-full resize-none border-none min-h-[60px] pl-0 pr-16 placeholder:text-muted-foreground focus-visible:ring-0"
                       value={field.value}
-                      onChange={field.onChange}
+                      onChange={(event) => {
+                        field.onChange(event)
+                        adjustTextareaHeight()
+                      }}
                       onKeyDown={handleKeyDown}
                     />
                   </FormControl>
                 </FormItem>
               )}
             />
-            <div className="absolute bottom-3 right-3 flex gap-2">
+            <div className="absolute bottom-2 right-2 flex gap-1.5">
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-muted-foreground"
+                className="size-7 rounded-md text-gray-400 hover:bg-gray-100 hover:text-muted-foreground"
                 disabled
               >
                 <PaperclipIcon className="size-4" />
@@ -245,7 +286,7 @@ function CommentTextBox({
                 variant="ghost"
                 size="icon"
                 type="submit"
-                className="size-8 rounded-md text-gray-400 hover:bg-gray-200/80 hover:text-muted-foreground"
+                className="size-7 rounded-md text-gray-400 hover:bg-gray-200/80 hover:text-muted-foreground"
                 disabled={!form.watch("content").trim()}
               >
                 <ArrowUpIcon className="size-4" />
@@ -277,12 +318,32 @@ function InlineCommentEdit({
       content: comment.content,
     },
   })
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const { updateComment } = useUpdateCaseComment({
     caseId,
     workspaceId,
     commentId: comment.id,
   })
+
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    textarea.style.height = "auto"
+
+    const minHeight = 60
+    const nextHeight = Math.max(textarea.scrollHeight, minHeight)
+
+    textarea.style.height = `${nextHeight}px`
+    textarea.style.overflowY = "hidden"
+  }, [])
+
+  const contentValue = form.watch("content")
+
+  useLayoutEffect(() => {
+    adjustTextareaHeight()
+  }, [contentValue, adjustTextareaHeight])
 
   const handleSubmit = async (values: CommentFormSchema) => {
     try {
@@ -309,39 +370,49 @@ function InlineCommentEdit({
 
   return (
     <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(handleSubmit)}
-        className="mt-2 space-y-3"
-      >
-        <FormField
-          control={form.control}
-          name="content"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Textarea
-                  autoFocus
-                  className="min-h-[80px] w-full resize-none rounded-md border-gray-200 bg-background"
-                  onKeyDown={handleKeyDown}
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onStopEditing}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" size="sm">
-            Save
-          </Button>
+      <form onSubmit={form.handleSubmit(handleSubmit)} className="mt-2">
+        <div className="relative rounded-md">
+          <FormField
+            control={form.control}
+            name="content"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Textarea
+                    autoFocus
+                    ref={(node) => {
+                      field.ref(node)
+                      textareaRef.current = node
+                    }}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    className="min-h-[60px] w-full resize-none rounded-md border-none bg-transparent pl-0 pr-20 shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+                    onChange={(event) => {
+                      field.onChange(event)
+                      adjustTextareaHeight()
+                    }}
+                    onKeyDown={handleKeyDown}
+                    value={field.value}
+                  />
+                </FormControl>
+                <FormMessage className="px-3" />
+              </FormItem>
+            )}
+          />
+          <div className="absolute bottom-2 right-2 flex gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={onStopEditing}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" className="h-6 px-2 text-xs">
+              Save
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

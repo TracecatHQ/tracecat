@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Assign group to application
+  description: Assign a group to an application in Okta.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/ApplicationGroups/#tag/ApplicationGroups/operation/updateGroupAssignmentToApplication
+  namespace: tools.okta
+  name: assign_group_to_app
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    app_id:
+      type: str
+      description: Application ID to assign the group to
+    group_id:
+      type: str
+      description: Group ID to assign to the application
+    priority:
+      type: int | None
+      description: Priority of the group assignment (0-100)
+      default: null
+  steps:
+    - ref: build_assignment
+      action: core.transform.reshape
+      args:
+        value:
+          id: ${{ inputs.group_id }}
+    - ref: add_priority
+      action: core.script.run_python
+      args:
+        inputs:
+          assignment: ${{ steps.build_assignment.result }}
+          priority: ${{ inputs.priority }}
+        script: |
+          def main(assignment, priority):
+              if priority is not None:
+                  return {**assignment, "priority": priority}
+              return assignment
+    - ref: assign_group_to_app
+      action: core.http_request
+      args:
+        method: PUT
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+        payload: ${{ steps.add_priority.result }}
+  returns: ${{ steps.assign_group_to_app.result.data }}

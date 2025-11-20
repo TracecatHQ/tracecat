@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Release machine from isolation
+  description: Release a device from network isolation in Microsoft Defender for Endpoint.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/unisolate-machine
+  namespace: tools.microsoft_defender_endpoint
+  name: unisolate_machine
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to release from isolation.
+    comment:
+      type: str
+      description: Comment describing why the device is being released.
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(comment):
+              return {
+                  "Comment": comment,
+              }
+    - ref: unisolate
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/unisolate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.unisolate.result.data }}

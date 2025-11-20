@@ -23,7 +23,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -39,7 +38,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useCreateCase } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createCaseSchema = z.object({
   summary: z
@@ -62,7 +61,7 @@ export function CreateCaseDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const { createCase, createCaseIsPending } = useCreateCase(workspaceId)
 
@@ -121,7 +120,7 @@ export function CreateCaseDialog({
         <DialogHeader>
           <DialogTitle>Create new case</DialogTitle>
           <DialogDescription>
-            Create a new case to track and manage security incidents or issues.
+            Create a new case to track and manage incidents and issues.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -139,9 +138,6 @@ export function CreateCaseDialog({
                       value={field.value ?? ""}
                     />
                   </FormControl>
-                  <FormDescription>
-                    A concise summary of the case.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -156,14 +152,11 @@ export function CreateCaseDialog({
                   <FormControl>
                     <Textarea
                       placeholder="Detailed description of the case..."
-                      className="min-h-[100px]"
+                      className="min-h-[100px] text-xs"
                       {...field}
                       value={field.value ?? ""}
                     />
                   </FormControl>
-                  <FormDescription>
-                    Provide details about the incident or issue.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -278,7 +271,7 @@ export function CreateCaseDialog({
 
             <DialogFooter>
               <Button type="submit" disabled={createCaseIsPending}>
-                Create Case
+                Create case
               </Button>
             </DialogFooter>
           </form>

@@ -7,13 +7,14 @@ import json
 import os
 import re
 import sys
+import threading
 import types
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 import orjson
 from pydantic import (
@@ -25,19 +26,21 @@ from pydantic import (
     create_model,
 )
 from pydantic_core import to_jsonable_python
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import RegistryError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.git import GitUrl, get_git_repository_sha, parse_git_url
+from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionMetadata,
     TemplateAction,
@@ -47,23 +50,114 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.dependencies import (
+    RegistryDependencyConflictError,
+    get_conflict_summary,
+    parse_dependency_conflicts,
+)
 from tracecat.registry.fields import (
     Component,
     get_components_for_union_type,
     type_drop_null,
 )
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import SshEnv, ssh_context
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
 
 VENV_LIB = Path.home().expanduser().joinpath(".tracecat", "venvs")
 VENV_LIB.mkdir(parents=True, exist_ok=True)
+
+
+def iter_valid_files(
+    base_path: Path | str,
+    file_extensions: tuple[str, ...] = (".py",),
+    exclude_filenames: tuple[str, ...] | None = None,
+    exclude_dirnames: set[str] | None = None,
+):
+    """Generator that yields valid file paths based on extension and exclusion rules.
+
+    Args:
+        base_path: The base directory to search in
+        file_extensions: Tuple of file extensions to include (e.g., ('.py',) or ('.yml', '.yaml'))
+        exclude_filenames: Tuple of filename stems to exclude
+        exclude_dirnames: Set of directory names to exclude from traversal
+
+    Yields:
+        Path objects for valid files
+    """
+    if exclude_dirnames is None:
+        exclude_dirnames = {
+            "cli",
+            "_internal",
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            "venv",
+            "env",
+            ".direnv",
+            "build",
+            "dist",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".tox",
+            "eggs",
+            ".eggs",
+            "tests",
+        }
+
+    pkg_path = Path(base_path)
+
+    for root, dirnames, filenames in pkg_path.walk(
+        top_down=True, follow_symlinks=False
+    ):
+        # Prune directories so we never enter them
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not d.startswith((".", "_"))
+            and d not in exclude_dirnames
+            and d.isidentifier()
+        ]
+
+        for filename in filenames:
+            # Check file extension
+            if not any(filename.endswith(ext) for ext in file_extensions):
+                continue
+
+            # Skip hidden/private files
+            if filename.startswith((".", "_")):
+                logger.debug("Skipping hidden/private file", path=Path(root) / filename)
+                continue
+
+            # Check excluded filenames
+            stem = Path(filename).stem
+            if exclude_filenames and stem in exclude_filenames:
+                logger.debug("Skipping excluded filename", path=Path(root) / filename)
+                continue
+
+            file_path = Path(root) / filename
+
+            # For Python files, check if the module path is importable
+            if file_extensions == (".py",):
+                try:
+                    relative_path = file_path.relative_to(base_path)
+                    parts = [*relative_path.parent.parts, relative_path.stem]
+
+                    # Extra safety: only import importable module paths
+                    if any(not part.isidentifier() for part in parts):
+                        logger.debug("Skipping non-importable path", path=file_path)
+                        continue
+                except ValueError:
+                    # If relative_to fails, skip the file
+                    continue
+
+            yield file_path
 
 
 class RegisterKwargs(BaseModel):
@@ -75,7 +169,9 @@ class RegisterKwargs(BaseModel):
     author: str | None = None
     deprecated: str | None = None
     secrets: list[RegistrySecretType] | None = None
+    # Options
     include_in_schema: bool = True
+    requires_approval: bool = False
 
 
 class Repository:
@@ -166,6 +262,7 @@ class Repository:
         author: str | None,
         deprecated: str | None,
         include_in_schema: bool,
+        requires_approval: bool = False,
         module: str | None = None,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
@@ -190,6 +287,7 @@ class Repository:
             origin=origin,
             template_action=template_action,
             include_in_schema=include_in_schema,
+            requires_approval=requires_approval,
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -325,7 +423,7 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
-            cmd = ["uv", "pip", "install", "--system", "--refresh", "--editable"]
+            cmd = ["uv", "pip", "install", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 repo_path.as_posix(),
@@ -336,6 +434,16 @@ class Repository:
             _, stderr = await process.communicate()
             if process.returncode != 0:
                 error_message = stderr.decode().strip()
+                # Check for dependency conflicts
+                conflicts = parse_dependency_conflicts(error_message)
+                if conflicts:
+                    toast_msg = get_conflict_summary(error_message)
+                    raise RegistryDependencyConflictError(
+                        f"Failed to install local repository due to dependency conflicts:"
+                        f"\n{toast_msg or 'See details'}"
+                        "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
+                        conflicts=conflicts,
+                    )
                 raise RegistryError(
                     f"Failed to install local repository: {error_message}"
                 )
@@ -715,6 +823,7 @@ class Repository:
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,
             include_in_schema=validated_kwargs.include_in_schema,
+            requires_approval=validated_kwargs.requires_approval,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype=rtype,
@@ -730,11 +839,19 @@ class Repository:
         module_name: str | None = None,
     ) -> int:
         num_udfs = 0
-        for name, obj in walk_module_udfs(module):
-            self._register_udf_from_function(
-                obj, name=name, origin=origin, module_name=module_name
-            )
-            num_udfs += 1
+        for name, obj in inspect.getmembers(module):
+            # Get all functions in the module
+            if not inspect.isfunction(obj):
+                continue
+            is_udf = hasattr(obj, "__tracecat_udf_key")
+            has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
+            # Register the UDF if it is a function and has UDF metadata
+            if is_udf and has_udf_kwargs:
+                _enforce_restrictions(obj)
+                self._register_udf_from_function(
+                    obj, name=name, origin=origin, module_name=module_name
+                )
+                num_udfs += 1
         return num_udfs
 
     def _register_udfs_from_package(
@@ -744,18 +861,27 @@ class Repository:
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         start_time = default_timer()
-        base_path = Path(module.__path__[0])
+        base_path = module.__path__[0]
         base_package = module.__name__
         num_udfs = 0
 
-        for path in walk_module_py_files(module):
-            logger.info(f"Loading UDFs from {path!s}")
-            module_name = construct_module_name(path, base_path, base_package)
-            module = import_and_reload(module_name)
-            num_registered = self._register_udfs_from_module(
-                module, origin=origin, module_name=module_name
+        # Use the new free function to iterate over Python files
+        for file_path in iter_valid_files(
+            base_path,
+            file_extensions=(".py",),
+            exclude_filenames=("__init__", "__main__"),
+        ):
+            logger.info(f"Loading UDFs from {file_path!s}")
+
+            # Convert path to module name
+            relative_path = file_path.relative_to(base_path)
+            parts = (*relative_path.parent.parts, relative_path.stem)
+            udf_module_name = f"{base_package}.{'.'.join(parts)}"
+
+            mod = import_and_reload(udf_module_name)
+            num_udfs += self._register_udfs_from_module(
+                mod, origin=origin, module_name=udf_module_name
             )
-            num_udfs += num_registered
         time_elapsed = default_timer() - start_time
         logger.info(
             f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
@@ -838,7 +964,17 @@ class Repository:
     ) -> int:
         """Load template actions from a package."""
         n_loaded = 0
-        for file_path in walk_module_yaml_files(path, ignore=ignore_path):
+
+        # Use the new free function to iterate over YAML files
+        for file_path in iter_valid_files(
+            path,
+            file_extensions=(".yml", ".yaml"),
+        ):
+            # Skip if the ignore_path is in the file path
+            if ignore_path in file_path.parts:
+                continue
+
+            logger.info(f"Loading template actions from {file_path!s}")
             template_action = self.load_template_action_from_file(
                 file_path, origin, overwrite=overwrite
             )
@@ -853,73 +989,76 @@ class Repository:
         raise NotImplementedError("Template actions has no direct implementation")
 
 
-def construct_module_name(path: Path, base_path: Path, base_package: str) -> str:
-    """Construct the module name from the path."""
-    relative_path = path.relative_to(base_path)
-    udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
-    return f"{base_package}.{'.'.join(udf_module_parts)}"
-
-
-def walk_module_py_files(module: ModuleType) -> Iterator[Path]:
-    """Walk the module and yield all Python files."""
-    # Use rglob to find all python files
-    base_path = module.__path__[0]
-    # Ignore __init__.py and __main__.py
-    exclude_filenames = ("__init__", "__main__")
-    # Ignore CLI files
-    exclude_prefixes = (f"{base_path}/cli",)
-
-    for path in Path(base_path).rglob("*.py"):
-        if path.stem in exclude_filenames:
-            continue
-        p_str = path.as_posix()
-        if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
-            continue
-        yield path
-
-
-def walk_module_yaml_files(path: Path, *, ignore: str = "schemas") -> Iterator[Path]:
-    """Walk the module and yield all YAML files."""
-    all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
-    for file_path in all_paths:
-        if ignore in file_path.parts:
-            continue
-        yield file_path
-
-
-def walk_module_udfs(module: ModuleType) -> Iterator[tuple[str, F]]:
-    """Walk the module and yield all UDFs."""
-    for name, obj in inspect.getmembers(module):
-        # Get all functions in the module
-        if not inspect.isfunction(obj):
-            continue
-        _enforce_restrictions(obj)
-        is_udf = hasattr(obj, "__tracecat_udf_key")
-        has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
-        # Register the UDF if it is a function and has UDF metadata
-        if is_udf and has_udf_kwargs:
-            yield name, obj
+_import_reload_lock = threading.RLock()
 
 
 def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module."""
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
+    """Safely import and reload a module.
+
+    Uses a process-wide lock and avoids removing entries from sys.modules to
+    prevent races with concurrent imports. Invalidates caches before import.
+    """
+    with _import_reload_lock:
+        importlib.invalidate_caches()
+        module = sys.modules.get(module_name)
+        if module is None:
+            # Skip reload on first import
+            loaded_module = importlib.import_module(module_name)
+        else:
+            spec = getattr(module, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec is not None else None
+            if loader is None:
+                # Without a loader importlib.reload will raise ModuleNotFoundError;
+                # fall back to a best-effort fresh import and keep the existing module.
+                loaded_module = importlib.import_module(module_name)
+            else:
+                # Reload in-place to refresh definitions without dropping parent package
+                loaded_module = importlib.reload(module)
+        sys.modules[module_name] = loaded_module
+        return loaded_module
+
+
+def _annotated_with_validators(annotation: Any, validators: tuple[Any, ...]) -> Any:
+    """Return an Annotated type that includes the provided validators once each."""
+
+    if annotation is inspect._empty:
+        base = Any
+        metadata: list[Any] = []
+    else:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            args = get_args(annotation)
+            base = args[0]
+            metadata = list(args[1:])
+        else:
+            base = annotation
+            metadata = []
+
+    for validator in validators:
+        if any(isinstance(meta, validator.__class__) for meta in metadata):
+            continue
+        metadata.append(validator)
+
+    if metadata:
+        return Annotated[base, *metadata]
+    return base
 
 
 def attach_validators(func: F, *validators: Any):
-    sig = inspect.signature(func)
+    if not validators:
+        return
 
-    new_annotations = {
-        name: Annotated[param.annotation, *validators]
-        for name, param in sig.parameters.items()
-    }
+    sig = inspect.signature(func)
+    annotations = dict(func.__annotations__)
+
+    for name, param in sig.parameters.items():
+        current = annotations.get(name, param.annotation)
+        annotations[name] = _annotated_with_validators(current, validators)
+
     if sig.return_annotation is not sig.empty:
-        new_annotations["return"] = sig.return_annotation
-    func.__annotations__ = new_annotations
+        annotations.setdefault("return", sig.return_annotation)
+
+    func.__annotations__ = annotations
 
 
 def generate_model_from_function(
@@ -932,7 +1071,8 @@ def generate_model_from_function(
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         field_annotation = param.annotation
-        raw_field_type: type = field_annotation.__origin__
+        # Handle both Annotated types and raw types
+        raw_field_type: type = getattr(field_annotation, "__origin__", field_annotation)
         field_info_kwargs = {}
         # Get the default UI for the field
         non_null_field_type = type_drop_null(raw_field_type)
@@ -1113,6 +1253,54 @@ async def install_remote_repository(
         raise RuntimeError(f"repo install failed: {err.decode()}")
 
     return venv_path
+
+
+def construct_module_name(path: Path, base_path: Path, base_package: str) -> str:
+    """Construct the module name from the path."""
+    relative_path = path.relative_to(base_path)
+    udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
+    return f"{base_package}.{'.'.join(udf_module_parts)}"
+
+
+def walk_module_py_files(module: ModuleType) -> Iterator[Path]:
+    """Walk the module and yield all Python files."""
+    # Use rglob to find all python files
+    base_path = module.__path__[0]
+    # Ignore __init__.py and __main__.py
+    exclude_filenames = ("__init__", "__main__")
+    # Ignore CLI files
+    exclude_prefixes = (f"{base_path}/cli",)
+
+    for path in Path(base_path).rglob("*.py"):
+        if path.stem in exclude_filenames:
+            continue
+        p_str = path.as_posix()
+        if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
+            continue
+        yield path
+
+
+def walk_module_yaml_files(path: Path, *, ignore: str = "schemas") -> Iterator[Path]:
+    """Walk the module and yield all YAML files."""
+    all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
+    for file_path in all_paths:
+        if ignore in file_path.parts:
+            continue
+        yield file_path
+
+
+def walk_module_udfs(module: ModuleType) -> Iterator[tuple[str, F]]:
+    """Walk the module and yield all UDFs."""
+    for name, obj in inspect.getmembers(module):
+        # Get all functions in the module
+        if not inspect.isfunction(obj):
+            continue
+        _enforce_restrictions(obj)
+        is_udf = hasattr(obj, "__tracecat_udf_key")
+        has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
+        # Register the UDF if it is a function and has UDF metadata
+        if is_udf and has_udf_kwargs:
+            yield name, obj
 
 
 def metadata_from_function(

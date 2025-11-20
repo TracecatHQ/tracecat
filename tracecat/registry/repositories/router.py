@@ -5,9 +5,18 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    TracecatCredentialsNotFoundError,
+    TracecatValidationError,
+)
+from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import (
@@ -15,20 +24,18 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_REPOS_PATH,
 )
-from tracecat.registry.repositories.models import (
+from tracecat.registry.repositories.schemas import (
+    GitCommitInfo,
     RegistryRepositoryCreate,
     RegistryRepositoryErrorDetail,
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
+    RegistryRepositorySync,
     RegistryRepositoryUpdate,
 )
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
-    RegistryActionValidationError,
-    RegistryError,
-    TracecatValidationError,
-)
+from tracecat.settings.service import get_setting
+from tracecat.ssh import ssh_context
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -72,8 +79,13 @@ async def sync_registry_repository(
     ),
     session: AsyncDBSession,
     repository_id: UUID4,
+    sync_params: RegistryRepositorySync | None = None,
 ) -> None:
     """Load actions from a specific registry repository.
+
+    Args:
+        repository_id: The ID of the repository to sync
+        sync_params: Optional sync parameters, including target commit SHA
 
     Raises:
         422: If there is an error syncing the repository (validation error)
@@ -91,13 +103,17 @@ async def sync_registry_repository(
         ) from e
     actions_service = RegistryActionsService(session, role)
     last_synced_at = datetime.now(UTC)
+    target_commit_sha = sync_params.target_commit_sha if sync_params else None
     try:
         # Update the registry actions table
-        commit_sha = await actions_service.sync_actions_from_repository(repo)
+        commit_sha = await actions_service.sync_actions_from_repository(
+            repo, target_commit_sha=target_commit_sha
+        )
         logger.info(
             "Synced repository",
             origin=repo.origin,
             commit_sha=commit_sha,
+            target_commit_sha=target_commit_sha,
             last_synced_at=last_synced_at,
         )
         session.expire(repo)
@@ -114,6 +130,12 @@ async def sync_registry_repository(
         logger.warning("Cannot sync repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning("Credentials not found", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
     except RegistryActionValidationError as e:
         logger.warning("Validation errors while syncing repository", exc=e)
@@ -193,6 +215,94 @@ async def get_registry_repository(
             for action in repository.actions
         ],
     )
+
+
+@router.get("/{repository_id}/commits", response_model=list[GitCommitInfo])
+async def list_repository_commits(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+    session: AsyncDBSession,
+    repository_id: UUID4,
+    branch: str = "main",
+    limit: int = 10,
+) -> list[GitCommitInfo]:
+    """List commits from a specific registry repository."""
+    repos_service = RegistryReposService(session, role)
+
+    try:
+        repo = await repos_service.get_repository_by_id(repository_id)
+    except NoResultFound as e:
+        logger.error("Registry repository not found", repository_id=repository_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
+
+    # Only support git+ssh repositories for commit listing
+    if not repo.origin.startswith("git+ssh://"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Commit listing is only supported for git+ssh repositories",
+        )
+
+    try:
+        # Parse git URL to get allowed domains
+        allowed_domains_setting = await get_setting("git_allowed_domains", role=role)
+        allowed_domains = allowed_domains_setting or {"github.com"}
+
+        git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+
+        # Get SSH context for git operations
+        async with (
+            get_async_session_context_manager() as db_session,
+            ssh_context(role=role, git_url=git_url, session=db_session) as ssh_env,
+        ):
+            if ssh_env is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No SSH key found for git operations",
+                )
+
+            # List commits from the repository
+            commits = await list_git_commits(
+                repo.origin,
+                env=ssh_env,
+                branch=branch,
+                limit=min(limit, 100),  # Cap at 100 commits max
+            )
+
+            logger.info(
+                "Listed repository commits",
+                repository_id=repository_id,
+                origin=repo.origin,
+                branch=branch,
+                count=len(commits),
+            )
+
+            return commits
+
+    except ValueError as e:
+        logger.error("Invalid git URL", origin=repo.origin, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid git repository URL: {str(e)}",
+        ) from e
+    except RuntimeError as e:
+        logger.error("Git operation failed", origin=repo.origin, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to list commits: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error("Unexpected error listing commits", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while listing commits",
+        ) from e
 
 
 @router.post(

@@ -8,35 +8,45 @@ import { useWorkspaceManager } from "@/lib/hooks"
 export default function WorkspacesPage() {
   const { workspaces, createWorkspace, getLastWorkspaceId } =
     useWorkspaceManager()
-  const lastWorkspaceId = getLastWorkspaceId()
   const router = useRouter()
 
   useEffect(() => {
-    // Redirect to the last viewed workspace
-    if (lastWorkspaceId) {
-      console.log("Redirecting to last workspace", lastWorkspaceId)
-      router.replace(`/workspaces/${lastWorkspaceId}/workflows`)
+    // Determine which workspace the user should land on
+    if (!workspaces) {
       return
     }
 
-    // Redirect to the first workspace
-    if (workspaces) {
-      console.log("Redirecting to first workspace")
-      if (workspaces.length === 0) {
-        // Create a default workspace on first login
-        console.log("Creating a new workspace")
-        createWorkspace({ name: "New Workspace" })
-          .then((workspace) =>
-            router.replace(`/workspaces/${workspace.id}/workflows`)
-          )
-          .catch((error) => {
-            console.error("Error creating workspace", error)
-          })
-      } else {
-        router.replace(`/workspaces/${workspaces[0].id}/workflows`)
-      }
+    if (workspaces.length === 0) {
+      console.log("Creating a new workspace")
+      createWorkspace({ name: "New Workspace" })
+        .then((workspace) =>
+          router.replace(`/workspaces/${workspace.id}/workflows`)
+        )
+        .catch((error) => {
+          console.error("Error creating workspace", error)
+        })
+      return
     }
-  }, [lastWorkspaceId, workspaces, router, createWorkspace])
+
+    let targetWorkspaceId: string | undefined
+
+    const lastViewedId = getLastWorkspaceId()
+    if (
+      lastViewedId &&
+      lastViewedId.trim().length > 0 &&
+      workspaces.some((workspace) => workspace.id === lastViewedId)
+    ) {
+      targetWorkspaceId = lastViewedId
+    }
+
+    if (!targetWorkspaceId) {
+      targetWorkspaceId = workspaces[0]?.id
+    }
+
+    if (targetWorkspaceId) {
+      router.replace(`/workspaces/${targetWorkspaceId}/workflows`)
+    }
+  }, [createWorkspace, getLastWorkspaceId, router, workspaces])
 
   // Return a loading indicator while waiting for redirection
   return <CenteredSpinner />

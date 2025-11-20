@@ -2,26 +2,28 @@ from typing import Any
 
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.agents.builder import AgentOutput
+from sqlalchemy.ext.asyncio import AsyncSession
 
+import tracecat.agent.adapter.vercel
+from tracecat.agent.runtime import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
+from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import WorkflowDefinition
+from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
-from tracecat.ee.interactions.models import InteractionRead
+from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionRead,
@@ -109,7 +111,7 @@ async def get_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow execution not found",
         )
-    logger.info("Getting workflow execution events", execution_id=execution.id)
+    logger.debug("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
     interactions = await _list_interactions(session, execution.id)
     return WorkflowExecutionRead(
@@ -135,7 +137,7 @@ async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
     session: AsyncDBSession,
-) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any]:
+) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any, Any]:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -146,6 +148,27 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
+
+    for event in compact_events:
+        # Project AgentOutput to UIMessages only in the compact workflow execution view
+        if event.session is not None and event.action_result is not None:
+            logger.trace("Transforming AgentOutput to UIMessages")
+            try:
+                # Successful validation asserts this is an AgentOutput
+                output = AgentOutput.model_validate(event.action_result)
+                if output.message_history:
+                    messages = [
+                        ChatMessage(id=f"{output.session_id}-msg-{i}", message=msg)
+                        for i, msg in enumerate(output.message_history)
+                    ]
+                    event.session.events = (
+                        tracecat.agent.adapter.vercel.convert_model_messages_to_ui(
+                            messages
+                        )
+                    )
+            except Exception as e:
+                logger.error("Error transforming AgentOutput to UIMessages", error=e)
+
     interactions = await _list_interactions(session, execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,
@@ -177,12 +200,12 @@ async def create_workflow_execution(
     # Get the dslinput from the workflow definition
     wf_id = WorkflowUUID.new(params.workflow_id)
     try:
-        result = await session.exec(
+        result = await session.execute(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(col(WorkflowDefinition.version).desc())
+            .order_by(WorkflowDefinition.version.desc())
         )
-        defn = result.first()
+        defn = result.scalars().first()
         if not defn:
             raise NoResultFound("No workflow definition found for workflow ID")
     except NoResultFound as e:

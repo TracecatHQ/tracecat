@@ -6,10 +6,10 @@ from typing import Literal
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
+from tracecat.db import session_events  # noqa: F401 - ensure listeners are registered
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -90,6 +90,7 @@ def _create_async_db_engine() -> AsyncEngine:
         "max_overflow": config.TRACECAT__DB_MAX_OVERFLOW,
         "pool_recycle": config.TRACECAT__DB_POOL_RECYCLE,
         "pool_size": config.TRACECAT__DB_POOL_SIZE,
+        "pool_pre_ping": True,
         "pool_use_lifo": True,  # Better for burst workloads
     }
     uri = _get_db_uri(driver="asyncpg")
@@ -105,12 +106,13 @@ def get_async_engine() -> AsyncEngine:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    async_engine = get_async_engine()
-    async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
-        yield async_session
+    """Get an async SQLAlchemy database session."""
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        yield session
 
 
 def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
     AsyncSession
 ]:
+    """Get a context manager for an async SQLAlchemy database session."""
     return contextlib.asynccontextmanager(get_async_session)()

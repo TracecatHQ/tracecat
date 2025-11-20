@@ -28,7 +28,7 @@ import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
-  workflowId: string | null
+  workflowId: string
   workspaceId: string
   selectedNodeId: string | null
   getNode: (id: string) => Node | undefined
@@ -47,6 +47,9 @@ interface ReactFlowContextType {
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
   setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
+  actionDrafts: Record<string, unknown>
+  setActionDraft: (actionId: string, draft: unknown) => void
+  clearActionDraft: (actionId: string) => void
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -73,13 +76,20 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  // In-memory map of actionId -> last edited form values.
+  // This lets the action panel restore unsaved edits when the user
+  // switches between nodes without touching the backend.
+  const [actionDrafts, setActionDrafts] = useState<Record<string, unknown>>({})
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
 
   useEffect(() => {
+    // When the user switches workflows, clear selection, execution state,
+    // and any in-memory drafts so we don't leak state across workflows.
     setSelectedNodeId(null)
     setCurrentExecutionId(null)
+    setActionDrafts({})
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
@@ -96,6 +106,22 @@ export const WorkflowBuilderProvider: React.FC<
     },
     [workflowId, reactFlowInstance]
   )
+
+  const setActionDraft = useCallback((actionId: string, draft: unknown) => {
+    // Store or update the draft for a given actionId.
+    setActionDrafts((prev) => ({
+      ...prev,
+      [actionId]: draft,
+    }))
+  }, [])
+
+  const clearActionDraft = useCallback((actionId: string) => {
+    // Remove a single action's draft (typically after a successful save).
+    setActionDrafts((prev) => {
+      const { [actionId]: _removed, ...rest } = prev
+      return rest
+    })
+  }, [])
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: NodeType[] }) => {
       const nodeSelected = nodes[0]
@@ -147,7 +173,8 @@ export const WorkflowBuilderProvider: React.FC<
 
   const value = React.useMemo(
     () => ({
-      workflowId,
+      // safe: provider not rendered when !workflowId
+      workflowId: workflowId!,
       workspaceId,
       selectedNodeId,
       selectedActionEventRef,
@@ -167,6 +194,9 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      actionDrafts,
+      setActionDraft,
+      clearActionDraft,
     }),
     [
       workflowId,
@@ -188,6 +218,9 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      actionDrafts,
+      setActionDraft,
+      clearActionDraft,
     ]
   )
 

@@ -3,8 +3,7 @@ import shutil
 from unittest.mock import patch
 
 import pytest
-
-from registry.tracecat_registry.core.python import (
+from tracecat_registry.core.python import (
     PythonScriptExecutionError,
     PythonScriptTimeoutError,
     PythonScriptValidationError,
@@ -23,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def mock_logger():
-    with patch("registry.tracecat_registry.core.python.logger") as mock_log:
+    with patch("tracecat_registry.core.python.logger") as mock_log:
         yield mock_log
 
 

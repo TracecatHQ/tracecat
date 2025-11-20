@@ -35,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface NewCredentialsDialogProps
   extends PropsWithChildren<
@@ -61,7 +62,8 @@ export function NewCredentialsDialog({
   className,
 }: NewCredentialsDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-  const { createSecret } = useWorkspaceSecrets()
+  const workspaceId = useWorkspaceId()
+  const { createSecret } = useWorkspaceSecrets(workspaceId)
 
   const methods = useForm<SecretCreate>({
     resolver: zodResolver(createSecretSchema),
@@ -240,7 +242,7 @@ export function NewCredentialsDialog({
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
                     <KeyRoundIcon className="mr-2 size-4" />
-                    Create Secret
+                    Create secret
                   </Button>
                 </DialogClose>
               </DialogFooter>

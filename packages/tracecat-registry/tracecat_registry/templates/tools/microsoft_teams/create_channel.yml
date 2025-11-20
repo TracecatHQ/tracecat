@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: Create Teams channel
+  description: Create a new channel in a Microsoft Teams team. Can create either public (standard) or private channels.
+  display_group: Microsoft Teams
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post
+  namespace: tools.microsoft_teams
+  name: create_channel
+  secrets:
+    - type: oauth
+      provider_id: microsoft_teams
+      grant_type: authorization_code
+  expects:
+    team_id:
+      type: str
+      description: The ID of the team.
+    display_name:
+      type: str
+      description: The display name for the channel.
+    description:
+      type: str | None
+      description: Description for the channel.
+      default: null
+    is_private:
+      type: bool
+      description: Whether to create a private channel (requires members).
+      default: false
+    owner_user_ids:
+      type: list[str] | None
+      description: List of user IDs to add as owners (required for private channels).
+      default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          display_name: ${{ inputs.display_name }}
+          description: ${{ inputs.description }}
+          is_private: ${{ inputs.is_private }}
+          owner_user_ids: ${{ inputs.owner_user_ids }}
+          base_url: ${{ inputs.base_url }}
+        script: |
+          def main(display_name, description, is_private, owner_user_ids, base_url):
+              base_url = base_url.rstrip("/")
+              if is_private:
+                  if not owner_user_ids:
+                      raise ValueError("Private channels require at least one owner in owner_user_ids")
+
+                  members = []
+                  for user_id in owner_user_ids:
+                      members.append({
+                          "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                          "roles": ["owner"],
+                          "user@odata.bind": f"{base_url}/beta/users('{user_id}')"
+                      })
+
+                  return {
+                      "@odata.type": "#Microsoft.Graph.channel",
+                      "membershipType": "private",
+                      "displayName": display_name,
+                      "description": description or "",
+                      "members": members
+                  }
+              else:
+                  return {
+                      "displayName": display_name,
+                      "description": description or "",
+                      "membershipType": "standard"
+                  }
+    - ref: create_channel
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_channel.result.data }}

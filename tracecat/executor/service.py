@@ -2,64 +2,129 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 import traceback
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import ray
 import uvloop
+from pydantic_core import to_jsonable_python
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
-from tracecat_registry import RegistrySecretType
-from tracecat_registry._internal.models import RegistryOAuthSecret
 
 from tracecat import config
-from tracecat.auth.sandbox import AuthSandbox
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
-from tracecat.db.engine import get_async_engine
-from tracecat.db.schemas import RegistryAction
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    ctx_session_id,
+    with_session,
+)
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import context_locator, create_default_execution_context
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunActionInput,
     TaskResult,
 )
-from tracecat.executor.engine import EXECUTION_TIMEOUT
-from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
-from tracecat.expressions.common import ExprContext, ExprOperand
-from tracecat.expressions.eval import (
-    eval_templated_object,
-    extract_templated_secrets,
-    get_iterables_from_expression,
-)
-from tracecat.git import prepare_git_url
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
-from tracecat.integrations.service import IntegrationService
-from tracecat.logger import logger
-from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
-from tracecat.registry.actions.models import BoundRegistryAction
-from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.secrets.common import apply_masks_object
-from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.secrets_manager import env_sandbox
-from tracecat.ssh import get_ssh_command
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    TracecatAuthorizationError,
     TracecatException,
 )
+from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.eval import (
+    collect_expressions,
+    eval_templated_object,
+    get_iterables_from_expression,
+)
+from tracecat.git.types import GitUrl
+from tracecat.git.utils import safe_prepare_git_url
+from tracecat.logger import logger
+from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
+from tracecat.registry.actions.schemas import BoundRegistryAction
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.secrets import secrets_manager
+from tracecat.secrets.common import apply_masks_object
+from tracecat.ssh import get_ssh_command
+from tracecat.variables.schemas import VariableSearch
+from tracecat.variables.service import VariablesService
 
 """All these methods are used in the registry executor, not on the worker"""
 
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+
+@dataclass
+class DispatchActionContext:
+    role: Role
+    ssh_command: str | None = None
+    git_url: GitUrl | None = None
+
+
+_git_context_lock = asyncio.Lock()
+_git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
+
+
+async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
+    """Cache git URL and SSH command for 60 seconds to avoid repeated DB sessions.
+
+    Returns:
+        Tuple of (git_url, ssh_command) or (None, None) if not configured
+    """
+    cache_key = str(role.workspace_id)
+
+    # Check cache first
+    if cached := _git_context_cache.get(cache_key):
+        expire_time, git_url, ssh_cmd = cached
+        if time.time() < expire_time:
+            logger.debug("Using cached git context", workspace_id=role.workspace_id)
+            return git_url, ssh_cmd
+
+    # Load once under lock
+    async with _git_context_lock:
+        # Double-check after acquiring lock
+        if cached := _git_context_cache.get(cache_key):
+            expire_time, git_url, ssh_cmd = cached
+            if time.time() < expire_time:
+                return git_url, ssh_cmd
+
+        # Actually fetch from database
+        logger.debug(
+            "Fetching git context from database", workspace_id=role.workspace_id
+        )
+        async with (
+            get_async_session_context_manager() as session,
+            with_session(session=session),
+        ):
+            git_url = await safe_prepare_git_url(session=session, role=role)
+            ssh_cmd = None
+            if git_url:
+                ssh_cmd = await get_ssh_command(
+                    git_url=git_url, session=session, role=role
+                )
+
+        # Cache for 60 seconds
+        _git_context_cache[cache_key] = (time.time() + 60, git_url, ssh_cmd)
+        logger.debug(
+            "Cached git context",
+            workspace_id=role.workspace_id,
+            has_git_url=bool(git_url),
+        )
+        return git_url, ssh_cmd
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
@@ -74,7 +139,9 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
     async_engine = get_async_engine()
     try:
         coro = run_action_from_input(input=input, role=role)
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+        # Use serialize_unknown=True for additional safety
+        return to_jsonable_python(result, serialize_unknown=True)
     except Exception as e:
         # Raise the error proxy here
         logger.info(
@@ -98,7 +165,7 @@ async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any
         # This should not be reachable
         raise ValueError("Templates cannot be executed directly")
 
-    validated_args = action.validate_args(**args)
+    validated_args = action.validate_args(args=args, mode="python")
     try:
         if action.is_async:
             logger.trace("Running UDF async")
@@ -126,8 +193,8 @@ async def run_single_action(
         logger.trace("Running UDF async", action=action.name)
         # Get secrets from context
         secrets = context.get(ExprContext.SECRETS, {})
-        flat_secrets = flatten_secrets(secrets)
-        with env_sandbox(flat_secrets):
+        flat_secrets = secrets_manager.flatten_secrets(secrets)
+        with secrets_manager.env_sandbox(flat_secrets):
             result = await _run_action_direct(action=action, args=args)
 
     return result
@@ -152,18 +219,22 @@ async def run_template_action(
         "Validating template action arguments", expects=defn.expects, args=args
     )
     if defn.expects:
-        validated_args = action.validate_args(**args)
+        validated_args = action.validate_args(args=args)
 
     secrets_context = {}
+    env_context = {}
+    vars_context = {}
     if context is not None:
         secrets_context = context.get(ExprContext.SECRETS, {})
         env_context = context.get(ExprContext.ENV, {})
+        vars_context = context.get(ExprContext.VARS, {})
 
     template_context = cast(
         ExecutionContext,
         {
             ExprContext.SECRETS: secrets_context,
             ExprContext.ENV: env_context,
+            ExprContext.VARS: vars_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
@@ -200,90 +271,11 @@ async def run_template_action(
     )
 
 
-async def get_action_secrets(
-    args: ArgsT,
-    action_secrets: set[RegistrySecretType],
-) -> dict[str, Any]:
-    # Handle secrets from the task args
-    args_secrets = extract_templated_secrets(args)
-    # Get oauth integrations from the action secrets
-    args_oauth_secrets: set[str] = set()
-    args_basic_secrets: set[str] = set()
-    for secret in args_secrets:
-        if secret.endswith("_oauth"):
-            args_oauth_secrets.add(secret)
-        else:
-            args_basic_secrets.add(secret)
-
-    # Handle secrets from the action
-    required_basic_secrets: set[str] = set()
-    optional_basic_secrets: set[str] = set()
-    oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
-    for secret in action_secrets:
-        if secret.type == "oauth":
-            oauth_secrets[
-                ProviderKey(
-                    id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
-                )
-            ] = secret
-        elif secret.optional:
-            optional_basic_secrets.add(secret.name)
-        else:
-            required_basic_secrets.add(secret.name)
-
-    # Get secrets to fetch
-    all_basic_secrets = (
-        required_basic_secrets | args_basic_secrets | optional_basic_secrets
-    )
-    logger.info(
-        "Handling secrets",
-        required_basic_secrets=required_basic_secrets,
-        optional_basic_secrets=optional_basic_secrets,
-        oauth_provider_ids=oauth_secrets,
-        args_secrets=args_secrets,
-        secrets_to_fetch=all_basic_secrets,
-    )
-
-    # Get all basic secrets in one call
-    secrets: dict[str, Any] = {}
-    async with AuthSandbox(
-        secrets=all_basic_secrets,
-        environment=get_runtime_env(),
-        optional_secrets=optional_basic_secrets,
-    ) as sandbox:
-        secrets |= sandbox.secrets.copy()
-
-    # Get oauth integrations
-    try:
-        if oauth_secrets:
-            async with IntegrationService.with_session() as service:
-                oauth_integrations = await service.list_integrations(
-                    provider_keys=set(oauth_secrets.keys())
-                )
-                for integration in oauth_integrations:
-                    await service.refresh_token_if_needed(integration)
-                    access_token = await service.get_access_token(integration)
-                    secret = oauth_secrets[
-                        ProviderKey(
-                            id=integration.provider_id,
-                            grant_type=integration.grant_type,
-                        )
-                    ]
-                    # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
-                    # NOTE: We are overriding the provider_id key here assuming its unique
-                    # <prefix> is the provider_id in uppercase.
-                    secrets[integration.provider_id] = {
-                        secret.token_name: access_token.get_secret_value()
-                    }
-    except Exception as e:
-        logger.warning("Could not get oauth secrets", error=e)
-    return secrets
-
-
 async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     """Main entrypoint for running an action."""
     ctx_role.set(role)
     ctx_run.set(input.run_context)
+    ctx_session_id.set(input.session_id)
     # The interaction context was generated by the worker
     if input.interaction_context is not None:
         ctx_interaction.set(input.interaction_context)
@@ -297,7 +289,15 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets = await service.fetch_all_action_secrets(reg_action)
         action = service.get_bound(reg_action, mode="execution")
 
-    secrets = await get_action_secrets(args=task.args, action_secrets=action_secrets)
+    collected = collect_expressions(task.args)
+    secrets = await secrets_manager.get_action_secrets(
+        secret_exprs=collected.secrets, action_secrets=action_secrets
+    )
+    workspace_variables = await get_workspace_variables(
+        variable_exprs=collected.variables,
+        environment=input.run_context.environment,
+        role=role,
+    )
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -329,10 +329,11 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     )
 
     context = input.exec_context.copy()
-    context.update(SECRETS=secrets)  # type: ignore
+    context[ExprContext.SECRETS] = secrets
+    context[ExprContext.VARS] = workspace_variables
 
-    flattened_secrets = flatten_secrets(secrets)
-    with env_sandbox(flattened_secrets):
+    flattened_secrets = secrets_manager.flatten_secrets(secrets)
+    with secrets_manager.env_sandbox(flattened_secrets):
         args = evaluate_templated_args(task, context)
         result = await run_single_action(action=action, args=args, context=context)
 
@@ -341,40 +342,6 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     log.trace("Result", result=result)
     return result
-
-
-def get_runtime_env() -> str:
-    """Get the runtime environment from `ctx_run` contextvar. Defaults to `default` if not set."""
-    return getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
-
-
-def flatten_secrets(secrets: dict[str, Any]):
-    """Given secrets in the format of {name: {key: value}}, we need to flatten
-    it to a dict[str, str] to set in the environment context.
-
-    For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
-    as `KEY`. This means you cannot have a clashing key in different secrets.
-
-    OAuth secrets are handled differently - they're stored as direct string values
-    and are accessible as environment variables using their provider_id.
-    """
-    flattened_secrets: dict[str, str] = {}
-    for name, keyvalues in secrets.items():
-        if name.endswith("_oauth"):
-            # OAuth secrets are stored as direct string values
-            flattened_secrets[name] = str(keyvalues)
-        else:
-            # Regular secrets are stored as key-value dictionaries
-            for key, value in keyvalues.items():
-                if key in flattened_secrets:
-                    raise ValueError(
-                        f"Key {key!r} is duplicated in {name!r}! "
-                        "Please ensure only one secret with a given name is set. "
-                        "e.g. If you have `first_secret.KEY` set, then you cannot "
-                        "also set `second_secret.KEY` as `KEY` is duplicated."
-                    )
-                flattened_secrets[key] = value
-    return flattened_secrets
 
 
 @ray.remote
@@ -396,9 +363,12 @@ async def get_ray_runtime_env(ctx: DispatchActionContext) -> RuntimeEnv:
     # Add git URL to pip dependencies if SHA is present
     pip_deps = []
     if ctx.git_url and ctx.git_url.ref:
-        url = ctx.git_url.to_url()
-        pip_deps.append(url)
-        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        try:
+            url = ctx.git_url.to_url()
+            pip_deps.append(url)
+            logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        except Exception as e:
+            logger.error("Error adding git URL to runtime env", error=e)
 
     # If we have a local registry, we need to add it to the runtime env
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -453,7 +423,9 @@ async def run_action_on_ray_cluster(
     obj_ref = run_action_task.options(**options).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
-        exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+        exec_result = await asyncio.wait_for(
+            coro, timeout=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+        )
     except TimeoutError as e:
         logger.error("Action timed out, cancelling task", error=e)
         ray.cancel(obj_ref, force=True)
@@ -493,15 +465,16 @@ async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
         TracecatException: If there are errors evaluating for_each expressions or during execution
         ExecutorErrorWrapper: If there are errors from the executor itself
     """
-    git_url = await prepare_git_url()
 
     role = ctx_role.get()
-
     ctx = DispatchActionContext(role=role)
+
+    # Use cached git context to avoid opening DB sessions unnecessarily
+    git_url, ssh_cmd = await get_git_context_cached(role=role)
     if git_url:
-        sh_cmd = await get_ssh_command(git_url=git_url, role=role)
-        ctx.ssh_command = sh_cmd
         ctx.git_url = git_url
+        ctx.ssh_command = ssh_cmd
+
     return await _dispatch_action(input=input, ctx=ctx)
 
 
@@ -641,3 +614,20 @@ def flatten_wrapped_exc_error_group(
             )
         )
     return [eg]
+
+
+async def get_workspace_variables(
+    variable_exprs: set[str],
+    *,
+    environment: str | None = None,
+    role: Role | None = None,
+) -> dict[str, dict[str, str]]:
+    try:
+        async with VariablesService.with_session(role=role) as service:
+            variables = await service.search_variables(
+                VariableSearch(names=variable_exprs, environment=environment)
+            )
+    except TracecatAuthorizationError as e:
+        logger.warning("No access to workspace variables", error=e)
+        return {}
+    return {variable.name: variable.values for variable in variables}

@@ -29,10 +29,11 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Workflow
+from tracecat.db.models import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
     RETRY_POLICIES,
@@ -46,7 +47,7 @@ from tracecat.dsl.enums import (
     StreamErrorHandlingStrategy,
     WaitStrategy,
 )
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
@@ -54,8 +55,10 @@ from tracecat.dsl.models import (
     RunActionInput,
     ScatterArgs,
 )
+from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
     WorkflowExecutionID,
@@ -63,21 +66,22 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
+from tracecat.variables.schemas import VariableCreate
+from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import WorkflowEventType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventGroup,
     WorkflowExecutionEvent,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.models import WorkflowUpdate
+from tracecat.workflow.management.schemas import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
@@ -255,8 +259,7 @@ async def test_workflow_completes_and_correct(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -338,7 +341,6 @@ async def test_stress_workflow_correctness(
                 },
             ],
             "description": "Stress testing",
-            "inputs": {},
             "returns": "${{ ACTIONS.d.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -399,7 +401,6 @@ async def test_workflow_set_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -453,7 +454,6 @@ async def test_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -508,7 +508,6 @@ async def test_workflow_default_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -600,7 +599,6 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 }
             ],
             "description": "Test child workflow success",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": "Test child workflow success",
@@ -622,7 +620,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 {
                     "ref": "parent",
                     "action": "core.workflow.execute",
-                    "for_each": "${{ for var.x in INPUTS.data }}",
+                    "for_each": "${{ for var.x in [1, 2, 3, 4, 5, 6, 7] }}",
                     "args": {
                         "workflow_id": child_workflow.id,
                         "trigger_inputs": {
@@ -632,9 +630,6 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                     "depends_on": [],
                 },
             ],
-            "inputs": {
-                "data": [1, 2, 3, 4, 5, 6, 7],
-            },
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -661,7 +656,6 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 "result_typename": "list",
             }
         },
-        "INPUTS": {"data": [1, 2, 3, 4, 5, 6, 7]},
         "TRIGGER": {},
     }
     assert result == expected
@@ -693,7 +687,6 @@ async def test_child_workflow_context_passing(
                 }
             ],
             "description": "Testing child workflow",
-            "inputs": {},
             "returns": None,
             "tests": [],
             "title": "Aug 16, 2024, 13:44:37",
@@ -737,7 +730,6 @@ async def test_child_workflow_context_passing(
                     "description": "",
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -773,7 +765,6 @@ async def test_child_workflow_context_passing(
                             "result_typename": "dict",
                         }
                     },
-                    "INPUTS": {},
                     "TRIGGER": {
                         "data_from_parent": "Parent sent child __EXPECTED_DATA__"
                     },
@@ -781,7 +772,6 @@ async def test_child_workflow_context_passing(
                 "result_typename": "dict",
             },
         },
-        "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
@@ -808,7 +798,6 @@ def child_dsl():
             )
         ],
         description="Testing child workflow",
-        inputs={},
         returns="${{ ACTIONS.reshape.result }}",
         title="Child",
         triggers=[],
@@ -865,7 +854,6 @@ async def test_child_workflow_loop(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns=None,
         triggers=[],
     )
@@ -909,7 +897,6 @@ async def test_child_workflow_loop(
                 "result_typename": "list",
             },
         },
-        "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
@@ -952,7 +939,6 @@ async def test_single_child_workflow_alias(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.run_child.result }}",
         triggers=[],
     )
@@ -1032,7 +1018,6 @@ async def test_child_workflow_alias_with_loop(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.run_child.result }}",
         triggers=[],
     )
@@ -1070,6 +1055,74 @@ async def test_child_workflow_alias_with_loop(
 
 
 @pytest.mark.anyio
+async def test_child_workflow_with_expression_alias(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    test_worker_factory: Callable[[Client], Worker],
+):
+    """Test that child workflows can be executed using expression-based aliases."""
+    test_name = test_child_workflow_with_expression_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Create child workflow with an alias
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias="expression_child"
+    )
+
+    assert child_workflow.alias == "expression_child"
+
+    # Parent workflow that resolves the alias from an expression
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can resolve child alias from expression",
+        entrypoint=DSLEntrypoint(ref="get_alias", expects={}),
+        actions=[
+            ActionStatement(
+                ref="get_alias",
+                action="core.transform.reshape",
+                args={
+                    "value": "expression_child",  # This will be the alias
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": "${{ ACTIONS.get_alias.result }}",  # Use expression
+                    "trigger_inputs": {
+                        "data": "Test data",
+                        "index": 42,
+                    },
+                },
+                depends_on=["get_alias"],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
+
+    # Verify the child workflow was called correctly
+    assert result == {"data": "Test data", "index": 42}
+
+
+@pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
     test_role, temporal_client, test_worker_factory
 ):
@@ -1093,7 +1146,6 @@ async def test_single_child_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1121,7 +1173,6 @@ async def test_single_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1143,7 +1194,6 @@ async def test_single_child_workflow_override_environment_correct(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1172,7 +1222,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "description": "",
                 }
             ],
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1201,7 +1250,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1223,7 +1271,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1253,7 +1300,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {"environment": "__TESTING_DEFAULT__"},
             "tests": [],
@@ -1281,7 +1327,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1303,7 +1348,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1333,7 +1377,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1367,7 +1410,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1393,7 +1435,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1441,7 +1482,6 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1472,7 +1512,6 @@ async def test_single_child_workflow_get_correct_secret_environment(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1497,8 +1536,93 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
+    }
+    assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_can_access_workspace_variables(
+    test_role, temporal_client, test_worker_factory
+):
+    """Test that workflows can access workspace variables via VARS context."""
+    test_name = f"{test_workflow_can_access_workspace_variables.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Create workspace variables
+
+    async with VariablesService.with_session(role=test_role) as service:
+        # Create a simple configuration variable
+        await service.create_variable(
+            VariableCreate(
+                name="test_config",
+                description="Test configuration for workflow",
+                values={
+                    "api_url": "https://api.example.com",
+                    "timeout": 30,
+                    "max_retries": 3,
+                },
+                environment="default",
+            )
+        )
+        # Create another variable with nested data
+        await service.create_variable(
+            VariableCreate(
+                name="test_settings",
+                description="Test settings",
+                values={
+                    "enabled": True,
+                    "threshold": 100,
+                },
+                environment="default",
+            )
+        )
+
+    # Create DSL that uses workspace variables
+    dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "use_vars"},
+            "actions": [
+                {
+                    "ref": "use_vars",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "api_url": "${{ VARS.test_config.api_url }}",
+                            "timeout": "${{ VARS.test_config.timeout }}",
+                            "max_retries": "${{ VARS.test_config.max_retries }}",
+                            "enabled": "${{ VARS.test_settings.enabled }}",
+                            "threshold": "${{ VARS.test_settings.threshold }}",
+                        }
+                    },
+                    "depends_on": [],
+                    "description": "Test accessing workspace variables",
+                }
+            ],
+            "description": "Test workflow with workspace variables",
+            "returns": "${{ ACTIONS.use_vars.result }}",
+            "tests": [],
+            "title": test_name,
+            "triggers": [],
+        }
+    )
+
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
+
+    # Verify the workflow can access all workspace variables
+    expected = {
+        "api_url": "https://api.example.com",
+        "timeout": 30,
+        "max_retries": 3,
+        "enabled": True,
+        "threshold": 100,
     }
     assert result == expected
 
@@ -1534,7 +1658,6 @@ async def test_pull_based_workflow_fetches_latest_version(
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:first",
@@ -1585,7 +1708,6 @@ async def test_pull_based_workflow_fetches_latest_version(
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:second",
@@ -1633,6 +1755,8 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "type": "ExecutorClientError",
     "expr_context": "ACTIONS",
     "attempt": 1,
+    "stream_id": "<root>:0",
+    "children": None,
 }
 
 
@@ -1689,7 +1813,6 @@ def _get_test_id(test_case):
                         "depends_on": ["start.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "start.error": "${{ ACTIONS.start.error }}",
@@ -1738,7 +1861,6 @@ def _get_test_id(test_case):
                         "depends_on": ["c"],
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1779,7 +1901,6 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1816,7 +1937,6 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1859,7 +1979,6 @@ def _get_test_id(test_case):
                         "depends_on": ["error_path_1"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success_path": "${{ ACTIONS.success_path.result }}",
                     "error_path_1": "${{ ACTIONS.error_path_1.result }}",
@@ -1893,7 +2012,6 @@ def _get_test_id(test_case):
                         "run_if": "${{ False }}",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1925,7 +2043,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "join": "${{ ACTIONS.join.result }}",
@@ -1973,7 +2090,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",
@@ -2025,7 +2141,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",
@@ -2070,8 +2185,7 @@ async def test_workflow_error_path(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2147,7 +2261,7 @@ async def test_workflow_join_unreachable(
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "tracecat.exceptions.TracecatExpressionError",
                         "TracecatValidationError",
                     ],
                 ),
@@ -2226,7 +2340,7 @@ async def test_workflow_multiple_entrypoints(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2258,7 +2372,7 @@ async def test_workflow_runs_template_for_each(
     """
 
     from tracecat.expressions.expectations import ExpectedField
-    from tracecat.registry.actions.models import (
+    from tracecat.registry.actions.schemas import (
         ActionStep,
         RegistryActionCreate,
         TemplateAction,
@@ -2344,7 +2458,7 @@ async def test_workflow_runs_template_for_each(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2540,16 +2654,18 @@ def assert_error_handler_initiated_correctly(
                     "------------------------------\n"
                     "File: /app/tracecat/expressions/core.py\n"
                     "Function: result\n"
-                    "Line: 73"
+                    "Line: 77"
                 ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
+                "stream_id": "<root>:0",
+                "children": None,
             }
         ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
         "message": (
-            "Workflow failed with 1 task exception(s)\n\n"
-            "==================== (1/1) ACTIONS.failing_action ====================\n\n"
+            "Workflow failed with 1 error(s)\n\n"
+            f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
             "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
             "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
             "\n"
@@ -2566,7 +2682,7 @@ def assert_error_handler_initiated_correctly(
             "------------------------------\n"
             "File: /app/tracecat/expressions/core.py\n"
             "Function: result\n"
-            "Line: 73"
+            "Line: 77"
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
         "orig_wf_exec_url": wf_exec_url,
@@ -2713,7 +2829,7 @@ async def test_workflow_error_handler_success(
     [
         pytest.param(
             "wf-00000000000000000000000000000000",
-            "TracecatException: Workflow definition not found for WorkflowUUID('00000000-0000-0000-0000-000000000000'), version=None",
+            "TracecatException: Workflow definition not found for wf_0000000000000000000000, version=None",
             id="id-no-match",
         ),
         pytest.param(
@@ -3092,7 +3208,6 @@ async def test_workflow_detached_child_workflow(
                 start_delay=2,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.a.result }}",
     )
 
@@ -3196,7 +3311,6 @@ async def test_workflow_detached_child_workflow(
             ),
             {
                 "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-for-loop",
@@ -3247,7 +3361,6 @@ async def test_workflow_detached_child_workflow(
                     "gather": {"result": [2, 3, 4], "result_typename": "list"},
                     "c": {"result": [2, 3, 4], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-gather-with-surrounding-actions",
@@ -3315,7 +3428,6 @@ async def test_workflow_detached_child_workflow(
                 "ACTIONS": {
                     "gather2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-for-loop",
@@ -3381,7 +3493,6 @@ async def test_workflow_detached_child_workflow(
                     "gather1": {"result": [11, 21], "result_typename": "list"},
                     "gather2": {"result": [111, 121], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="sequential-scatter-gather",
@@ -3457,7 +3568,6 @@ async def test_workflow_detached_child_workflow(
                     "im2": {"result": [15, 25], "result_typename": "list"},
                     "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="parallel-scatter-gather-join",
@@ -3488,7 +3598,6 @@ async def test_workflow_detached_child_workflow(
             ),
             {
                 "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-gather-direct",
@@ -3534,7 +3643,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather",
@@ -3581,7 +3689,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather-drop-nulls",
@@ -3625,7 +3732,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather-drop-nulls-with-nones",
@@ -3686,7 +3792,6 @@ async def test_workflow_detached_child_workflow(
                     }
                     # No other actions should have run
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="skip-scatter-directly-only-first-runs",
@@ -3728,7 +3833,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="skip-all-in-scatter",
@@ -3801,7 +3905,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="parallel-different-sizes",
@@ -3843,7 +3946,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="mixed-data-types",
@@ -3892,7 +3994,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="variable-nesting-depths",
@@ -3961,7 +4062,6 @@ async def test_workflow_detached_child_workflow(
                     "gather_empty": {"result": [], "result_typename": "list"},
                     "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="empty-nonempty-parallel",
@@ -4039,7 +4139,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-varying-sizes",
@@ -4101,7 +4200,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-mixed-empty-nonempty",
@@ -4148,7 +4246,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-empty-collection",
@@ -4194,7 +4291,6 @@ async def test_workflow_detached_child_workflow(
                     "gather": {"result": [], "result_typename": "list"},
                     "reshape2": {"result": [], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-empty-collection-between",
@@ -4274,7 +4370,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-scatter-empty-collection-inside",
@@ -4362,7 +4457,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="2d-scatter-dag-inside",
@@ -4428,7 +4522,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="1d-scatter-multi-condition",
@@ -4474,23 +4567,26 @@ async def test_workflow_detached_child_workflow(
                         "error": [
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "error_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-partition",
@@ -4536,7 +4632,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-drop",
@@ -4581,23 +4676,26 @@ async def test_workflow_detached_child_workflow(
                         "result": [
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:0",
+                                "children": None,
                             },
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
+                                "stream_id": "<root>:0/scatter1:1",
+                                "children": None,
                             },
                         ],
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-include",
@@ -4654,7 +4752,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scope-shadowing-stream-lookup",
@@ -4685,6 +4782,86 @@ async def test_workflow_scatter_gather(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_gather_error_strategy_raise(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+) -> None:
+    """Gather should fail-fast when configured with the raise error strategy."""
+
+    dsl = DSLInput(
+        title="Gather raise on errors",
+        description="Gather configured to raise when any scatter branch errors",
+        entrypoint=DSLEntrypoint(ref="scatter1"),
+        actions=[
+            ActionStatement(
+                ref="scatter1",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2]).model_dump(),
+            ),
+            ActionStatement(
+                ref="throw",
+                action="core.transform.reshape",
+                depends_on=["scatter1"],
+                run_if="${{ FN.mod(ACTIONS.scatter1.result, 2) == 1 }}",
+                args={"value": "${{ 1/0 }}"},
+            ),
+            ActionStatement(
+                ref="gather1",
+                action="core.transform.gather",
+                depends_on=["throw"],
+                args=GatherArgs(
+                    items="${{ ACTIONS.throw.result }}",
+                    error_strategy=StreamErrorHandlingStrategy.RAISE,
+                ).model_dump(),
+            ),
+        ],
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    wf_exec_id = generate_test_exec_id(
+        test_workflow_gather_error_strategy_raise.__name__
+    )
+
+    async with test_worker_factory(temporal_client):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Gather 'gather1' encountered" in str(cause)
+    assert cause.details, "ApplicationError should include gather error details"
+
+    # The details[0] is a dict mapping gather_ref to ActionErrorInfo
+    detail = cause.details[0]
+    assert isinstance(detail, Mapping)
+    assert "gather1" in detail, "Details should contain gather1 error"
+
+    # Validate the gather error structure (stream-aware)
+    gather_error = detail["gather1"]
+    validated_error = ActionErrorInfoAdapter.validate_python(gather_error)
+    assert validated_error.ref == "gather1", "Gather error ref should be gather1"
+    assert validated_error.stream_id == "<root>:0", (
+        "Gather error should have parent stream_id"
+    )
+    assert validated_error.children is not None, "Gather error should have children"
+
+    # Validate the child errors from scatter branches
+    children = validated_error.children
+    assert len(children) == 1, "Should have 1 error from scatter branch"
+    child_error = children[0]
+    assert child_error.ref == "throw", "Child error should be from 'throw' action"
 
 
 @pytest.mark.anyio
@@ -4742,7 +4919,6 @@ async def test_workflow_env_and_trigger_access_in_stream(
                 "result_typename": "list",
             },
         },
-        "INPUTS": {},
         "TRIGGER": trigger_data,
     }
 
@@ -4794,7 +4970,6 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
                         "result_typename": "int",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="context-strategy",
@@ -4852,3 +5027,214 @@ async def test_workflow_return_strategy(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert validator(result)
+
+
+@pytest.mark.anyio
+async def test_workflow_environment_override(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Test that the correct secrets are used for the action environment override.
+    """
+    # Set return strategy to context so we can verify the result
+    monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
+    test_name = f"{test_workflow_environment_override.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Set up secrets in different environments
+    async with SecretsService.with_session(role=test_role) as secrets_service:
+        # Create secret in default environment
+        await secrets_service.create_secret(
+            SecretCreate(
+                name=f"{test_name}_secret",
+                environment="default",
+                keys=[
+                    SecretKeyValue(
+                        key="API_KEY", value=SecretStr(f"{test_name}_default_value")
+                    )
+                ],
+            ),
+        )
+
+        # Create secret in override environment
+        await secrets_service.create_secret(
+            SecretCreate(
+                name="test_secret",
+                environment="override_env",
+                keys=[
+                    SecretKeyValue(
+                        key="API_KEY", value=SecretStr(f"{test_name}_override_value")
+                    )
+                ],
+            )
+        )
+
+        # Define the DSL workflow
+        dsl = DSLInput(
+            title="Workflow action environment override",
+            description="Test that the workflow action environment override is respected",
+            entrypoint=DSLEntrypoint(ref="a"),
+            config=DSLConfig(environment="default"),  # Workflow default environment
+            actions=[
+                ActionStatement(
+                    ref="a",
+                    action="core.transform.reshape",
+                    args={"value": "${{ SECRETS.test_secret.API_KEY }}"},
+                    environment="override_env",  # Action environment override
+                ),
+            ],
+        )
+
+        async with test_worker_factory(temporal_client):
+            run_args = DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+            )
+            result = await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+            # Verify that the action used the secret from the override environment
+            assert result == {
+                "ACTIONS": {
+                    "a": {
+                        "result": f"{test_name}_override_value",
+                        "result_typename": "str",
+                    },
+                },
+                "TRIGGER": {},
+            }
+
+
+@pytest.mark.anyio
+async def test_workflow_trigger_defaults(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """
+    Test that TRIGGER defaults are applied when not provided in DSLRunArgs.
+    """
+    # Prepare test TRIGGER data and expected execution_id
+    trigger_data = {}
+    test_name = f"{test_workflow_trigger_defaults.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Workflow trigger defaults",
+        description="Test that TRIGGER defaults are applied when not provided",
+        entrypoint=DSLEntrypoint(
+            ref="a",
+            expects={
+                "default_field": ExpectedField(type="str", default="default_value"),
+                "default_number": ExpectedField(type="int", default=42),
+            },
+        ),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            ),
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    # Prepare expected result with defaults applied
+    expected = {
+        "default_field": "default_value",
+        "default_number": 42,
+    }
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Run the workflow and check the result
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_data,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_trigger_validation_error_details(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """Ensure trigger validation errors surface field-level details to callers."""
+
+    invalid_trigger_data = {"default_number": "not-an-int"}
+    test_name = f"{test_workflow_trigger_validation_error_details.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Workflow trigger validation",
+        description="Test that trigger validation errors propagate details",
+        entrypoint=DSLEntrypoint(
+            ref="a",
+            expects={
+                "default_field": ExpectedField(type="str", default="default_value"),
+                "default_number": ExpectedField(type="int", default=42),
+            },
+        ),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            ),
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=invalid_trigger_data,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Failed to validate trigger inputs" in str(cause)
+
+    details = cause.details
+    if isinstance(details, list | tuple):
+        detail_messages = [str(d) for d in details]
+    elif details is None:
+        detail_messages = []
+    else:
+        detail_messages = [str(details)]
+
+    assert detail_messages, "Trigger validation error should include details"
+    combined_details = "\n".join(detail_messages)
+    assert "default_number" in combined_details
+    assert "valid integer" in combined_details or '"type": "int' in combined_details

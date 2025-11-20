@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get group members
+  description: List all users that are members of a specific group.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/listGroupUsers
+  namespace: tools.okta
+  name: get_group_members
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    group_id:
+      type: str
+      description: ID of the group to get members for
+    limit:
+      type: int
+      description: Number of members to return (default 200)
+      default: 200
+    after:
+      type: str | None
+      description: Pagination cursor to start from
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(limit, after):
+              params = {"limit": limit}
+              if after is not None:
+                  params["after"] = after
+              return params
+    - ref: get_members
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/groups/${{ inputs.group_id }}/users
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_members.result.data }}

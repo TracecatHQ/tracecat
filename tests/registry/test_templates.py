@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )
@@ -64,7 +64,7 @@ async def test_base_registry_validate_template_actions():
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "file_path",
-    Path("registry/tracecat_registry/templates").rglob("*.yml"),
+    Path("packages/tracecat-registry/tracecat_registry/templates").rglob("*.yml"),
     ids=lambda path: str(path.parts[-2:]),
 )
 async def test_template_action_validation(file_path):

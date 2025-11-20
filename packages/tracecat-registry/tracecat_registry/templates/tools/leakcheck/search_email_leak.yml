@@ -1,0 +1,26 @@
+type: action
+definition:
+  name: search_email_leak
+  namespace: tools.leakcheck
+  title: Lookup Email leak
+  description: Retrieve leaks linked to an email address
+  display_group: LeakCheck
+  doc_url: https://wiki.leakcheck.io/en/api
+  author: y0no
+  secrets:
+    - name: leakcheck_api
+      keys:
+        - API_KEY
+  expects:
+    email_address:
+      type: str
+      description: Email address to search for leaks.
+  steps:
+    - ref: search_email_leak
+      action: core.http_request
+      args:
+        url: https://leakcheck.io/api/v2/query/${{ FN.url_encode(inputs.email_address) }}
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.leakcheck_api.API_KEY }}
+  returns: ${{ steps.search_email_leak.result.data }}

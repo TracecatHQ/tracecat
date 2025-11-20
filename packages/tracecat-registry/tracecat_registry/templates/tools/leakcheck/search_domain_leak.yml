@@ -1,0 +1,28 @@
+type: action
+definition:
+  name: search_domain_leak
+  namespace: tools.leakcheck
+  title: Lookup Domain leak
+  description: Retrieve leaks linked to a domain name
+  display_group: LeakCheck
+  doc_url: https://wiki.leakcheck.io/en/api
+  author: y0no
+  secrets:
+    - name: leakcheck_api
+      keys:
+        - API_KEY
+  expects:
+    domain_name:
+      type: str
+      description: Domain name to search for leaks.
+  steps:
+    - ref: search_domain_leak
+      action: core.http_request
+      args:
+        url: https://leakcheck.io/api/v2/query/${{ FN.url_encode(inputs.domain_name) }}
+        params:
+          type: domain
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.leakcheck_api.API_KEY }}
+  returns: ${{ steps.search_domain_leak.result.data }}

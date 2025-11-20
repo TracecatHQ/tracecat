@@ -14,15 +14,29 @@ import aiofiles
 import paramiko
 from pydantic import SecretStr
 from slugify import slugify
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.secrets.schemas import SSHKeyTarget
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
-    from tracecat.git import GitUrl
+    from tracecat.git.types import GitUrl
+
+# Export list for backward compatibility
+__all__ = [
+    "SshEnv",
+    "temporary_ssh_agent",
+    "add_host_to_known_hosts",
+    "add_ssh_key_to_agent",
+    "get_ssh_command",
+    "prepare_ssh_key_file",
+    "ssh_context",
+    "get_git_ssh_command",
+    "git_env_context",
+]
 
 
 @dataclass
@@ -93,6 +107,27 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
         logger.debug("Killed ssh-agent")
 
 
+def _split_host_port(url: str) -> tuple[str, str | None]:
+    """Split a host string into host and port components."""
+
+    if url.startswith("[") and "]" in url:
+        closing_idx = url.index("]")
+        host_part = url[1:closing_idx]
+        remainder = url[closing_idx + 1 :]
+        if remainder.startswith(":") and remainder[1:].isdigit():
+            return host_part, remainder[1:]
+        if not remainder:
+            return host_part, None
+        return url, None
+
+    # Only treat single-colon inputs as host:port; IPv6 literals contain multiple colons
+    if url.count(":") == 1:
+        host_part, port_part = url.rsplit(":", 1)
+        if port_part.isdigit():
+            return host_part, port_part
+    return url, None
+
+
 def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
     """Synchronously add the host to the known hosts file if not already present.
 
@@ -110,16 +145,47 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
 
         known_hosts_file = ssh_dir / "known_hosts"
 
+        host, port = _split_host_port(url)
+        if port:
+            formatted_host = f"[{host}]:{port}"
+            known_host_tokens = {url, formatted_host, host}
+        else:
+            formatted_host = host
+            known_host_tokens = {url, formatted_host}
+
         # Check if host already exists in known_hosts
         if known_hosts_file.exists():
             with known_hosts_file.open("r") as f:
                 # Look for the hostname in existing entries
-                if any(url in line for line in f.readlines()):
-                    logger.debug("Host already in known_hosts file", url=url)
-                    return
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    entry_host = stripped.split()[0]
+                    # known_hosts entries can list multiple hosts separated by commas
+                    matching_host = next(
+                        (
+                            host
+                            for host in entry_host.split(",")
+                            if host in known_host_tokens
+                        ),
+                        None,
+                    )
+                    if matching_host:
+                        logger.debug(
+                            "Host already in known_hosts file",
+                            url=url,
+                            entry_host=matching_host,
+                        )
+                        return
         # Use ssh-keyscan to get the host key
+        cmd = ["ssh-keyscan"]
+        if port:
+            cmd.extend(["-p", port])
+        cmd.append(host)
+
         result = subprocess.run(
-            ["ssh-keyscan", url],
+            cmd,
             capture_output=True,
             text=True,
             env=env.to_dict(),
@@ -129,9 +195,21 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
         if result.returncode != 0:
             raise RuntimeError(f"Failed to get host key: {result.stderr.strip()}")
 
+        output_lines = result.stdout.splitlines(keepends=True)
+        if port:
+            rewritten_lines = []
+            for line in output_lines:
+                if line.startswith(host):
+                    rewritten_lines.append(formatted_host + line[len(host) :])
+                else:
+                    rewritten_lines.append(line)
+            output = "".join(rewritten_lines)
+        else:
+            output = "".join(output_lines)
+
         # Append the host key to the known_hosts file
         with known_hosts_file.open("a") as f:
-            f.write(result.stdout)
+            f.write(output)
 
         logger.info("Added host to known hosts", url=url)
     except Exception as e:
@@ -223,14 +301,83 @@ async def ssh_context(
     git_url: GitUrl | None = None,
     session: AsyncSession,
     role: Role | None = None,
+    key_name: str | None = None,
+    target: SSHKeyTarget = "registry",
 ) -> AsyncIterator[SshEnv | None]:
     """Context manager for SSH environment variables."""
     if git_url is None:
         yield None
     else:
         sec_svc = SecretsService(session, role=role)
-        secret = await sec_svc.get_ssh_key()
+        secret = await sec_svc.get_ssh_key(key_name=key_name, target=target)
         async with temporary_ssh_agent() as env:
             await add_ssh_key_to_agent(secret.get_secret_value(), env=env)
             await add_host_to_known_hosts(git_url.host, env=env)
             yield env
+
+
+# New SSH helper functions for Git operations
+
+
+async def get_git_ssh_command(
+    git_url: GitUrl, *, session: AsyncSession, role: Role | None
+) -> str:
+    """Get a Git SSH command for the given Git URL.
+
+    Args:
+        git_url: Git URL object containing repository information.
+        session: Database session.
+        role: User role for permissions.
+
+    Returns:
+        SSH command string for use with GIT_SSH_COMMAND.
+
+    Raises:
+        Exception: If SSH key retrieval or file preparation fails.
+    """
+    role = role or ctx_role.get()
+    service = SecretsService(session=session, role=role)
+    ssh_key = await service.get_ssh_key(target="registry")
+    ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
+    return ssh_cmd
+
+
+@asynccontextmanager
+async def git_env_context(
+    *, git_url: GitUrl, session: AsyncSession, role: Role | None = None
+) -> AsyncIterator[dict[str, str]]:
+    """Context manager for Git SSH environment variables.
+
+    Sets up a temporary SSH agent, adds the SSH key, and ensures the host
+    is in known_hosts. Yields environment dictionary with SSH variables.
+
+    Args:
+        git_url: Git URL object containing repository information.
+        session: Database session.
+        role: User role for permissions.
+
+    Yields:
+        Environment dictionary with SSH_AUTH_SOCK, SSH_AGENT_PID, and GIT_SSH_COMMAND.
+
+    Raises:
+        Exception: If SSH setup fails.
+    """
+    async with ssh_context(
+        git_url=git_url, session=session, role=role, target="store"
+    ) as ssh_env:
+        if ssh_env is None:
+            # Fallback environment if no SSH key is available
+            yield {}
+            return
+
+        # Get the Git SSH command
+        role = role or ctx_role.get()
+        sec_svc = SecretsService(session, role=role)
+        secret = await sec_svc.get_ssh_key(target="store")
+        git_ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=secret)
+
+        # Build complete environment
+        env_dict = ssh_env.to_dict()
+        env_dict["GIT_SSH_COMMAND"] = git_ssh_cmd
+
+        yield env_dict

@@ -1,0 +1,121 @@
+type: action
+definition:
+  title: Create or update indicator
+  description: Create or update a Microsoft Defender for Endpoint custom indicator of compromise.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/post-ti-indicator
+  namespace: tools.microsoft_defender_endpoint
+  name: create_or_update_indicator
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    indicator_value:
+      type: str
+      description: Indicator value (for example, SHA1 hash, domain, URL, or IP address).
+    indicator_type:
+      type: enum["FileSha1", "FileSha256", "FileMd5", "CertificateThumbprint", "IpAddress", "DomainName", "Url"]
+      description: Indicator type.
+    action:
+      type: enum["Alert", "Warn", "Block", "Audit", "BlockAndRemediate", "AlertAndBlock", "Allowed"]
+      description: Enforcement action for the indicator.
+    title:
+      type: str
+      description: Indicator alert title.
+    description:
+      type: str
+      description: Indicator description.
+    severity:
+      type: enum["Informational", "Low", "Medium", "High"] | None
+      description: Optional severity to associate with the indicator.
+      default: null
+    expiration_time:
+      type: str | None
+      description: Optional ISO 8601 timestamp when the indicator expires (for example, 2025-12-31T00:00:00Z).
+      default: null
+    generate_alert:
+      type: bool | None
+      description: Whether Defender should generate an alert when the indicator matches.
+      default: null
+    recommended_actions:
+      type: str | None
+      description: Recommended remediation steps to include with the indicator.
+      default: null
+    application:
+      type: str | None
+      description: Friendly application name to display in end-user notifications.
+      default: null
+    rbac_group_names:
+      type: list[str] | None
+      description: Optional list of RBAC device group names that the indicator applies to.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          indicator_value: ${{ inputs.indicator_value }}
+          indicator_type: ${{ inputs.indicator_type }}
+          action: ${{ inputs.action }}
+          title: ${{ inputs.title }}
+          description: ${{ inputs.description }}
+          severity: ${{ inputs.severity }}
+          expiration_time: ${{ inputs.expiration_time }}
+          generate_alert: ${{ inputs.generate_alert }}
+          recommended_actions: ${{ inputs.recommended_actions }}
+          application: ${{ inputs.application }}
+          rbac_group_names: ${{ inputs.rbac_group_names }}
+        script: |
+          def main(
+              indicator_value,
+              indicator_type,
+              action,
+              title,
+              description,
+              severity,
+              expiration_time,
+              generate_alert,
+              recommended_actions,
+              application,
+              rbac_group_names,
+          ):
+              payload = {
+                  "indicatorValue": indicator_value,
+                  "indicatorType": indicator_type,
+                  "action": action,
+                  "title": title,
+                  "description": description,
+              }
+              if severity:
+                  payload["severity"] = severity
+              if expiration_time:
+                  payload["expirationTime"] = expiration_time
+              if generate_alert is not None:
+                  payload["generateAlert"] = generate_alert
+              if recommended_actions:
+                  payload["recommendedActions"] = recommended_actions
+              if application:
+                  payload["application"] = application
+              if rbac_group_names:
+                  payload["rbacGroupNames"] = rbac_group_names
+              return payload
+    - ref: create_indicator
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/indicators
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_indicator.result.data }}

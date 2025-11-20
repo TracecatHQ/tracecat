@@ -2,25 +2,30 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlmodel import select
+from pydantic import SecretStr
+from sqlalchemy import select
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import OAuthStateDB
-from tracecat.integrations.base import (
-    AuthorizationCodeOAuthProvider,
-)
+from tracecat.db.models import OAuthStateDB
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
-from tracecat.integrations.models import (
+from tracecat.integrations.providers import all_providers
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+)
+from tracecat.integrations.schemas import (
+    CustomOAuthProviderCreate,
     IntegrationOAuthCallback,
     IntegrationOAuthConnect,
     IntegrationRead,
@@ -32,10 +37,11 @@ from tracecat.integrations.models import (
     ProviderReadMinimal,
     ProviderSchema,
 )
-from tracecat.integrations.providers import ProviderRegistry
-from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.service import (
+    InsecureOAuthEndpointError,
+    IntegrationService,
+)
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
@@ -96,10 +102,15 @@ async def oauth_callback(
 
     # Overwrite role with workspace context from validated state
     # This is always authorization code
+    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    ctx_role.set(role)
+
+    # Create service to resolve provider (including custom providers)
+    svc = IntegrationService(session, role=role)
     key = ProviderKey(
         id=oauth_state_db.provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
     )
-    provider_impl = ProviderRegistry.get().get_class(key)
+    provider_impl = await svc.resolve_provider_impl(provider_key=key)
     if provider_impl is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -111,46 +122,105 @@ async def oauth_callback(
             detail="OAuth 2.0 Authorization code grant is not supported for this provider",
         )
 
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
-    ctx_role.set(role)
-
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
     await session.commit()
 
     # Exchange code for tokens
-    svc = IntegrationService(session, role=role)
-    # The grant type is AC
-    key = ProviderKey(id=provider_impl.id, grant_type=provider_impl.grant_type)
     integration = await svc.get_integration(provider_key=key)
-    if integration is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
 
-    # This requires that the provider is configured
-    provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=provider_impl.scopes.default
+    provider_config = (
+        svc.get_provider_config(
+            integration=integration,
+            provider_impl=provider_impl,
+            default_scopes=provider_impl.scopes.default,
+        )
+        if integration
+        else None
     )
-    if provider_config is None:
+
+    try:
+        if provider_impl.metadata.requires_config:
+            if integration is None or provider_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Provider is not configured for this workspace",
+                )
+            provider = await provider_impl.instantiate(config=provider_config)
+        else:
+            provider = await provider_impl.instantiate(config=provider_config)
+            if (integration is None or provider_config is None) and provider.client_id:
+                await svc.store_provider_config(
+                    provider_key=key,
+                    client_id=provider.client_id,
+                    client_secret=SecretStr(provider.client_secret)
+                    if provider.client_secret
+                    else None,
+                    authorization_endpoint=provider.authorization_endpoint,
+                    token_endpoint=provider.token_endpoint,
+                    requested_scopes=provider.requested_scopes,
+                )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint during OAuth callback",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
+            detail=str(exc),
+        ) from exc
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
 
-    provider = provider_impl.from_config(provider_config)
+        logger.error(
+            "Failed to instantiate OAuth provider",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Provider configuration or credentials are not available",
+        ) from exc
     token_result = await provider.exchange_code_for_token(code, str(state))
 
     # Store integration tokens for this user
-    await svc.store_integration(
-        user_id=role.user_id,
-        provider_key=key,
-        access_token=token_result.access_token,
-        refresh_token=token_result.refresh_token,
-        expires_in=token_result.expires_in,
-        scope=token_result.scope,
-    )
+    try:
+        await svc.store_integration(
+            user_id=role.user_id,
+            provider_key=key,
+            access_token=token_result.access_token,
+            refresh_token=token_result.refresh_token,
+            expires_in=token_result.expires_in,
+            scope=token_result.scope,
+            authorization_endpoint=provider.authorization_endpoint,
+            token_endpoint=provider.token_endpoint,
+        )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint when storing integration",
+            provider=key.id,
+            grant_type=key.grant_type,
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Provider returned insecure OAuth endpoints",
+        ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
 
     redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations/{key.id}?tab=overview&grant_type=authorization_code"
@@ -211,6 +281,12 @@ async def get_integration(
             detail=f"{provider_info.key} integration not found",
         )
 
+    authorization_endpoint, token_endpoint = svc._determine_endpoints(
+        provider_info.impl,
+        configured_authorization=integration.authorization_endpoint,
+        configured_token=integration.token_endpoint,
+    )
+
     return IntegrationRead(
         id=integration.id,
         user_id=integration.user_id,
@@ -221,7 +297,8 @@ async def get_integration(
         requested_scopes=integration.requested_scopes.split(" ")
         if integration.requested_scopes
         else provider_info.impl.scopes.default,
-        provider_config=integration.provider_config,
+        authorization_endpoint=authorization_endpoint,
+        token_endpoint=token_endpoint,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         status=integration.status,
@@ -255,27 +332,90 @@ async def connect_provider(
             detail="Workspace and user ID is required",
         )
     svc = IntegrationService(session, role=role)
+    provider_impl = provider_info.impl
     integration = await svc.get_integration(provider_key=provider_info.key)
-    if integration is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
+    provider_config = (
+        svc.get_provider_config(
+            integration=integration,
+            provider_impl=provider_impl,
+            default_scopes=provider_impl.scopes.default,
         )
-
-    # This requires that the provider is configured
-    provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=provider_info.impl.scopes.default
+        if integration
+        else None
     )
-    if provider_config is None:
+
+    try:
+        if provider_impl.metadata.requires_config:
+            if integration is None or provider_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Provider is not configured for this workspace",
+                )
+            provider = await provider_impl.instantiate(config=provider_config)
+        else:
+            provider = await provider_impl.instantiate(config=provider_config)
+            if (integration is None or provider_config is None) and provider.client_id:
+                await svc.store_provider_config(
+                    provider_key=provider_info.key,
+                    client_id=provider.client_id,
+                    client_secret=SecretStr(provider.client_secret)
+                    if provider.client_secret
+                    else None,
+                    authorization_endpoint=provider.authorization_endpoint,
+                    token_endpoint=provider.token_endpoint,
+                    requested_scopes=provider.requested_scopes,
+                )
+                # Refresh integration context with stored credentials for subsequent operations
+                integration = await svc.get_integration(provider_key=provider_info.key)
+                provider_config = (
+                    svc.get_provider_config(
+                        integration=integration,
+                        provider_impl=provider_impl,
+                        default_scopes=provider_impl.scopes.default,
+                    )
+                    if integration
+                    else None
+                )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint while preparing authorization",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
+            detail=str(exc),
+        ) from exc
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
+
+        logger.error(
+            "Failed to instantiate OAuth provider",
+            provider=provider_impl.id,
+            grant_type=provider_impl.grant_type,
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
         )
-    provider = provider_info.impl.from_config(provider_config)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Provider configuration or credentials are not available",
+        ) from exc
 
     # Clean up expired state entries before creating a new one
     stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
-    expired_states = await session.exec(stmt)
+    result = await session.execute(stmt)
+    expired_states = result.scalars().all()
     for expired_state in expired_states:
         await session.delete(expired_state)
     await session.commit()
@@ -341,7 +481,13 @@ async def delete_integration(
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
+
+    # For custom providers, delete the provider definition even if no integration exists
     if integration is None:
+        if provider_info.key.id.startswith("custom-"):
+            # Delete the custom provider definition if it exists
+            await svc.delete_custom_provider(provider_key=provider_info.key)
+            return
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{provider_info.key} integration not found",
@@ -374,7 +520,9 @@ async def test_connection(
     # Check if provider is configured
     impl = provider_info.impl
     provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=impl.scopes.default
+        integration=integration,
+        provider_impl=impl,
+        default_scopes=impl.scopes.default,
     )
     if provider_config is None:
         raise HTTPException(
@@ -384,7 +532,7 @@ async def test_connection(
 
     try:
         # Create provider instance and attempt to get token
-        provider = impl.from_config(provider_config)
+        provider = await impl.instantiate(config=provider_config)
         token_response = await provider.get_client_credentials_token()
 
         # Store the token if successful
@@ -393,7 +541,8 @@ async def test_connection(
             access_token=token_response.access_token,
             expires_in=token_response.expires_in,
             scope=token_response.scope,
-            provider_config=integration.provider_config,
+            authorization_endpoint=provider.authorization_endpoint,
+            token_endpoint=provider.token_endpoint,
         )
 
         logger.info(
@@ -440,13 +589,26 @@ async def update_integration(
 
     svc = IntegrationService(session, role=role)
     # Store the provider configuration
-    await svc.store_provider_config(
-        provider_key=provider_info.key,
-        client_id=params.client_id,
-        client_secret=params.client_secret,
-        provider_config=params.provider_config,
-        requested_scopes=params.scopes,
-    )
+    try:
+        await svc.store_provider_config(
+            provider_key=provider_info.key,
+            client_id=params.client_id,
+            client_secret=params.client_secret,
+            authorization_endpoint=params.authorization_endpoint,
+            token_endpoint=params.token_endpoint,
+            requested_scopes=params.scopes,
+        )
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint on provider update",
+            provider=provider_info.key,
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     logger.info(
         "Provider configuration updated",
@@ -458,6 +620,51 @@ async def update_integration(
 # Provider discovery endpoints
 
 
+@providers_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_custom_provider(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: CustomOAuthProviderCreate,
+) -> ProviderReadMinimal:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        provider = await svc.create_custom_provider(params=params)
+    except InsecureOAuthEndpointError as exc:
+        logger.warning(
+            "Rejected insecure OAuth endpoint on custom provider create",
+            workspace_id=role.workspace_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    integration = await svc.get_integration(
+        provider_key=ProviderKey(
+            id=provider.provider_id, grant_type=provider.grant_type
+        )
+    )
+
+    return ProviderReadMinimal(
+        id=provider.provider_id,
+        name=provider.name,
+        description=provider.description or "Custom OAuth provider",
+        requires_config=True,
+        integration_status=integration.status
+        if integration
+        else IntegrationStatus.NOT_CONFIGURED,
+        enabled=True,
+        grant_type=provider.grant_type,
+    )
+
+
 @providers_router.get("")
 async def list_providers(
     role: WorkspaceUserRole,
@@ -467,7 +674,7 @@ async def list_providers(
     existing = {(i.provider_id, i.grant_type): i for i in await svc.list_integrations()}
 
     items: list[ProviderReadMinimal] = []
-    for provider_impl in ProviderRegistry.get().providers:
+    for provider_impl in all_providers():
         integration = existing.get((provider_impl.id, provider_impl.grant_type))
         metadata = provider_impl.metadata
         item = ProviderReadMinimal(
@@ -475,7 +682,6 @@ async def list_providers(
             name=metadata.name,
             description=metadata.description,
             requires_config=metadata.requires_config,
-            categories=metadata.categories,
             integration_status=integration.status
             if integration
             else IntegrationStatus.NOT_CONFIGURED,
@@ -483,6 +689,24 @@ async def list_providers(
             grant_type=provider_impl.grant_type,
         )
         items.append(item)
+
+    for custom_provider in await svc.list_custom_providers():
+        integration = existing.get(
+            (custom_provider.provider_id, custom_provider.grant_type)
+        )
+        items.append(
+            ProviderReadMinimal(
+                id=custom_provider.provider_id,
+                name=custom_provider.name,
+                description=custom_provider.description or "Custom OAuth provider",
+                requires_config=True,
+                integration_status=integration.status
+                if integration
+                else IntegrationStatus.NOT_CONFIGURED,
+                enabled=True,
+                grant_type=custom_provider.grant_type,
+            )
+        )
 
     return items
 
@@ -496,16 +720,23 @@ async def get_provider(
     """Get provider metadata, scopes, and schema."""
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
+    impl = provider_info.impl
 
     return ProviderRead(
         grant_type=provider_info.key.grant_type,
-        metadata=provider_info.impl.metadata,
-        scopes=provider_info.impl.scopes,
-        schema=ProviderSchema(json_schema=provider_info.impl.schema() or {}),
+        metadata=impl.metadata,
+        scopes=impl.scopes,
+        config_schema=ProviderSchema(json_schema=impl.schema() or {}),
         integration_status=integration.status
         if integration
         else IntegrationStatus.NOT_CONFIGURED,
-        redirect_uri=provider_info.impl.redirect_uri()
-        if issubclass(provider_info.impl, AuthorizationCodeOAuthProvider)
+        default_authorization_endpoint=getattr(
+            impl, "default_authorization_endpoint", None
+        ),
+        default_token_endpoint=getattr(impl, "default_token_endpoint", None),
+        authorization_endpoint_help=getattr(impl, "authorization_endpoint_help", None),
+        token_endpoint_help=getattr(impl, "token_endpoint_help", None),
+        redirect_uri=impl.redirect_uri()
+        if issubclass(impl, AuthorizationCodeOAuthProvider)
         else None,
     )

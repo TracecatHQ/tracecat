@@ -1,15 +1,24 @@
 "use client"
 
 import { RefreshCcw } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/hooks/use-auth"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export default function RegistryRepositoriesPage() {
-  const { user } = useAuth()
+  const { user, userIsLoading } = useAuth()
+  const router = useRouter()
   const { reloadRegistryRepositories, reloadRegistryRepositoriesIsPending } =
     useRegistryRepositoriesReload()
+  useEffect(() => {
+    if (!user?.isOrgAdmin() && !userIsLoading) {
+      router.replace("/registry/actions")
+    }
+  }, [user, userIsLoading, router])
   const refreshRepositories = async () => {
     try {
       await reloadRegistryRepositories()
@@ -17,6 +26,8 @@ export default function RegistryRepositoriesPage() {
       console.log("Error reloading repositories", error)
     }
   }
+  if (userIsLoading) return <CenteredSpinner />
+  if (!user?.isOrgAdmin()) return null
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">

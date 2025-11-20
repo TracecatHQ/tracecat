@@ -7,7 +7,7 @@ from tests import shared
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 
@@ -90,7 +90,6 @@ async def test_execution_fails_invalid_expressions(
                 description="",
             ),
         ],
-        inputs={},
         returns=None,
         triggers=[],
     )

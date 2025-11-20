@@ -1,14 +1,19 @@
+import asyncio
 from typing import Any
 
 import pytest
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
+    eval_jsonpaths,
     filter,
+    flatten_json,
     is_in,
     map,
     not_in,
 )
+
+from tracecat.exceptions import TracecatExpressionError
 
 
 @pytest.mark.parametrize(
@@ -314,9 +319,690 @@ def test_not_in(
             ["deep.nested.id"],
             [{"deep": {"nested": {"id": 1, "value": "test"}}}],
         ),
+        # Dict input case
+        (
+            {"id": 1, "name": "Alice"},
+            ["id"],
+            [{"id": 1, "name": "Alice"}],
+        ),
+        # Dict input case with multiple keys
+        (
+            {"id": 1, "name": "Alice"},
+            ["id", "name"],
+            [{"id": 1, "name": "Alice"}],
+        ),
     ],
 )
-def test_deduplicate(
+@pytest.mark.anyio
+async def test_deduplicate(
     items: list[dict[str, Any]], keys: list[str], expected: list[dict[str, Any]]
 ) -> None:
-    assert deduplicate(items, keys) == expected
+    """Test the deduplicate function with various inputs and transformations."""
+    try:
+        result = await deduplicate(items, keys)
+        assert result == expected
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "first_call,second_call,expected_first,expected_second",
+    [
+        # Basic persistence test
+        (
+            [{"id": 99}, {"id": 100}],
+            [{"id": 99}, {"id": 100}],
+            [{"id": 99}, {"id": 100}],
+            [],
+        ),
+        # Partial overlap
+        (
+            [{"id": 1}, {"id": 2}],
+            [{"id": 2}, {"id": 3}],
+            [{"id": 1}, {"id": 2}],
+            [{"id": 3}],
+        ),
+        # Different fields, same keys
+        (
+            [{"id": 1, "name": "Alice"}],
+            [{"id": 1, "name": "Bob", "age": 30}],
+            [{"id": 1, "name": "Alice"}],
+            [],
+        ),
+        # Empty second call
+        (
+            [{"id": 1}],
+            [],
+            [{"id": 1}],
+            [],
+        ),
+        # Empty first call
+        (
+            [],
+            [{"id": 1}],
+            [],
+            [{"id": 1}],
+        ),
+        # Dict input case deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 1, "name": "Alice"},
+            [{"id": 1, "name": "Alice"}],
+            [],
+        ),
+        # Dict input case no deduplication
+        (
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Alice"},
+            [{"id": 1, "name": "Alice"}],
+            [{"id": 2, "name": "Alice"}],
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_persistence(
+    first_call: list[dict[str, Any]],
+    second_call: list[dict[str, Any]],
+    expected_first: list[dict[str, Any]],
+    expected_second: list[dict[str, Any]],
+) -> None:
+    """Test that deduplication persists across multiple calls."""
+    try:
+        first_result = await deduplicate(first_call, ["id"])
+        assert first_result == expected_first
+
+        second_result = await deduplicate(second_call, ["id"])
+        assert second_result == expected_second
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "items,keys,description",
+    [
+        # Special values in keys
+        (
+            [{"id": None}, {"id": None}],
+            ["id"],
+            "None values",
+        ),
+        (
+            [{"id": ""}, {"id": ""}],
+            ["id"],
+            "Empty strings",
+        ),
+        (
+            [{"id": 0}, {"id": 0}],
+            ["id"],
+            "Zero values",
+        ),
+        (
+            [{"id": False}, {"id": False}],
+            ["id"],
+            "Boolean False",
+        ),
+        # Complex key types
+        (
+            [{"data": {"nested": [1, 2, 3]}}, {"data": {"nested": [1, 2, 3]}}],
+            ["data.nested"],
+            "Array values as keys",
+        ),
+        (
+            [{"config": {"settings": {"a": 1}}}, {"config": {"settings": {"a": 1}}}],
+            ["config.settings"],
+            "Dict values as keys",
+        ),
+        # Unicode and special characters
+        (
+            [{"name": "José"}, {"name": "José"}],
+            ["name"],
+            "Unicode characters",
+        ),
+        (
+            [{"path": "/usr/bin/test"}, {"path": "/usr/bin/test"}],
+            ["path"],
+            "Path with slashes",
+        ),
+        (
+            [{"email": "test@example.com"}, {"email": "test@example.com"}],
+            ["email"],
+            "Email addresses",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_special_values(
+    items: list[dict[str, Any]],
+    keys: list[str],
+    description: str,
+) -> None:
+    """Test deduplication with special values and edge cases."""
+    try:
+        # First call should return the first item only (deduped within call)
+        result = await deduplicate(items, keys)
+        assert len(result) == 1, f"Failed for {description}"
+
+        # Second call should return empty (persisted dedup)
+        result2 = await deduplicate(items, keys)
+        assert result2 == [], f"Failed persistence for {description}"
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "input_data,keys,expected_type",
+    [
+        # Single dict input/output
+        (
+            {"id": 1, "name": "test"},
+            ["id"],
+            list,
+        ),
+        # List with single item returns list
+        (
+            [{"id": 1, "name": "test"}],
+            ["id"],
+            list,
+        ),
+        # Empty list returns list
+        (
+            [],
+            ["id"],
+            list,
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_return_types(
+    input_data: dict[str, Any] | list[dict[str, Any]],
+    keys: list[str],
+    expected_type: type,
+) -> None:
+    """Test that deduplicate returns the correct type based on input."""
+    try:
+        result = await deduplicate(input_data, keys)
+        assert isinstance(result, expected_type)
+
+        # For dict input, second call should return empty list
+        if isinstance(input_data, dict):
+            result2 = await deduplicate(input_data, keys)
+            assert result2 == []
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_ttl_expiry() -> None:
+    """Test that items are no longer considered duplicates after TTL expires."""
+    try:
+        payload = [{"id": 200}]
+
+        # First call with 1 second TTL
+        first = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert first == payload
+
+        # Second call immediately should be filtered
+        second = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert second == []
+
+        # Wait for TTL to expire
+        await asyncio.sleep(1.1)
+
+        # Third call should work again
+        third = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert third == payload
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "items,keys,error_type",
+    [
+        # Missing keys
+        (
+            [{"id": 1}, {"name": "test"}],
+            ["id"],
+            TracecatExpressionError,
+        ),
+        # Invalid jsonpath
+        (
+            [{"id": 1}],
+            ["id..invalid"],
+            TracecatExpressionError,
+        ),
+        # Non-dict items in list
+        (
+            ["not a dict"],
+            ["id"],
+            TracecatExpressionError,
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_error_cases(
+    items: Any,
+    keys: list[str],
+    error_type: type[Exception],
+) -> None:
+    """Test that deduplicate handles error cases appropriately."""
+    with pytest.raises(error_type):
+        await deduplicate(items, keys)
+
+
+@pytest.mark.anyio
+async def test_deduplicate_concurrent_calls() -> None:
+    """Test that concurrent calls to deduplicate work correctly."""
+    try:
+        # Create multiple items that will be processed concurrently
+        items = [{"id": i, "data": f"item_{i}"} for i in range(10)]
+
+        # Run multiple concurrent deduplicate calls
+        async def dedupe_task(item_subset):
+            return await deduplicate(item_subset, ["id"])
+
+        # Split items into overlapping subsets
+        subset1 = items[:6]  # items 0-5
+        subset2 = items[4:8]  # items 4-7 (overlap with subset1)
+        subset3 = items[6:]  # items 6-9 (overlap with subset2)
+
+        # Run concurrently
+        results = await asyncio.gather(
+            dedupe_task(subset1),
+            dedupe_task(subset2),
+            dedupe_task(subset3),
+        )
+
+        # Collect all returned items
+        all_results = []
+        for result in results:
+            all_results.extend(result)
+
+        # Should have no duplicates across all results
+        seen_ids = set()
+        for item in all_results:
+            assert item["id"] not in seen_ids, f"Duplicate id {item['id']} found"
+            seen_ids.add(item["id"])
+
+        # Should have all 10 unique items
+        assert len(seen_ids) == 10
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "keys,description",
+    [
+        # Multiple levels of nesting
+        (
+            ["data.user.profile.settings.id"],
+            "Deep nesting (5 levels)",
+        ),
+        # Multiple keys with different depths
+        (
+            ["type", "data.id", "meta.source.system"],
+            "Mixed depth keys",
+        ),
+        # Many keys
+        (
+            [f"field{i}" for i in range(10)],
+            "Many keys (10)",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_complex_keys(
+    keys: list[str],
+    description: str,
+) -> None:
+    """Test deduplication with complex key configurations."""
+    try:
+        # Build test data based on keys
+        def build_nested_dict(path: str, value: Any) -> dict:
+            parts = path.split(".")
+            result = {}
+            current = result
+            for part in parts[:-1]:
+                current[part] = {}
+                current = current[part]
+            current[parts[-1]] = value
+            return result
+
+        # Create two items with same key values
+        item1 = {}
+        item2 = {}
+        for i, key in enumerate(keys):
+            nested1 = build_nested_dict(key, f"value_{i}")
+            nested2 = build_nested_dict(key, f"value_{i}")
+
+            # Merge nested dicts
+            def deep_merge(d1, d2):
+                for k, v in d2.items():
+                    if k in d1 and isinstance(d1[k], dict) and isinstance(v, dict):
+                        deep_merge(d1[k], v)
+                    else:
+                        d1[k] = v
+
+            deep_merge(item1, nested1)
+            deep_merge(item2, nested2)
+
+        items = [item1, item2]
+
+        # Should deduplicate to one item
+        result = await deduplicate(items, keys)
+        assert len(result) == 1, f"Failed for {description}"
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
+    """Test that deduplicate raises ConnectionError on Redis operation failures."""
+
+    # Mock redis.from_url to return a failing client
+    class MockRedisClient:
+        async def set(self, *args, **kwargs):
+            raise Exception("Redis SET failed")
+
+        async def aclose(self):
+            pass
+
+        def pipeline(self, *args, **kwargs):
+            return self
+
+    def mock_from_url(*args, **kwargs):
+        return MockRedisClient()
+
+    # Import redis.asyncio within the function to patch it
+    import redis.asyncio as redis
+
+    monkeypatch.setattr(redis, "from_url", mock_from_url)
+
+    with pytest.raises(ConnectionError, match="key-value store.*"):
+        await deduplicate([{"id": 1}], ["id"])
+
+
+@pytest.mark.anyio
+async def test_deduplicate_skip_persistence_vs_redis() -> None:
+    """Test that persist=True persists across calls, but persist=False doesn't."""
+    items_persist = [{"id": 998, "data": "test_persist"}]
+    items_no_persist = [{"id": 997, "data": "test_no_persist"}]
+    keys = ["id"]
+
+    try:
+        # First call with persist=True should return the item
+        result1 = await deduplicate(items_persist, keys, persist=True)
+        assert result1 == items_persist
+
+        # Second call with persist=True should return empty (Redis persistence)
+        result2 = await deduplicate(items_persist, keys, persist=True)
+        assert result2 == []
+
+        # First call with persist=False should return the item
+        result3 = await deduplicate(items_no_persist, keys, persist=False)
+        assert result3 == items_no_persist
+
+        # Second call with persist=False should also return the item (no persistence)
+        result4 = await deduplicate(items_no_persist, keys, persist=False)
+        assert result4 == items_no_persist
+
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "input_json,expected",
+    [
+        # Basic nested object
+        ({"a": {"b": 1}}, {"a.b": 1}),
+        # Multiple levels of nesting
+        ({"a": {"b": {"c": 1}}}, {"a.b.c": 1}),
+        # Multiple keys at same level
+        ({"a": 1, "b": 2, "c": 3}, {"a": 1, "b": 2, "c": 3}),
+        # Mixed nested structure
+        (
+            {"user": {"name": "Alice", "profile": {"age": 30}}},
+            {"user.name": "Alice", "user.profile.age": 30},
+        ),
+        # Array in object
+        ({"items": [1, 2, 3]}, {"items[0]": 1, "items[1]": 2, "items[2]": 3}),
+        # Array of objects
+        (
+            {"users": [{"id": 1}, {"id": 2}]},
+            {"users[0].id": 1, "users[1].id": 2},
+        ),
+        # Nested array of objects
+        (
+            {"data": {"users": [{"name": "Alice"}, {"name": "Bob"}]}},
+            {"data.users[0].name": "Alice", "data.users[1].name": "Bob"},
+        ),
+        # Complex nested structure with arrays
+        (
+            {
+                "event": {
+                    "type": "login",
+                    "users": [{"id": 1, "roles": ["admin", "user"]}],
+                }
+            },
+            {
+                "event.type": "login",
+                "event.users[0].id": 1,
+                "event.users[0].roles[0]": "admin",
+                "event.users[0].roles[1]": "user",
+            },
+        ),
+        # Empty object
+        ({}, {}),
+        # Single key-value
+        ({"key": "value"}, {"key": "value"}),
+        # Object with empty nested structures
+        ({"a": {}, "b": []}, {}),
+        # Mixed types as values
+        (
+            {"str": "text", "num": 42, "bool": True, "null": None},
+            {"str": "text", "num": 42, "bool": True, "null": None},
+        ),
+        # Deeply nested array in object
+        (
+            {"a": {"b": [{"c": [1, 2]}]}},
+            {"a.b[0].c[0]": 1, "a.b[0].c[1]": 2},
+        ),
+    ],
+)
+def test_flatten_json(input_json: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Test the flatten_json function with various structures."""
+    result = flatten_json(input_json)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        # String JSON object
+        ('{"a": {"b": 1}}', {"a.b": 1}),
+        # String JSON with array
+        ('{"items": [1, 2]}', {"items[0]": 1, "items[1]": 2}),
+        # Complex string JSON
+        (
+            '{"user": {"name": "Alice", "data": [1, 2]}}',
+            {"user.name": "Alice", "user.data[0]": 1, "user.data[1]": 2},
+        ),
+    ],
+)
+def test_flatten_json_string_input(input_str: str, expected: dict[str, Any]) -> None:
+    """Test flatten_json with string JSON input."""
+    result = flatten_json(input_str)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,error_match",
+    [
+        # Invalid JSON string
+        ("{invalid json}", ""),
+        # Non-dict after parsing (list at top level is OK, but primitives aren't)
+        ("123", "json must be a JSON object"),
+        ('"string"', "json must be a JSON object"),
+        ("true", "json must be a JSON object"),
+        ("null", "json must be a JSON object"),
+    ],
+)
+def test_flatten_json_errors(input_json: str, error_match: str) -> None:
+    """Test flatten_json error cases."""
+    with pytest.raises(ValueError, match=error_match):
+        flatten_json(input_json)
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths,expected",
+    [
+        # Single path
+        ({"name": "Alice"}, ["$.name"], {"$.name": "Alice"}),
+        # Multiple paths
+        (
+            {"name": "Alice", "age": 30},
+            ["$.name", "$.age"],
+            {"$.name": "Alice", "$.age": 30},
+        ),
+        # Nested path
+        (
+            {"user": {"profile": {"email": "alice@example.com"}}},
+            ["$.user.profile.email"],
+            {"$.user.profile.email": "alice@example.com"},
+        ),
+        # Array index access
+        (
+            {"items": [1, 2, 3]},
+            ["$.items[0]", "$.items[2]"],
+            {"$.items[0]": 1, "$.items[2]": 3},
+        ),
+        # Array wildcard (returns list)
+        (
+            {"items": [1, 2, 3]},
+            ["$.items[*]"],
+            {"$.items[*]": [1, 2, 3]},
+        ),
+        # Complex nested structure
+        (
+            {"data": {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}},
+            ["$.data.users[0].name", "$.data.users[1].id"],
+            {"$.data.users[0].name": "Alice", "$.data.users[1].id": 2},
+        ),
+        # Empty jsonpaths list
+        ({"a": 1}, [], {}),
+        # Multiple levels of nesting
+        (
+            {"a": {"b": {"c": {"d": "value"}}}},
+            ["$.a.b.c.d"],
+            {"$.a.b.c.d": "value"},
+        ),
+        # Array of objects with wildcard
+        (
+            {"users": [{"name": "Alice"}, {"name": "Bob"}]},
+            ["$.users[*].name"],
+            {"$.users[*].name": ["Alice", "Bob"]},
+        ),
+        # Mixed types
+        (
+            {"str": "text", "num": 42, "bool": True, "null": None, "arr": [1, 2]},
+            ["$.str", "$.num", "$.bool", "$.null", "$.arr"],
+            {
+                "$.str": "text",
+                "$.num": 42,
+                "$.bool": True,
+                "$.null": None,
+                "$.arr": [1, 2],
+            },
+        ),
+    ],
+)
+def test_eval_jsonpaths(
+    input_json: dict[str, Any], jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test the eval_jsonpaths function with various JSONPath expressions."""
+    result = eval_jsonpaths(input_json, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,jsonpaths,expected",
+    [
+        # String JSON input
+        ('{"name": "Alice"}', ["$.name"], {"$.name": "Alice"}),
+        # Complex string JSON
+        (
+            '{"user": {"id": 1, "profile": {"email": "test@example.com"}}}',
+            ["$.user.id", "$.user.profile.email"],
+            {"$.user.id": 1, "$.user.profile.email": "test@example.com"},
+        ),
+        # String JSON with array
+        (
+            '{"items": [{"id": 1}, {"id": 2}]}',
+            ["$.items[0].id", "$.items[*].id"],
+            {"$.items[0].id": 1, "$.items[*].id": [1, 2]},
+        ),
+    ],
+)
+def test_eval_jsonpaths_string_input(
+    input_str: str, jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test eval_jsonpaths with string JSON input."""
+    result = eval_jsonpaths(input_str, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths,expected",
+    [
+        # Non-existent path returns None
+        ({"a": 1}, ["$.b"], {"$.b": None}),
+        # Partially non-existent nested path
+        ({"a": {"b": 1}}, ["$.a.c"], {"$.a.c": None}),
+        # Mix of existing and non-existing paths
+        (
+            {"a": 1, "b": 2},
+            ["$.a", "$.c", "$.b"],
+            {"$.a": 1, "$.c": None, "$.b": 2},
+        ),
+    ],
+)
+def test_eval_jsonpaths_nonexistent_paths(
+    input_json: dict[str, Any], jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test eval_jsonpaths with non-existent paths."""
+    result = eval_jsonpaths(input_json, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,error_type",
+    [
+        # Invalid JSON string
+        ("{invalid}", Exception),
+        # Non-dict after parsing
+        ("123", ValueError),
+        ('"string"', ValueError),
+        ("true", ValueError),
+        ("null", ValueError),
+    ],
+)
+def test_eval_jsonpaths_errors(input_json: str, error_type: type[Exception]) -> None:
+    """Test eval_jsonpaths error cases."""
+    with pytest.raises(error_type):
+        eval_jsonpaths(input_json, ["$.test"])
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths",
+    [
+        # Invalid JSONPath syntax - missing closing bracket
+        ({"a": 1}, ["[broken"]),
+        # Invalid JSONPath syntax - multiple invalid patterns
+        ({"a": 1}, ["$[unclosed", "[incomplete"]),
+    ],
+)
+def test_eval_jsonpaths_invalid_expressions(
+    input_json: dict[str, Any], jsonpaths: list[str]
+) -> None:
+    """Test eval_jsonpaths with invalid JSONPath expressions."""
+    with pytest.raises(TracecatExpressionError):
+        eval_jsonpaths(input_json, jsonpaths)

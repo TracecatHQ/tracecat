@@ -1,7 +1,7 @@
 import os
 
 import aioboto3
-from temporalio.client import Client
+from temporalio.client import Client, Plugin
 from temporalio.exceptions import TemporalError
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from tenacity import (
@@ -40,7 +40,7 @@ async def _retrieve_temporal_api_key(arn: str) -> str:
     retry=retry_if_exception_type((TemporalError, RuntimeError)),
     reraise=True,
 )
-async def connect_to_temporal() -> Client:
+async def connect_to_temporal(plugins: list[Plugin] | None = None) -> Client:
     api_key = None
     tls_config = False
     rpc_metadata = {}
@@ -72,11 +72,12 @@ async def connect_to_temporal() -> Client:
             compression_enabled=config.TRACECAT__CONTEXT_COMPRESSION_ENABLED
         ),
         runtime=runtime,
+        plugins=plugins or [],
     )
     return client
 
 
-async def get_temporal_client() -> Client:
+async def get_temporal_client(plugins: list[Plugin] | None = None) -> Client:
     global _client
 
     if _client is not None:
@@ -88,7 +89,7 @@ async def get_temporal_client() -> Client:
             namespace=TEMPORAL__CLUSTER_NAMESPACE,
             url=TEMPORAL__CLUSTER_URL,
         )
-        _client = await connect_to_temporal()
+        _client = await connect_to_temporal(plugins=plugins)
         logger.info("Successfully connected to Temporal server")
     except RetryError as e:
         msg = (

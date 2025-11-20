@@ -1,17 +1,22 @@
 "use client"
 
 import {
-  BracesIcon,
+  BotIcon,
+  BracketsIcon,
   KeyRoundIcon,
-  ShieldAlertIcon,
+  type LucideIcon,
+  MessageSquareIcon,
+  SquareStackIcon,
   Table2Icon,
+  UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
@@ -26,8 +31,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
@@ -35,10 +41,43 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
+  const params = useParams<{ caseId?: string }>()
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
+  const caseId = params?.caseId
+  const casesListPath = `${basePath}/cases`
+  const isCasesList = pathname === casesListPath
 
-  const navMain = [
+  useEffect(() => {
+    setSidebarOpenRef.current = setSidebarOpen
+  }, [setSidebarOpen])
+
+  useEffect(() => {
+    const updateSidebarOpen = setSidebarOpenRef.current
+    if (caseId) {
+      updateSidebarOpen(false)
+    } else if (isCasesList) {
+      updateSidebarOpen(true)
+    }
+  }, [caseId, isCasesList])
+
+  type NavItem = {
+    title: string
+    url: string
+    icon: LucideIcon
+    isActive?: boolean
+    visible?: boolean
+  }
+
+  const navMain: NavItem[] = [
+    {
+      title: "Chat",
+      url: `${basePath}/copilot`,
+      icon: MessageSquareIcon,
+      isActive: pathname?.startsWith(`${basePath}/copilot`),
+    },
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
@@ -48,14 +87,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     {
       title: "Cases",
       url: `${basePath}/cases`,
-      icon: ShieldAlertIcon,
+      icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: ZapIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
+      title: "Agents",
+      url: `${basePath}/agents`,
+      icon: BotIcon,
+      isActive: pathname?.startsWith(`${basePath}/agents`),
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/approvals`,
+      icon: UserCheckIcon,
+      isActive: pathname?.startsWith(`${basePath}/approvals`),
     },
   ]
 
@@ -67,22 +112,28 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: BracketsIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
+    },
+    {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
     },
     {
+      title: "Integrations",
+      url: `${basePath}/integrations`,
+      icon: ZapIcon,
+      isActive: pathname?.startsWith(`${basePath}/integrations`),
+    },
+    {
       title: "Members",
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-    },
-    {
-      title: "Custom fields",
-      url: `${basePath}/custom-fields`,
-      icon: BracesIcon,
-      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
     },
   ]
 
@@ -95,16 +146,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navMain.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navMain
+                .filter((item) => item.visible !== false)
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={item.isActive}>
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

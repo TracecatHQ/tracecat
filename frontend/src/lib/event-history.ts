@@ -4,15 +4,20 @@ import type {
   InteractionInput,
   RunActionInput,
   WorkflowEventType,
-  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__,
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__,
+  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_,
+  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_,
 } from "@/client"
+import { undoSlugify } from "@/lib/utils"
 
 export type WorkflowExecutionEventCompact =
-  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__
+  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_
 
 export type WorkflowExecutionReadCompact =
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
+  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+
+// Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
+export const WF_FAILURE_EVENT_REF = "__workflow_failure__"
+export const WF_FAILURE_EVENT_LABEL = "Workflow Failure"
 
 export const ERROR_EVENT_TYPES: WorkflowEventType[] = [
   "WORKFLOW_EXECUTION_FAILED",
@@ -203,4 +208,16 @@ export function isAgentOutput(
     "message_history" in actionResult &&
     Array.isArray((actionResult as AgentOutput).message_history)
   )
+}
+
+/**
+ * Map an action ref to its display label, handling special platform refs
+ * @param actionRef - The action reference string to convert to a display label
+ * @returns The formatted display label for the action ref
+ */
+export function refToLabel(actionRef: string) {
+  if (actionRef === WF_FAILURE_EVENT_REF) {
+    return WF_FAILURE_EVENT_LABEL
+  }
+  return undoSlugify(actionRef)
 }

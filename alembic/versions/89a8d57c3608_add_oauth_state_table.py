@@ -9,7 +9,7 @@ Create Date: 2025-07-02 20:02:19.192028
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -36,10 +36,10 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.Column("state", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("state", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("provider_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("provider_id", sa.String(), nullable=False),
         sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspace.id"], ondelete="CASCADE"),

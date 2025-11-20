@@ -3,7 +3,9 @@ from typing import Any
 import orjson
 from cryptography.fernet import Fernet, InvalidToken
 
-from .models import SecretBase, SecretKeyValue
+from tracecat.secrets.enums import SecretType
+
+from .schemas import SecretBase, SecretKeyValue
 
 
 def encrypt_bytes(obj: dict[str, Any], *, key: str) -> bytes:
@@ -20,7 +22,7 @@ def decrypt_bytes(encrypted_obj: bytes, *, key: str) -> dict[str, Any]:
 
 
 def decrypt_keyvalues(
-    encrypted_keys: bytes, *, key: str, secret_type: str = "custom"
+    encrypted_keys: bytes, *, key: str, secret_type: SecretType = SecretType.CUSTOM
 ) -> list[SecretKeyValue]:
     obj = decrypt_bytes(encrypted_keys, key=key)
     keyvalues = SecretBase.factory(secret_type).model_validate(obj)
@@ -71,3 +73,8 @@ def decrypt_value(encrypted_value: bytes, *, key: str) -> bytes:
         raise InvalidToken("Decryption failed: corrupted or invalid token") from e
     except Exception as e:
         raise ValueError(f"Decryption failed: {str(e)}") from e
+
+
+def is_set(value: bytes) -> bool:
+    """True when ciphertext is not empty."""
+    return bool(value)

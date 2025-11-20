@@ -28,9 +28,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useSessions } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export function OrgSessionsTable() {
   const [selectedSession, setSelectedSession] = useState<SessionRead | null>(

@@ -18,13 +18,17 @@ export type ActionControlFlow = {
    * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
+  /**
+   * Override environment for this action's execution
+   */
+  environment?: string | null
 }
 
 export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
-  description?: string | null
+  description?: string
   inputs?: string
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean
@@ -117,6 +121,10 @@ export type ActionStatement = {
    * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
    */
   join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
 }
 
 export type ActionStep = {
@@ -162,14 +170,160 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentApprovalSubmission = {
+  approvals: ApprovalMap
+}
+
 export type AgentOutput = {
   output: unknown
-  files?: {
+  message_history?: Array<ModelRequest | ModelResponse> | null
+  duration: number
+  usage: RunUsage
+  session_id: string
+  trace_id?: string | null
+}
+
+export type AgentPreset = {
+  component_id?: "agent-preset"
+}
+
+/**
+ * Payload for creating a new agent preset.
+ */
+export type AgentPresetCreate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
     [key: string]: string
   } | null
-  message_history: Array<ModelRequest | ModelResponse>
-  duration: number
-  usage?: Usage | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  name: string
+  slug?: string | null
+}
+
+/**
+ * API model for reading agent presets.
+ */
+export type AgentPresetRead = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Minimal API model for reading agent presets in list endpoints.
+ */
+export type AgentPresetReadMinimal = {
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Payload for updating an existing agent preset.
+ */
+export type AgentPresetUpdate = {
+  name?: string | null
+  slug?: string | null
+  description?: string | null
+  instructions?: string | null
+  model_name?: string | null
+  model_provider?: string | null
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_server_url?: string | null
+  mcp_server_headers?: {
+    [key: string]: string
+  } | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
+  retries?: number | null
+}
+
+export type AgentSessionRead = {
+  id: string
+  created_at: string
+  parent_id?: string | null
+  parent_run_id: string | null
+  root_id?: string | null
+  root_run_id?: string | null
+  status?: WorkflowExecutionStatus | null
+  approvals?: Array<ApprovalRead>
+  parent_workflow?: WorkflowSummary | null
+  root_workflow?: WorkflowSummary | null
+  action_ref?: string | null
+  action_title?: string | null
+}
+
+export type AgentSettingsRead = {
+  agent_default_model: string | null
+  agent_fixed_args: string | null
+  agent_case_chat_prompt: string
+  agent_case_chat_inject_content: boolean
+}
+
+export type AgentSettingsUpdate = {
+  /**
+   * The default AI model to use for agent operations.
+   */
+  agent_default_model?: string | null
+  /**
+   * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
+   */
+  agent_fixed_args?: string | null
+  /**
+   * Additional instructions for case chat agent; prepended to UI-provided instructions.
+   */
+  agent_case_chat_prompt?: string
+  /**
+   * Whether to automatically inject case content into agent prompts when a case_id is available.
+   */
+  agent_case_chat_inject_content?: boolean
 }
 
 /**
@@ -210,7 +364,7 @@ export type AppSettingsUpdate = {
    */
   app_create_workspace_on_register?: boolean
   /**
-   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   * Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.
    */
   app_editor_pill_decorations_enabled?: boolean
   /**
@@ -218,6 +372,20 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
 }
+
+/**
+ * Operator decision for a pending approval.
+ */
+export type ApprovalDecision = {
+  tool_call_id: string
+  action: "approve" | "override" | "deny"
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  reason?: string | null
+}
+
+export type action = "approve" | "override" | "deny"
 
 /**
  * Configuration for an approval interaction.
@@ -245,6 +413,40 @@ export type ApprovalInteraction = {
    */
   approve_if?: string | null
 }
+
+export type ApprovalMap = {
+  [key: string]: boolean | ToolApproved | ToolDenied
+}
+
+/**
+ * Serialized approval record.
+ */
+export type ApprovalRead = {
+  id: string
+  session_id: string
+  tool_call_id: string
+  tool_name: string
+  status: ApprovalStatus
+  reason: string | null
+  tool_call_args: {
+    [key: string]: unknown
+  } | null
+  decision:
+    | boolean
+    | {
+        [key: string]: unknown
+      }
+    | null
+  approved_by?: UserReadMinimal | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Possible states for a deferred tool approval.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected"
 
 /**
  * Event for when a case assignee is changed.
@@ -311,9 +513,34 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
+/**
+ * A URL to an audio file.
+ */
 export type AudioUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "audio-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type AuthSettingsRead = {
@@ -347,11 +574,18 @@ export type AuthSettingsUpdate = {
   auth_session_expire_time_seconds?: number
 }
 
+/**
+ * Binary content, e.g. an audio or image file.
+ */
 export type BinaryContent = {
   data: Blob | File
   media_type:
     | "audio/wav"
     | "audio/mpeg"
+    | "audio/ogg"
+    | "audio/flac"
+    | "audio/aiff"
+    | "audio/aac"
     | "image/jpeg"
     | "image/png"
     | "image/gif"
@@ -365,7 +599,33 @@ export type BinaryContent = {
     | "text/markdown"
     | "application/vnd.ms-excel"
     | string
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "binary"
+  /**
+   * Identifier for the binary content, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `BinaryContent`.
+   *
+   * This identifier is only automatically passed to the model when the `BinaryContent` is returned by a tool.
+   * If you're passing the `BinaryContent` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `BinaryContent`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
+}
+
+export type Body_auth_auth_database_login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -390,13 +650,18 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
-export type Body_cases_create_attachment = {
+export type Body_case_attachments_create_attachment = {
   file: Blob | File
 }
 
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
+}
+
+export type Body_tables_import_table_from_csv = {
+  file: Blob | File
+  table_name?: string | null
 }
 
 export type Body_workflows_create_workflow = {
@@ -407,6 +672,54 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * An event indicating the start to a call to a built-in tool.
+ * @deprecated
+ */
+export type BuiltinToolCallEvent = {
+  part: BuiltinToolCallPart
+  event_kind?: "builtin_tool_call"
+}
+
+/**
+ * A tool call to a built-in tool.
+ */
+export type BuiltinToolCallPart = {
+  tool_name: string
+  args?:
+    | string
+    | {
+        [key: string]: unknown
+      }
+    | null
+  tool_call_id?: string
+  id?: string | null
+  provider_name?: string | null
+  part_kind?: "builtin-tool-call"
+}
+
+/**
+ * An event indicating the result of a built-in tool call.
+ * @deprecated
+ */
+export type BuiltinToolResultEvent = {
+  result: BuiltinToolReturnPart
+  event_kind?: "builtin_tool_result"
+}
+
+/**
+ * A tool return message from a built-in tool.
+ */
+export type BuiltinToolReturnPart = {
+  tool_name: string
+  content: unknown
+  tool_call_id?: string
+  metadata?: unknown
+  timestamp?: string
+  provider_name?: string | null
+  part_kind?: "builtin-tool-return"
 }
 
 /**
@@ -474,6 +787,9 @@ export type CaseCreate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseCustomFieldRead = {
@@ -487,12 +803,171 @@ export type CaseCustomFieldRead = {
 }
 
 /**
+ * Strategies for choosing which matching event should anchor a duration.
+ */
+export type CaseDurationAnchorSelection = "first" | "last"
+
+/**
+ * Create payload for case duration records.
+ */
+export type CaseDurationCreate = {
+  /**
+   * Identifier of the case duration definition generating this duration.
+   */
+  definition_id: string
+  /**
+   * Case event that started the duration, if available.
+   */
+  start_event_id?: string | null
+  /**
+   * Case event that ended the duration, if available.
+   */
+  end_event_id?: string | null
+  /**
+   * Timestamp when the duration began.
+   */
+  started_at?: string | null
+  /**
+   * Timestamp when the duration ended.
+   */
+  ended_at?: string | null
+  /**
+   * Total elapsed time between start and end timestamps.
+   */
+  duration?: string | null
+}
+
+/**
+ * Create payload for case duration definitions.
+ */
+export type CaseDurationDefinitionCreate = {
+  /**
+   * Human readable name for the metric.
+   */
+  name: string
+  /**
+   * Optional description providing more context.
+   */
+  description?: string | null
+  /**
+   * Event configuration that marks the start of the duration.
+   */
+  start_anchor: CaseDurationEventAnchor
+  /**
+   * Event configuration that marks the end of the duration.
+   */
+  end_anchor: CaseDurationEventAnchor
+}
+
+/**
+ * Read model for case duration definitions.
+ */
+export type CaseDurationDefinitionRead = {
+  /**
+   * Human readable name for the metric.
+   */
+  name: string
+  /**
+   * Optional description providing more context.
+   */
+  description?: string | null
+  /**
+   * Event configuration that marks the start of the duration.
+   */
+  start_anchor: CaseDurationEventAnchor
+  /**
+   * Event configuration that marks the end of the duration.
+   */
+  end_anchor: CaseDurationEventAnchor
+  id: string
+}
+
+/**
+ * Patch payload for case duration definitions.
+ */
+export type CaseDurationDefinitionUpdate = {
+  name?: string | null
+  description?: string | null
+  start_anchor?: CaseDurationEventAnchor | null
+  end_anchor?: CaseDurationEventAnchor | null
+}
+
+/**
+ * Selection criteria describing an event boundary for a duration.
+ */
+export type CaseDurationEventAnchor = {
+  /**
+   * Case event type that should be matched for this anchor.
+   */
+  event_type: CaseEventType
+  /**
+   * Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.
+   */
+  timestamp_path?: string
+  /**
+   * Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.
+   */
+  field_filters?: {
+    [key: string]: unknown
+  }
+  /**
+   * Whether to use the first or last matching event for this anchor. Defaults to the first match.
+   */
+  selection?: CaseDurationAnchorSelection
+}
+
+/**
+ * Read model for case duration records.
+ */
+export type CaseDurationRead = {
+  /**
+   * Identifier of the case duration definition generating this duration.
+   */
+  definition_id: string
+  /**
+   * Case event that started the duration, if available.
+   */
+  start_event_id?: string | null
+  /**
+   * Case event that ended the duration, if available.
+   */
+  end_event_id?: string | null
+  /**
+   * Timestamp when the duration began.
+   */
+  started_at?: string | null
+  /**
+   * Timestamp when the duration ended.
+   */
+  ended_at?: string | null
+  /**
+   * Total elapsed time between start and end timestamps.
+   */
+  duration?: string | null
+  id: string
+  case_id: string
+}
+
+/**
+ * Patch payload for case duration records.
+ */
+export type CaseDurationUpdate = {
+  definition_id?: string | null
+  start_event_id?: string | null
+  end_event_id?: string | null
+  started_at?: string | null
+  ended_at?: string | null
+  duration?: string | null
+}
+
+/**
  * Base read model for all event types.
  */
 export type CaseEventRead =
   | CreatedEventRead
   | ClosedEventRead
   | ReopenedEventRead
+  | CaseViewedEventRead
   | UpdatedEventRead
   | StatusChangedEventRead
   | PriorityChangedEventRead
@@ -501,6 +976,41 @@ export type CaseEventRead =
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
+  | TagAddedEventRead
+  | TagRemovedEventRead
+  | PayloadChangedEventRead
+  | TaskCreatedEventRead
+  | TaskStatusChangedEventRead
+  | TaskPriorityChangedEventRead
+  | TaskWorkflowChangedEventRead
+  | TaskDeletedEventRead
+  | TaskAssigneeChangedEventRead
+
+/**
+ * Case activity type values.
+ */
+export type CaseEventType =
+  | "case_created"
+  | "case_updated"
+  | "case_closed"
+  | "case_reopened"
+  | "case_viewed"
+  | "priority_changed"
+  | "severity_changed"
+  | "status_changed"
+  | "fields_changed"
+  | "assignee_changed"
+  | "attachment_created"
+  | "attachment_deleted"
+  | "tag_added"
+  | "tag_removed"
+  | "payload_changed"
+  | "task_created"
+  | "task_deleted"
+  | "task_status_changed"
+  | "task_priority_changed"
+  | "task_workflow_changed"
+  | "task_assignee_changed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -527,6 +1037,7 @@ export type CaseFieldCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -565,6 +1076,7 @@ export type CaseFieldUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
@@ -598,6 +1110,10 @@ export type CaseRead = {
   description: string
   fields: Array<CaseCustomFieldRead>
   assignee?: UserRead | null
+  payload: {
+    [key: string]: unknown
+  } | null
+  tags?: Array<CaseTagRead>
 }
 
 export type CaseReadMinimal = {
@@ -610,6 +1126,9 @@ export type CaseReadMinimal = {
   priority: CasePriority
   severity: CaseSeverity
   assignee?: UserRead | null
+  tags?: Array<CaseTagRead>
+  num_tasks_completed?: number
+  num_tasks_total?: number
 }
 
 /**
@@ -647,6 +1166,59 @@ export type CaseStatus =
   | "closed"
   | "other"
 
+export type CaseTagCreate = {
+  /**
+   * Tag ID (UUID) or ref
+   */
+  tag_id: string
+}
+
+/**
+ * Tag data.
+ */
+export type CaseTagRead = {
+  id: string
+  name: string
+  ref: string
+  color: string | null
+}
+
+export type CaseTaskCreate = {
+  title: string
+  description?: string | null
+  priority?: CasePriority
+  status?: CaseTaskStatus
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
+export type CaseTaskRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  case_id: string
+  title: string
+  description: string | null
+  priority: CasePriority
+  status: CaseTaskStatus
+  assignee?: UserRead | null
+  workflow_id: string | null
+}
+
+/**
+ * Case task status values.
+ */
+export type CaseTaskStatus = "todo" | "in_progress" | "completed" | "blocked"
+
+export type CaseTaskUpdate = {
+  title?: string | null
+  description?: string | null
+  priority?: CasePriority | null
+  status?: CaseTaskStatus | null
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
 export type CaseUpdate = {
   summary?: string | null
   description?: string | null
@@ -657,6 +1229,241 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Event for when a case is viewed.
+ */
+export type CaseViewedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_viewed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Request model for creating a new chat.
+ */
+export type ChatCreate = {
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: ChatEntity
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent for this chat
+   */
+  tools?: Array<string> | null
+  /**
+   * Optional agent preset to use for the chat session
+   */
+  agent_preset_id?: string | null
+}
+
+/**
+ * The type of entity associated with a chat.
+ */
+export type ChatEntity =
+  | "case"
+  | "agent_preset"
+  | "agent_preset_builder"
+  | "copilot"
+
+/**
+ * Model for chat metadata with a single message.
+ */
+export type ChatMessage = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * The message from the chat
+   */
+  message: ModelRequest | ModelResponse
+}
+
+/**
+ * Model for chat metadata with message history.
+ */
+export type ChatRead = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<ChatMessage>
+}
+
+/**
+ * Model for chat metadata without messages.
+ */
+export type ChatReadMinimal = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+}
+
+/**
+ * Model for chat metadata with message history in Vercel format.
+ */
+export type ChatReadVercel = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Last processed Redis stream ID for this chat
+   */
+  last_stream_id?: string | null
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<UIMessage>
+}
+
+/**
+ * Request model for updating chat properties.
+ */
+export type ChatUpdate = {
+  /**
+   * Tools available to the agent
+   */
+  tools?: Array<string> | null
+  /**
+   * Chat title
+   */
+  title?: string | null
+  /**
+   * Agent preset to use for the chat session (set to null for default instructions)
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -686,6 +1493,14 @@ export type Code = {
 }
 
 export type lang = "yaml" | "python"
+
+/**
+ * Payload to continue a CE run after collecting approvals.
+ */
+export type ContinueRunRequest = {
+  kind?: "continue"
+  decisions: Array<ApprovalDecision>
+}
 
 /**
  * Event for when a case is created.
@@ -779,6 +1594,39 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
 }
 
 /**
+ * Request payload for creating a custom OAuth provider.
+ */
+export type CustomOAuthProviderCreate = {
+  name: string
+  description?: string | null
+  grant_type: OAuthGrantType
+  /**
+   * OAuth authorization endpoint URL
+   */
+  authorization_endpoint: string
+  /**
+   * OAuth token endpoint URL
+   */
+  token_endpoint: string
+  /**
+   * Default OAuth scopes to request
+   */
+  scopes?: Array<string> | null
+  /**
+   * Optional custom identifier for the provider
+   */
+  provider_id?: string | null
+  /**
+   * OAuth client identifier
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
+}
+
+/**
  * This is the runtime configuration for the workflow.
  *
  * Activities don't need access to this.
@@ -793,7 +1641,7 @@ export type DSLConfig_Input = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -814,7 +1662,7 @@ export type DSLConfig_Output = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -850,12 +1698,6 @@ export type DSLInput = {
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
-   * Static input parameters
-   */
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
    * The action ref or value to return.
    */
   returns?: unknown | null
@@ -876,7 +1718,7 @@ export type DSLRunArgs = {
    */
   runtime_config?: DSLConfig_Output
   /**
-   * The maximum time to wait for the workflow to complete.
+   * Platform activity start-to-close timeout.
    */
   timeout?: string
   /**
@@ -896,9 +1738,99 @@ export type DSLValidationResult = {
   ref?: string | null
 }
 
+/**
+ * A custom data part, where type matches 'data-...'.
+ */
+export type DataUIPart = {
+  type: string
+  id?: string
+  data: unknown
+}
+
+/**
+ * The URL of the document.
+ */
 export type DocumentUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "document-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
+}
+
+export type DynamicToolUIPartInputAvailable = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "input-available"
+  input: unknown
+  output?: null
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type DynamicToolUIPartInputStreaming = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "input-streaming"
+  input?: unknown
+  output?: null
+  errorText?: null
+}
+
+export type DynamicToolUIPartOutputAvailable = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "output-available"
+  input: unknown
+  output: unknown
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+  preliminary?: boolean
+}
+
+export type DynamicToolUIPartOutputError = {
+  type: "dynamic-tool"
+  toolName: string
+  toolCallId: string
+  state: "output-error"
+  input: unknown
+  output?: null
+  errorText: string
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type EditorActionRead = {
@@ -919,6 +1851,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentPreset
 
 export type EditorFunctionRead = {
   name: string
@@ -941,6 +1874,7 @@ export type ErrorDetails = {
   ctx?: {
     [key: string]: unknown
   }
+  url?: string
 }
 
 export type ErrorModel = {
@@ -993,8 +1927,8 @@ export type ExpectedField = {
 export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
+  | "VARS"
   | "FN"
-  | "INPUTS"
   | "ENV"
   | "TRIGGER"
   | "var"
@@ -1016,6 +1950,7 @@ export type ExprType =
   | "trigger"
   | "template_action_step"
   | "template_action_input"
+  | "variable"
 
 /**
  * Result of visiting an expression node.
@@ -1038,6 +1973,24 @@ export type ExpressionValidationResponse = {
   is_valid: boolean
   errors?: Array<ValidationError>
   tokens?: Array<SyntaxToken>
+}
+
+/**
+ * Feature flag enum.
+ */
+export type FeatureFlag =
+  | "git-sync"
+  | "agent-sandbox"
+  | "agent-approvals"
+  | "agent-presets"
+  | "case-durations"
+  | "case-tasks"
+
+/**
+ * Response model for feature flags.
+ */
+export type FeatureFlagsRead = {
+  enabled_features: Array<FeatureFlag>
 }
 
 /**
@@ -1066,6 +2019,37 @@ export type FieldDiff = {
   new: unknown
 }
 
+/**
+ * A file response from a model.
+ */
+export type FilePart = {
+  content: BinaryContent
+  id?: string | null
+  provider_name?: string | null
+  part_kind?: "file"
+}
+
+/**
+ * A file part of a message.
+ */
+export type FileUIPart = {
+  type: "file"
+  mediaType: string
+  url: string
+  filename?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type FinalResultEvent = {
+  tool_name: string | null
+  tool_call_id: string | null
+  event_kind?: "final_result"
+}
+
 export type Float = {
   component_id?: "float"
   min_val?: number | null
@@ -1084,11 +2068,137 @@ export type FolderDirectoryItem = {
   num_items: number
 }
 
+/**
+ * An event indicating the start to a call to a function tool.
+ */
+export type FunctionToolCallEvent = {
+  part: ToolCallPart
+  event_kind?: "function_tool_call"
+}
+
+/**
+ * An event indicating the result of a function tool call.
+ */
+export type FunctionToolResultEvent = {
+  result: ToolReturnPart | RetryPromptPart
+  content?:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+    | null
+  event_kind?: "function_tool_result"
+}
+
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
   version?: number | null
   task?: ActionStatement | null
+}
+
+/**
+ * Git commit information for repository management.
+ */
+export type GitCommitInfo = {
+  /**
+   * The commit SHA hash
+   */
+  sha: string
+  /**
+   * The commit message
+   */
+  message: string
+  /**
+   * The commit author name
+   */
+  author: string
+  /**
+   * The commit author email
+   */
+  author_email: string
+  /**
+   * The commit date in ISO format
+   */
+  date: string
+  /**
+   * List of tags associated with this commit
+   */
+  tags?: Array<string>
+}
+
+/**
+ * Request to register or update GitHub App credentials.
+ */
+export type GitHubAppCredentialsRequest = {
+  /**
+   * GitHub App ID
+   */
+  app_id: string
+  /**
+   * GitHub App private key in PEM format
+   */
+  private_key: string
+  /**
+   * GitHub App webhook secret
+   */
+  webhook_secret?: string | null
+  /**
+   * GitHub App client ID
+   */
+  client_id?: string | null
+}
+
+/**
+ * Status of GitHub App credentials.
+ */
+export type GitHubAppCredentialsStatus = {
+  exists: boolean
+  app_id?: string | null
+  has_webhook_secret?: boolean
+  has_client_id?: boolean
+  created_at?: string | null
+}
+
+/**
+ * GitHub App manifest for creating enterprise apps.
+ */
+export type GitHubAppManifest = {
+  name: string
+  url: string
+  hook_attributes: GitHubWebhookAttributes
+  redirect_url: string
+  callback_urls: Array<string>
+  setup_url: string
+  description: string
+  public: boolean
+  default_permissions: GitHubAppPermissions
+  default_events: Array<string>
+}
+
+/**
+ * GitHub App manifest response.
+ */
+export type GitHubAppManifestResponse = {
+  manifest: GitHubAppManifest
+  instructions: Array<string>
+}
+
+/**
+ * Type definition for GitHub App default permissions.
+ */
+export type GitHubAppPermissions = {
+  contents: string
+  metadata: string
+  pull_requests: string
+}
+
+/**
+ * Type definition for GitHub webhook attributes.
+ */
+export type GitHubWebhookAttributes = {
+  url: string
+  active: boolean
 }
 
 export type GitSettingsRead = {
@@ -1110,9 +2220,52 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+/**
+ * A URL to an image.
+ */
 export type ImageUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "image-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
+}
+
+/**
+ * Inferred column mapping between CSV headers and table columns.
+ */
+export type InferredColumn = {
+  /**
+   * Original column header in the CSV file
+   */
+  csv_header: string
+  /**
+   * Column name created in Tracecat
+   */
+  field_name: string
+  /**
+   * Inferred SQL type for the column
+   */
+  field_type: SqlType
 }
 
 export type Integer = {
@@ -1163,9 +2316,14 @@ export type IntegrationRead = {
   updated_at: string
   user_id?: string | null
   provider_id: string
-  provider_config: {
-    [key: string]: unknown
-  }
+  /**
+   * OAuth authorization endpoint configured for this integration.
+   */
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint configured for this integration.
+   */
+  token_endpoint?: string | null
   token_type: string
   expires_at: string | null
   /**
@@ -1238,11 +2396,13 @@ export type IntegrationUpdate = {
    */
   client_secret?: string | null
   /**
-   * Provider-specific configuration
+   * OAuth authorization endpoint URL. Overrides provider defaults when set.
    */
-  provider_config?: {
-    [key: string]: unknown
-  } | null
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint URL. Overrides provider defaults when set.
+   */
+  token_endpoint?: string | null
   /**
    * OAuth scopes to request for this integration
    */
@@ -1313,6 +2473,53 @@ export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
 
+export type ModelConfig = {
+  /**
+   * The name of the model. This is used to identify the model in the system.
+   */
+  name: string
+  /**
+   * The provider of the model. This is used to determine which organization secret to use for this model.
+   */
+  provider: string
+  /**
+   * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
+   */
+  org_secret_name: string
+  /**
+   * The secrets to use for this model. This is used to determine which organization secret to use for this model.
+   */
+  secrets: ModelSecretConfig
+}
+
+/**
+ * Model for creating model credentials.
+ */
+export type ModelCredentialCreate = {
+  provider: string
+  /**
+   * Provider-specific credentials (e.g., api_key)
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Model for updating model credentials.
+ */
+export type ModelCredentialUpdate = {
+  /**
+   * Provider-specific credentials to update
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
+/**
+ * A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.
+ */
 export type ModelRequest = {
   parts: Array<
     SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
@@ -1321,12 +2528,39 @@ export type ModelRequest = {
   kind?: "request"
 }
 
+/**
+ * A response from a model, e.g. a message from the model to the Pydantic AI app.
+ */
 export type ModelResponse = {
-  parts: Array<TextPart | ToolCallPart>
-  usage?: Usage
+  parts: Array<
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+    | FilePart
+  >
+  usage?: RequestUsage
   model_name?: string | null
   timestamp?: string
   kind?: "response"
+  provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
+  provider_response_id?: string | null
+  finish_reason?:
+    | "stop"
+    | "length"
+    | "content_filter"
+    | "tool_call"
+    | "error"
+    | null
+}
+
+export type ModelSecretConfig = {
+  required?: Array<string>
+  optional?: Array<string>
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -1367,6 +2601,56 @@ export type OrgMemberRead = {
   last_login_at: string | null
 }
 
+export type OutputType =
+  | "bool"
+  | "float"
+  | "int"
+  | "str"
+  | "list[bool]"
+  | "list[float]"
+  | "list[int]"
+  | "list[str]"
+  | {
+      [key: string]: unknown
+    }
+
+export type PartDeltaEvent = {
+  index: number
+  delta: TextPartDelta | ThinkingPartDelta | ToolCallPartDelta
+  event_kind?: "part_delta"
+}
+
+export type PartStartEvent = {
+  index: number
+  part:
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+    | FilePart
+  event_kind?: "part_start"
+}
+
+/**
+ * Event for when a case payload is changed.
+ */
+export type PayloadChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "payload_changed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
 /**
  * Event for when a case priority is changed.
  */
@@ -1389,15 +2673,53 @@ export type PriorityChangedEventRead = {
 }
 
 /**
- * Category of a provider.
+ * Model for provider credential configuration.
  */
-export type ProviderCategory =
-  | "auth"
-  | "communication"
-  | "cloud"
-  | "monitoring"
-  | "alerting"
-  | "other"
+export type ProviderCredentialConfig = {
+  /**
+   * The provider name
+   */
+  provider: string
+  /**
+   * Human-readable label for the provider
+   */
+  label: string
+  /**
+   * Required credential fields
+   */
+  fields: Array<ProviderCredentialField>
+}
+
+/**
+ * Model for defining credential fields required by a provider.
+ */
+export type ProviderCredentialField = {
+  /**
+   * The environment variable key for this credential
+   */
+  key: string
+  /**
+   * Human-readable label for the field
+   */
+  label: string
+  /**
+   * Input type: 'text' or 'password'
+   */
+  type: "text" | "password"
+  /**
+   * Help text describing this credential
+   */
+  description: string
+  /**
+   * Whether this field is required
+   */
+  required?: boolean
+}
+
+/**
+ * Input type: 'text' or 'password'
+ */
+export type type = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -1428,10 +2750,6 @@ export type ProviderMetadata = {
    */
   requires_config?: boolean
   /**
-   * Categories of the provider (e.g., auth, communication)
-   */
-  categories?: Array<ProviderCategory>
-  /**
    * Step-by-step instructions for setting up the provider
    */
   setup_steps?: Array<string>
@@ -1457,8 +2775,12 @@ export type ProviderRead = {
   grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
-  schema?: ProviderSchema
+  config_schema: ProviderSchema
   integration_status: IntegrationStatus
+  default_authorization_endpoint?: string | null
+  default_token_endpoint?: string | null
+  authorization_endpoint_help?: string | Array<string> | null
+  token_endpoint_help?: string | Array<string> | null
   redirect_uri?: string | null
 }
 
@@ -1467,7 +2789,6 @@ export type ProviderReadMinimal = {
   name: string
   description: string
   requires_config: boolean
-  categories: Array<ProviderCategory>
   integration_status: IntegrationStatus
   enabled: boolean
   grant_type: OAuthGrantType
@@ -1487,18 +2808,61 @@ export type ProviderSchema = {
  */
 export type ProviderScopes = {
   /**
-   * Default scopes for this provider. Ultra thin layer
+   * Default scopes for this provider.
    */
   default: Array<string>
-  /**
-   * Regex patterns to validate additional scopes for this provider.
-   */
-  allowed_patterns?: Array<string> | null
-  /**
-   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
-   */
-  accepts_additional_scopes?: boolean
 }
+
+export type PullDiagnostic = {
+  workflow_path: string
+  workflow_title: string | null
+  error_type:
+    | "conflict"
+    | "validation"
+    | "dependency"
+    | "parse"
+    | "github"
+    | "system"
+    | "transaction"
+  message: string
+  details: {
+    [key: string]: unknown
+  }
+}
+
+export type error_type =
+  | "conflict"
+  | "validation"
+  | "dependency"
+  | "parse"
+  | "github"
+  | "system"
+  | "transaction"
+
+export type PullResult = {
+  success: boolean
+  commit_sha: string
+  workflows_found: number
+  workflows_imported: number
+  diagnostics: Array<PullDiagnostic>
+  message: string
+}
+
+/**
+ * A reasoning part of a message.
+ */
+export type ReasoningUIPart = {
+  type: "reasoning"
+  text: string
+  state?: "streaming" | "done"
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type state = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
@@ -1567,7 +2931,7 @@ export type RegistryActionCreate = {
 /**
  * The type of the action
  */
-export type type = "udf" | "template"
+export type type2 = "udf" | "template"
 
 export type RegistryActionInterface = {
   expects: {
@@ -1578,6 +2942,7 @@ export type RegistryActionInterface = {
 
 export type RegistryActionOptions = {
   include_in_schema?: boolean
+  requires_approval?: boolean
 }
 
 /**
@@ -1794,6 +3159,7 @@ export type RegistryOAuthSecret_Input = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
+  optional?: boolean
 }
 
 export type grant_type = "authorization_code" | "client_credentials"
@@ -1805,6 +3171,7 @@ export type RegistryOAuthSecret_Output = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
+  optional?: boolean
   readonly name: string
 }
 
@@ -1840,6 +3207,16 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+}
+
+/**
+ * Parameters for syncing a repository to a specific commit.
+ */
+export type RegistryRepositorySync = {
+  /**
+   * The specific commit SHA to sync to. If None, syncs to HEAD.
+   */
+  target_commit_sha?: string | null
 }
 
 export type RegistryRepositoryUpdate = {
@@ -1891,6 +3268,19 @@ export type ReopenedEventRead = {
   created_at: string
 }
 
+export type RequestUsage = {
+  input_tokens?: number
+  cache_write_tokens?: number
+  cache_read_tokens?: number
+  output_tokens?: number
+  input_audio_tokens?: number
+  cache_audio_read_tokens?: number
+  output_audio_tokens?: number
+  details?: {
+    [key: string]: number
+  }
+}
+
 /**
  * Configuration for a response interaction.
  */
@@ -1902,6 +3292,20 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
+/**
+ * A message back to a model asking it to try again.
+ *
+ * This can be sent for a number of reasons:
+ *
+ * * Pydantic validation of tool arguments failed, here content is derived from a Pydantic
+ * [`ValidationError`][pydantic_core.ValidationError]
+ * * a tool raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
+ * * no tool was found for the tool name
+ * * the model returned plain text when a structured response was expected
+ * * Pydantic validation of a structured response failed, here content is derived from a Pydantic
+ * [`ValidationError`][pydantic_core.ValidationError]
+ * * an output validator raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
+ */
 export type RetryPromptPart = {
   content: Array<ErrorDetails> | string
   tool_name?: string | null
@@ -1953,7 +3357,7 @@ export type Role = {
     | "tracecat-ui"
 }
 
-export type type2 = "user" | "service"
+export type type3 = "user" | "service"
 
 export type service_id =
   | "tracecat-api"
@@ -1976,6 +3380,7 @@ export type RunActionInput = {
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
+  session_id?: string | null
 }
 
 /**
@@ -1986,6 +3391,21 @@ export type RunContext = {
   wf_exec_id: string
   wf_run_id: string
   environment: string
+}
+
+export type RunUsage = {
+  input_tokens?: number
+  cache_write_tokens?: number
+  cache_read_tokens?: number
+  output_tokens?: number
+  input_audio_tokens?: number
+  cache_audio_read_tokens?: number
+  output_audio_tokens?: number
+  details?: {
+    [key: string]: number
+  }
+  requests?: number
+  tool_calls?: number
 }
 
 export type SAMLDatabaseLoginResponse = {
@@ -2011,39 +3431,6 @@ export type SAMLSettingsUpdate = {
   saml_idp_metadata_url?: string | null
 }
 
-export type Schedule = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
-  id?: string
-  status?: string
-  cron?: string | null
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
-   * ISO 8601 duration string
-   */
-  every: string
-  /**
-   * ISO 8601 duration string
-   */
-  offset?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  start_at?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  end_at?: string | null
-  /**
-   * The maximum number of seconds to wait for the workflow to complete
-   */
-  timeout?: number | null
-  workflow_id: string
-}
-
 export type ScheduleCreate = {
   workflow_id: string
   inputs?: {
@@ -2053,7 +3440,7 @@ export type ScheduleCreate = {
   /**
    * ISO 8601 duration string
    */
-  every: string
+  every?: string | null
   /**
    * ISO 8601 duration string
    */
@@ -2074,6 +3461,24 @@ export type ScheduleCreate = {
 }
 
 export type status2 = "online" | "offline"
+
+export type ScheduleRead = {
+  id: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+  workflow_id: string
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  every?: string | null
+  offset?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  timeout?: number | null
+  status: "online" | "offline"
+}
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -2160,7 +3565,7 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key"
+export type SecretType = "custom" | "ssh-key" | "github-app"
 
 /**
  * Update a secret.
@@ -2214,6 +3619,14 @@ export type SessionRead = {
   user_email: string
 }
 
+export type Session_Any_ = {
+  id: string
+  /**
+   * The events in the session.
+   */
+  events?: Array<unknown> | null
+}
+
 /**
  * Event for when a case severity is changed.
  */
@@ -2236,6 +3649,37 @@ export type SeverityChangedEventRead = {
 }
 
 /**
+ * A document source part of a message.
+ */
+export type SourceDocumentUIPart = {
+  type: "source-document"
+  sourceId: string
+  mediaType: string
+  title: string
+  filename?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
+ * A source URL part of a message.
+ */
+export type SourceUrlUIPart = {
+  type: "source-url"
+  sourceId: string
+  url: string
+  title?: string
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -2247,11 +3691,14 @@ export type SqlType =
   | "TEXT"
   | "INTEGER"
   | "NUMERIC"
+  | "DATE"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+  | "SELECT"
+  | "MULTI_SELECT"
 
 /**
  * Event for when a case status is changed.
@@ -2274,6 +3721,13 @@ export type StatusChangedEventRead = {
   created_at: string
 }
 
+/**
+ * A step boundary part of a message.
+ */
+export type StepStartUIPart = {
+  type: "step-start"
+}
+
 export type SyntaxToken = {
   type: string
   value: string
@@ -2281,6 +3735,11 @@ export type SyntaxToken = {
   end: number
 }
 
+/**
+ * A system prompt, generally written by the application developer.
+ *
+ * This gives the model context and guidance on how to respond.
+ */
 export type SystemPromptPart = {
   content: string
   timestamp?: string
@@ -2302,6 +3761,7 @@ export type TableColumnCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -2314,6 +3774,7 @@ export type TableColumnRead = {
   nullable?: boolean
   default?: unknown | null
   is_index?: boolean
+  options?: Array<string> | null
 }
 
 /**
@@ -2340,6 +3801,7 @@ export type TableColumnUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
@@ -2354,6 +3816,15 @@ export type TableCreate = {
    * The columns of the table
    */
   columns?: Array<TableColumnCreate>
+}
+
+/**
+ * Response model for importing a table from CSV.
+ */
+export type TableImportResponse = {
+  table: TableRead
+  rows_inserted: number
+  column_mapping: Array<InferredColumn>
 }
 
 /**
@@ -2390,6 +3861,7 @@ export type TableRowInsertBatch = {
   rows: Array<{
     [key: string]: unknown
   }>
+  upsert?: boolean
 }
 
 /**
@@ -2420,6 +3892,28 @@ export type TableUpdate = {
 }
 
 /**
+ * Event for when a tag is added to a case.
+ */
+export type TagAddedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_added"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Model for creating new tags with validation.
  */
 export type TagCreate = {
@@ -2441,9 +3935,35 @@ export type TagRead = {
   id: string
   name: string
   /**
+   * Slug-like identifier derived from name, used for API lookups
+   */
+  ref: string
+  /**
    * Hex color code
    */
   color?: string | null
+}
+
+/**
+ * Event for when a tag is removed from a case.
+ */
+export type TagRemovedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_removed"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -2455,6 +3975,140 @@ export type TagUpdate = {
    * Hex color code
    */
   color?: string | null
+}
+
+/**
+ * Event for when a task assignee is changed.
+ */
+export type TaskAssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_assignee_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is created for a case.
+ */
+export type TaskCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_created"
+  task_id: string
+  title: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task is deleted for a case.
+ */
+export type TaskDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_deleted"
+  task_id: string
+  title?: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task priority is changed.
+ */
+export type TaskPriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_priority_changed"
+  task_id: string
+  title: string
+  old: CasePriority
+  new: CasePriority
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task status is changed.
+ */
+export type TaskStatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_status_changed"
+  task_id: string
+  title: string
+  old: CaseTaskStatus
+  new: CaseTaskStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a task workflow is changed.
+ */
+export type TaskWorkflowChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "task_workflow_changed"
+  task_id: string
+  title: string
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type TemplateAction_Input = {
@@ -2613,9 +4267,53 @@ export type TextArea = {
   placeholder?: string
 }
 
+/**
+ * A plain text response from a model.
+ */
 export type TextPart = {
   content: string
+  id?: string | null
   part_kind?: "text"
+}
+
+/**
+ * A partial update (delta) for a `TextPart` to append new text content.
+ */
+export type TextPartDelta = {
+  content_delta: string
+  part_delta_kind?: "text"
+}
+
+/**
+ * A text part of a message.
+ */
+export type TextUIPart = {
+  type: "text"
+  text: string
+  state?: "streaming" | "done"
+  providerMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+/**
+ * A thinking response from a model.
+ */
+export type ThinkingPart = {
+  content: string
+  id?: string | null
+  signature?: string | null
+  provider_name?: string | null
+  part_kind?: "thinking"
+}
+
+export type ThinkingPartDelta = {
+  content_delta?: string | null
+  signature_delta?: string | null
+  provider_name?: string | null
+  part_delta_kind?: "thinking"
 }
 
 export type Toggle = {
@@ -2624,23 +4322,136 @@ export type Toggle = {
   component_id?: "toggle"
 }
 
+export type ToolApproved = {
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  kind?: "tool-approved"
+}
+
+/**
+ * A tool call from a model.
+ */
 export type ToolCallPart = {
   tool_name: string
-  args:
+  args?:
     | string
     | {
         [key: string]: unknown
       }
+    | null
   tool_call_id?: string
+  id?: string | null
   part_kind?: "tool-call"
 }
 
+export type ToolCallPartDelta = {
+  tool_name_delta?: string | null
+  args_delta?:
+    | string
+    | {
+        [key: string]: unknown
+      }
+    | null
+  tool_call_id?: string | null
+  part_delta_kind?: "tool_call"
+}
+
+/**
+ * Indicates that a tool call has been denied and that a denial message should be returned to the model.
+ */
+export type ToolDenied = {
+  message?: string
+  kind?: "tool-denied"
+}
+
+/**
+ * A structured return value for tools that need to provide both a return value and custom content to the model.
+ *
+ * This class allows tools to return complex responses that include:
+ * - A return value for actual tool return
+ * - Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
+ * - Optional metadata for application use
+ */
+export type ToolReturn = {
+  return_value: unknown
+  content?:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+    | null
+  metadata?: unknown
+  kind?: "tool-return"
+}
+
+/**
+ * A tool return message, this encodes the result of running a tool.
+ */
 export type ToolReturnPart = {
   tool_name: string
   content: unknown
-  tool_call_id: string
+  tool_call_id?: string
+  metadata?: unknown
   timestamp?: string
   part_kind?: "tool-return"
+}
+
+export type ToolUIPartInputAvailable = {
+  type: string
+  toolCallId: string
+  state: "input-available"
+  input: unknown
+  providerExecuted?: boolean
+  output?: null
+  errorText?: null
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ToolUIPartInputStreaming = {
+  type: string
+  toolCallId: string
+  state: "input-streaming"
+  input?: unknown
+  providerExecuted?: boolean
+  output?: null
+  errorText?: null
+}
+
+export type ToolUIPartOutputAvailable = {
+  type: string
+  toolCallId: string
+  state: "output-available"
+  input: unknown
+  output: unknown
+  errorText?: null
+  providerExecuted?: boolean
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+  preliminary?: boolean
+}
+
+export type ToolUIPartOutputError = {
+  type: string
+  toolCallId: string
+  state: "output-error"
+  input?: unknown
+  rawInput?: unknown
+  output?: null
+  errorText: string
+  providerExecuted?: boolean
+  callProviderMetadata?: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
 }
 
 export type Trigger = {
@@ -2651,12 +4462,41 @@ export type Trigger = {
   }
 }
 
-export type type3 = "schedule" | "webhook"
+export type type4 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
  */
 export type TriggerType = "manual" | "scheduled" | "webhook"
+
+/**
+ * Pydantic model for AI SDK UI Messages, used for validation between
+ * frontend and backend.
+ */
+export type UIMessage = {
+  id: string
+  role: "system" | "user" | "assistant"
+  metadata?: unknown | null
+  parts: Array<
+    | TextUIPart
+    | ReasoningUIPart
+    | SourceUrlUIPart
+    | SourceDocumentUIPart
+    | FileUIPart
+    | StepStartUIPart
+    | DynamicToolUIPartInputStreaming
+    | DynamicToolUIPartInputAvailable
+    | DynamicToolUIPartOutputAvailable
+    | DynamicToolUIPartOutputError
+    | ToolUIPartInputStreaming
+    | ToolUIPartInputAvailable
+    | ToolUIPartOutputAvailable
+    | ToolUIPartOutputError
+    | DataUIPart
+  >
+}
+
+export type role = "system" | "user" | "assistant"
 
 /**
  * Event for when a case is updated.
@@ -2680,16 +4520,6 @@ export type UpdatedEventRead = {
   created_at: string
 }
 
-export type Usage = {
-  requests?: number
-  request_tokens?: number | null
-  response_tokens?: number | null
-  total_tokens?: number | null
-  details?: {
-    [key: string]: number
-  } | null
-}
-
 export type UserCreate = {
   email: string
   password: string
@@ -2700,6 +4530,12 @@ export type UserCreate = {
   last_name?: string | null
 }
 
+/**
+ * A user prompt, generally written by the end user.
+ *
+ * Content comes from the `user_prompt` parameter of [`Agent.run`][pydantic_ai.agent.AbstractAgent.run],
+ * [`Agent.run_sync`][pydantic_ai.agent.AbstractAgent.run_sync], and [`Agent.run_stream`][pydantic_ai.agent.AbstractAgent.run_stream].
+ */
 export type UserPromptPart = {
   content:
     | string
@@ -2722,6 +4558,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -2759,12 +4603,124 @@ export type ValidationResult =
   | TemplateActionExprValidationResult
   | ActionValidationResult
 
+export type VariableCreate = {
+  name: string
+  description?: string | null
+  values: {
+    [key: string]: unknown
+  }
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string
+}
+
+export type VariableRead = {
+  id: string
+  name: string
+  description: string | null
+  values: {
+    [key: string]: unknown
+  }
+  environment: string
+  tags: {
+    [key: string]: string
+  } | null
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type VariableReadMinimal = {
+  id: string
+  name: string
+  description: string | null
+  values: {
+    [key: string]: unknown
+  }
+  environment: string
+}
+
+export type VariableUpdate = {
+  name?: string | null
+  description?: string | null
+  values?: {
+    [key: string]: unknown
+  } | null
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string | null
+}
+
+/**
+ * Vercel AI SDK format request with structured UI messages.
+ */
+export type VercelChatRequest = {
+  kind?: "vercel"
+  /**
+   * User message in Vercel UI format
+   */
+  message: UIMessage
+  /**
+   * AI model to use
+   */
+  model?: string
+  /**
+   * AI model provider
+   */
+  model_provider?: string
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
+}
+
+/**
+ * A URL to a video.
+ */
 export type VideoUrl = {
   url: string
+  force_download?: boolean
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
   kind?: "video-url"
+  /**
+   * Return the media type of the file, based on the URL or the provided `media_type`.
+   */
+  readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
+   *
+   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
+   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
+   *
+   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
+   * distinguish multiple files.
+   */
+  readonly identifier: string
 }
 
 export type WaitStrategy = "wait" | "detach"
+
+export type WebhookApiKeyGenerateResponse = {
+  api_key: string
+  preview: string
+  created_at: string
+}
+
+export type WebhookApiKeyRead = {
+  preview: string
+  created_at: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  is_active?: boolean
+}
 
 export type WebhookCreate = {
   status?: WebhookStatus
@@ -2773,19 +4729,18 @@ export type WebhookCreate = {
    */
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
 }
 
 export type WebhookMethod = "GET" | "POST"
 
 export type WebhookRead = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
   id: string
   secret: string
   status: WebhookStatus
   entrypoint_ref?: string | null
-  filters: {
+  allowlisted_cidrs?: Array<string>
+  filters?: {
     [key: string]: unknown
   }
   /**
@@ -2794,6 +4749,7 @@ export type WebhookRead = {
   methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
+  api_key?: WebhookApiKeyRead | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -2802,6 +4758,7 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string> | null
 }
 
 export type WorkflowAlias = {
@@ -2821,38 +4778,18 @@ export type WorkflowCommitResponse = {
 export type status3 = "success" | "failure"
 
 /**
- * A workflow definition.
- *
- * This is the underlying representation/snapshot of a workflow in the system, which
- * can directly execute in the runner.
- *
- * Shoulds
- * -------
- * 1. Be convertible into a Workspace Workflow + Acitons
- * 2. Be convertible into a YAML DSL
- * 3. Be able to be versioned
- *
- * Shouldn'ts
- * ----------
- * 1. Have any stateful information
- *
- * Relationships
- * -------------
- * - 1 Workflow to many WorkflowDefinitions
+ * API response model for persisted workflow definitions.
  */
-export type WorkflowDefinition = {
-  created_at?: string
-  updated_at?: string
+export type WorkflowDefinitionRead = {
+  id: string
+  workflow_id: string | null
   owner_id: string
-  id?: string
-  /**
-   * DSL spec version
-   */
   version: number
-  workflow_id: string
-  content: {
+  content?: {
     [key: string]: unknown
-  }
+  } | null
+  created_at: string
+  updated_at: string
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -2876,6 +4813,21 @@ export type WorkflowDirectoryItem = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   type: "workflow"
+}
+
+export type WorkflowDslPublish = {
+  message?: string | null
+}
+
+export type WorkflowEntrypointValidationRequest = {
+  expects?: {
+    [key: string]: ExpectedField
+  } | null
+}
+
+export type WorkflowEntrypointValidationResponse = {
+  valid: boolean
+  errors?: Array<ValidationResult>
 }
 
 /**
@@ -2935,7 +4887,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
+export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -2952,6 +4904,7 @@ export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   child_wf_count?: number
   loop_index?: number | null
   child_wf_wait_strategy?: WaitStrategy | null
+  session?: Session_Any_ | null
 }
 
 export type WorkflowExecutionEventStatus =
@@ -3021,7 +4974,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
+export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -3061,7 +5014,7 @@ export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__>
+  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -3106,6 +5059,13 @@ export type WorkflowExecutionReadMinimal = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
 }
+
+/**
+ * Status of a workflow execution.
+ *
+ * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
+ */
+export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -3155,13 +5115,13 @@ export type WorkflowRead = {
   owner_id: string
   version?: number | null
   webhook: WebhookRead
-  schedules: Array<Schedule>
+  schedules: Array<ScheduleRead>
   entrypoint: string | null
-  static_inputs: {
-    [key: string]: unknown
-  }
   expects?: {
     [key: string]: ExpectedField
+  } | null
+  expects_schema?: {
+    [key: string]: unknown
   } | null
   returns: unknown
   config: DSLConfig_Output | null
@@ -3188,6 +5148,26 @@ export type WorkflowReadMinimal = {
   folder_id?: string | null
 }
 
+export type WorkflowSummary = {
+  id: string
+  title: string
+  alias?: string | null
+}
+
+/**
+ * Request model for pulling workflows from a Git repository.
+ */
+export type WorkflowSyncPullRequest = {
+  /**
+   * Specific commit SHA to pull from
+   */
+  commit_sha: string
+  /**
+   * Validate only, don't perform actual import
+   */
+  dry_run?: boolean
+}
+
 export type WorkflowTagCreate = {
   tag_id: string
 }
@@ -3208,9 +5188,6 @@ export type WorkflowUpdate = {
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
-  static_inputs?: {
-    [key: string]: unknown
-  } | null
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -3222,9 +5199,7 @@ export type WorkflowUpdate = {
 
 export type WorkspaceCreate = {
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
   owner_id?: string
 }
 
@@ -3255,43 +5230,68 @@ export type WorkspaceMembershipUpdate = {
 export type WorkspaceRead = {
   id: string
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsRead | null
   owner_id: string
-  n_members: number
-  members: Array<WorkspaceMember>
 }
 
 export type WorkspaceReadMinimal = {
   id: string
   name: string
-  n_members: number
 }
 
 export type WorkspaceRole = "editor" | "admin"
 
+export type WorkspaceSettingsRead = {
+  git_repo_url?: string | null
+  workflow_unlimited_timeout_enabled?: boolean | null
+  workflow_default_timeout_seconds?: number | null
+  allowed_attachment_extensions?: Array<string> | null
+  allowed_attachment_mime_types?: Array<string> | null
+  validate_attachment_magic_number?: boolean | null
+  /**
+   * Returns workspace-specific extensions if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_extensions: Array<string>
+  /**
+   * Returns workspace-specific MIME types if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_mime_types: Array<string>
+}
+
+export type WorkspaceSettingsUpdate = {
+  git_repo_url?: string | null
+  /**
+   * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
+   */
+  workflow_unlimited_timeout_enabled?: boolean | null
+  /**
+   * Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.
+   */
+  workflow_default_timeout_seconds?: number | null
+  /**
+   * Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.
+   */
+  allowed_attachment_extensions?: Array<string> | null
+  /**
+   * Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.
+   */
+  allowed_attachment_mime_types?: Array<string> | null
+  /**
+   * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
+   */
+  validate_attachment_magic_number?: boolean | null
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
 }
 
 export type Yaml = {
   component_id?: "yaml"
 }
 
-export type login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
-}
-
-export type PublicIncomingWebhookData = {
+export type PublicIncomingWebhookPostData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -3309,9 +5309,9 @@ export type PublicIncomingWebhookData = {
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = unknown
+export type PublicIncomingWebhookPostResponse = unknown
 
-export type PublicIncomingWebhook1Data = {
+export type PublicIncomingWebhookGetData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -3329,7 +5329,7 @@ export type PublicIncomingWebhook1Data = {
   workflowId: string
 }
 
-export type PublicIncomingWebhook1Response = unknown
+export type PublicIncomingWebhookGetResponse = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -3380,6 +5380,12 @@ export type WorkspacesDeleteWorkspaceData = {
 }
 
 export type WorkspacesDeleteWorkspaceResponse = void
+
+export type WorkspacesListWorkspaceMembersData = {
+  workspaceId: string
+}
+
+export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
 
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
@@ -3438,6 +5444,14 @@ export type WorkflowsCreateWorkflowData = {
 
 export type WorkflowsCreateWorkflowResponse = WorkflowReadMinimal
 
+export type WorkflowsValidateWorkflowEntrypointData = {
+  requestBody: WorkflowEntrypointValidationRequest
+  workspaceId: string
+}
+
+export type WorkflowsValidateWorkflowEntrypointResponse =
+  WorkflowEntrypointValidationResponse
+
 export type WorkflowsGetWorkflowData = {
   workflowId: string
   workspaceId: string
@@ -3482,20 +5496,28 @@ export type WorkflowsExportWorkflowData = {
 
 export type WorkflowsExportWorkflowResponse = unknown
 
+export type WorkflowsListWorkflowDefinitionsData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowDefinitionsResponse =
+  Array<WorkflowDefinitionRead>
+
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type WorkflowsCreateWorkflowDefinitionData = {
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -3519,6 +5541,28 @@ export type TriggersUpdateWebhookData = {
 }
 
 export type TriggersUpdateWebhookResponse = void
+
+export type TriggersGenerateWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersGenerateWebhookApiKeyResponse =
+  WebhookApiKeyGenerateResponse
+
+export type TriggersDeleteWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteWebhookApiKeyResponse = void
+
+export type TriggersRevokeWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersRevokeWebhookApiKeyResponse = void
 
 export type WorkflowsMoveWorkflowToFolderData = {
   requestBody: WorkflowMoveToFolder
@@ -3561,7 +5605,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
+  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -3603,6 +5647,7 @@ export type ActionsGetActionResponse = ActionRead
 export type ActionsUpdateActionData = {
   actionId: string
   requestBody: ActionUpdate
+  workflowId: string
   workspaceId: string
 }
 
@@ -3610,6 +5655,7 @@ export type ActionsUpdateActionResponse = ActionRead
 
 export type ActionsDeleteActionData = {
   actionId: string
+  workflowId: string
   workspaceId: string
 }
 
@@ -3637,6 +5683,35 @@ export type WorkflowsRemoveTagData = {
 }
 
 export type WorkflowsRemoveTagResponse = void
+
+export type WorkflowsPublishWorkflowData = {
+  requestBody: WorkflowDslPublish
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsPublishWorkflowResponse = void
+
+export type WorkflowsListWorkflowCommitsData = {
+  /**
+   * Branch name to fetch commits from
+   */
+  branch?: string
+  /**
+   * Maximum number of commits to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsPullWorkflowsData = {
+  requestBody: WorkflowSyncPullRequest
+  workspaceId: string
+}
+
+export type WorkflowsPullWorkflowsResponse = PullResult
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -3696,26 +5771,78 @@ export type SecretsDeleteSecretByIdData = {
 
 export type SecretsDeleteSecretByIdResponse = void
 
+export type VariablesSearchVariablesData = {
+  environment?: string | null
+  /**
+   * Filter by variable ID
+   */
+  id?: Array<string> | null
+  /**
+   * Filter by variable name
+   */
+  name?: Array<string> | null
+  workspaceId: string
+}
+
+export type VariablesSearchVariablesResponse = Array<VariableRead>
+
+export type VariablesListVariablesData = {
+  environment?: string | null
+  workspaceId: string
+}
+
+export type VariablesListVariablesResponse = Array<VariableReadMinimal>
+
+export type VariablesCreateVariableData = {
+  requestBody: VariableCreate
+  workspaceId: string
+}
+
+export type VariablesCreateVariableResponse = VariableRead
+
+export type VariablesGetVariableByNameData = {
+  environment?: string | null
+  variableName: string
+  workspaceId: string
+}
+
+export type VariablesGetVariableByNameResponse = VariableRead
+
+export type VariablesUpdateVariableByIdData = {
+  requestBody: VariableUpdate
+  variableId: string
+  workspaceId: string
+}
+
+export type VariablesUpdateVariableByIdResponse = VariableRead
+
+export type VariablesDeleteVariableByIdData = {
+  variableId: string
+  workspaceId: string
+}
+
+export type VariablesDeleteVariableByIdResponse = void
+
 export type SchedulesListSchedulesData = {
   workflowId?: string | null
   workspaceId: string
 }
 
-export type SchedulesListSchedulesResponse = Array<Schedule>
+export type SchedulesListSchedulesResponse = Array<ScheduleRead>
 
 export type SchedulesCreateScheduleData = {
   requestBody: ScheduleCreate
   workspaceId: string
 }
 
-export type SchedulesCreateScheduleResponse = Schedule
+export type SchedulesCreateScheduleResponse = ScheduleRead
 
 export type SchedulesGetScheduleData = {
   scheduleId: string
   workspaceId: string
 }
 
-export type SchedulesGetScheduleResponse = Schedule
+export type SchedulesGetScheduleResponse = ScheduleRead
 
 export type SchedulesUpdateScheduleData = {
   requestBody: ScheduleUpdate
@@ -3723,7 +5850,7 @@ export type SchedulesUpdateScheduleData = {
   workspaceId: string
 }
 
-export type SchedulesUpdateScheduleResponse = Schedule
+export type SchedulesUpdateScheduleResponse = ScheduleRead
 
 export type SchedulesDeleteScheduleData = {
   scheduleId: string
@@ -3737,7 +5864,7 @@ export type SchedulesSearchSchedulesData = {
   workspaceId: string
 }
 
-export type SchedulesSearchSchedulesResponse = Array<Schedule>
+export type SchedulesSearchSchedulesResponse = Array<ScheduleRead>
 
 export type TagsListTagsData = {
   workspaceId: string
@@ -3804,6 +5931,128 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type AgentListModelsResponse = {
+  [key: string]: ModelConfig
+}
+
+export type AgentListProvidersResponse = Array<string>
+
+export type AgentGetProvidersStatusResponse = {
+  [key: string]: boolean
+}
+
+export type AgentListProviderCredentialConfigsResponse =
+  Array<ProviderCredentialConfig>
+
+export type AgentGetProviderCredentialConfigData = {
+  provider: string
+}
+
+export type AgentGetProviderCredentialConfigResponse = ProviderCredentialConfig
+
+export type AgentCreateProviderCredentialsData = {
+  requestBody: ModelCredentialCreate
+}
+
+export type AgentCreateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentUpdateProviderCredentialsData = {
+  provider: string
+  requestBody: ModelCredentialUpdate
+}
+
+export type AgentUpdateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentDeleteProviderCredentialsData = {
+  provider: string
+}
+
+export type AgentDeleteProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentGetDefaultModelResponse = string | null
+
+export type AgentSetDefaultModelData = {
+  modelName: string
+}
+
+export type AgentSetDefaultModelResponse = {
+  [key: string]: string
+}
+
+export type AgentPresetsListAgentPresetsData = {
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetReadMinimal>
+
+export type AgentPresetsCreateAgentPresetData = {
+  requestBody: AgentPresetCreate
+  workspaceId: string
+}
+
+export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsGetAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsUpdateAgentPresetData = {
+  presetId: string
+  requestBody: AgentPresetUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsDeleteAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsDeleteAgentPresetResponse = void
+
+export type AgentPresetsGetAgentPresetBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
+export type AgentListAgentSessionsData = {
+  workspaceId: string
+}
+
+export type AgentListAgentSessionsResponse = Array<AgentSessionRead>
+
+export type AgentStreamAgentSessionData = {
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: "vercel" | "basic"
+  lastEventId?: string
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentStreamAgentSessionResponse = unknown
+
+export type AgentSubmitAgentApprovalsData = {
+  requestBody: AgentApprovalSubmission
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSubmitAgentApprovalsResponse = void
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -3830,6 +6079,7 @@ export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
+  requestBody?: RegistryRepositorySync | null
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
@@ -3864,6 +6114,15 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
+
+export type RegistryRepositoriesListRepositoryCommitsData = {
+  branch?: string
+  limit?: number
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryCommitsResponse =
+  Array<GitCommitInfo>
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -3932,6 +6191,14 @@ export type SettingsUpdateAppSettingsData = {
 }
 
 export type SettingsUpdateAppSettingsResponse = void
+
+export type SettingsGetAgentSettingsResponse = AgentSettingsRead
+
+export type SettingsUpdateAgentSettingsData = {
+  requestBody: AgentSettingsUpdate
+}
+
+export type SettingsUpdateAgentSettingsResponse = void
 
 export type OrganizationSecretsListOrgSecretsData = {
   /**
@@ -4070,6 +6337,13 @@ export type TablesBatchInsertRowsData = {
 
 export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
 
+export type TablesImportTableFromCsvData = {
+  formData: Body_tables_import_table_from_csv
+  workspaceId: string
+}
+
+export type TablesImportTableFromCsvResponse = TableImportResponse
+
 export type TablesImportCsvData = {
   formData: Body_tables_import_csv
   tableId: string
@@ -4080,6 +6354,10 @@ export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
   /**
+   * Filter by assignee ID or 'unassigned'
+   */
+  assigneeId?: Array<string> | null
+  /**
    * Cursor for pagination
    */
   cursor?: string | null
@@ -4088,9 +6366,29 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
+   * Filter by case priority
+   */
+  priority?: Array<CasePriority> | null
+  /**
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Text to search for in case summary and description
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: Array<CaseSeverity> | null
+  /**
+   * Filter by case status
+   */
+  status?: Array<CaseStatus> | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4104,6 +6402,10 @@ export type CasesCreateCaseData = {
 export type CasesCreateCaseResponse = unknown
 
 export type CasesSearchCasesData = {
+  /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
   /**
    * Maximum number of cases to return
    */
@@ -4121,7 +6423,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by case priority
    */
-  priority?: CasePriority | null
+  priority?: Array<CasePriority> | null
   /**
    * Text to search for in case summary and description
    */
@@ -4129,15 +6431,31 @@ export type CasesSearchCasesData = {
   /**
    * Filter by case severity
    */
-  severity?: CaseSeverity | null
+  severity?: Array<CaseSeverity> | null
   /**
    * Direction to sort (asc or desc)
    */
   sort?: "asc" | "desc" | null
   /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
    * Filter by case status
    */
-  status?: CaseStatus | null
+  status?: Array<CaseStatus> | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
   workspaceId: string
 }
 
@@ -4204,49 +6522,37 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
-export type CasesListAttachmentsData = {
+export type CasesListTasksData = {
   caseId: string
   workspaceId: string
 }
 
-export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+export type CasesListTasksResponse = Array<CaseTaskRead>
 
-export type CasesCreateAttachmentData = {
+export type CasesCreateTaskData = {
   caseId: string
-  formData: Body_cases_create_attachment
+  requestBody: CaseTaskCreate
   workspaceId: string
 }
 
-export type CasesCreateAttachmentResponse = CaseAttachmentRead
+export type CasesCreateTaskResponse = CaseTaskRead
 
-export type CasesDownloadAttachmentData = {
-  attachmentId: string
+export type CasesUpdateTaskData = {
   caseId: string
-  /**
-   * If true, allows inline preview for safe image types
-   */
-  preview?: boolean
+  requestBody: CaseTaskUpdate
+  taskId: string
   workspaceId: string
 }
 
-export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
+export type CasesUpdateTaskResponse = CaseTaskRead
 
-export type CasesDeleteAttachmentData = {
-  attachmentId: string
+export type CasesDeleteTaskData = {
   caseId: string
+  taskId: string
   workspaceId: string
 }
 
-export type CasesDeleteAttachmentResponse = void
-
-export type CasesGetStorageUsageData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesGetStorageUsageResponse = {
-  [key: string]: number
-}
+export type CasesDeleteTaskResponse = void
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -4275,6 +6581,253 @@ export type CasesDeleteFieldData = {
 }
 
 export type CasesDeleteFieldResponse = void
+
+export type CasesListTagsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListTagsResponse = Array<CaseTagRead>
+
+export type CasesAddTagData = {
+  caseId: string
+  requestBody: CaseTagCreate
+  workspaceId: string
+}
+
+export type CasesAddTagResponse = CaseTagRead
+
+export type CasesRemoveTagData = {
+  caseId: string
+  tagIdentifier: string
+  workspaceId: string
+}
+
+export type CasesRemoveTagResponse = void
+
+export type CaseTagsListCaseTagsData = {
+  workspaceId: string
+}
+
+export type CaseTagsListCaseTagsResponse = Array<CaseTagRead>
+
+export type CaseTagsCreateCaseTagData = {
+  requestBody: TagCreate
+  workspaceId: string
+}
+
+export type CaseTagsCreateCaseTagResponse = CaseTagRead
+
+export type CaseTagsGetCaseTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsGetCaseTagResponse = CaseTagRead
+
+export type CaseTagsUpdateCaseTagData = {
+  requestBody: TagUpdate
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsUpdateCaseTagResponse = CaseTagRead
+
+export type CaseTagsDeleteCaseTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type CaseTagsDeleteCaseTagResponse = void
+
+export type CaseAttachmentsListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseAttachmentsListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CaseAttachmentsCreateAttachmentData = {
+  caseId: string
+  formData: Body_case_attachments_create_attachment
+  workspaceId: string
+}
+
+export type CaseAttachmentsCreateAttachmentResponse = CaseAttachmentRead
+
+export type CaseAttachmentsDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
+  workspaceId: string
+}
+
+export type CaseAttachmentsDownloadAttachmentResponse =
+  CaseAttachmentDownloadResponse
+
+export type CaseAttachmentsDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseAttachmentsDeleteAttachmentResponse = void
+
+export type CaseDurationsListCaseDurationDefinitionsData = {
+  workspaceId: string
+}
+
+export type CaseDurationsListCaseDurationDefinitionsResponse =
+  Array<CaseDurationDefinitionRead>
+
+export type CaseDurationsCreateCaseDurationDefinitionData = {
+  requestBody: CaseDurationDefinitionCreate
+  workspaceId: string
+}
+
+export type CaseDurationsCreateCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsGetCaseDurationDefinitionData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsGetCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsUpdateCaseDurationDefinitionData = {
+  durationId: string
+  requestBody: CaseDurationDefinitionUpdate
+  workspaceId: string
+}
+
+export type CaseDurationsUpdateCaseDurationDefinitionResponse =
+  CaseDurationDefinitionRead
+
+export type CaseDurationsDeleteCaseDurationDefinitionData = {
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsDeleteCaseDurationDefinitionResponse = void
+
+export type CaseDurationsListCaseDurationsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseDurationsListCaseDurationsResponse = Array<CaseDurationRead>
+
+export type CaseDurationsCreateCaseDurationData = {
+  caseId: string
+  requestBody: CaseDurationCreate
+  workspaceId: string
+}
+
+export type CaseDurationsCreateCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsGetCaseDurationData = {
+  caseId: string
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsGetCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsUpdateCaseDurationData = {
+  caseId: string
+  durationId: string
+  requestBody: CaseDurationUpdate
+  workspaceId: string
+}
+
+export type CaseDurationsUpdateCaseDurationResponse = CaseDurationRead
+
+export type CaseDurationsDeleteCaseDurationData = {
+  caseId: string
+  durationId: string
+  workspaceId: string
+}
+
+export type CaseDurationsDeleteCaseDurationResponse = void
+
+export type ChatCreateChatData = {
+  requestBody: ChatCreate
+  workspaceId: string
+}
+
+export type ChatCreateChatResponse = ChatReadMinimal
+
+export type ChatListChatsData = {
+  /**
+   * Filter by entity ID
+   */
+  entityId?: string | null
+  /**
+   * Filter by entity type
+   */
+  entityType?: string | null
+  /**
+   * Maximum number of chats to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type ChatListChatsResponse = Array<ChatReadMinimal>
+
+export type ChatGetChatData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatGetChatResponse = ChatRead
+
+export type ChatUpdateChatData = {
+  chatId: string
+  requestBody: ChatUpdate
+  workspaceId: string
+}
+
+export type ChatUpdateChatResponse = ChatReadMinimal
+
+export type ChatGetChatVercelData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatGetChatVercelResponse = ChatReadVercel
+
+export type ChatChatWithVercelStreamingData = {
+  chatId: string
+  requestBody: VercelChatRequest | ContinueRunRequest
+  workspaceId: string
+}
+
+export type ChatChatWithVercelStreamingResponse = unknown
+
+export type ChatStreamChatEventsData = {
+  chatId: string
+  /**
+   * Streaming format (e.g. 'vercel')
+   */
+  format?: "vercel" | "basic"
+  workspaceId: string
+}
+
+export type ChatStreamChatEventsResponse = Array<
+  | PartStartEvent
+  | PartDeltaEvent
+  | FinalResultEvent
+  | FunctionToolCallEvent
+  | FunctionToolResultEvent
+  | BuiltinToolCallEvent
+  | BuiltinToolResultEvent
+>
 
 export type FoldersGetDirectoryData = {
   /**
@@ -4403,6 +6956,13 @@ export type IntegrationsTestConnectionData = {
 export type IntegrationsTestConnectionResponse =
   IntegrationTestConnectionResponse
 
+export type ProvidersCreateCustomProviderData = {
+  requestBody: CustomOAuthProviderCreate
+  workspaceId: string
+}
+
+export type ProvidersCreateCustomProviderResponse = ProviderReadMinimal
+
 export type ProvidersListProvidersData = {
   workspaceId: string
 }
@@ -4416,6 +6976,40 @@ export type ProvidersGetProviderData = {
 }
 
 export type ProvidersGetProviderResponse = ProviderRead
+
+export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
+
+export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
+
+export type VcsGithubAppInstallCallbackData = {
+  /**
+   * Temporary code from GitHub manifest flow
+   */
+  code: string
+}
+
+export type VcsGithubAppInstallCallbackResponse = unknown
+
+export type VcsGithubWebhookData = {
+  requestBody: {
+    [key: string]: unknown
+  }
+}
+
+export type VcsGithubWebhookResponse = {
+  [key: string]: string
+}
+
+export type VcsSaveGithubAppCredentialsData = {
+  requestBody: GitHubAppCredentialsRequest
+}
+
+export type VcsSaveGithubAppCredentialsResponse = {
+  [key: string]: string
+}
+
+export type VcsGetGithubAppCredentialsStatusResponse =
+  GitHubAppCredentialsStatus
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -4445,7 +7039,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: login
+  formData: Body_auth_auth_database_login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -4512,7 +7106,7 @@ export type PublicCheckHealthResponse = {
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
     post: {
-      req: PublicIncomingWebhookData
+      req: PublicIncomingWebhookPostData
       res: {
         /**
          * Successful Response
@@ -4525,7 +7119,7 @@ export type $OpenApiTs = {
       }
     }
     get: {
-      req: PublicIncomingWebhook1Data
+      req: PublicIncomingWebhookGetData
       res: {
         /**
          * Successful Response
@@ -4647,6 +7241,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/members": {
+    get: {
+      req: WorkspacesListWorkspaceMembersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMember>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/memberships": {
     get: {
       req: WorkspacesListWorkspaceMembershipsData
@@ -4744,6 +7353,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/validate-entrypoint": {
+    post: {
+      req: WorkflowsValidateWorkflowEntrypointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowEntrypointValidationResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows/{workflow_id}": {
     get: {
       req: WorkflowsGetWorkflowData
@@ -4815,6 +7439,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/definitions": {
+    get: {
+      req: WorkflowsListWorkflowDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows/{workflow_id}/definition": {
     get: {
       req: WorkflowsGetWorkflowDefinitionData
@@ -4822,7 +7461,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -4835,7 +7474,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -4872,6 +7511,49 @@ export type $OpenApiTs = {
     }
     patch: {
       req: TriggersUpdateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key": {
+    post: {
+      req: TriggersGenerateWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebhookApiKeyGenerateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+    post: {
+      req: TriggersRevokeWebhookApiKeyData
       res: {
         /**
          * Successful Response
@@ -4949,7 +7631,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
+        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
         /**
          * Validation Error
          */
@@ -5099,6 +7781,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/publish": {
+    post: {
+      req: WorkflowsPublishWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/commits": {
+    get: {
+      req: WorkflowsListWorkflowCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/pull": {
+    post: {
+      req: WorkflowsPullWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -5185,6 +7912,92 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/variables/search": {
+    get: {
+      req: VariablesSearchVariablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<VariableRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables": {
+    get: {
+      req: VariablesListVariablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<VariableReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: VariablesCreateVariableData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables/{variable_name}": {
+    get: {
+      req: VariablesGetVariableByNameData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/variables/{variable_id}": {
+    post: {
+      req: VariablesUpdateVariableByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: VariableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: VariablesDeleteVariableByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/schedules": {
     get: {
       req: SchedulesListSchedulesData
@@ -5192,7 +8005,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */
@@ -5205,7 +8018,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -5220,7 +8033,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -5233,7 +8046,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -5261,7 +8074,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */
@@ -5404,6 +8217,268 @@ export type $OpenApiTs = {
   "/organization/sessions/{session_id}": {
     delete: {
       req: OrganizationDeleteSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/models": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: ModelConfig
+        }
+      }
+    }
+  }
+  "/agent/providers": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<string>
+      }
+    }
+  }
+  "/agent/providers/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+      }
+    }
+  }
+  "/agent/providers/configs": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderCredentialConfig>
+      }
+    }
+  }
+  "/agent/providers/{provider}/config": {
+    get: {
+      req: AgentGetProviderCredentialConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderCredentialConfig
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials": {
+    post: {
+      req: AgentCreateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials/{provider}": {
+    put: {
+      req: AgentUpdateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: string | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets": {
+    get: {
+      req: AgentPresetsListAgentPresetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsCreateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentPresetsUpdateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsDeleteAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/by-slug/{slug}": {
+    get: {
+      req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions": {
+    get: {
+      req: AgentListAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentSessionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}": {
+    get: {
+      req: AgentStreamAgentSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/approvals": {
+    post: {
+      req: AgentSubmitAgentApprovalsData
       res: {
         /**
          * Successful Response
@@ -5561,6 +8636,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/commits": {
+    get: {
+      req: RegistryRepositoriesListRepositoryCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
         /**
          * Validation Error
          */
@@ -5735,6 +8825,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAppSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentSettingsData
       res: {
         /**
          * Successful Response
@@ -6001,6 +9114,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/tables/import": {
+    post: {
+      req: TablesImportTableFromCsvData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableImportResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/tables/{table_id}/import": {
     post: {
       req: TablesImportCsvData
@@ -6171,14 +9299,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments": {
+  "/cases/{case_id}/tasks": {
     get: {
-      req: CasesListAttachmentsData
+      req: CasesListTasksData
       res: {
         /**
          * Successful Response
          */
-        200: Array<CaseAttachmentRead>
+        200: Array<CaseTaskRead>
         /**
          * Validation Error
          */
@@ -6186,12 +9314,12 @@ export type $OpenApiTs = {
       }
     }
     post: {
-      req: CasesCreateAttachmentData
+      req: CasesCreateTaskData
       res: {
         /**
          * Successful Response
          */
-        201: CaseAttachmentRead
+        201: CaseTaskRead
         /**
          * Validation Error
          */
@@ -6199,14 +9327,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments/{attachment_id}": {
-    get: {
-      req: CasesDownloadAttachmentData
+  "/cases/{case_id}/tasks/{task_id}": {
+    patch: {
+      req: CasesUpdateTaskData
       res: {
         /**
          * Successful Response
          */
-        200: CaseAttachmentDownloadResponse
+        200: CaseTaskRead
         /**
          * Validation Error
          */
@@ -6214,29 +9342,12 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: CasesDeleteAttachmentData
+      req: CasesDeleteTaskData
       res: {
         /**
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/storage-usage": {
-    get: {
-      req: CasesGetStorageUsageData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: number
-        }
         /**
          * Validation Error
          */
@@ -6293,6 +9404,419 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags": {
+    get: {
+      req: CasesListTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesAddTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags/{tag_identifier}": {
+    delete: {
+      req: CasesRemoveTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-tags": {
+    get: {
+      req: CaseTagsListCaseTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseTagsCreateCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-tags/{tag_id}": {
+    get: {
+      req: CaseTagsGetCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseTagsUpdateCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseTagsDeleteCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CaseAttachmentsListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseAttachmentsCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CaseAttachmentsDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAttachmentDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseAttachmentsDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-durations": {
+    get: {
+      req: CaseDurationsListCaseDurationDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDurationDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseDurationsCreateCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-durations/{duration_id}": {
+    get: {
+      req: CaseDurationsGetCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseDurationsUpdateCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDurationsDeleteCaseDurationDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/durations": {
+    get: {
+      req: CaseDurationsListCaseDurationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDurationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseDurationsCreateCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/durations/{duration_id}": {
+    get: {
+      req: CaseDurationsGetCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseDurationsUpdateCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDurationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDurationsDeleteCaseDurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat": {
+    post: {
+      req: ChatCreateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ChatListChatsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChatReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}": {
+    get: {
+      req: ChatGetChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ChatUpdateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}/vercel": {
+    get: {
+      req: ChatGetChatVercelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ChatChatWithVercelStreamingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}/stream": {
+    get: {
+      req: ChatStreamChatEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<
+          | PartStartEvent
+          | PartDeltaEvent
+          | FinalResultEvent
+          | FunctionToolCallEvent
+          | FunctionToolResultEvent
+          | BuiltinToolCallEvent
+          | BuiltinToolResultEvent
+        >
         /**
          * Validation Error
          */
@@ -6516,6 +10040,19 @@ export type $OpenApiTs = {
     }
   }
   "/providers": {
+    post: {
+      req: ProvidersCreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ProviderReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: ProvidersListProvidersData
       res: {
@@ -6542,6 +10079,85 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/feature-flags": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FeatureFlagsRead
+      }
+    }
+  }
+  "/organization/vcs/github/manifest": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppManifestResponse
+      }
+    }
+  }
+  "/organization/vcs/github/install": {
+    get: {
+      req: VcsGithubAppInstallCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/webhook": {
+    post: {
+      req: VcsGithubWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials": {
+    post: {
+      req: VcsSaveGithubAppCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppCredentialsStatus
       }
     }
   }

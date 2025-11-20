@@ -1,27 +1,28 @@
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
+from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.exc import ProgrammingError
-from sqlalchemy.orm import selectinload
-from sqlmodel import and_, cast, col, desc, func, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased, selectinload
 
-from tracecat import config, storage
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import Role
+from tracecat.cases.attachments import CaseAttachmentService
+from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseTaskStatus,
 )
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEvent,
-    AttachmentCreatedEvent,
-    AttachmentDeletedEvent,
-    CaseAttachmentCreate,
     CaseCommentCreate,
     CaseCommentUpdate,
     CaseCreate,
@@ -29,41 +30,71 @@ from tracecat.cases.models import (
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseReadMinimal,
+    CaseTaskCreate,
+    CaseTaskUpdate,
     CaseUpdate,
+    CaseViewedEvent,
     ClosedEvent,
     CreatedEvent,
     FieldDiff,
     FieldsChangedEvent,
+    PayloadChangedEvent,
     PriorityChangedEvent,
     ReopenedEvent,
     SeverityChangedEvent,
     StatusChangedEvent,
+    TaskAssigneeChangedEvent,
+    TaskCreatedEvent,
+    TaskDeletedEvent,
+    TaskPriorityChangedEvent,
+    TaskStatusChangedEvent,
+    TaskWorkflowChangedEvent,
     UpdatedEvent,
 )
+from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
-from tracecat.db.schemas import (
+from tracecat.db.models import (
     Case,
-    CaseAttachment,
     CaseComment,
     CaseEvent,
     CaseFields,
-    File,
+    CaseTagLink,
+    CaseTask,
     User,
 )
-from tracecat.logger import logger
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
+from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
 )
-from tracecat.types.pagination import (
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.service import TableEditorService, TablesService
+
+
+def _normalize_filter_values(values: Any) -> list[Any]:
+    """Ensure filter inputs are lists of unique values."""
+    if values is None:
+        return []
+    if isinstance(values, str | bytes):
+        return [values]
+    if isinstance(values, Sequence):
+        unique: list[Any] = []
+        for value in values:
+            if value not in unique:
+                unique.append(value)
+        return unique
+    return [values]
+
+
+# Treat multiple views inside this window as a single "view" to avoid spam.
+CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
 
 
 class CasesService(BaseWorkspaceService):
@@ -75,6 +106,40 @@ class CasesService(BaseWorkspaceService):
         self.fields = CaseFieldsService(session=self.session, role=self.role)
         self.events = CaseEventsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
+        self.tags = CaseTagsService(session=self.session, role=self.role)
+        self.durations = CaseDurationService(session=self.session, role=self.role)
+
+    async def get_task_counts(
+        self, case_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Get task counts (completed/total) for cases."""
+        if not case_ids:
+            return {}
+
+        stmt = (
+            select(
+                CaseTask.case_id,
+                func.count().label("total"),
+                func.sum(
+                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
+                ).label("completed"),
+            )
+            .where(CaseTask.case_id.in_(case_ids))
+            .group_by(CaseTask.case_id)
+        )
+
+        result = await self.session.execute(stmt)
+        rows = result.tuples().all()
+
+        # Build result dict with defaults for cases without tasks
+        counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
+        for case_id, total, completed in rows:
+            counts[case_id] = {
+                "completed": int(completed or 0),
+                "total": int(total or 0),
+            }
+
+        return counts
 
     async def list_cases(
         self,
@@ -94,24 +159,101 @@ class CasesService(BaseWorkspaceService):
                 statement = statement.order_by(attr.desc())
             else:
                 statement = statement.order_by(attr)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def list_cases_paginated(
-        self, params: CursorPaginationParams
+        self,
+        params: CursorPaginationParams,
+        search_term: str | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        assignee_ids: Sequence[uuid.UUID] | None = None,
+        include_unassigned: bool = False,
+        tag_ids: list[uuid.UUID] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """List cases with cursor-based pagination."""
+        """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
+        filters: list[Any] = [Case.owner_id == self.workspace_id]
 
-        # Get estimated total count from table statistics
-        total_estimate = await paginator.get_table_row_estimate("cases")
-
-        # Base query with workspace filter
+        # Base query - eagerly load tags and assignee
         stmt = (
             select(Case)
-            .where(Case.owner_id == self.workspace_id)
-            .order_by(col(Case.created_at).desc(), col(Case.id).desc())
+            .options(selectinload(Case.tags))
+            .options(selectinload(Case.assignee))
+            .order_by(Case.created_at.desc(), Case.id.desc())
         )
+
+        # Apply search term filter
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Use SQLAlchemy's concat function for proper parameter binding
+            search_pattern = func.concat("%", search_term, "%")
+            filters.append(
+                or_(
+                    Case.summary.ilike(search_pattern),
+                    Case.description.ilike(search_pattern),
+                )
+            )
+
+        normalized_statuses = _normalize_filter_values(status)
+        if normalized_statuses:
+            filters.append(Case.status.in_(normalized_statuses))
+
+        # Apply priority filter
+        normalized_priorities = _normalize_filter_values(priority)
+        if normalized_priorities:
+            filters.append(Case.priority.in_(normalized_priorities))
+
+        # Apply severity filter
+        normalized_severities = _normalize_filter_values(severity)
+        if normalized_severities:
+            filters.append(Case.severity.in_(normalized_severities))
+
+        # Apply assignee filter
+        if include_unassigned or assignee_ids:
+            unique_assignees = list(dict.fromkeys(assignee_ids or []))
+            assignee_conditions: list[Any] = []
+
+            if unique_assignees:
+                assignee_conditions.append(Case.assignee_id.in_(unique_assignees))
+
+            if include_unassigned:
+                assignee_conditions.append(Case.assignee_id.is_(None))
+
+            if assignee_conditions:
+                assignee_clause = (
+                    assignee_conditions[0]
+                    if len(assignee_conditions) == 1
+                    else or_(*assignee_conditions)
+                )
+                filters.append(assignee_clause)
+
+        # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
+        if tag_ids:
+            for tag_id in tag_ids:
+                filters.append(
+                    Case.id.in_(
+                        select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
+                    )
+                )
+
+        for clause in filters:
+            stmt = stmt.where(clause)
+
+        # Compute total count with applied filters (workspace scoped)
+        count_stmt = select(func.count()).select_from(Case)
+        for clause in filters:
+            count_stmt = count_stmt.where(clause)
+
+        total_count = await self.session.scalar(count_stmt)
+        total_estimate = int(total_count or 0)
 
         # Apply cursor filtering
         if params.cursor:
@@ -122,28 +264,28 @@ class CasesService(BaseWorkspaceService):
             if params.reverse:
                 stmt = stmt.where(
                     or_(
-                        col(Case.created_at) > cursor_time,
+                        Case.created_at > cursor_time,
                         and_(
-                            col(Case.created_at) == cursor_time,
-                            col(Case.id) > cursor_id,
+                            Case.created_at == cursor_time,
+                            Case.id > cursor_id,
                         ),
                     )
-                ).order_by(col(Case.created_at).asc(), col(Case.id).asc())
+                ).order_by(Case.created_at.asc(), Case.id.asc())
             else:
                 stmt = stmt.where(
                     or_(
-                        col(Case.created_at) < cursor_time,
+                        Case.created_at < cursor_time,
                         and_(
-                            col(Case.created_at) == cursor_time,
-                            col(Case.id) < cursor_id,
+                            Case.created_at == cursor_time,
+                            Case.id < cursor_id,
                         ),
                     )
                 )
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
-        result = await self.session.exec(stmt)
-        all_cases = result.all()
+        result = await self.session.execute(stmt)
+        all_cases = result.scalars().all()
 
         # Check if there are more items
         has_more = len(all_cases) > params.limit
@@ -170,23 +312,38 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
-        # Convert to CaseReadMinimal objects
-        case_items = [
-            CaseReadMinimal(
-                id=case.id,
-                created_at=case.created_at,
-                updated_at=case.updated_at,
-                short_id=f"CASE-{case.case_number:04d}",
-                summary=case.summary,
-                status=case.status,
-                priority=case.priority,
-                severity=case.severity,
-                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-                if case.assignee
-                else None,
+        # Fetch task counts for all cases in one query
+        task_counts = await self.get_task_counts([case.id for case in cases])
+
+        # Convert to CaseReadMinimal objects with tags
+        case_items = []
+        for case in cases:
+            # Tags are already loaded via selectinload
+            tag_reads = [
+                CaseTagRead.model_validate(tag, from_attributes=True)
+                for tag in case.tags
+            ]
+
+            case_items.append(
+                CaseReadMinimal(
+                    id=case.id,
+                    created_at=case.created_at,
+                    updated_at=case.updated_at,
+                    short_id=case.short_id,
+                    summary=case.summary,
+                    status=case.status,
+                    priority=case.priority,
+                    severity=case.severity,
+                    assignee=UserRead.model_validate(
+                        case.assignee, from_attributes=True
+                    )
+                    if case.assignee
+                    else None,
+                    tags=tag_reads,
+                    num_tasks_completed=task_counts[case.id]["completed"],
+                    num_tasks_total=task_counts[case.id]["total"],
+                )
             )
-            for case in cases
-        ]
 
         return CursorPaginatedResponse(
             items=case_items,
@@ -200,9 +357,10 @@ class CasesService(BaseWorkspaceService):
     async def search_cases(
         self,
         search_term: str | None = None,
-        status: CaseStatus | None = None,
-        priority: CasePriority | None = None,
-        severity: CaseSeverity | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        tag_ids: list[uuid.UUID] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
@@ -230,7 +388,11 @@ class CasesService(BaseWorkspaceService):
         Returns:
             Sequence of cases matching the search criteria
         """
-        statement = select(Case).where(Case.owner_id == self.workspace_id)
+        statement = (
+            select(Case)
+            .where(Case.owner_id == self.workspace_id)
+            .options(selectinload(Case.tags))
+        )
 
         # Apply search term filter (search in summary and description)
         if search_term:
@@ -244,31 +406,45 @@ class CasesService(BaseWorkspaceService):
             search_pattern = func.concat("%", search_term, "%")
             statement = statement.where(
                 or_(
-                    col(Case.summary).ilike(search_pattern),
-                    col(Case.description).ilike(search_pattern),
+                    Case.summary.ilike(search_pattern),
+                    Case.description.ilike(search_pattern),
                 )
             )
 
         # Apply status filter
-        if status:
-            statement = statement.where(Case.status == status)
+        if normalized_statuses := _normalize_filter_values(status):
+            statement = statement.where(Case.status.in_(normalized_statuses))
 
         # Apply priority filter
-        if priority:
-            statement = statement.where(Case.priority == priority)
+        if normalized_priorities := _normalize_filter_values(priority):
+            statement = statement.where(Case.priority.in_(normalized_priorities))
 
         # Apply severity filter
-        if severity:
-            statement = statement.where(Case.severity == severity)
+        normalized_severities = _normalize_filter_values(severity)
+        if normalized_severities:
+            statement = statement.where(Case.severity.in_(normalized_severities))
+
+        # Apply tag filtering if specified (AND logic for multiple tags)
+        if tag_ids:
+            for tag_id in tag_ids:
+                # Self-join for each tag to ensure case has ALL specified tags
+                tag_alias = aliased(CaseTagLink)
+                statement = statement.join(
+                    tag_alias,
+                    and_(tag_alias.case_id == Case.id, tag_alias.tag_id == tag_id),
+                )
 
         # Apply date filters
-        if start_time:
+        if start_time is not None:
             statement = statement.where(Case.created_at >= start_time)
-        if end_time:
+
+        if end_time is not None:
             statement = statement.where(Case.created_at <= end_time)
-        if updated_after:
+
+        if updated_after is not None:
             statement = statement.where(Case.updated_at >= updated_after)
-        if updated_before:
+
+        if updated_before is not None:
             statement = statement.where(Case.updated_at <= updated_before)
 
         # Apply limit
@@ -285,10 +461,12 @@ class CasesService(BaseWorkspaceService):
             else:
                 statement = statement.order_by(attr)
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
-    async def get_case(self, case_id: uuid.UUID) -> Case | None:
+    async def get_case(
+        self, case_id: uuid.UUID, *, track_view: bool = False
+    ) -> Case | None:
         """Get a case with its associated custom fields.
 
         Args:
@@ -300,43 +478,83 @@ class CasesService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the case doesn't exist
         """
-        statement = select(Case).where(
-            Case.owner_id == self.workspace_id,
-            Case.id == case_id,
+        statement = (
+            select(Case)
+            .where(
+                Case.owner_id == self.workspace_id,
+                Case.id == case_id,
+            )
+            .options(selectinload(Case.tags))
         )
 
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
+
+        if case and track_view:
+            try:
+                created_event = await self.events.create_case_viewed_event(case)
+            except Exception:
+                await self.session.rollback()
+                self.logger.exception(
+                    "Failed to record case viewed event",
+                    case_id=case_id,
+                    user_id=self.role.user_id,
+                )
+            else:
+                if created_event is not None:
+                    try:
+                        await self.durations.sync_case_durations(case)
+                        await self.session.commit()
+                    except Exception:
+                        await self.session.rollback()
+                        self.logger.exception(
+                            "Failed to persist case viewed tracking updates",
+                            case_id=case_id,
+                            user_id=self.role.user_id,
+                        )
+
+        return case
 
     async def create_case(self, params: CaseCreate) -> Case:
-        # Create the base case first
-        case = Case(
-            owner_id=self.workspace_id,
-            summary=params.summary,
-            description=params.description,
-            priority=params.priority,
-            severity=params.severity,
-            status=params.status,
-            assignee_id=params.assignee_id,
-        )
+        try:
+            now = datetime.now(UTC)
+            # Create the base case first
+            case = Case(
+                owner_id=self.workspace_id,
+                summary=params.summary,
+                description=params.description,
+                priority=params.priority,
+                severity=params.severity,
+                status=params.status,
+                assignee_id=params.assignee_id,
+                payload=params.payload,
+                created_at=now,
+                updated_at=now,
+            )
 
-        self.session.add(case)
-        await self.session.flush()  # Generate case ID
+            self.session.add(case)
+            await self.session.flush()  # Generate case ID
 
-        # If fields are provided, create the fields row
-        if params.fields:
-            await self.fields.create_field_values(case, params.fields)
+            # Always create the fields row to ensure defaults are applied
+            # Pass empty dict if no fields provided to trigger default value application
+            await self.fields.create_field_values(case, params.fields or {})
 
-        run_ctx = ctx_run.get()
-        await self.events.create_event(
-            case=case,
-            event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
-        )
+            run_ctx = ctx_run.get()
+            await self.events.create_event(
+                case=case,
+                event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
+            )
 
-        await self.session.commit()
-        # Make sure to refresh the case to get the fields relationship loaded
-        await self.session.refresh(case)
-        return case
+            await self.durations.sync_case_durations(case)
+
+            # Commit once to persist case, fields, and event atomically
+            await self.session.commit()
+            # Make sure to refresh the case to get the fields relationship loaded
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
         """Update a case and optionally its custom fields.
@@ -447,15 +665,25 @@ class CasesService(BaseWorkspaceService):
                         field="summary", old=old, new=value, wf_exec_id=wf_exec_id
                     )
                 )
+            elif key == "payload":
+                # Only record event if payload actually changed
+                if old != value:
+                    events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
-        # If there are any remaining changed fields, record a general update activity
-        for event in events:
-            await self.events.create_event(case=case, event=event)
+        try:
+            # If there are any remaining changed fields, record a general update activity
+            for event in events:
+                await self.events.create_event(case=case, event=event)
 
-        # Commit changes and refresh case
-        await self.session.commit()
-        await self.session.refresh(case)
-        return case
+            await self.durations.sync_case_durations(case)
+
+            # Commit once to persist all updates and emitted events atomically
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def delete_case(self, case: Case) -> None:
         """Delete a case and optionally its associated field data.
@@ -526,7 +754,7 @@ class CaseFieldsService(BaseWorkspaceService):
         Args:
             field_id: The name of the field to delete
         """
-        if field_id in CaseFields.model_fields:
+        if field_id in CaseFields.__table__.columns:
             raise ValueError(f"Field {field_id} is a reserved field")
 
         await self.editor.delete_column(field_id)
@@ -558,19 +786,42 @@ class CaseFieldsService(BaseWorkspaceService):
 
         # This will use the created case_fields ID
         try:
-            res = await self.editor.update_row(row_id=case_fields.id, data=fields)
-            await self.session.flush()
-            return res
+            if fields:
+                # If fields provided, update the row with those values
+                res = await self.editor.update_row(row_id=case_fields.id, data=fields)
+                await self.session.flush()
+                return res
+            else:
+                # If no fields provided, just get the row to return defaults
+                res = await self.editor.get_row(row_id=case_fields.id)
+                return res
+        except TracecatNotFoundError as e:
+            # This happens when UPDATE/SELECT finds no row - shouldn't occur after INSERT
+            self.logger.error(
+                "Case fields row not found after creation",
+                case_fields_id=case_fields.id,
+                case_id=case.id,
+                fields=fields,
+                error=str(e),
+            )
+            # Extract field names for better error message
+            field_names = list(fields.keys()) if fields else []
+            field_info = (
+                f" Fields attempted: {', '.join(field_names)}." if field_names else ""
+            )
+            raise TracecatException(
+                f"Failed to save custom field values for case. The field row was created but could not be updated.{field_info} "
+                "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+            ) from e
         except ProgrammingError as e:
             while cause := e.__cause__:
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to create case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to create case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error creating case fields: {e}"
+                "Failed to create case fields due to an unexpected error."
             ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
@@ -587,11 +838,10 @@ class CaseFieldsService(BaseWorkspaceService):
                 e = cause
             if isinstance(e, UndefinedColumnError):
                 raise TracecatException(
-                    f"Failed to update case fields. {str(e).replace('relation', 'table').capitalize()}."
-                    " Please ensure these fields have been created and try again."
+                    "Failed to update case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
                 ) from e
             raise TracecatException(
-                f"Unexpected error updating case fields: {e}"
+                "Failed to update case fields due to an unexpected error."
             ) from e
 
 
@@ -615,8 +865,8 @@ class CaseCommentsService(BaseWorkspaceService):
             CaseComment.id == comment_id,
         )
 
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def list_comments(
         self, case: Case, *, with_users: bool = True
@@ -638,17 +888,17 @@ class CaseCommentsService(BaseWorkspaceService):
                 .where(CaseComment.case_id == case.id)
                 .order_by(cast(CaseComment.created_at, sa.DateTime))
             )
-            result = await self.session.exec(statement)
-            return list(result.all())
+            result = await self.session.execute(statement)
+            return list(result.tuples().all())
         else:
             statement = (
                 select(CaseComment)
                 .where(CaseComment.case_id == case.id)
                 .order_by(cast(CaseComment.created_at, sa.DateTime))
             )
-            result = await self.session.exec(statement)
+            result = await self.session.execute(statement)
             # Return in the same format as the join query for consistency
-            return [(comment, None) for comment in result.all()]
+            return [(comment, None) for comment in result.scalars().all()]
 
     async def create_comment(
         self, case: Case, params: CaseCommentCreate
@@ -733,18 +983,32 @@ class CaseEventsService(BaseWorkspaceService):
 
     service_name = "case_events"
 
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
         statement = (
             select(CaseEvent)
             .where(CaseEvent.case_id == case.id)
-            .order_by(desc(col(CaseEvent.created_at)))
+            # Order by creation time (newest first) and fall back to surrogate_id
+            # to ensure deterministic ordering when timestamps are equal.
+            .order_by(
+                CaseEvent.created_at.desc(),
+                CaseEvent.surrogate_id.desc(),
+            )
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
-        """Create a new activity record for a case with variant-specific data."""
+        """Create a new activity record for a case with variant-specific data.
+
+        Note: This method is non-committing. The caller is responsible for
+        wrapping operations in a transaction and committing once at the end
+        to preserve atomicity across multi-step updates.
+        """
+
         db_event = CaseEvent(
             owner_id=self.workspace_id,
             case_id=case.id,
@@ -753,429 +1017,307 @@ class CaseEventsService(BaseWorkspaceService):
             user_id=self.role.user_id,
         )
         self.session.add(db_event)
-        await self.session.commit()
-        await self.session.refresh(db_event)
+        # Flush so that generated fields (e.g., id) are available if needed
+        await self.session.flush()
         return db_event
 
-
-class CaseAttachmentService(BaseWorkspaceService):
-    """Service for managing case attachments."""
-
-    service_name = "case_attachments"
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-
-    async def list_attachments(self, case: Case) -> Sequence[CaseAttachment]:
-        """List all attachments for a case.
-
-        Args:
-            case: The case to list attachments for
-
-        Returns:
-            List of case attachments
-        """
-        statement = (
-            select(CaseAttachment)
-            .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
-            .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
-            .options(selectinload(CaseAttachment.file))
-            .order_by(desc(col(CaseAttachment.created_at)))
-        )
-        result = await self.session.exec(statement)
-        return result.all()
-
-    async def get_attachment(
-        self, case: Case, attachment_id: uuid.UUID
-    ) -> CaseAttachment | None:
-        """Get a specific attachment for a case.
-
-        Args:
-            case: The case the attachment belongs to
-            attachment_id: The attachment ID
-
-        Returns:
-            The attachment if found, None otherwise
-        """
-        # First find the attachment
-        attachment_statement = select(CaseAttachment).where(
-            CaseAttachment.case_id == case.id,
-            CaseAttachment.id == attachment_id,
-        )
-        attachment_result = await self.session.exec(attachment_statement)
-        attachment = attachment_result.first()
-
-        if not attachment:
-            return None
-
-        # Check if the associated file is not deleted
-        file_statement = select(File).where(
-            File.id == attachment.file_id, File.deleted_at.is_(None)
-        )
-        file_result = await self.session.exec(file_statement)
-        file_record = file_result.first()
-
-        if file_record:
-            # Eagerly load the file relationship
-            attachment.file = file_record
-            return attachment
-
-        return None
-
-    async def create_attachment(
-        self, case: Case, params: CaseAttachmentCreate
-    ) -> CaseAttachment:
-        """Create a new attachment for a case with security validations.
-
-        Args:
-            case: The case to attach the file to
-            params: The attachment parameters
-
-        Returns:
-            The created attachment
-
-        Raises:
-            ValueError: If validation fails
-            TracecatException: If storage operation fails
-        """
-
-        # Validate file size limits
-        if params.size > config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES:
-            raise storage.FileSizeError(
-                f"File size ({params.size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
-                f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
-            )
-
-        # Check maximum number of attachments per case
-        current_attachment_count = len(await self.list_attachments(case))
-        if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
-            raise storage.MaxAttachmentsExceededError(
-                f"Case already has {current_attachment_count} attachments. "
-                f"Maximum allowed is {config.TRACECAT__MAX_ATTACHMENTS_PER_CASE}",
-                current_count=current_attachment_count,
-                max_count=config.TRACECAT__MAX_ATTACHMENTS_PER_CASE,
-            )
-
-        # Check total storage usage per case
-        current_storage = await self.get_total_storage_used(case)
-        if current_storage + params.size > config.TRACECAT__MAX_CASE_STORAGE_BYTES:
-            current_mb = current_storage / 1024 / 1024
-            new_mb = params.size / 1024 / 1024
-            max_mb = config.TRACECAT__MAX_CASE_STORAGE_BYTES / 1024 / 1024
-            raise storage.StorageLimitExceededError(
-                f"Adding this file ({new_mb:.1f}MB) would exceed the case storage limit. "
-                f"Current usage: {current_mb:.1f}MB, Maximum allowed: {max_mb:.1f}MB",
-                current_size=current_storage,
-                new_file_size=params.size,
-                max_size=config.TRACECAT__MAX_CASE_STORAGE_BYTES,
-            )
-
-        # Comprehensive security validation using the new validator
-        validator = storage.FileSecurityValidator()
-        try:
-            validation_result = validator.validate_file(
-                content=params.content,
-                filename=params.file_name,
-                declared_content_type=params.content_type,
-            )
-            validated_filename = validation_result["filename"]
-            validated_content_type = validation_result["content_type"]
-        except ValueError as e:
-            logger.warning(
-                "File validation failed",
-                filename=params.file_name,
-                content_type=params.content_type,
-                size=params.size,
-                error=str(e),
-            )
-            raise
-
-        # Compute content hash for deduplication and integrity
-        sha256 = storage.compute_sha256(params.content)
-
-        # Determine uploader ID (may be None for workflow/service uploads)
-        creator_id: uuid.UUID | None = (
-            self.role.user_id if self.role.type == "user" else None
-        )
-
-        # Check if file already exists (deduplication)
-        existing_file = await self.session.exec(
-            select(File).where(File.sha256 == sha256)
-        )
-        file = existing_file.first()
-
-        if not file:
-            # Create new file record
-            file = File(
-                owner_id=self.workspace_id,
-                sha256=sha256,
-                name=validated_filename,
-                content_type=validated_content_type,
-                size=params.size,
-                creator_id=creator_id,
-            )
-            self.session.add(file)
-            await self.session.flush()
-
-            # Upload to blob storage
-            storage_key = f"attachments/{sha256}"
-            try:
-                await storage.upload_file(
-                    content=params.content,
-                    key=storage_key,
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                    content_type=validated_content_type,
-                )
-            except Exception as e:
-                # Rollback the database transaction if storage fails
-                await self.session.rollback()
-                raise TracecatException(f"Failed to upload file: {str(e)}") from e
-
-        # Check if attachment already exists for this case and file
-        existing_attachment = await self.session.exec(
-            select(CaseAttachment)
-            .where(
-                CaseAttachment.case_id == case.id,
-                CaseAttachment.file_id == file.id,
-            )
-            .options(selectinload(CaseAttachment.file))
-        )
-        attachment = existing_attachment.first()
-
-        should_create_event = False
-        if attachment:
-            # If attachment exists but file was soft-deleted, restore it
-            if attachment.file.deleted_at is not None:
-                attachment.file.deleted_at = None
-                # Re-upload to blob storage since it was deleted
-                storage_key = f"attachments/{sha256}"
-                try:
-                    await storage.upload_file(
-                        content=params.content,
-                        key=storage_key,
-                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                        content_type=validated_content_type,
-                    )
-                except Exception as e:
-                    # Rollback the database transaction if storage fails
-                    await self.session.rollback()
-                    raise TracecatException(f"Failed to upload file: {str(e)}") from e
-
-                should_create_event = True  # Restoration event
-                # Eagerly link the file relationship to avoid lazy loading in async contexts
-                attachment.file = file
-            else:
-                # Attachment already exists and is active - return it
-                return attachment
-        else:
-            # Create new attachment link
-            attachment = CaseAttachment(
-                case_id=case.id,
-                file_id=file.id,
-            )
-            # Eagerly link the file relationship to avoid lazy loading in async contexts
-            attachment.file = file
-            self.session.add(attachment)
-            should_create_event = True  # New attachment event
-
-        # Flush to ensure the attachment gets an ID
-        await self.session.flush()
-
-        # Record attachment event (for new attachments or restorations)
-        if should_create_event:
-            run_ctx = ctx_run.get()
-            await CaseEventsService(self.session, self.role).create_event(
-                case=case,
-                event=AttachmentCreatedEvent(
-                    attachment_id=attachment.id,
-                    file_name=file.name,
-                    content_type=file.content_type,
-                    size=file.size,
-                    wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
-                ),
-            )
-
-        await self.session.commit()
-        # Reload attachment with the file relationship eagerly loaded
-        await self.session.refresh(attachment, attribute_names=["file"])
-        return attachment
-
-    async def download_attachment(
-        self, case: Case, attachment_id: uuid.UUID
-    ) -> tuple[bytes, str, str]:
-        """Download an attachment's content.
-
-        Args:
-            case: The case the attachment belongs to
-            attachment_id: The attachment ID
-
-        Returns:
-            Tuple of (content, filename, content_type)
-
-        Raises:
-            TracecatNotFoundError: If attachment not found
-            TracecatException: If download fails
-        """
-
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
-
-        # Download from blob storage
-        storage_key = attachment.storage_path
-        try:
-            content = await storage.download_file(
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-            )
-
-            # Verify integrity
-            computed_hash = storage.compute_sha256(content)
-            if computed_hash != attachment.file.sha256:
-                raise TracecatException("File integrity check failed")
-
-            return content, attachment.file.name, attachment.file.content_type
-        except FileNotFoundError as e:
-            raise TracecatNotFoundError("Attachment file not found in storage") from e
-        except Exception as e:
-            raise TracecatException(f"Failed to download attachment: {str(e)}") from e
-
-    async def get_attachment_download_url(
+    async def create_case_viewed_event(
         self,
         case: Case,
-        attachment_id: uuid.UUID,
-        preview: bool = False,
-    ) -> tuple[str, str, str]:
-        """Generate a presigned URL for downloading an attachment.
+        *,
+        dedupe_window: timedelta = CASE_VIEW_EVENT_DEDUP_WINDOW,
+    ) -> CaseEvent | None:
+        """Record a case viewed event if the current user hasn't viewed recently."""
+        if not self.role.user_id:
+            return None
+
+        now_utc = datetime.now(UTC)
+        stmt = (
+            select(CaseEvent)
+            .where(
+                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.case_id == case.id,
+                CaseEvent.type == CaseEventType.CASE_VIEWED,
+                CaseEvent.user_id == self.role.user_id,
+            )
+            .order_by(CaseEvent.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        last_event = result.scalars().first()
+        if last_event:
+            last_created_at = last_event.created_at
+            if last_created_at.tzinfo is None:
+                if datetime.now() - last_created_at < dedupe_window:
+                    return None
+            else:
+                if now_utc - last_created_at < dedupe_window:
+                    return None
+
+        return await self.create_event(case=case, event=CaseViewedEvent())
+
+
+class CaseTasksService(BaseWorkspaceService):
+    """Service for managing case tasks."""
+
+    service_name = "case_tasks"
+
+    async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
+        """List all tasks for a case.
 
         Args:
-            case: The case the attachment belongs to
-            attachment_id: The attachment ID
-            preview: If True, allows inline display for safe image types only
+            case_id: The ID of the case to get tasks for
 
         Returns:
-            Tuple of (presigned_url, filename, content_type)
-
-        Raises:
-            TracecatNotFoundError: If attachment not found
-            TracecatException: If URL generation fails
+            A sequence of tasks for the case, ordered by priority (highest first) then creation date
         """
-
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
-
-        # Generate presigned URL for blob storage
-        storage_key = attachment.storage_path
-        content_type = attachment.file.content_type
-
-        # Security: Determine if we should force download or allow preview
-        safe_preview_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-        force_download = True
-        override_content_type = None
-
-        if preview and content_type in safe_preview_types:
-            # Only allow preview for safe image types
-            force_download = False
-        else:
-            # For all other types, force download with safe content type
-            override_content_type = "application/octet-stream"
-
-        try:
-            presigned_url = await storage.generate_presigned_download_url(
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                force_download=force_download,
-                override_content_type=override_content_type,
+        statement = (
+            select(CaseTask)
+            .where(
+                CaseTask.owner_id == self.workspace_id,
+                CaseTask.case_id == case_id,
             )
-            return presigned_url, attachment.file.name, attachment.file.content_type
-        except Exception as e:
-            raise TracecatException(f"Failed to generate download URL: {str(e)}") from e
+            .order_by(
+                CaseTask.priority.desc(),
+                cast(CaseTask.created_at, sa.DateTime),
+            )
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
-    async def delete_attachment(self, case: Case, attachment_id: uuid.UUID) -> None:
-        """Soft delete an attachment.
-
-        Implements soft deletion where the file is removed from blob storage
-        but the database record is preserved with a deletion timestamp.
+    async def get_task(self, task_id: uuid.UUID) -> CaseTask:
+        """Get a task by ID.
 
         Args:
-            case: The case the attachment belongs to
-            attachment_id: The attachment ID
+            task_id: The ID of the task to get
+
+        Returns:
+            The task
 
         Raises:
-            TracecatNotFoundError: If attachment not found
-            TracecatAuthorizationError: If user lacks permission
+            TracecatNotFoundError: If the task is not found
         """
+        statement = select(CaseTask).where(
+            CaseTask.owner_id == self.workspace_id,
+            CaseTask.id == task_id,
+        )
+        result = await self.session.execute(statement)
+        task = result.scalars().first()
+        if not task:
+            raise TracecatNotFoundError(f"Task {task_id} not found")
+        return task
 
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+    async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
+        """Create a new task for a case.
 
-        # Check if user has permission (must be creator or admin)
-        # Service roles with admin access can delete any attachment
-        # TODO: This is a hack to allow service roles to delete attachments
-        # We should use API endpoint level permissions instead
-        if (
-            self.role.type == "user"
-            and attachment.file.creator_id != self.role.user_id
-            and self.role.access_level < AccessLevel.ADMIN
-        ):
-            raise TracecatAuthorizationError(
-                "You don't have permission to delete this attachment"
-            )
+        Args:
+            case_id: The ID of the case to create a task for
+            params: The task parameters
 
-        # Soft delete the file
-        attachment.file.deleted_at = datetime.now(UTC)
+        Returns:
+            The created task
 
-        # Delete from blob storage
-        storage_key = attachment.storage_path
-        try:
-            await storage.delete_file(
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-            )
-        except Exception as e:
-            # Log but don't fail - we've already marked as deleted
-            logger.error(
-                "Failed to delete file from blob storage",
-                attachment_id=attachment_id,
-                storage_key=storage_key,
-                error=str(e),
-            )
+        Raises:
+            TracecatNotFoundError: If the case is not found in the current workspace
+        """
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
 
-        # Record deletion event
+        # Convert workflow_id from AnyWorkflowID to UUID
+        workflow_uuid = (
+            WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
+        )
+
+        task = CaseTask(
+            owner_id=self.workspace_id,
+            case_id=case_id,
+            title=params.title,
+            description=params.description,
+            priority=params.priority,
+            status=params.status,
+            assignee_id=params.assignee_id,
+            workflow_id=workflow_uuid,
+        )
+        self.session.add(task)
+        # Flush to get task ID before emitting event
+        await self.session.flush()
+
         run_ctx = ctx_run.get()
-        await CaseEventsService(self.session, self.role).create_event(
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        # Emit task created event
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+        await events_svc.create_event(
             case=case,
-            event=AttachmentDeletedEvent(
-                attachment_id=attachment_id,
-                file_name=attachment.file.name,
-                wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+            event=TaskCreatedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
             ),
         )
 
-        await self.session.commit()
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
 
-    async def get_total_storage_used(self, case: Case) -> int:
-        """Get total storage used by a case's attachments.
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
+        """Update a task.
 
         Args:
-            case: The case to check
+            task_id: The ID of the task to update
+            params: The task update parameters
 
         Returns:
-            Total bytes used
+            The updated task
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
         """
-        statement = (
-            select(func.sum(File.size))
-            .select_from(File)
-            .join(
-                CaseAttachment,
-                cast(File.id, sa.UUID) == cast(CaseAttachment.file_id, sa.UUID),
-            )
-            .where(
-                CaseAttachment.case_id == case.id,
-                File.deleted_at.is_(None),
-            )
+        task = await self.get_task(task_id)
+
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
         )
-        result = await self.session.exec(statement)
-        return result.one() or 0
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Update only provided fields and emit events
+        set_fields = params.model_dump(exclude_unset=True)
+
+        # Status change
+        if (new_status := set_fields.pop("status", None)) is not None:
+            old_status = task.status
+            if old_status != new_status:
+                task.status = new_status
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskStatusChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_status,
+                        new=new_status,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Assignee change
+        if (new_assignee := set_fields.pop("assignee_id", None)) is not None:
+            old_assignee = task.assignee_id
+            if old_assignee != new_assignee:
+                task.assignee_id = new_assignee
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskAssigneeChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_assignee,
+                        new=new_assignee,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Priority change
+        if (new_priority := set_fields.pop("priority", None)) is not None:
+            old_priority = task.priority
+            if old_priority != new_priority:
+                task.priority = new_priority
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskPriorityChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_priority,
+                        new=new_priority,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Workflow change - handle separately to allow clearing (setting to None)
+        # Check if the field was provided in the update payload using model_fields_set
+        if "workflow_id" in params.model_fields_set:
+            old_wfid = task.workflow_id
+            new_wfid = None
+            if params.workflow_id is not None:
+                # Convert workflow_id from AnyWorkflowID to UUID
+                new_wfid = WorkflowUUID.new(params.workflow_id)
+
+            if old_wfid != new_wfid:
+                task.workflow_id = new_wfid
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskWorkflowChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=WorkflowUUID.new(old_wfid) if old_wfid else None,
+                        new=new_wfid,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+
+        # Title and description - update silently without events
+        if (new_title := set_fields.pop("title", None)) is not None:
+            task.title = new_title
+
+        if (new_desc := set_fields.pop("description", None)) is not None:
+            task.description = new_desc
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
+        await self.session.commit()
+        await self.session.refresh(task)
+        return task
+
+    async def delete_task(self, task_id: uuid.UUID) -> None:
+        """Delete a task.
+
+        Args:
+            task_id: The ID of the task to delete
+
+        Raises:
+            TracecatNotFoundError: If the task is not found
+        """
+        task = await self.get_task(task_id)
+
+        # Load case for event context
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == task.case_id,
+        )
+        result = await self.session.execute(statement)
+        case = result.scalars().first()
+        if not case:
+            raise TracecatNotFoundError(f"Case {task.case_id} not found")
+
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+        events_svc = CaseEventsService(session=self.session, role=self.role)
+
+        # Emit delete event before deleting to capture title
+        await events_svc.create_event(
+            case=case,
+            event=TaskDeletedEvent(
+                task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
+            ),
+        )
+
+        # Update parent case's updated_at timestamp
+        case.updated_at = datetime.now(UTC)
+
+        await self.session.delete(task)
+        await self.session.commit()

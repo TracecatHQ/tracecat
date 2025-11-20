@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Submit HEC event
+  description: Submit an event to Splunk using the HTTP Event Collector (HEC). Uses HEC token authentication.
+  display_group: Splunk
+  doc_url: https://help.splunk.com/en/splunk-enterprise/get-data-in/get-started-with-getting-data-in/9.4/get-data-with-http-event-collector/format-events-for-http-event-collector
+  namespace: tools.splunk
+  name: submit_hec_event
+  secrets:
+    - name: splunk_hec
+      keys: ["SPLUNK_HEC_TOKEN"]
+  expects:
+    event:
+      type: dict[str, Any]
+      description: |
+        Event data to send to Splunk. Can contain any key-value pairs.
+        Example: {"action": "login", "username": "john", "ip": "192.168.1.100"}
+    base_url:
+      type: str | None
+      description: Splunk HEC endpoint URL (e.g. https://localhost:8088 or https://tracecat.splunkcloud.com:8088).
+      default: null
+    index:
+      type: str | None
+      description: Splunk index to send the event to. If not specified, uses the default index configured for the HEC token.
+      default: null
+    source:
+      type: str
+      description: Event source identifier (e.g. application name, script name).
+      default: tracecat_workflow
+    sourcetype:
+      type: str
+      description: Event source type for categorization and parsing rules.
+      default: tracecat_log
+    host:
+      type: str
+      description: Host field value for the event.
+      default: tracecat.com
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: submit_event
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/services/collector/event
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Splunk ${{ SECRETS.splunk_hec.SPLUNK_HEC_TOKEN }}
+          Content-Type: application/json
+          Accept: application/json
+        payload:
+          event: ${{ inputs.event }}
+          source: ${{ inputs.source }}
+          sourcetype: ${{ inputs.sourcetype }}
+          host: ${{ inputs.host }}
+          index: ${{ inputs.index }}
+  returns: ${{ steps.submit_event.result.data }}

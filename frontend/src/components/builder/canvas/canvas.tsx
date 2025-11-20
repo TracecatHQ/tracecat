@@ -179,6 +179,7 @@ export const WorkflowCanvas = React.forwardRef<
   >([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { deleteAction } = useDeleteAction()
+  const openContextMenuId = useRef<string | null>(null)
   /**
    * Load the saved workflow
    */
@@ -194,13 +195,8 @@ export const WorkflowCanvas = React.forwardRef<
         }
         // Defensive
         const prunedGraph = pruneGraphObject(graph)
-        const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
-          prunedGraph.nodes,
-          prunedGraph.edges,
-          "TB"
-        )
-        setNodes((currNodes) => [...currNodes, ...layoutNodes])
-        setEdges((currEdges) => [...currEdges, ...layoutEdges])
+        setNodes((currNodes) => [...currNodes, ...prunedGraph.nodes])
+        setEdges((currEdges) => [...currEdges, ...prunedGraph.edges])
         setViewport({
           x: graph.viewport?.x ?? 0,
           y: graph.viewport?.y ?? 0,
@@ -263,8 +259,11 @@ export const WorkflowCanvas = React.forwardRef<
         data: { type: "selector" },
         origin: [0.5, 0.0],
       }
-
-      setNodes((nds) => nds.concat(newNode))
+      const prevContextMenuId = openContextMenuId.current
+      setNodes((nds) =>
+        nds.concat(newNode).filter((n) => n.id !== prevContextMenuId)
+      )
+      openContextMenuId.current = id
       return newNode
     },
     [screenToFlowPosition]
@@ -338,7 +337,7 @@ export const WorkflowCanvas = React.forwardRef<
     try {
       await Promise.all(
         pendingDeleteNodes.map((node) =>
-          deleteAction({ actionId: node.id, workspaceId })
+          deleteAction({ actionId: node.id, workspaceId, workflowId })
         )
       )
 
@@ -443,13 +442,13 @@ export const WorkflowCanvas = React.forwardRef<
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
-      const prundGraph = pruneGraphObject({
+      const prunedGraph = pruneGraphObject({
         nodes,
         edges,
       })
       const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
-        prundGraph.nodes,
-        prundGraph.edges,
+        prunedGraph.nodes,
+        prunedGraph.edges,
         direction
       )
       setNodes(newNodes)

@@ -9,19 +9,29 @@ Tracecat is a modern, open source automation platform built for security and IT 
 
 ### Environment Setup
 ```bash
-# Create Python 3.12 virtual environment
-uv venv --python 3.12
-
-# Install main package and registry in development mode
-uv pip install -e ".[dev]"
-uv pip install -e "tracecat_registry[cli] @ ./registry"
+# Create Python 3.12 virtual environment and install from lock file
+# This is a workspace project - run from anywhere inside the repo
+# (includes both tracecat and tracecat_registry packages)
+uv sync
 
 # Install frontend dependencies
 pnpm install --dir frontend
 
 # Install pre-commit hooks
-uv pip install pre-commit
 uv run pre-commit install
+```
+
+### Updating Dependencies
+```bash
+# Update dependencies and regenerate lock file
+# Lock file updates are automatic if you delete uv.lock and run uv sync
+rm uv.lock && uv sync
+
+# Or manually compile a new lock file
+uv pip compile pyproject.toml -o uv.lock
+
+# Install updated dependencies
+uv sync
 ```
 
 ### Development Stack
@@ -93,19 +103,39 @@ just gen-functions
 - **Registry** (`registry/`): Independent package for integrations and templates
 
 ### Key Technologies
-- **Backend**: FastAPI, SQLModel, Pydantic, Temporal, Ray, PostgreSQL, Alembic
+- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic
 - **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
 - **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
 - **Package Management**: `uv` for Python, `pnpm` for JavaScript
 
 ### Database and Migrations
-- **Schema**: `tracecat/db/schemas.py` - Never add methods here, keep imports minimal
+- **Database Models**: `tracecat/db/models.py` - SQLAlchemy database tables. Never add methods here, keep imports minimal
 - **Migrations**: `alembic/` directory with comprehensive schema evolution
 - **Database Engine**: `tracecat/db/engine.py` for connection management
 
+### Type System Architecture
+The codebase follows a three-tier type system to separate concerns and reduce circular imports:
+
+1. **`models.py`**: Database models (SQLAlchemy tables)
+   - Location: `tracecat/db/models.py`
+   - Purpose: Database table definitions
+   - Rules: Never add methods, keep imports minimal
+
+2. **`schemas.py`**: API request/response schemas (Pydantic models)
+   - Location: Throughout codebase (e.g., `tracecat/agent/schemas.py`, `tracecat/workflow/management/schemas.py`)
+   - Purpose: API contracts, DTOs, request/response models
+   - Naming: Previously called `models.py`, renamed for clarity
+
+3. **`types.py`**: Domain types, protocols, and type aliases
+   - Location: Throughout codebase (e.g., `tracecat/agent/types.py`, `tracecat/workflow/management/types.py`)
+   - Purpose: Service-level types, protocols, dataclasses, type aliases
+   - Use: Domain logic types that don't fit in schemas or models
+
 ### Enterprise Edition
-- **Location**: `tracecat/ee/` directory contains paid enterprise features
-- **Features**: RBAC, multi-tenancy, SSO integration, advanced auth
+- **Package**: `packages/tracecat-ee/` contains paid enterprise features
+- **Installation**: Install with `uv sync` or `pip install tracecat[ee]`
+- **Shims**: `tracecat/ee/` contains shims for backward compatibility
+- **Features**: RBAC, multi-tenancy, SSO integration, advanced auth, interactions
 
 ## Development Guidelines
 
@@ -118,6 +148,25 @@ just gen-functions
 - Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
 - Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
 - Always avoid use of `type: ignore` when writing python code
+- You must *NEVER* put import statements in function bodies.
+- If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+
+### Type Organization Guidelines
+When adding new types, follow this pattern:
+- **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
+- **API schemas**: Add to module-specific `schemas.py` files (Pydantic models for request/response)
+- **Domain types**: Add to module-specific `types.py` files (protocols, dataclasses, type aliases)
+- **Avoiding circular imports**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
+- **Import order**: `models` → `types` → `schemas` → `service` → `router` (to minimize circular dependencies)
+
+Example structure for a module like `tracecat/agent/`:
+```
+tracecat/agent/
+├── schemas.py       # API request/response models (RunAgentArgs, AgentStreamChunk)
+├── types.py         # Domain types (AgentConfig, StreamingAgentDeps protocol)
+├── service.py       # Business logic
+└── router.py        # FastAPI routes
+```
 
 ### Frontend Standards
 - Use kebab-case for file names
@@ -125,6 +174,11 @@ just gen-functions
 - Prefer `function foo()` over `const foo = () =>`
 - Use named exports over default exports
 - Use "Title case example" over "Title Case Example" for UI text
+- Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
+- Avoid nested ternary statements - use `if/else` or `switch/case` instead
+
+### UI Component Best Practices
+- **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
 
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules
@@ -146,10 +200,18 @@ just gen-functions
 - Database isolation: Each test gets its own transaction
 
 ### Action Templates and Registry
-- **Templates**: `registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
-- **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
+- **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
+- **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
+- **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
+
+### Template Best Practices
+- **URL Encoding**: Use `${{ FN.url_encode(inputs.param) }}` when interpolating user inputs into URL paths (especially for IDs that might be emails)
+- **Type Syntax**: Use `str | None` instead of `str | null` for optional types
+- **GET Requests**: Don't include `Content-Type` header on GET requests
+- **Optional Parameters**: Use `core.script.run_python` to conditionally build params dict, excluding null values
+- **Response Format**: Return `${{ steps.step_name.result.data }}` directly, avoid custom response formatting
+- **Error Handling**: Let the platform handle HTTP errors, don't add custom error checking unless necessary
 
 ### Workflow and Execution
 - **DSL**: `tracecat/dsl/` - Domain Specific Language for workflows
@@ -157,16 +219,13 @@ just gen-functions
 - **Temporal**: Workflow orchestration with `tracecat/dsl/worker.py`
 
 ## Important Rules
-- Never add methods in `tracecat/db/schemas.py`. Keep imports minimal.
+- Never add methods in `tracecat/db/models.py`. Keep imports minimal.
 - Always use `pnpm` over `npm` and `rg` instead of `grep`
 - Always ask clarifying questions when lacking full context
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
 
 ## Code Typing Guidelines
 - When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.
-
-## Code Style Guidelines
-- When writing typescript code, always avoid using nested ternary statements. You probably want to use `if/else` or `switch/case`.
 
 ## Frontend Type Generation
 - If you need to add frontend types, you should first try to generate them from the backend using `just gen-client`
@@ -176,3 +235,90 @@ just gen-functions
 
 ## Services and Logging Guidelines
 - When working with live services, avoid using `just` commands. You should use `docker` commands to inspect/manage services and read logs.
+
+## Tracecat Template Best Practices
+
+### Template Structure
+- Templates are YAML files located in `packages/tracecat-registry/tracecat_registry/templates/`
+- Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
+- Action titles should be < 5 words and use "Title case example" format
+
+### Expression Syntax
+- Use `${{ }}` for template expressions
+- Boolean operators: Use `||` for OR, `&&` for AND (not Python's `or`/`and`)
+- String casting: `str()` is valid in Tracecat templates
+- All FN. functions must exist in `tracecat/expressions/functions.py`
+
+### Available Functions (FN.)
+IMPORTANT: Always check `@tracecat/expressions/functions.py` for the complete and up-to-date list of available functions. Look at the `_FUNCTION_MAPPING` dictionary (around line 905) to see all available functions and their aliases.
+
+When writing templates, ensure that any FN. function you use exists in the `_FUNCTION_MAPPING` dictionary. The function names in templates must match the dictionary keys exactly.
+
+### HTTP Requests
+- Use `core.http_request` action
+- Parameter name for JSON body is `payload` (not `json` or `json_body`)
+- Example:
+  ```yaml
+  - ref: call_api
+    action: core.http_request
+    args:
+      url: https://api.example.com/endpoint
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+      payload:  # Correct parameter name
+        key: value
+  ```
+
+### Complex Logic
+- For simple conditions: Use template expressions with `||` and `&&`
+  ```yaml
+  value: ${{ inputs.login || inputs.email }}
+  ```
+- For complex logic: Use `core.script.run_python`
+  ```yaml
+  - ref: complex_logic
+    action: core.script.run_python
+    args:
+      inputs:
+        data: ${{ inputs.data }}
+      script: |
+        def main(data):
+            # Complex processing here
+            return processed_data
+  ```
+
+### Best Practices
+1. **Avoid Python syntax in expressions**: Use `||` not `or`, `&&` not `and`
+2. **Use Python scripts for complexity**: Dictionary merging, complex conditionals, data transformations
+3. **Validate function names**: Ensure all FN. functions exist in expressions/functions.py
+4. **Consistent namespaces**: Always use `tools.` prefix for integrations
+5. **Proper parameter names**: Use `payload` for JSON data in HTTP requests
+6. **Handle empty responses**: Some APIs return empty responses on success
+7. **Error handling**: Consider using Python scripts to handle edge cases
+
+### Common Patterns
+- **Authentication headers**:
+  ```yaml
+  Authorization: Basic ${{ FN.to_base64(SECRETS.creds.USERNAME + ":" + SECRETS.creds.PASSWORD) }}
+  Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+  ```
+- **Conditional values**:
+  ```yaml
+  value: ${{ inputs.override || defaults.standard_value }}
+  ```
+- **Complex data merging**:
+  ```yaml
+  - ref: merge_data
+    action: core.script.run_python
+    args:
+      inputs:
+        base: ${{ inputs.base_data }}
+        updates: ${{ inputs.updates }}
+      script: |
+        def main(base, updates):
+            return {**base, **updates}
+  ```
+
+- when using typescript you must *never* use `any` to type a variable
+- When adding any pages that require redirection/callbacks to the UI we need to create a NextJS route handler for that path

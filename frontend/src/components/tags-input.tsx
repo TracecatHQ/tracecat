@@ -1,6 +1,6 @@
 "use client"
 
-import type { TagInputProps } from "emblor"
+import type { Tag as _Tag, TagInputProps } from "emblor"
 import { TagInput as EmblorTagInput } from "emblor"
 import fuzzysort from "fuzzysort"
 import { ChevronDown, X } from "lucide-react"
@@ -17,6 +17,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
+export type Tag = _Tag
 // Define the props we want to expose to consumers
 type CustomTagInputProps = Omit<
   TagInputProps,
@@ -37,19 +38,16 @@ export function CustomTagInput(props: CustomTagInputProps) {
       setActiveTagIndex={setActiveTagIndex}
       styleClasses={{
         input: "shadow-none text-xs",
-        inlineTagsContainer: "shadow-sm h-9 items-center border text-xs",
+        // Allow chips to wrap onto new lines and avoid fixed height to prevent spillover
+        inlineTagsContainer:
+          "shadow-sm min-h-9 flex flex-wrap items-center gap-1 border text-xs",
         tag: {
-          body: "h-5 text-xs",
+          body: "h-5 text-xs border-[0.5px]",
+          closeButton: "px-1.5",
         },
       }}
     />
   )
-}
-
-export interface Tag {
-  id: string
-  text: string
-  value: string
 }
 
 export interface Suggestion {
@@ -216,7 +214,7 @@ export function MultiTagCommandInput({
                 variant="secondary"
                 className="gap-1 pr-1 text-xs"
               >
-                {tag.value}
+                {tag.text}
                 {!disabled && (
                   <button
                     type="button"

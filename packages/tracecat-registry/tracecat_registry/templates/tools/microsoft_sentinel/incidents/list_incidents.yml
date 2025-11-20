@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: List incidents
+  description: Get all incidents in Microsoft Sentinel workspace.
+  display_group: Microsoft Sentinel
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/list
+  namespace: tools.microsoft_sentinel
+  name: list_incidents
+  secrets:
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: client_credentials
+      optional: true
+  expects:
+    subscription_id:
+      type: str
+      description: Azure subscription ID.
+    resource_group_name:
+      type: str
+      description: Azure resource group name.
+    workspace_name:
+      type: str
+      description: Log Analytics workspace name.
+    filter:
+      type: str | None
+      description: OData filter expression (e.g., "properties/status eq 'Active'").
+      default: null
+    orderby:
+      type: str | None
+      description: OData orderby expression (e.g., "properties/createdTimeUtc desc").
+      default: null
+    top:
+      type: int | None
+      description: Maximum number of incidents to return.
+      default: null
+    skip_token:
+      type: str | None
+      description: Skiptoken for pagination.
+      default: null
+    api_version:
+      type: str
+      description: API version.
+      default: "2025-09-01"
+    base_url:
+      type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
+      description: Base URL for the Azure Management API.
+      default: https://management.azure.com
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          filter: ${{ inputs.filter }}
+          orderby: ${{ inputs.orderby }}
+          top: ${{ inputs.top }}
+          skip_token: ${{ inputs.skip_token }}
+          api_version: ${{ inputs.api_version }}
+        script: |
+          def main(filter, orderby, top, skip_token, api_version):
+              params = {"api-version": api_version}
+              if filter:
+                  params["$filter"] = filter
+              if orderby:
+                  params["$orderby"] = orderby
+              if top:
+                  params["$top"] = top
+              if skip_token:
+                  params["$skipToken"] = skip_token
+              return params
+    - ref: list_incidents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_incidents.result.data }}

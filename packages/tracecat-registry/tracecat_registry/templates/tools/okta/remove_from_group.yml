@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Remove user from group
+  description: Remove a user from a specific group in Okta.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/unassignUserFromGroup
+  namespace: tools.okta
+  name: remove_from_group
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    user_id:
+      type: str
+      description: User ID, login, or email to remove from the group
+    group_id:
+      type: str
+      description: ID of the group to remove the user from
+  steps:
+    - ref: remove_user
+      action: core.http_request
+      args:
+        method: DELETE
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ FN.url_encode(inputs.user_id) }}
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+  returns: ${{ steps.remove_user.result.data }}

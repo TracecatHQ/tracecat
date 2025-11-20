@@ -7,9 +7,9 @@ icon: bolt
 <Note>
   This tutorial does not cover how to expose your Tracecat instance to the public internet.
 
-  - If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
-  - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
-</Note>
+- If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
+- If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
+  </Note>
 
 ## What you'll learn
 
@@ -29,8 +29,8 @@ Click on the `Trigger` action to activate the webhooks and schedules configurati
 ### Webhooks
 
 <Warning>
-  Webhook URLs are **secrets** and should not be exposed in public.
-  The webhook URL shown in the UI screenshots are for demonstration only.
+  Webhook URLs are **secrets** and should not be exposed in public. The webhook
+  URL shown in the UI screenshots are for demonstration only.
 </Warning>
 
 Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, then toggle the webhook on.
@@ -41,11 +41,47 @@ Webhook URLs are formatted as:
 WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
 ```
 
+#### Authenticate webhook requests with API keys
+
+You can lock down a webhook by requiring callers to present an API key.
+
+1. Open the `Trigger` action panel and locate the **API Key** section.
+2. Click **Generate API key**. Copy the value when prompted&mdash;it is only
+   displayed once.
+3. Add the following header to every webhook request:
+
+   ```http
+   x-tracecat-api-key: <your-api-key>
+   ```
+
+If a request omits the header or uses a revoked key, Tracecat rejects it with an
+HTTP `401 Unauthorized` response. You can rotate the key at any time, or revoke
+it to temporarily block requests without deleting the configuration.
+
+#### Restrict webhook sources with IP allowlists
+
+Use IP allowlists to accept requests only from trusted networks.
+
+1. In the `Trigger` panel, add one or more IPv4 addresses or CIDR ranges (e.g.
+   `203.0.113.7` or `203.0.113.0/24`) to the **IP Allowlist** field.
+2. Click **Save** to apply the changes.
+
+Tracecat compares the requester's IP address against the allowlist. Requests
+without a client IP or originating from outside the configured ranges are
+rejected with an HTTP `403 Forbidden` response. Leave the list empty to allow
+traffic from any source.
+
 ### Schedules
 
 Schedules are disabled by default. To activate a workflow's schedule, click on the `Trigger` action, then toggle the schedule on.
 
 ![Schedule action](/img/tutorials/triggers/schedule.png)
+
+From here you can enter a recurring schedule with a timeout and offset. Tracecat defaults to using UTC time, so it's convenient to use `offset` to work with timezone differences.
+
+For example, if you are in America/New_York timezone and want to run a workflow every day at 9AM, you can configure the schedule to run every 1 day with an `offset` of `PT13H`. This is because 00:00 UTC is 8PM EDT.
+
+![Schedule modal](/img/tutorials/triggers/schedule_modal.png)
 
 ### Webhook verification
 
@@ -68,8 +104,9 @@ https://${WEBHOOK_URL}?empty_echo=true
 ### Vendor-specific webhooks
 
 <Note>
-  Can't find the vendor you're looking for?
-  Open an issue on [GitHub](https://github.com/TracecatHQ/tracecat/issues) and we'll add support for it.
+  Can't find the vendor you're looking for? Open an issue on
+  [GitHub](https://github.com/TracecatHQ/tracecat/issues) and we'll add support
+  for it.
 </Note>
 
 Some vendors have more complex webhook verification requirements.
@@ -80,6 +117,7 @@ https://${WEBHOOK_URL}?vendor=okta
 ```
 
 Vendors currently supported:
+
 - `okta`
 
 ### Pause or delete schedule
@@ -106,8 +144,9 @@ Traceat's webhook parser supports the following `Content-Type` headers:
 - `application/www-form-urlencoded`
 
 <Note>
-  The webhook sender must set the `Content-Type` header to the appropriate value.
-  If no `Content-Type` header is set, Tracecat defaults to `application/json`.
+  The webhook sender must set the `Content-Type` header to the appropriate
+  value. If no `Content-Type` header is set, Tracecat defaults to
+  `application/json`.
 </Note>
 
 ### Example: Elastic Security
@@ -143,6 +182,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
 
       ![Elastic Security webhook](/img/tutorials/triggers/elastic-security-webhook.png)
     </Step>
+
   </Steps>
 </Accordion>
 
@@ -158,6 +198,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
     ```
 
     ![Deserialize JSON action](/img/tutorials/triggers/deserialize-json.png)
+
   </Step>
   <Step title="Save workflow">
     Save the workflow.
@@ -168,6 +209,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
     The workflow will now receive webhook events.
 
     ![Toggle webhook](/img/tutorials/triggers/toggle-webhook.png)
+
   </Step>
   <Step title="POST webhook request">
     Copy the webhook URL to your clipboard, then make a `POST` request to the webhook URL.
@@ -179,11 +221,13 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
       -d '{"payload": "{\"name\": \"John\", \"age\": 30}"}' \
       <webhook-url>
     ```
+
   </Step>
   <Step title="View workflow runs">
     Go to the `Runs` view and check that the workflow has run successfully.
     The workflow should have received the webhook payload and deserialized it into a JSON object.
 
     ![Deserialize JSON result](/img/tutorials/triggers/deserialize-json-result.png)
+
   </Step>
 </Steps>

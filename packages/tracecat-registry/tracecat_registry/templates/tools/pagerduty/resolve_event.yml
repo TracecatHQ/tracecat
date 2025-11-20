@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Resolve event
+  description: Resolves an existing event in PagerDuty
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: resolve_event
+  expects:
+    incident_key:
+      type: str
+      description: Identifies the alert
+    service_key:
+      type: str
+      description: The GUID of one of your Events API V2 integrations. This is the "Integration Key" listed on the Events API V2 integration's detail page.
+  steps:
+    - ref: resolve_event
+      action: core.http_request
+      args:
+        url: https://events.pagerduty.com/v2/enqueue
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          event_action: resolve
+          dedup_key: ${{ inputs.incident_key }}
+          routing_key: ${{ inputs.service_key }}
+  returns: ${{ steps.resolve_event.result.data }}

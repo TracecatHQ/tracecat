@@ -1,4 +1,4 @@
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry import RegistryOAuthSecret, RegistrySecret, registry, secrets
 
 
 @registry.register(
@@ -28,3 +28,20 @@ test_secret = RegistrySecret(name="test", keys=["KEY"])
 def fetch_secret(secret_key_name: str) -> str | None:
     secret = secrets.get(secret_key_name)
     return secret
+
+
+test_oauth_secret = RegistryOAuthSecret(
+    provider_id="microsoft_teams",
+    grant_type="authorization_code",
+)
+
+
+@registry.register(
+    description="UDF that uses OAuth secrets",
+    namespace="testing",
+    secrets=[test_oauth_secret],
+)
+def fetch_oauth_token() -> str | None:
+    """Fetch OAuth token using the mirrored SECRETS namespace."""
+    oauth_token = secrets.get("MICROSOFT_TEAMS_USER_TOKEN")
+    return oauth_token

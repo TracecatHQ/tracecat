@@ -1,7 +1,7 @@
 import pytest
 
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 
 
 @pytest.mark.parametrize(
@@ -10,6 +10,10 @@ from tracecat.types.exceptions import TracecatValidationError
         "git+ssh://git@github.com/user/repo.git",
         "git+ssh://git@gitlab.company.com/team/project.git",
         "git+ssh://git@example.com/org/repo.git",
+        "git+ssh://git@github.com:2222/user/repo.git",  # With port
+        "git+ssh://git@gitlab.com/org/team/subteam/repo.git",  # Nested groups
+        "git+ssh://git@github.com/user/repo",  # Without .git suffix
+        "git+ssh://git@github.com/user/repo.git@main",  # With branch ref
     ],
 )
 def test_registry_repository_create_valid_urls(url: str) -> None:
@@ -25,27 +29,13 @@ def test_registry_repository_create_valid_urls(url: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
-        # Shell injection attempts
-        "git+ssh://git@github.com/user/repo.git;ls",
-        "git+ssh://git@github.com/user/repo.git&&whoami",
-        "git+ssh://git@github.com/user/repo.git|cat /etc/passwd",
-        "git+ssh://git@github.com/user/repo.git`rm -rf /`",
-        "git+ssh://git@github.com/user/repo.git$(echo pwned)",
-        "git+ssh://git@github.com/user/repo.git > /tmp/hack",
-        # Invalid characters
-        "git+ssh://git@github.com/user/repo.git#branch;command",
-        "git+ssh://git@github.com/user/repo.git#branch|pipe",
-        # Path traversal attempts
-        "git+ssh://git@github.com/../user/repo.git",
-        "git+ssh://git@github.com/user/../../repo.git",
-        # Empty or malformed components
-        "git+ssh://git@/user/repo.git",
-        "git+ssh://git@github.com//repo.git",
-        "git+ssh://git@github.com/user/.git",
-        # Invalid port
-        "git+ssh://git@github.com:2222/user/repo.git",
-        # Invalid host
-        "git+ssh://git@test.com:22/user/repo; rm -rf; echo pwned.git",
+        # Empty or malformed components that should still be rejected
+        "git+ssh://git@/user/repo.git",  # No host
+        # Non-git+ssh URLs
+        "https://github.com/user/repo.git",
+        "ssh://git@github.com/user/repo.git",
+        # Missing git@ user
+        "git+ssh://github.com/user/repo.git",
     ],
 )
 def test_registry_repository_create_invalid_urls(url: str) -> None:

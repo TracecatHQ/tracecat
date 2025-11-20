@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { useDeleteRow } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function TableViewActionDeleteDialog({
   row,
@@ -28,7 +28,7 @@ export function TableViewActionDeleteDialog({
 }) {
   const params = useParams<{ tableId?: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteRow } = useDeleteRow()
   if (!tableId || !workspaceId) {
     return null
@@ -62,7 +62,7 @@ export function TableViewActionDeleteDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={handleDeleteRow}>
+          <AlertDialogAction variant="destructive" onClick={handleDeleteRow}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>

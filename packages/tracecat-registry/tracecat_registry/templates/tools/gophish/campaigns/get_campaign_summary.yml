@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get campaign summary
+  description: Get a campaign summary from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaign-summary
+  namespace: tools.gophish
+  name: get_campaign_summary
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: The base URL of the Gophish instance.
+      default: null
+    campaign_id:
+      type: int
+      description: The ID of the campaign to get summary for.
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: get_campaign_summary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.gophish.base_url }}/api/campaigns/${{ inputs.campaign_id }}/summary
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.get_campaign_summary.result.data }}

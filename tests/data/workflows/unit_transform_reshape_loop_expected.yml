@@ -5,9 +5,4 @@ ACTIONS:
       - I received 2 from you
       - I received 3 from you
     result_typename: "list"
-
-INPUTS:
-  first: 1
-  second: 2
-  list: [1, 2, 3]
 TRIGGER:

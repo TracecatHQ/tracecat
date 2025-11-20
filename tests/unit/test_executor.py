@@ -6,11 +6,13 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
-from tracecat_registry import SecretNotFoundError
+from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.models import ExecutorActionErrorInfo
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.service import (
     _dispatch_action,
     flatten_wrapped_exc_error_group,
@@ -20,8 +22,11 @@ from tracecat.executor.service import (
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
     TemplateAction,
@@ -29,10 +34,8 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import ExecutionError, LoopExecutionError
 
 
 @pytest.fixture
@@ -247,6 +250,187 @@ async def test_executor_can_run_template_action_with_secret(
         await sec_service.delete_secret(secret)
 
 
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_executor_can_run_template_action_with_oauth(
+    test_role, db_session_with_repo, mock_run_context
+):
+    """Test that Template Action steps correctly pull in OAuth secrets.
+
+    This test validates that:
+    1. OAuth integrations are properly loaded
+    2. OAUTH.* expressions resolve correctly
+    3. OAuth tokens are mirrored to SECRETS.* for backward compatibility
+    4. Template actions can access both namespaces
+    """
+
+    session, db_repo_id = db_session_with_repo
+    # Test OAuth token value
+    oauth_token_value = "__TEST_OAUTH_TOKEN_VALUE__"
+
+    # 1. Create OAuth integration
+    svc = IntegrationService(session, role=test_role)
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        ),
+        access_token=SecretStr(oauth_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+
+    # 3. Create a test template action that uses both OAuth and legacy secrets
+    # This tests that OAuth tokens are properly resolved and available
+    test_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test OAuth Action",
+            description="Test that OAuth tokens are resolved correctly",
+            name="oauth_test",
+            namespace="testing.oauth",
+            display_group="Testing",
+            expects={
+                "message": ExpectedField(
+                    type="str",
+                    description="A test message",
+                )
+            },
+            secrets=[
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="authorization_code",
+                )
+            ],
+            steps=[
+                ActionStep(
+                    ref="verify_tokens",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "oauth_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}",
+                        }
+                    },
+                )
+            ],
+            returns="${{ steps.verify_tokens.result }}",
+        ),
+    )
+
+    # 4. Register the test template action in the repository
+    # NOTE: We use the Repository class to register template actions in memory
+    # This allows us to test template execution without database registration
+    repo = Repository()
+    repo.register_template_action(test_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.oauth.oauth_test"), db_repo_id
+        )
+    )
+
+    # 5. Create and run the action
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.oauth.oauth_test",
+            run_if=None,
+            for_each=None,
+            args={"message": "test message"},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    result = await run_action_from_input(input, test_role)
+
+    # Assert - the template returns the result from the reshape step
+    # which contains oauth_token
+    assert isinstance(result, dict), f"Expected dict result, got {type(result)}"
+    assert "oauth_token" in result, (
+        f"Expected 'oauth_token' in result, got {result.keys()}"
+    )
+
+    # Verify the values
+    assert result["oauth_token"] == oauth_token_value, (
+        f"OAuth token from SECRETS namespace mismatch. "
+        f"Expected {oauth_token_value}, got {result['oauth_token']}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_executor_can_run_udf_with_oauth(
+    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that the executor can run a UDF with OAuth secrets through Ray.
+
+    This test validates that:
+    1. OAuth integrations are properly loaded for UDFs
+    2. OAuth tokens are accessible via the SECRETS namespace in UDFs
+    3. UDFs can directly access OAuth tokens through the secrets manager
+    """
+
+    session, db_repo_id = db_session_with_repo
+
+    from tracecat import config
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    # Test OAuth token value
+    oauth_token_value = "__TEST_UDF_OAUTH_TOKEN_VALUE__"
+
+    # 1. Create OAuth integration
+    svc = IntegrationService(session, role=test_role)
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        ),
+        access_token=SecretStr(oauth_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+
+    # 2. Register UDFs including the OAuth one
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+
+    # Sanity check: Verify the OAuth UDF is registered
+    assert "testing.fetch_oauth_token" in repo
+
+    # 3. Create registry action for the OAuth UDF
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.fetch_oauth_token"), db_repo_id
+        )
+    )
+
+    # 4. Create and run the action
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.fetch_oauth_token",
+            run_if=None,
+            for_each=None,
+            args={},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    result = await run_action_from_input(input, test_role)
+
+    # Assert - the UDF returns the OAuth token value
+    assert result == oauth_token_value, (
+        f"OAuth token from UDF mismatch. Expected {oauth_token_value}, got {result}"
+    )
+
+
 async def mock_action(input: Any, **kwargs):
     """Mock action that simulates some async work"""
     await asyncio.sleep(0.1)
@@ -276,7 +460,7 @@ def test_sync_executor_entrypoint(
             run_context=mock_run_context,
         )
         result = sync_executor_entrypoint(input, test_role)
-        assert result == input
+        assert result == input.model_dump(mode="json")
 
 
 async def mock_error(*args, **kwargs):

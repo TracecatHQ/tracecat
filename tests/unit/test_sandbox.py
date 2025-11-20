@@ -8,18 +8,18 @@ from pydantic import SecretStr
 
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role, get_env
-from tracecat.db.schemas import BaseSecret
+from tracecat.db.models import BaseSecret
+from tracecat.exceptions import TracecatCredentialsError
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretKeyValue,
     SecretSearch,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatCredentialsError
 
 
 @pytest.mark.anyio
@@ -266,7 +266,13 @@ async def test_auth_sandbox_optional_secrets(
         ):
             pass
 
-    assert "Missing secrets: required_secret" in str(exc_info.value)
+    error_message = str(exc_info.value)
+    assert "required_secret" in error_message
+    assert "Missing" in error_message
+    assert {
+        "secret_name": "required_secret",
+        "environment": "default",
+    } in (exc_info.value.detail or [])
 
 
 @pytest.mark.anyio

@@ -5,12 +5,16 @@ from collections.abc import Sequence
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
-from sqlalchemy import Boolean
-from sqlmodel import cast, func, or_, select
+from sqlalchemy import Boolean, cast, func, or_, select
 from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
-from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
@@ -20,7 +24,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionCreate,
     RegistryActionImplValidator,
@@ -33,11 +37,6 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
-from tracecat.types.exceptions import (
-    RegistryActionValidationError,
-    RegistryError,
-    RegistryValidationError,
-)
 
 
 class RegistryActionsService(BaseService):
@@ -74,19 +73,26 @@ class RegistryActionsService(BaseService):
                 )
             )
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""
-        namespace, name = action_name.rsplit(".", maxsplit=1)
+        try:
+            namespace, name = action_name.rsplit(".", maxsplit=1)
+        except ValueError:
+            raise RegistryError(
+                f"Action {action_name} is not a valid action name",
+                detail={"action_name": action_name},
+            ) from None
+
         statement = select(RegistryAction).where(
             RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
         )
-        result = await self.session.exec(statement)
-        action = result.one_or_none()
+        result = await self.session.execute(statement)
+        action = result.scalars().one_or_none()
         if not action:
             raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
@@ -99,8 +105,8 @@ class RegistryActionsService(BaseService):
                 action_names
             ),
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def create_action(
         self,
@@ -172,7 +178,10 @@ class RegistryActionsService(BaseService):
         return action
 
     async def sync_actions_from_repository(
-        self, db_repo: RegistryRepository, pull_remote: bool = True
+        self,
+        db_repo: RegistryRepository,
+        pull_remote: bool = True,
+        target_commit_sha: str | None = None,
     ) -> str | None:
         """Sync actions from a repository.
 
@@ -183,9 +192,16 @@ class RegistryActionsService(BaseService):
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
         # Load the repository
-        # After we sync the repository with its remote
-        # None here means we're pulling the remote repository from HEAD
-        sha = None if pull_remote else db_repo.commit_sha
+        # Determine which commit SHA to use:
+        # 1. If target_commit_sha is provided, use it
+        # 2. If pull_remote is False, use the stored commit SHA
+        # 3. Otherwise use None (HEAD)
+        if target_commit_sha is not None:
+            sha = target_commit_sha
+        elif not pull_remote:
+            sha = db_repo.commit_sha
+        else:
+            sha = None
         commit_sha = await repo.load_from_origin(commit_sha=sha)
 
         # TODO: Move this into it's own function and service it from the registry repository router
@@ -428,7 +444,7 @@ async def validate_action_template(
 
         # (B) Validate that the step is correctly formatted
         try:
-            bound_action.validate_args(**step.args)
+            bound_action.validate_args(args=step.args)
         except RegistryValidationError as e:
             if isinstance(e.err, ValidationError):
                 details = []
@@ -460,7 +476,8 @@ async def validate_action_template(
     for expr in extract_expressions(defn.returns):
         expr.validate(validator, loc=("returns",))
     expr_errs = set(validator.errors())
-    log.warning("Expression validation errors", errors=expr_errs)
+    if expr_errs:
+        log.warning("Expression validation errors", errors=expr_errs)
     val_errs.extend(
         RegistryActionValidationErrorInfo.from_validation_result(
             e, is_template=action.is_template

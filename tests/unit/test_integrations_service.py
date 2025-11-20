@@ -6,25 +6,29 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from pydantic import BaseModel, SecretStr
-from sqlmodel.ext.asyncio.session import AsyncSession
+from pydantic import BaseModel, SecretStr, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.integrations.base import (
+from tracecat.auth.types import Role
+from tracecat.db.models import OAuthIntegration
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import (
-    ProviderCategory,
+from tracecat.integrations.schemas import (
+    IntegrationUpdate,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
-    TokenResponse,
 )
-from tracecat.integrations.service import IntegrationService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.integrations.service import (
+    InsecureOAuthEndpointError,
+    IntegrationService,
+)
+from tracecat.integrations.types import TokenResponse
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -40,19 +44,20 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     """Mock OAuth provider for testing."""
 
     id: ClassVar[str] = "mock_provider"
-    _authorization_endpoint: ClassVar[str] = "https://mock.provider/oauth/authorize"
-    _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
+    default_authorization_endpoint: ClassVar[str] = (
+        "https://mock.provider/oauth/authorize"
+    )
+    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_provider",
         name="Mock Provider",
         description="A mock OAuth provider for testing",
         api_docs_url="https://mock.provider/docs",
-        categories=[ProviderCategory.OTHER],
+        requires_config=True,
     )
 
 
@@ -64,7 +69,6 @@ class MockOAuthProviderWithPKCE(MockOAuthProvider):
         id="mock_provider_pkce",
         name="Mock Provider with PKCE",
         description="A mock OAuth provider with PKCE for testing",
-        categories=[ProviderCategory.OTHER],
     )
 
     def _use_pkce(self) -> bool:
@@ -84,20 +88,19 @@ class MockCCOAuthProvider(ClientCredentialsOAuthProvider):
     """Mock OAuth provider for client credentials testing."""
 
     id: ClassVar[str] = "mock_cc_provider"
-    _authorization_endpoint: ClassVar[str] = (
-        "https://mock.provider/oauth/authorize"  # Required by base class validation
+    default_authorization_endpoint: ClassVar[str] = (
+        "https://mock.provider/oauth/authorize"
     )
-    _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
+    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_cc_provider",
         name="Mock CC Provider",
         description="A mock OAuth provider for client credentials testing",
-        categories=[ProviderCategory.OTHER],
+        requires_config=True,
     )
 
 
@@ -328,43 +331,42 @@ class TestIntegrationService:
         # Note: Testing actual user_id insertion requires foreign key setup with user table,
         # but the method signature and parameter handling is covered
 
-    async def test_store_integration_updates_provider_config(
+    async def test_store_integration_updates_endpoints(
         self,
         integration_service: IntegrationService,
         mock_token_response: TokenResponse,
     ) -> None:
-        """Test updating provider_config on an existing integration."""
+        """Test updating stored endpoints on an existing integration."""
         provider_key = ProviderKey(
             id="test_provider",
             grant_type=OAuthGrantType.AUTHORIZATION_CODE,
         )
 
-        # Store initial integration with provider_config
-        initial_config = {"api_endpoint": "https://api.v1.example.com", "timeout": 30}
+        # Store initial integration with explicit endpoints
         integration = await integration_service.store_integration(
             provider_key=provider_key,
             access_token=mock_token_response.access_token,
-            provider_config=initial_config,
+            authorization_endpoint="https://api.v1.example.com/authorize",
+            token_endpoint="https://api.v1.example.com/token",
         )
 
-        assert integration.provider_config == initial_config
+        assert (
+            integration.authorization_endpoint == "https://api.v1.example.com/authorize"
+        )
+        assert integration.token_endpoint == "https://api.v1.example.com/token"
 
-        # Update with new provider_config
-        updated_config = {
-            "api_endpoint": "https://api.v2.example.com",
-            "timeout": 60,
-            "new_field": "new_value",
-        }
+        # Update with new endpoints
         updated = await integration_service.store_integration(
             provider_key=provider_key,
             access_token=SecretStr("new_access_token"),
-            provider_config=updated_config,
+            authorization_endpoint="https://api.v2.example.com/authorize",
+            token_endpoint="https://api.v2.example.com/token",
         )
 
-        # Should be same integration but with updated config
+        # Should be same integration but with updated endpoints
         assert updated.id == integration.id
-        assert updated.provider_config == updated_config
-        assert updated.provider_config != initial_config
+        assert updated.authorization_endpoint == "https://api.v2.example.com/authorize"
+        assert updated.token_endpoint == "https://api.v2.example.com/token"
 
     async def test_list_integrations(
         self,
@@ -464,7 +466,7 @@ class TestIntegrationService:
         integration_service: IntegrationService,
         mock_token_response: TokenResponse,
     ) -> None:
-        """Test disconnecting an integration that has provider config (should preserve config)."""
+        """Test disconnecting an integration preserves stored endpoints."""
         provider_key = ProviderKey(
             id="test_provider",
             grant_type=OAuthGrantType.AUTHORIZATION_CODE,
@@ -475,7 +477,8 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
-            provider_config={"api_endpoint": "https://api.example.com"},
+            authorization_endpoint="https://api.example.com/oauth/authorize",
+            token_endpoint="https://api.example.com/oauth/token",
         )
 
         # Store integration with tokens
@@ -486,8 +489,9 @@ class TestIntegrationService:
             scope="read write",
         )
 
-        # Verify provider config is preserved
-        original_provider_config = integration.provider_config
+        # Verify endpoint metadata is preserved
+        original_authorization_endpoint = integration.authorization_endpoint
+        original_token_endpoint = integration.token_endpoint
         original_use_workspace_creds = integration.use_workspace_credentials
 
         # Disconnect integration
@@ -497,7 +501,8 @@ class TestIntegrationService:
         assert integration.encrypted_access_token == b""
         assert integration.encrypted_refresh_token is None
         assert integration.scope is None
-        assert integration.provider_config == original_provider_config
+        assert integration.authorization_endpoint == original_authorization_endpoint
+        assert integration.token_endpoint == original_token_endpoint
         assert integration.use_workspace_credentials == original_use_workspace_creds
 
     async def test_remove_integration(
@@ -540,7 +545,8 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
-            provider_config={"api_endpoint": "https://api.example.com"},
+            authorization_endpoint="https://api.example.com/oauth/authorize",
+            token_endpoint="https://api.example.com/oauth/token",
         )
 
         # Store integration with tokens
@@ -551,7 +557,8 @@ class TestIntegrationService:
         )
 
         # Verify integration exists with config
-        assert integration.provider_config is not None
+        assert integration.authorization_endpoint is not None
+        assert integration.token_endpoint is not None
         assert integration.use_workspace_credentials is True
 
         # Remove integration
@@ -663,6 +670,7 @@ class TestIntegrationService:
 
         # Get access token only
         access_token_only = await integration_service.get_access_token(integration)
+        assert access_token_only is not None
         assert (
             access_token_only.get_secret_value()
             == mock_token_response.access_token.get_secret_value()
@@ -716,7 +724,6 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
-            provider_config={},
         )
 
         # Store integration with long expiry (1 hour)
@@ -731,9 +738,11 @@ class TestIntegrationService:
         assert not integration.needs_refresh
 
         # Mock the provider registry (should not be called)
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
             # This should not be called since refresh is not needed
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Attempt refresh - should return immediately without refreshing
             refreshed = await integration_service.refresh_token_if_needed(integration)
@@ -743,7 +752,7 @@ class TestIntegrationService:
             assert refreshed.expires_at == integration.expires_at
 
             # Registry should not have been accessed
-            mock_registry.get.assert_not_called()
+            mock_get_provider.assert_not_called()
 
     async def test_refresh_token_if_needed(
         self,
@@ -758,8 +767,10 @@ class TestIntegrationService:
         )
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Mock the refresh_access_token method
             with patch.object(
@@ -778,7 +789,6 @@ class TestIntegrationService:
                     provider_key=provider_key,
                     client_id="mock_client_id",
                     client_secret=SecretStr("mock_client_secret"),
-                    provider_config={},
                 )
 
                 # Store integration that needs refresh
@@ -860,7 +870,6 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="unknown_client_id",
             client_secret=SecretStr("unknown_client_secret"),
-            provider_config={},
         )
 
         # Store integration with tokens that will expire
@@ -878,9 +887,11 @@ class TestIntegrationService:
         await integration_service.session.refresh(integration)
 
         # Mock the provider registry to return None (provider not found)
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            # Make get_class return None to simulate provider not found
-            mock_registry.get.return_value.get_class.return_value = None
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            # Make get_provider_class return None to simulate provider not found
+            mock_get_provider.return_value = None
 
             # Attempt refresh - should return unchanged integration gracefully
             refreshed = await integration_service.refresh_token_if_needed(integration)
@@ -908,8 +919,10 @@ class TestIntegrationService:
         original_refresh_token = mock_token_response.refresh_token
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Mock the refresh_access_token method to return None for refresh_token
             with patch.object(
@@ -928,7 +941,6 @@ class TestIntegrationService:
                     provider_key=provider_key,
                     client_id="mock_client_id",
                     client_secret=SecretStr("mock_client_secret"),
-                    provider_config={},
                 )
 
                 # Store integration that needs refresh
@@ -1010,18 +1022,21 @@ class TestIntegrationService:
         )
         client_id = "test_client_id"
         client_secret = SecretStr("test_client_secret")
-        provider_config = {"custom_setting": "value"}
+        authorization_endpoint = "https://api.example.com/oauth/authorize"
+        token_endpoint = "https://api.example.com/oauth/token"
 
         # Store provider config
         integration = await integration_service.store_provider_config(
             provider_key=provider_key,
             client_id=client_id,
             client_secret=client_secret,
-            provider_config=provider_config,
+            authorization_endpoint=authorization_endpoint,
+            token_endpoint=token_endpoint,
         )
 
         assert integration.use_workspace_credentials is True
-        assert integration.provider_config == provider_config
+        assert integration.authorization_endpoint == authorization_endpoint
+        assert integration.token_endpoint == token_endpoint
 
         # Get provider config
         config = integration_service.get_provider_config(
@@ -1029,10 +1044,161 @@ class TestIntegrationService:
         )
         assert config is not None
         assert config.client_id == client_id
+        assert config.client_secret is not None
         assert (
             config.client_secret.get_secret_value() == client_secret.get_secret_value()
         )
-        assert config.provider_config == provider_config
+        assert config.authorization_endpoint == authorization_endpoint
+        assert config.token_endpoint == token_endpoint
+
+    @pytest.mark.parametrize(
+        ("authorization_endpoint", "token_endpoint"),
+        [
+            (
+                "http://api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token",
+            ),
+            (
+                "https://api.example.com/oauth/authorize",
+                "http://api.example.com/oauth/token",
+            ),
+        ],
+    )
+    async def test_store_provider_config_rejects_insecure_endpoints(
+        self,
+        integration_service: IntegrationService,
+        authorization_endpoint: str,
+        token_endpoint: str,
+    ) -> None:
+        """Ensure insecure OAuth endpoints are rejected before persistence."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        with pytest.raises(InsecureOAuthEndpointError):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="client",
+                client_secret=SecretStr("secret"),
+                authorization_endpoint=authorization_endpoint,
+                token_endpoint=token_endpoint,
+            )
+
+    @pytest.mark.parametrize(
+        ("authorization_endpoint", "token_endpoint"),
+        [
+            (
+                "http://api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token",
+            ),
+            (
+                "https://api.example.com/oauth/authorize",
+                "http://api.example.com/oauth/token",
+            ),
+        ],
+    )
+    async def test_get_provider_config_rejects_insecure_stored_endpoints(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        authorization_endpoint: str,
+        token_endpoint: str,
+    ) -> None:
+        """Ensure provider config is not returned when stored endpoints are insecure."""
+        provider_key = ProviderKey(
+            id="test_provider_insecure",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        insecure_integration = OAuthIntegration(
+            owner_id=integration_service.workspace_id,
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            user_id=None,
+            encrypted_access_token=b"",
+            encrypted_refresh_token=None,
+            encrypted_client_id=integration_service.encrypt_client_credential("client"),
+            encrypted_client_secret=integration_service.encrypt_client_credential(
+                "secret"
+            ),
+            use_workspace_credentials=True,
+            authorization_endpoint=authorization_endpoint,
+            token_endpoint=token_endpoint,
+        )
+
+        session.add(insecure_integration)
+        await session.commit()
+        await session.refresh(insecure_integration)
+
+        config = integration_service.get_provider_config(
+            integration=insecure_integration,
+            default_scopes=["user.read"],
+        )
+
+        assert config is None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("authorization_endpoint", "http://api.example.com/oauth/authorize"),
+            ("token_endpoint", "http://api.example.com/oauth/token"),
+        ],
+    )
+    def test_integration_update_requires_https(
+        self,
+        field: str,
+        value: str,
+    ) -> None:
+        """Ensure request schema rejects insecure OAuth endpoints."""
+        with pytest.raises(ValidationError):
+            IntegrationUpdate(
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                **{field: value},
+            )
+
+    async def test_store_provider_config_includes_default_endpoints(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ensure default endpoints are stored when provider is registered."""
+
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=MockOAuthProvider.grant_type,
+        )
+
+        monkeypatch.setattr(
+            "tracecat.integrations.service.get_provider_class",
+            lambda key: MockOAuthProvider
+            if key.id == provider_key.id and key.grant_type == provider_key.grant_type
+            else None,
+        )
+
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="mock-client",
+            client_secret=SecretStr("mock-secret"),
+        )
+
+        assert (
+            integration.authorization_endpoint
+            == MockOAuthProvider.default_authorization_endpoint
+        )
+        assert integration.token_endpoint == MockOAuthProvider.default_token_endpoint
+
+        config = integration_service.get_provider_config(
+            integration=integration,
+            provider_impl=MockOAuthProvider,
+            default_scopes=MockOAuthProvider.scopes.default,
+        )
+
+        assert config is not None
+        assert config.authorization_endpoint == (
+            MockOAuthProvider.default_authorization_endpoint
+        )
+        assert config.token_endpoint == MockOAuthProvider.default_token_endpoint
 
     async def test_remove_provider_config(
         self,
@@ -1050,7 +1216,6 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="test_client",
             client_secret=SecretStr("test_secret"),
-            provider_config={},
         )
 
         # Remove provider config - should delete entire record
@@ -1074,7 +1239,6 @@ class TestIntegrationService:
             provider_key=provider_key,
             client_id="test_client",
             client_secret=SecretStr("test_secret"),
-            provider_config={},
         )
 
         # Remove provider config - should only clear credentials
@@ -1105,8 +1269,10 @@ class TestIntegrationService:
         )
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockCCOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockCCOAuthProvider
 
             # Mock the get_client_credentials_token method
             with patch.object(
@@ -1127,7 +1293,6 @@ class TestIntegrationService:
                     provider_key=provider_key,
                     client_id="mock_cc_client_id",
                     client_secret=SecretStr("mock_cc_client_secret"),
-                    provider_config={},
                 )
 
                 # Store integration
@@ -1177,7 +1342,6 @@ class TestIntegrationService:
             provider_key=ac_provider_key,
             client_id="ac_client",
             client_secret=SecretStr("ac_secret"),
-            provider_config={},
         )
         ac_integration = await integration_service.store_integration(
             provider_key=ac_provider_key,
@@ -1195,7 +1359,6 @@ class TestIntegrationService:
             provider_key=cc_provider_key,
             client_id="cc_client",
             client_secret=SecretStr("cc_secret"),
-            provider_config={},
         )
         cc_integration = await integration_service.store_integration(
             provider_key=cc_provider_key,
@@ -1218,7 +1381,6 @@ class TestIntegrationService:
             provider_key=ac_provider_key,
             client_id="ac_client",
             client_secret=SecretStr("ac_secret"),
-            provider_config={},
         )
         await integration_service.store_integration(
             provider_key=ac_provider_key,
@@ -1235,7 +1397,6 @@ class TestIntegrationService:
             provider_key=cc_provider_key,
             client_id="cc_client",
             client_secret=SecretStr("cc_secret"),
-            provider_config={},
         )
         await integration_service.store_integration(
             provider_key=cc_provider_key,
@@ -1390,68 +1551,81 @@ class TestBaseOAuthProvider:
         config = ProviderConfig(
             client_id="config_client_id",
             client_secret=SecretStr("config_client_secret"),
-            provider_config={"redirect_uri": "custom_redirect"},
+            authorization_endpoint="https://custom.example.com/oauth/authorize",
+            token_endpoint="https://custom.example.com/oauth/token",
         )
 
         provider = MockOAuthProvider.from_config(config)
 
         assert provider.client_id == "config_client_id"
         assert provider.client_secret == "config_client_secret"
+        assert (
+            provider.authorization_endpoint
+            == "https://custom.example.com/oauth/authorize"
+        )
+        assert provider.token_endpoint == "https://custom.example.com/oauth/token"
 
-    async def test_pkce_and_extra_params(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test PKCE and additional parameter support."""
+    async def test_scope_empty_array_uses_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that empty scope array is respected (not using defaults)."""
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        provider = MockOAuthProvider(
+            client_id="test_id", client_secret="test_secret", scopes=[]
+        )
+        assert provider.requested_scopes == []  # Empty array is respected
+
+    async def test_scope_override_replaces_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that provided scopes override defaults completely."""
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        provider = MockOAuthProvider(
+            client_id="test_id",
+            client_secret="test_secret",
+            scopes=["custom.read", "custom.write", "admin"],
+        )
+        assert provider.requested_scopes == ["custom.read", "custom.write", "admin"]
+
+    async def test_scope_none_uses_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that None scopes fall back to defaults."""
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        provider = MockOAuthProvider(
+            client_id="test_id", client_secret="test_secret", scopes=None
+        )
+        assert provider.requested_scopes == ["read", "write"]
+
+    async def test_multiple_providers_isolated_scopes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that scope overrides are isolated between provider instances."""
         monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
 
-        # Create provider with PKCE and custom params
-        provider = MockOAuthProviderWithPKCE(
-            client_id="test_client_id", client_secret="test_client_secret"
+        # Create first provider with custom scopes
+        provider1 = MockOAuthProvider(
+            client_id="test_id_1",
+            client_secret="test_secret_1",
+            scopes=["scope1", "scope2"],
         )
 
-        # Test authorization URL with custom params
-        state = "test_state_123"
+        # Create second provider with different scopes
+        provider2 = MockOAuthProvider(
+            client_id="test_id_2",
+            client_secret="test_secret_2",
+            scopes=["scope3", "scope4"],
+        )
 
-        with patch.object(
-            AsyncOAuth2Client, "create_authorization_url"
-        ) as mock_create_url:
-            mock_create_url.return_value = (
-                "https://mock.provider/oauth/authorize?client_id=test_client_id&custom_auth_param=auth_value",
-                state,
-            )
+        # Create third provider with defaults
+        provider3 = MockOAuthProvider(
+            client_id="test_id_3", client_secret="test_secret_3"
+        )
 
-            _url = await provider.get_authorization_url(state)
-
-            # Verify create_authorization_url was called with custom params
-            mock_create_url.assert_called_once_with(
-                provider.authorization_endpoint,
-                state=state,
-                custom_auth_param="auth_value",
-                audience="test-api",
-            )
-
-        # Test token exchange with custom params
-        code = "test_auth_code"
-
-        with patch.object(
-            AsyncOAuth2Client, "fetch_token", new_callable=AsyncMock
-        ) as mock_fetch:
-            mock_fetch.return_value = {
-                "access_token": "test_access_token",
-                "refresh_token": "test_refresh_token",
-                "expires_in": 3600,
-                "scope": "read write",
-                "token_type": "Bearer",
-            }
-
-            await provider.exchange_code_for_token(code, state)
-
-            # Verify fetch_token was called with custom params
-            mock_fetch.assert_called_once_with(
-                provider.token_endpoint,
-                code=code,
-                state=state,
-                custom_token_param="token_value",
-                resource="test-resource",
-            )
+        # Verify each has its own scopes
+        assert provider1.requested_scopes == ["scope1", "scope2"]
+        assert provider2.requested_scopes == ["scope3", "scope4"]
+        assert provider3.requested_scopes == ["read", "write"]
 
     async def test_exchange_code_for_token_error_handling(
         self, mock_provider: MockOAuthProvider
@@ -1521,3 +1695,95 @@ class TestClientCredentialsOAuthProvider:
 # NOTE: Workflow integration test removed as it requires Temporal server
 # The test would verify that OAuth tokens are accessible within workflow actions
 # by creating a test workflow that retrieves tokens via core.secrets.get
+
+
+@pytest.mark.anyio
+class TestIntegrationServiceScopes:
+    """Test IntegrationService scope handling."""
+
+    async def test_store_provider_config_with_empty_scopes(
+        self,
+        integration_service: IntegrationService,
+        mock_provider: MockOAuthProvider,
+    ) -> None:
+        """Test storing provider config with empty scopes array."""
+        provider_key = ProviderKey(
+            id=mock_provider.id, grant_type=mock_provider.grant_type
+        )
+
+        # Store with empty scopes
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_secret"),
+            requested_scopes=[],
+        )
+
+        # Empty scopes are stored explicitly as empty string
+        assert integration.requested_scopes == ""
+
+    async def test_store_provider_config_scope_updates(
+        self,
+        integration_service: IntegrationService,
+        mock_provider: MockOAuthProvider,
+    ) -> None:
+        """Test updating scopes through multiple store operations."""
+        provider_key = ProviderKey(
+            id=mock_provider.id, grant_type=mock_provider.grant_type
+        )
+
+        # Initial store with default scopes
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_secret"),
+            requested_scopes=["read", "write"],
+        )
+        assert integration.requested_scopes == "read write"
+
+        # Update with custom scopes
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            requested_scopes=["custom.read", "custom.admin"],
+        )
+        assert integration.requested_scopes == "custom.read custom.admin"
+
+        # Update with empty scopes
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            requested_scopes=[],
+        )
+        assert integration.requested_scopes == ""
+
+        # Update with None (should not change existing empty value)
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            requested_scopes=None,
+        )
+        assert integration.requested_scopes == ""  # Unchanged
+
+    async def test_get_provider_config_scope_fallback(
+        self,
+        integration_service: IntegrationService,
+        mock_provider: MockOAuthProvider,
+    ) -> None:
+        """Test get_provider_config falls back to default scopes when none stored."""
+        provider_key = ProviderKey(
+            id=mock_provider.id, grant_type=mock_provider.grant_type
+        )
+
+        # Store without scopes
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_secret"),
+        )
+
+        # Get config with default scopes
+        config = integration_service.get_provider_config(
+            integration=integration,
+            default_scopes=["fallback.read", "fallback.write"],
+        )
+
+        assert config is not None
+        assert config.scopes == ["fallback.read", "fallback.write"]

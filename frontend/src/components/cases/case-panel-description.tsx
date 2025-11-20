@@ -1,30 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  AlertTriangleIcon,
-  CircleCheckIcon,
-  Loader2Icon,
-  SaveIcon,
-} from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { Loader2Icon, PencilIcon, SaveIcon } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseRead, CaseUpdate } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
-import { cn } from "@/lib/utils"
 
 const descriptionFormSchema = z.object({
   description: z.string().optional(),
 })
 type DescriptionFormSchema = z.infer<typeof descriptionFormSchema>
-
-enum SaveState {
-  IDLE = "idle",
-  UNSAVED = "unsaved",
-  SAVING = "saving",
-  SAVED = "saved",
-  ERROR = "error",
-}
 
 interface CasePanelDescriptionProps {
   caseData: CaseRead
@@ -35,7 +22,7 @@ export function CasePanelDescription({
   caseData,
   updateCase,
 }: CasePanelDescriptionProps) {
-  const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
+  const [isMacPlatform, setIsMacPlatform] = useState(false)
 
   const form = useForm<DescriptionFormSchema>({
     resolver: zodResolver(descriptionFormSchema),
@@ -51,55 +38,112 @@ export function CasePanelDescription({
     })
   }, [caseData, form])
 
-  // Update save state when form state changes
-  useEffect(() => {
-    if (form.formState.isDirty) {
-      setSaveState(SaveState.UNSAVED)
-    }
-  }, [form.formState.isDirty])
-
   const handleSave = useCallback(
     async (values: DescriptionFormSchema) => {
       if (values.description === caseData?.description) {
         return // No changes to save
       }
 
-      setSaveState(SaveState.SAVING)
       try {
         await updateCase({ description: values.description })
-        setSaveState(SaveState.SAVED)
         form.reset({ description: values.description })
-        // Reset to IDLE after 2 seconds
-        setTimeout(() => setSaveState(SaveState.IDLE), 2000)
       } catch (error) {
         console.error("Failed to save description", error)
-        setSaveState(SaveState.ERROR)
-      } finally {
-        setSaveState(SaveState.IDLE)
       }
     },
     [updateCase, caseData, form]
   )
 
-  // Save on blur
-  const handleBlur = () => {
+  // Save on blur, mirroring other editor forms
+  const handleBlur = useCallback(() => {
     if (form.formState.isDirty) {
-      form.handleSubmit(handleSave)()
+      void form.handleSubmit(handleSave)()
     }
-  }
+  }, [form, handleSave])
 
-  // Setup keyboard shortcut for saving (Cmd+Enter or Ctrl+Enter)
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return
+    }
+
+    setIsMacPlatform(/Mac|iPod|iPhone|iPad/.test(navigator.userAgent))
+  }, [])
+
+  // Setup keyboard shortcut for saving with platform-specific modifier
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault()
-        form.handleSubmit(handleSave)()
+      const shouldHandle =
+        (isMacPlatform && e.metaKey) || (!isMacPlatform && e.ctrlKey)
+
+      if (!shouldHandle) {
+        return
       }
+
+      if (e.key.toLowerCase() !== "s") {
+        return
+      }
+
+      e.preventDefault()
+      void form.handleSubmit(handleSave)()
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [form, handleSave])
+  }, [form, handleSave, isMacPlatform])
+
+  const { isDirty, isSubmitting } = form.formState
+
+  const toolbarStatus = useMemo(() => {
+    if (isSubmitting) {
+      return (
+        <Button
+          type="button"
+          data-style="ghost"
+          aria-label="Saving description"
+          tooltip="Saving..."
+          disabled
+          data-disabled
+        >
+          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+        </Button>
+      )
+    }
+
+    if (isDirty) {
+      const shortcut = isMacPlatform ? "⌘+S" : "Ctrl+S"
+      return (
+        <Button
+          type="button"
+          data-style="ghost"
+          aria-label="Save case description"
+          tooltip={
+            <span className="flex items-center gap-2">
+              <span>Save changes</span>
+              <span className="font-mono text-xs text-muted-foreground/80">
+                {shortcut}
+              </span>
+            </span>
+          }
+          onClick={() => void form.handleSubmit(handleSave)()}
+        >
+          <SaveIcon className="size-4 text-muted-foreground" />
+        </Button>
+      )
+    }
+
+    return (
+      <Button
+        type="button"
+        data-style="ghost"
+        aria-label="Description saved"
+        tooltip="Description up to date"
+        disabled
+        data-disabled
+      >
+        <PencilIcon className="size-4 text-muted-foreground" />
+      </Button>
+    )
+  }, [form, handleSave, isMacPlatform, isDirty, isSubmitting])
 
   return (
     <div className="relative">
@@ -118,75 +162,9 @@ export function CasePanelDescription({
                       field.onChange(content)
                     }}
                     onBlur={handleBlur}
+                    toolbarStatus={toolbarStatus}
                   />
                 </FormControl>
-                <div
-                  className={cn(
-                    "absolute bottom-4 right-4 z-10 flex items-center justify-end space-x-2",
-                    "transition-all duration-300 ease-in-out",
-                    saveState === SaveState.IDLE && "opacity-0"
-                  )}
-                >
-                  {saveState === SaveState.UNSAVED && (
-                    <>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="size-3 text-muted-foreground"
-                      >
-                        <path d="M13 13H8a1 1 0 0 0-1 1v7" />
-                        <path d="M14 8h1" />
-                        <path d="M17 21v-4" />
-                        <path d="m2 2 20 20" />
-                        <path d="M20.41 20.41A2 2 0 0 1 19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 .59-1.41" />
-                        <path d="M29.5 11.5s5 5 4 5" />
-                        <path d="M9 3h6.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V15" />
-                      </svg>
-                      <span className="text-xs text-muted-foreground">
-                        Unsaved
-                      </span>
-                      <span className="my-px ml-auto flex items-center space-x-2">
-                        <div className="mx-1 my-0 flex items-center space-x-1 rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs text-muted-foreground/80">
-                          <SaveIcon className="size-3 text-muted-foreground/70" />
-                          <p>
-                            {typeof navigator.userAgent !== "undefined"
-                              ? /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
-                                ? "⌘+Enter"
-                                : "Ctrl+Enter"
-                              : "Ctrl+Enter"}
-                          </p>
-                        </div>
-                      </span>
-                    </>
-                  )}
-                  {saveState === SaveState.SAVING && (
-                    <>
-                      <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">
-                        Saving
-                      </span>
-                    </>
-                  )}
-                  {saveState === SaveState.SAVED && (
-                    <>
-                      <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
-                      <span className="text-xs text-emerald-600">Saved</span>
-                    </>
-                  )}
-                  {saveState === SaveState.ERROR && (
-                    <>
-                      <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
-                      <span className="text-xs text-rose-500">Error</span>
-                    </>
-                  )}
-                </div>
               </FormItem>
             )}
           />

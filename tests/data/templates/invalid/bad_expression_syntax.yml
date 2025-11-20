@@ -1,0 +1,25 @@
+type: action
+definition:
+  name: test_bad_expression_syntax
+  namespace: tools.test
+  display_name: Test Bad Expression Syntax
+  description: Template with invalid expression syntax
+  title: Test Bad Expression Syntax
+  display_group: Testing
+  expects:
+    option_a:
+      type: str
+      description: First option
+    option_b:
+      type: str
+      description: Second option
+  steps:
+    - ref: bad_operator
+      action: core.transform.reshape
+      args:
+        value:
+          # Using Python 'or' instead of '||' - should fail
+          result: ${{ inputs.option_a or inputs.option_b }}
+          # Also test 'and' instead of '&&'
+          both: ${{ inputs.option_a and inputs.option_b }}
+  returns: ${{ steps.bad_operator.result }}

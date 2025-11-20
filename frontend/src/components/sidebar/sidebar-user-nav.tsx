@@ -18,15 +18,13 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar"
 import UserAvatar from "@/components/user-avatar"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { useWorkspaceManager } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 
 export function SidebarUserNav() {
-  const { user, logout } = useAuth()
-  const { clearLastWorkspaceId } = useWorkspaceManager()
+  const { user } = useAuth()
+  const { logout } = useAuthActions()
 
   const handleLogout = async () => {
-    clearLastWorkspaceId()
     await logout()
   }
   const displayName = user ? user.getDisplayName() : userDefaults.name

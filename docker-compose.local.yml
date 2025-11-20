@@ -1,0 +1,328 @@
+# This is the local development environment for Tracecat.
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    networks:
+      - core
+    ports:
+      - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+    environment:
+      # App
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
+      TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      RUN_MIGRATIONS: "true"
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
+      # SAML SSO
+      SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
+      SAML_ALLOW_UNSOLICITED: ${SAML_ALLOW_UNSOLICITED}
+      SAML_ACCEPTED_TIME_DIFF: ${SAML_ACCEPTED_TIME_DIFF}
+      SAML_AUTHN_REQUESTS_SIGNED: ${SAML_AUTHN_REQUESTS_SIGNED}
+      SAML_SIGNED_ASSERTIONS: ${SAML_SIGNED_ASSERTIONS}
+      SAML_SIGNED_RESPONSES: ${SAML_SIGNED_RESPONSES}
+      SAML_VERIFY_SSL_ENTITY: ${SAML_VERIFY_SSL_ENTITY}
+      SAML_VERIFY_SSL_METADATA: ${SAML_VERIFY_SSL_METADATA}
+      SAML_CA_CERTS: ${SAML_CA_CERTS}
+      SAML_METADATA_CERT: ${SAML_METADATA_CERT}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__TASK_TIMEOUT: ${TEMPORAL__TASK_TIMEOUT}
+      # Blob Storage (MinIO)
+      TRACECAT__BLOB_STORAGE_PROTOCOL: minio
+      TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${PUBLIC_APP_URL}/s3
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    depends_on:
+      temporal:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT}
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sentry
+      SENTRY_DSN: ${SENTRY_DSN}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    command: ["python", "-m", "tracecat.dsl.worker"]
+    depends_on:
+      - api
+      - temporal
+
+  executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - core-db
+      - temporal
+    ports:
+      - 8001:8000
+    environment:
+      # Common
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+      # Langfuse
+      LANGFUSE_HOST: ${LANGFUSE_HOST}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      # Modal
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "tracecat.api.executor:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    healthcheck:
+      test: ["CMD-SHELL", "check_tmp.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      - temporal
+      - redis
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: ui
+    restart: unless-stopped
+    networks:
+      - core
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: production
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
+      NODE_ENV: production
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+    depends_on:
+      - api
+
+  postgres_db:
+    image: postgres:16
+    container_name: postgres_db
+    restart: unless-stopped
+    networks:
+      - core-db
+    ports:
+      - 5432:5432
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
+    volumes:
+      - core-db:/var/lib/postgresql/data
+
+  temporal_postgres_db:
+    image: postgres:13
+    container_name: temporal_postgres_db
+    restart: unless-stopped
+    networks:
+      - temporal-db
+    environment:
+      POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
+    volumes:
+      - temporal-db:/var/lib/postgresql/data
+
+  temporal:
+    image: temporalio/auto-setup:${TEMPORAL__VERSION:-1.27.1}
+    container_name: temporal
+    restart: unless-stopped
+    ports:
+      - 7233:7233
+    networks:
+      - core
+      - temporal
+      - temporal-db
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
+      - POSTGRES_SEEDS=temporal_postgres_db
+      - LOG_LEVEL=warn
+      - BIND_ON_IP=0.0.0.0
+      - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "127.0.0.1:7233", "cluster", "health"]
+      interval: 1s
+      timeout: 5s
+      start_period: 2s
+    depends_on:
+      - temporal_postgres_db
+
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION:-latest}
+    container_name: temporal_ui
+    restart: unless-stopped
+    networks:
+      - temporal
+      - core
+    ports:
+      - 8081:8080
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - temporal
+
+  minio:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    container_name: minio
+    restart: unless-stopped
+    networks:
+      - core
+    ports:
+      - 9000:9000
+      - 9001:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - core
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  core-db:
+  temporal-db:
+  minio-data:
+  redis-data:
+
+networks:
+  core:
+  core-db:
+    internal: true
+  temporal:
+  temporal-db:
+    internal: true

@@ -2,7 +2,12 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useCallback, useState } from "react"
-import type { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
+import type {
+  WorkspaceMember,
+  WorkspaceMembershipRead,
+  WorkspaceRead,
+  WorkspaceRole,
+} from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -43,9 +48,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
+import {
+  useCurrentUserRole,
+  useWorkspaceMembers,
+  useWorkspaceMutations,
+} from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceMembersTable({
   workspace,
@@ -55,8 +64,11 @@ export function WorkspaceMembersTable({
   const { user } = useAuth()
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { membership, removeWorkspaceMember, updateWorkspaceMembership } =
-    useWorkspace()
+  const { role } = useCurrentUserRole(workspace.id)
+  const { removeMember, updateMember } = useWorkspaceMutations()
+  const { members, membersLoading, membersError } = useWorkspaceMembers(
+    workspace.id
+  )
 
   const handleChangeRole = useCallback(
     async (role: WorkspaceRole) => {
@@ -74,7 +86,7 @@ export function WorkspaceMembersTable({
           })
         }
         console.log("Changing role", selectedUser, role)
-        await updateWorkspaceMembership({
+        await updateMember({
           userId: selectedUser.user_id,
           workspaceId: workspace.id,
           requestBody: { role },
@@ -86,7 +98,7 @@ export function WorkspaceMembersTable({
         setSelectedUser(null)
       }
     },
-    [selectedUser, updateWorkspaceMembership, workspace.id]
+    [selectedUser, updateMember, workspace.id]
   )
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
@@ -98,7 +110,9 @@ export function WorkspaceMembersTable({
         }}
       >
         <DataTable
-          data={workspace?.members}
+          data={members}
+          isLoading={membersLoading}
+          error={membersError}
           columns={[
             {
               accessorKey: "email",
@@ -194,7 +208,9 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {user?.isPrivileged(membership) && (
+                      {user?.isPrivileged({
+                        role,
+                      } as WorkspaceMembershipRead) && (
                         <>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
@@ -244,7 +260,7 @@ export function WorkspaceMembersTable({
                 if (selectedUser) {
                   console.log("Removing member", selectedUser)
                   try {
-                    await removeWorkspaceMember(selectedUser.user_id)
+                    await removeMember(selectedUser.user_id)
                   } catch (error) {
                     console.log("Failed to remove member", error)
                   }

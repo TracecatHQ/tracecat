@@ -28,27 +28,24 @@ from fastapi_users.exceptions import (
     UserNotExists,
 )
 from fastapi_users.openapi import OpenAPIResponseType
+from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
-from tracecat.auth.models import UserCreate, UserRole, UserUpdate
-from tracecat.authz.models import WorkspaceRole
+from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
+from tracecat.auth.types import AccessLevel, system_role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
-from tracecat.db.adapter import (
-    SQLModelAccessTokenDatabaseAsync,
-    SQLModelUserDatabaseAsync,
-)
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.schemas import AccessToken, OAuthAccount, User
+from tracecat.db.models import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.types.auth import AccessLevel, system_role
-from tracecat.workspaces.models import WorkspaceMembershipCreate
+from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -215,7 +212,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 self.logger.info("First user promoted to superadmin", email=user.email)
 
             elif len(users) > 1 and await get_setting(
-                "app_create_workspace_on_register", default=True
+                "app_create_workspace_on_register", default=False
             ):
                 # Check if we should auto-create a workspace for the user
                 self.logger.info("Creating workspace for new user", user=user.email)
@@ -306,18 +303,18 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return user
 
 
-async def get_user_db(session: SQLAlchemyAsyncSession = Depends(get_async_session)):
-    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)  # type: ignore
+async def get_user_db(session: AsyncSession = Depends(get_async_session)):
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
 
 async def get_access_token_db(
-    session: SQLAlchemyAsyncSession = Depends(get_async_session),
-) -> AsyncGenerator[SQLModelAccessTokenDatabaseAsync, None]:
-    yield SQLModelAccessTokenDatabaseAsync(session, AccessToken)  # type: ignore
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[SQLAlchemyAccessTokenDatabase[AccessToken], None]:
+    yield SQLAlchemyAccessTokenDatabase(session, AccessToken)
 
 
 def get_user_db_context(
-    session: SQLAlchemyAsyncSession,
+    session: AsyncSession,
 ) -> contextlib.AbstractAsyncContextManager[SQLAlchemyUserDatabase]:
     return contextlib.asynccontextmanager(get_user_db)(session=session)
 
@@ -345,7 +342,7 @@ def get_database_strategy(
 ) -> DatabaseStrategy:
     strategy = DatabaseStrategy(
         access_token_db,
-        lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,  # type: ignore
+        lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,
     )
 
     return strategy
@@ -428,28 +425,22 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
                     return await user_manager.get_by_email(params.email)
 
 
-async def get_user_db_sqlmodel(
-    session: SQLAlchemyAsyncSession = Depends(get_async_session),
-):
-    yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
-
-
-async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
+async def list_users(*, session: AsyncSession) -> Sequence[User]:
     statement = select(User)
-    result = await session.exec(statement)
-    return result.all()
+    result = await session.execute(statement)
+    return result.scalars().all()
 
 
 async def search_users(
     *,
-    session: SQLModelAsyncSession,
+    session: AsyncSession,
     user_ids: Iterable[uuid.UUID] | None = None,
 ) -> Sequence[User]:
     statement = select(User)
     if user_ids:
-        statement = statement.where(col(User.id).in_(user_ids))
-    result = await session.exec(statement)
-    return result.all()
+        statement = statement.where(cast(Mapped[uuid.UUID], User.id).in_(user_ids))
+    result = await session.execute(statement)
+    return result.scalars().all()
 
 
 def validate_email(
@@ -457,7 +448,21 @@ def validate_email(
 ) -> None:
     # Safety: This is already a validated email, so we can split on the first @
     _, domain = email.split("@", 1)
-    logger.info(f"Domain: {domain}")
-
     if allowed_domains and domain not in allowed_domains:
         raise InvalidEmailException()
+    logger.info("Validated email with domain", domain=domain)
+
+
+async def lookup_user_by_email(*, session: AsyncSession, email: str) -> User | None:
+    """Look up a user by their email address.
+
+    Args:
+        session: The database session.
+        email: The email address to search for.
+
+    Returns:
+        User | None: The user object if found, None otherwise.
+    """
+    statement = select(User).where(cast(Mapped[str], User.email) == email)
+    result = await session.execute(statement)
+    return result.scalars().first()

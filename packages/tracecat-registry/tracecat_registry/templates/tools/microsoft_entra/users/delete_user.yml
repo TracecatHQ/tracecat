@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Delete user
+  description: Delete a Microsoft Entra ID user.
+  display_group: Microsoft Entra
+  doc_url: https://learn.microsoft.com/en-us/graph/api/user-delete?view=graph-rest-1.0
+  namespace: tools.microsoft_entra
+  name: delete_user
+  secrets:
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_entra
+      grant_type: client_credentials
+      optional: true
+  expects:
+    user_id:
+      type: str
+      description: The unique identifier of the user to delete.
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+    api_version:
+      type: str
+      description: Microsoft Graph API version.
+      default: "v1.0"
+  steps:
+    - ref: delete_user
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/${{ inputs.api_version }}/users/${{ FN.url_encode(inputs.user_id) }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+  returns: ${{ steps.delete_user.result.data }}

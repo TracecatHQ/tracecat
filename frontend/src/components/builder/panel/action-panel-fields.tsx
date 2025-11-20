@@ -30,7 +30,6 @@ import {
   type Suggestion,
 } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Command,
   CommandEmpty,
@@ -59,7 +58,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
@@ -70,6 +71,7 @@ import {
   type TracecatEditorComponent,
   type TracecatJsonSchema,
 } from "@/lib/schema"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export interface FormComponentProps {
   label: string
@@ -444,6 +446,24 @@ function ComponentContent({
         />
       )
     case "select":
+      if (component.multiple) {
+        const suggestions: Suggestion[] =
+          component.options?.map((option: string) => ({
+            id: option,
+            label: option,
+            value: option,
+          })) || []
+
+        return (
+          <MultiTagCommandInput
+            value={field.value || []}
+            onChange={field.onChange}
+            suggestions={suggestions}
+            searchKeys={["label", "value"]}
+            placeholder="Select options..."
+          />
+        )
+      }
       return (
         <Select value={field.value} onValueChange={field.onChange}>
           <SelectTrigger>
@@ -458,6 +478,8 @@ function ComponentContent({
           </SelectContent>
         </Select>
       )
+    case "agent-preset":
+      return <AgentPresetSelect field={field} />
     case "tag-input":
       return (
         <CustomTagInput
@@ -507,17 +529,17 @@ function ComponentContent({
           }
         />
       )
-    case "toggle":
+    case "toggle": {
+      const stateLabel = field.value
+        ? component.label_on || "On"
+        : component.label_off || "Off"
       return (
         <div className="flex items-center space-x-2">
-          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-          <span className="text-sm text-muted-foreground">
-            {field.value
-              ? component.label_on || "On"
-              : component.label_off || "Off"}
-          </span>
+          <Switch checked={field.value} onCheckedChange={field.onChange} />
+          <span className="text-sm text-muted-foreground">{stateLabel}</span>
         </div>
       )
+    }
     case "code":
       return (
         <CodeEditor
@@ -779,6 +801,7 @@ const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
   expression: "Expression",
   "action-type": "Action Type",
   "workflow-alias": "Workflow Alias",
+  "agent-preset": "Agent Preset",
 }
 
 const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
@@ -794,4 +817,66 @@ const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
   expression: BracesIcon,
   "action-type": TypeIcon,
   "workflow-alias": WorkflowIcon,
+  "agent-preset": WorkflowIcon,
+}
+
+function AgentPresetSelect({
+  field,
+}: {
+  field: ControllerRenderProps<FieldValues>
+}) {
+  const workspaceId = useWorkspaceId()
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
+    workspaceId,
+    { enabled: Boolean(workspaceId) }
+  )
+
+  const handleChange = (value: string) => {
+    field.onChange(value)
+  }
+
+  const placeholder = !workspaceId
+    ? "Select a workspace to load agent presets"
+    : presetsIsLoading
+      ? "Loading agent presets..."
+      : presetsError
+        ? "Failed to load agent presets"
+        : "Select an agent preset"
+
+  return (
+    <Select
+      value={typeof field.value === "string" ? field.value : undefined}
+      onValueChange={handleChange}
+      disabled={!workspaceId}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {presetsIsLoading && (
+          <SelectItem value="__loading" disabled>
+            Loading agent presets...
+          </SelectItem>
+        )}
+        {presetsError && (
+          <SelectItem value="__error" disabled>
+            Failed to load agent presets
+          </SelectItem>
+        )}
+        {!presetsIsLoading &&
+          !presetsError &&
+          workspaceId &&
+          (presets?.length ?? 0) === 0 && (
+            <SelectItem value="__empty" disabled>
+              No agent presets found
+            </SelectItem>
+          )}
+        {presets?.map((preset) => (
+          <SelectItem key={preset.slug} value={preset.slug}>
+            {preset.name} ({preset.slug})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 }

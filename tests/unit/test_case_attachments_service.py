@@ -1,60 +1,84 @@
+import os
 import uuid
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from io import BytesIO
 
 import pytest
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseAttachmentCreate
-from tracecat.cases.service import CaseAttachmentService
-from tracecat.db.schemas import Case, File
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
+from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.attachments.schemas import CaseAttachmentCreate
+from tracecat.cases.attachments.service import CaseAttachmentService
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.schemas import CaseCreate
+from tracecat.cases.service import CaseEventsService, CasesService
+from tracecat.exceptions import TracecatAuthorizationError, TracecatException
+from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.storage.exceptions import (
+    FileExtensionError,
+    FileNameError,
+    MaxAttachmentsExceededError,
+    StorageLimitExceededError,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sync_minio_credentials(monkeysession: pytest.MonkeyPatch):
+    """Ensure MinIO server and S3 client use same creds from .env.
+
+    Reads MINIO_ROOT_USER and MINIO_ROOT_PASSWORD via python-dotenv, then:
+    - sets env vars for the storage client, and
+    - patches tests.conftest MinIO constants so the Docker container uses them.
+    """
+    try:
+        from dotenv import dotenv_values
+
+        env = dotenv_values()
+    except Exception:
+        env = {}
+
+    access_key = (
+        env.get("MINIO_ROOT_USER") or os.environ.get("MINIO_ROOT_USER") or "minioadmin"
+    )
+    secret_key = (
+        env.get("MINIO_ROOT_PASSWORD")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "minioadmin"
+    )
+
+    # Env for storage client
+    monkeysession.setenv("MINIO_ROOT_USER", access_key)
+    monkeysession.setenv("MINIO_ROOT_PASSWORD", secret_key)
+
+    # Patch tests.conftest constants used to start MinIO
+    try:
+        import tests.conftest as conf
+
+        monkeysession.setattr(conf, "MINIO_ACCESS_KEY", access_key, raising=False)
+        monkeysession.setattr(conf, "MINIO_SECRET_KEY", secret_key, raising=False)
+    except Exception:
+        pass
+
+
+@pytest.fixture
+async def cases_service(session: AsyncSession, svc_role: Role) -> CasesService:
+    return CasesService(session=session, role=svc_role)
 
 
 @pytest.fixture
 async def attachments_service(
     session: AsyncSession, svc_role: Role
 ) -> CaseAttachmentService:
-    """Create a CaseAttachmentService instance for testing."""
     return CaseAttachmentService(session=session, role=svc_role)
 
 
 @pytest.fixture
-async def admin_attachments_service(
-    session: AsyncSession, svc_admin_role: Role
-) -> CaseAttachmentService:
-    """Create a CaseAttachmentService instance with admin role for testing."""
-    return CaseAttachmentService(session=session, role=svc_admin_role)
-
-
-@pytest.fixture
-async def test_case(session: AsyncSession, svc_role: Role) -> Case:
-    """Insert a Case row directly using SQLModel for attachment tests."""
-    case = Case(
-        owner_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
-        summary="Attachment Service Test Case",
-        description="Testing the attachment service in isolation",
-        status=CaseStatus.NEW,
-        priority=CasePriority.MEDIUM,
-        severity=CaseSeverity.LOW,
-    )
-    session.add(case)
-    await session.commit()
-    await session.refresh(case)
-    return case
-
-
-@pytest.fixture
 def attachment_params() -> CaseAttachmentCreate:
-    """Return minimal, valid attachment parameters."""
-    content = b"Attachment service body"
+    content = b"hello tracecat"
     return CaseAttachmentCreate(
-        file_name="service.txt",
+        file_name="hello.txt",
         content_type="text/plain",
         size=len(content),
         content=content,
@@ -62,704 +86,330 @@ def attachment_params() -> CaseAttachmentCreate:
 
 
 @pytest.fixture
-def png_attachment_params() -> CaseAttachmentCreate:
-    """Return PNG file attachment parameters for binary file testing."""
-    # Simple PNG file header + minimal data
-    png_content = (
-        b"\x89PNG\r\n\x1a\n"  # PNG signature
-        b"\x00\x00\x00\rIHDR"  # IHDR chunk
-        b"\x00\x00\x00\x01\x00\x00\x00\x01"  # 1x1 pixel
-        b"\x08\x02\x00\x00\x00\x90wS\xde"  # Color type, etc.
-        b"\x00\x00\x00\x0cIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01"
-        b"\x02\x1a\x0b\xa5"  # Minimal IDAT chunk
-        b"\x00\x00\x00\x00IEND\xaeB`\x82"  # IEND chunk
-    )
+def second_attachment_params() -> CaseAttachmentCreate:
+    content = b"second file content"
     return CaseAttachmentCreate(
-        file_name="test.png",
-        content_type="image/png",
-        size=len(png_content),
-        content=png_content,
+        file_name="second.txt",
+        content_type="text/plain",
+        size=len(content),
+        content=content,
     )
+
+
+@pytest.fixture
+async def test_case(cases_service: CasesService) -> tuple:
+    params = CaseCreate(
+        summary="Attachments Integration Case",
+        description="Case for testing attachments service",
+        status=CaseStatus.NEW,
+        priority=CasePriority.MEDIUM,
+        severity=CaseSeverity.LOW,
+    )
+    case = await cases_service.create_case(params)
+    return case, cases_service
+
+
+@pytest.fixture
+async def configure_minio_for_attachments(
+    minio_bucket: str, monkeypatch: pytest.MonkeyPatch
+):
+    # Point storage at the test MinIO instance and bucket
+    monkeypatch.setattr(
+        config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio", raising=False
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__BLOB_STORAGE_ENDPOINT",
+        "http://localhost:9002",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        config, "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", minio_bucket, raising=False
+    )
+
+    # Set MinIO credentials for the client
+    monkeypatch.setenv(
+        "MINIO_ROOT_USER", os.environ.get("MINIO_ROOT_USER", "minioadmin")
+    )
+    monkeypatch.setenv(
+        "MINIO_ROOT_PASSWORD", os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin")
+    )
+
+    # Ensure bucket exists from our client perspective
+    await ensure_bucket_exists(minio_bucket)
+
+
+# ----------------------------
+# Tests
+# ----------------------------
 
 
 @pytest.mark.anyio
-class TestCaseAttachmentService:
-    async def test_create_attachment_calls_storage_upload(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-    ) -> None:
-        """Verify that upload_file is invoked during attachment creation."""
-        # Patch storage functions that interact with external systems
-        with (
-            patch(
-                "tracecat.storage.upload_file", new_callable=AsyncMock
-            ) as mock_upload,
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
+async def test_create_list_download_delete_attachment(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    session: AsyncSession,
+):
+    case, cases_service = test_case
 
-            mock_upload.assert_awaited_once()  # Ensure the file was uploaded
-            assert created_attachment.file.sha256 == "fakehash"
-            assert created_attachment.case_id == test_case.id
+    # Create attachment
+    created = await attachments_service.create_attachment(case, attachment_params)
+    assert created.id is not None
+    assert created.file.name == "hello.txt"
+    assert created.file.content_type == "text/plain"
+    assert created.file.size == attachment_params.size
 
-    async def test_create_attachment_storage_failure_rollback(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test that database rollback occurs when storage upload fails."""
+    # List attachments
+    items = await attachments_service.list_attachments(case)
+    assert len(items) == 1
+    assert items[0].id == created.id
 
-        with (
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-            patch(
-                "tracecat.storage.upload_file",
-                new_callable=AsyncMock,
-                side_effect=Exception("Storage upload failed"),
-            ),
-        ):
-            with pytest.raises(TracecatException, match="Failed to upload file"):
-                await attachments_service.create_attachment(
-                    test_case, attachment_params
-                )
+    # Download and verify content + metadata
+    content, filename, content_type = await attachments_service.download_attachment(
+        case, created.id
+    )
+    assert content == attachment_params.content
+    assert filename == attachment_params.file_name
+    assert content_type == attachment_params.content_type
 
-            # Verify no file record was created due to rollback
-            stmt = select(File).where(File.sha256 == "fakehash")
-            result = await session.exec(stmt)
-            files = result.all()
-            assert len(files) == 0
+    # Presigned download URL
+    url, fname, ctype = await attachments_service.get_attachment_download_url(
+        case, created.id
+    )
+    assert isinstance(url, str) and url.startswith("http")
+    assert fname == attachment_params.file_name
+    assert ctype == attachment_params.content_type
 
-    async def test_upload_delete_reupload_cycle(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test complete upload -> delete -> reupload cycle with file restoration."""
-        original_hash = "original_file_hash"
+    # Storage usage reflects the file size
+    used = await attachments_service.get_total_storage_used(case)
+    assert used == attachment_params.size
 
-        # Mock storage operations
-        mock_upload = AsyncMock()
-        mock_delete = AsyncMock()
+    # Delete and validate state
+    await attachments_service.delete_attachment(case, created.id)
 
-        with (
-            patch("tracecat.storage.upload_file", mock_upload),
-            patch("tracecat.storage.delete_file", mock_delete),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            # Step 1: Upload file
-            attachment1 = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-            assert mock_upload.call_count == 1
-            assert attachment1.file.sha256 == original_hash
-            assert attachment1.file.deleted_at is None
+    # Deleted attachments are excluded from getters and listings
+    assert await attachments_service.get_attachment(case, created.id) is None
+    items_after = await attachments_service.list_attachments(case)
+    assert len(items_after) == 0
 
-            # Verify file exists in database
-            stmt = select(File).where(File.sha256 == original_hash)
-            result = await session.exec(stmt)
-            file_record = result.first()
-            assert file_record is not None
-            assert file_record.deleted_at is None
+    # Storage usage resets
+    used_after = await attachments_service.get_total_storage_used(case)
+    assert used_after == 0
 
-            # Step 2: Delete attachment (soft delete)
-            await attachments_service.delete_attachment(test_case, attachment1.id)
-            assert mock_delete.call_count == 1
+    # Events: 1 created + 1 deleted
+    events = await CaseEventsService(session, cases_service.role).list_events(case)
+    types = [e.type for e in events]
+    assert CaseEventType.ATTACHMENT_CREATED in types
+    assert CaseEventType.ATTACHMENT_DELETED in types
 
-            # Verify file is soft-deleted by re-fetching it
-            stmt = select(File).where(File.sha256 == original_hash)
-            result = await session.exec(stmt)
-            file_record = result.first()
-            assert file_record is not None
-            assert file_record.deleted_at is not None
 
-            # Verify attachment is no longer accessible
-            deleted_attachment = await attachments_service.get_attachment(
-                test_case, attachment1.id
-            )
-            assert deleted_attachment is None
+@pytest.mark.anyio
+async def test_dedup_same_file_returns_existing_attachment(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    session: AsyncSession,
+):
+    case, cases_service = test_case
 
-            # Step 3: Re-upload same file (should restore)
-            attachment2 = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
+    # First create
+    a1 = await attachments_service.create_attachment(case, attachment_params)
 
-            # Should have uploaded again since file was deleted
-            assert mock_upload.call_count == 2
+    # Second create with identical content should return the same attachment, no new event
+    a2 = await attachments_service.create_attachment(case, attachment_params)
+    assert a2.id == a1.id
 
-            # Should restore the same file record - re-fetch it
-            stmt = select(File).where(File.sha256 == original_hash)
-            result = await session.exec(stmt)
-            file_record = result.first()
-            assert file_record is not None
-            assert file_record.deleted_at is None
-            assert attachment2.file.sha256 == original_hash
+    # Only one created event
+    events = await CaseEventsService(session, cases_service.role).list_events(case)
+    created_events = [e for e in events if e.type == CaseEventType.ATTACHMENT_CREATED]
+    assert len(created_events) == 1
 
-            # Should reuse the same attachment record (service behavior)
-            assert attachment2.id == attachment1.id
-            assert attachment2.case_id == test_case.id
 
-    async def test_upload_delete_reupload_different_case(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-        svc_role: Role,
-    ) -> None:
-        """Test that file can be reused across different cases after deletion."""
-        # Create second case
-        case2 = Case(
-            owner_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
-            summary="Second Test Case",
-            description="For testing file reuse",
+@pytest.mark.anyio
+async def test_restore_after_delete_reuses_attachment_id(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    session: AsyncSession,
+):
+    case, cases_service = test_case
+
+    a1 = await attachments_service.create_attachment(case, attachment_params)
+    await attachments_service.delete_attachment(case, a1.id)
+
+    # Recreate with same content should restore and reuse the attachment id
+    a2 = await attachments_service.create_attachment(case, attachment_params)
+    assert a2.id == a1.id
+
+    # Two created events (initial + restore) and one deleted
+    events = await CaseEventsService(session, cases_service.role).list_events(case)
+    created_events = [e for e in events if e.type == CaseEventType.ATTACHMENT_CREATED]
+    deleted_events = [e for e in events if e.type == CaseEventType.ATTACHMENT_DELETED]
+    assert len(created_events) == 2
+    assert len(deleted_events) == 1
+
+
+@pytest.mark.anyio
+async def test_max_attachments_limit_enforced(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    second_attachment_params: CaseAttachmentCreate,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    case, _ = test_case
+
+    # Restrict to 1 attachment per case to trigger limit on second create
+    monkeypatch.setattr(config, "TRACECAT__MAX_ATTACHMENTS_PER_CASE", 1, raising=False)
+
+    # First attachment succeeds
+    await attachments_service.create_attachment(case, attachment_params)
+
+    # Second unique attachment should exceed the limit
+    with pytest.raises(MaxAttachmentsExceededError):
+        await attachments_service.create_attachment(case, second_attachment_params)
+
+
+@pytest.mark.anyio
+async def test_storage_limit_enforced(
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Exceed per-case total storage and expect StorageLimitExceededError."""
+    case, _ = test_case
+    # Set max storage below file size to trigger limit
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__MAX_CASE_STORAGE_BYTES",
+        max(1, attachment_params.size - 1),
+        raising=False,
+    )
+    with pytest.raises(StorageLimitExceededError):
+        await attachments_service.create_attachment(case, attachment_params)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "bad_name,exc",
+    [
+        ("malware.exe", FileExtensionError),
+        ("bad/../name.txt", FileNameError),
+    ],
+)
+async def test_validation_errors_filename_and_extension(
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    bad_name: str,
+    exc: type[Exception],
+):
+    """Invalid filename and extension are rejected by the validator."""
+    case, _ = test_case
+    bad = CaseAttachmentCreate(
+        file_name=bad_name,
+        content_type="text/plain",
+        size=len(attachment_params.content),
+        content=attachment_params.content,
+    )
+    with pytest.raises(exc):
+        await attachments_service.create_attachment(case, bad)
+
+
+@pytest.mark.anyio
+async def test_integrity_check_failure_after_object_corruption(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    minio_bucket: str,
+    minio_client,
+):
+    """If blob content is tampered, download fails integrity check."""
+    case, _ = test_case
+    created = await attachments_service.create_attachment(case, attachment_params)
+
+    # Corrupt the object in MinIO by overwriting the same key
+    key = created.storage_path
+    tampered = b"tampered-content"
+    minio_client.put_object(
+        minio_bucket,
+        key,
+        BytesIO(tampered),
+        length=len(tampered),
+        content_type="text/plain",
+    )
+
+    with pytest.raises(TracecatException, match="File integrity check failed"):
+        await attachments_service.download_attachment(case, created.id)
+
+
+@pytest.mark.anyio
+async def test_delete_authorization_basic_vs_admin(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+    session: AsyncSession,
+    svc_admin_role,
+):
+    """Basic user who is not creator cannot delete; admin can."""
+    case, _ = test_case
+    created = await attachments_service.create_attachment(case, attachment_params)
+
+    # Attempt delete with a different BASIC user in the same workspace
+    other_role = Role(
+        type="user",
+        access_level=AccessLevel.BASIC,
+        workspace_id=attachments_service.role.workspace_id,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    other_svc = CaseAttachmentService(session=session, role=other_role)
+    with pytest.raises(TracecatAuthorizationError):
+        await other_svc.delete_attachment(case, created.id)
+
+    # Admin role can delete
+    admin_svc = CaseAttachmentService(session=session, role=svc_admin_role)
+    await admin_svc.delete_attachment(case, created.id)
+
+
+@pytest.mark.anyio
+async def test_cross_case_dedup_shares_file(
+    configure_minio_for_attachments,
+    cases_service: CasesService,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+):
+    """Same content attached across cases shares the File entity (dedup)."""
+    # Create two cases in same workspace
+    c1 = await cases_service.create_case(
+        CaseCreate(
+            summary="c1",
+            description="",
             status=CaseStatus.NEW,
-            priority=CasePriority.LOW,
+            priority=CasePriority.MEDIUM,
             severity=CaseSeverity.LOW,
         )
-        session.add(case2)
-        await session.commit()
-        await session.refresh(case2)
-
-        original_hash = "shared_file_hash"
-        mock_upload = AsyncMock()
-        mock_delete = AsyncMock()
-
-        with (
-            patch("tracecat.storage.upload_file", mock_upload),
-            patch("tracecat.storage.delete_file", mock_delete),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            # Upload to first case
-            attachment1 = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-            assert mock_upload.call_count == 1
-
-            # Delete from first case
-            await attachments_service.delete_attachment(test_case, attachment1.id)
-            assert mock_delete.call_count == 1
-
-            # Upload same file to second case (should restore file)
-            attachment2 = await attachments_service.create_attachment(
-                case2, attachment_params
-            )
-
-            # Should NOT re-upload - file record still exists (soft-deleted)
-            assert mock_upload.call_count == 1
-            assert attachment2.file.sha256 == original_hash
-            assert attachment2.case_id == case2.id
-
-    async def test_download_attachment_without_corruption(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        png_attachment_params: CaseAttachmentCreate,
-    ) -> None:
-        """Test that binary files (PNG) download without corruption."""
-        original_content = png_attachment_params.content
-        original_hash = "png_file_hash"
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": png_attachment_params.file_name,
-                    "content_type": png_attachment_params.content_type,
-                },
-            ),
-        ):
-            # Upload PNG file
-            attachment = await attachments_service.create_attachment(
-                test_case, png_attachment_params
-            )
-
-        # Mock download returning exact original content
-        with (
-            patch(
-                "tracecat.storage.download_file",
-                new_callable=AsyncMock,
-                return_value=original_content,
-            ),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
-        ):
-            # Download and verify integrity
-            (
-                downloaded_content,
-                filename,
-                content_type,
-            ) = await attachments_service.download_attachment(test_case, attachment.id)
-
-            # Verify content is identical
-            assert downloaded_content == original_content
-            assert filename == png_attachment_params.file_name
-            assert content_type == png_attachment_params.content_type
-
-            # Verify PNG signature is intact (critical for binary files)
-            assert downloaded_content.startswith(b"\x89PNG\r\n\x1a\n")
-
-    async def test_download_large_binary_file_integrity(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-    ) -> None:
-        """Test download integrity for larger binary files."""
-        # Create a larger binary file with pattern
-        large_content = b"\x00\x01\x02\x03" * 1024  # 4KB of binary pattern
-        large_hash = "large_binary_hash"
-
-        params = CaseAttachmentCreate(
-            file_name="large_binary.bin",
-            content_type="application/octet-stream",
-            size=len(large_content),
-            content=large_content,
+    )
+    c2 = await cases_service.create_case(
+        CaseCreate(
+            summary="c2",
+            description="",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
         )
+    )
 
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=large_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": params.file_name,
-                    "content_type": params.content_type,
-                },
-            ),
-        ):
-            attachment = await attachments_service.create_attachment(test_case, params)
+    a1 = await attachments_service.create_attachment(c1, attachment_params)
+    a2 = await attachments_service.create_attachment(c2, attachment_params)
 
-        # Mock download returning exact content
-        with (
-            patch(
-                "tracecat.storage.download_file",
-                new_callable=AsyncMock,
-                return_value=large_content,
-            ),
-            patch("tracecat.storage.compute_sha256", return_value=large_hash),
-        ):
-            (
-                downloaded_content,
-                filename,
-                content_type,
-            ) = await attachments_service.download_attachment(test_case, attachment.id)
-
-            # Verify exact byte-for-byte match
-            assert downloaded_content == large_content
-            assert len(downloaded_content) == len(large_content)
-
-            # Verify pattern integrity at start and end
-            assert downloaded_content[:4] == b"\x00\x01\x02\x03"
-            assert downloaded_content[-4:] == b"\x00\x01\x02\x03"
-
-    async def test_download_with_corrupted_content_detection(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-    ) -> None:
-        """Test that corrupted downloads are properly detected."""
-        original_hash = "original_hash"
-        corrupted_hash = "corrupted_hash"
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Mock download returning corrupted content
-        corrupted_content = b"This is corrupted content"
-        with (
-            patch(
-                "tracecat.storage.download_file",
-                new_callable=AsyncMock,
-                return_value=corrupted_content,
-            ),
-            patch("tracecat.storage.compute_sha256", return_value=corrupted_hash),
-        ):
-            with pytest.raises(TracecatException, match="File integrity check failed"):
-                await attachments_service.download_attachment(test_case, attachment.id)
-
-    async def test_multiple_uploads_same_content_deduplication(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test that uploading same content multiple times uses deduplication."""
-        same_hash = "duplicate_content_hash"
-        mock_upload = AsyncMock()
-
-        with (
-            patch("tracecat.storage.upload_file", mock_upload),
-            patch("tracecat.storage.compute_sha256", return_value=same_hash),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            # First upload
-            attachment1 = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-            assert mock_upload.call_count == 1
-
-            # Second upload of same content
-            attachment2 = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-            # Should not upload again due to deduplication
-            assert mock_upload.call_count == 1
-
-            # Should reuse same file record
-            assert attachment1.file_id == attachment2.file_id
-            assert attachment1.file.sha256 == attachment2.file.sha256 == same_hash
-
-            # Should return the same attachment record (service behavior)
-            assert attachment1.id == attachment2.id
-
-    async def test_list_attachments_excludes_deleted_files(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Ensure list_attachments excludes soft-deleted files."""
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Manually soft-delete the file
-        stmt = select(File).where(File.id == created_attachment.file_id)
-        result = await session.exec(stmt)
-        file_record = result.one()
-        assert file_record is not None  # Ensure file exists before modifying
-        file_record.deleted_at = datetime.now(UTC)
-        await session.commit()
-
-        # List should now be empty
-        attachments = await attachments_service.list_attachments(test_case)
-        assert attachments == []
-
-    async def test_get_attachment_returns_none_for_deleted_file(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test that get_attachment returns None for soft-deleted files."""
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Manually soft-delete the file
-        stmt = select(File).where(File.id == created_attachment.file_id)
-        result = await session.exec(stmt)
-        file_record = result.one()
-        assert file_record is not None  # Ensure file exists before modifying
-        file_record.deleted_at = datetime.now(UTC)
-        await session.commit()
-
-        # get_attachment should return None
-        result = await attachments_service.get_attachment(
-            test_case, created_attachment.id
-        )
-        assert result is None
-
-    async def test_delete_attachment_authorization_creator_can_delete(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test that file creator can delete their attachment."""
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Creator should be able to delete
-        with patch("tracecat.storage.delete_file", new_callable=AsyncMock):
-            await attachments_service.delete_attachment(
-                test_case, created_attachment.id
-            )
-
-        # Verify file is marked as deleted in database
-        stmt = select(File).where(File.id == created_attachment.file_id)
-        result = await session.exec(stmt)
-        file_record = result.one()
-        assert file_record.deleted_at is not None
-
-    async def test_delete_attachment_authorization_admin_can_delete(
-        self,
-        admin_attachments_service: CaseAttachmentService,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test that admin can delete any attachment."""
-
-        # Create attachment with regular user
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Admin should be able to delete it
-        with patch("tracecat.storage.delete_file", new_callable=AsyncMock):
-            await admin_attachments_service.delete_attachment(
-                test_case, created_attachment.id
-            )
-
-        # Verify file is marked as deleted in database
-        stmt = select(File).where(File.id == created_attachment.file_id)
-        result = await session.exec(stmt)
-        file_record = result.one()
-        assert file_record.deleted_at is not None
-
-    async def test_delete_attachment_authorization_non_creator_cannot_delete(
-        self,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-        session: AsyncSession,
-        svc_workspace,
-    ) -> None:
-        """Test that non-creator basic user cannot delete attachment."""
-        # Create attachment with one user
-        creator_role = Role(
-            type="user",
-            access_level=AccessLevel.BASIC,
-            workspace_id=svc_workspace.id,
-            user_id=uuid.uuid4(),  # Different user
-            service_id="tracecat-api",
-        )
-        creator_service = CaseAttachmentService(session=session, role=creator_role)
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await creator_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Different basic user should not be able to delete
-        different_user_role = Role(
-            type="user",
-            access_level=AccessLevel.BASIC,
-            workspace_id=svc_workspace.id,
-            user_id=uuid.uuid4(),  # Different user
-            service_id="tracecat-api",
-        )
-        different_user_service = CaseAttachmentService(
-            session=session, role=different_user_role
-        )
-
-        with pytest.raises(
-            TracecatAuthorizationError, match="You don't have permission to delete"
-        ):
-            await different_user_service.delete_attachment(
-                test_case, created_attachment.id
-            )
-
-    async def test_download_attachment_integrity_check_failure(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        attachment_params: CaseAttachmentCreate,
-    ) -> None:
-        """Test that download fails when file integrity check fails."""
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="original_hash"),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                return_value={
-                    "filename": attachment_params.file_name,
-                    "content_type": attachment_params.content_type,
-                },
-            ),
-        ):
-            created_attachment = await attachments_service.create_attachment(
-                test_case, attachment_params
-            )
-
-        # Mock download returning corrupted content
-        with (
-            patch(
-                "tracecat.storage.download_file",
-                new_callable=AsyncMock,
-                return_value=b"corrupted content",
-            ),
-            patch(
-                "tracecat.storage.compute_sha256",
-                return_value="different_hash",  # Different hash indicates corruption
-            ),
-        ):
-            with pytest.raises(TracecatException, match="File integrity check failed"):
-                await attachments_service.download_attachment(
-                    test_case, created_attachment.id
-                )
-
-    async def test_get_total_storage_used_excludes_deleted(
-        self,
-        attachments_service: CaseAttachmentService,
-        test_case: Case,
-        session: AsyncSession,
-    ) -> None:
-        """Test that storage usage calculation excludes soft-deleted files."""
-        # Create two attachments
-        content1 = b"First file content"
-        content2 = b"Second file content"
-
-        params1 = CaseAttachmentCreate(
-            file_name="file1.txt",
-            content_type="text/plain",
-            size=len(content1),
-            content=content1,
-        )
-        params2 = CaseAttachmentCreate(
-            file_name="file2.txt",
-            content_type="text/plain",
-            size=len(content2),
-            content=content2,
-        )
-
-        with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", side_effect=["hash1", "hash2"]),
-            patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
-                side_effect=[
-                    {"filename": "file1.txt", "content_type": "text/plain"},
-                    {"filename": "file2.txt", "content_type": "text/plain"},
-                ],
-            ),
-        ):
-            attachment1 = await attachments_service.create_attachment(
-                test_case, params1
-            )
-            await attachments_service.create_attachment(test_case, params2)
-
-        # Initial storage should include both files
-        total_bytes = await attachments_service.get_total_storage_used(test_case)
-        assert total_bytes == len(content1) + len(content2)
-
-        # Soft-delete one file
-        stmt = select(File).where(File.id == attachment1.file_id)
-        result = await session.exec(stmt)
-        file1 = result.one()
-        assert file1 is not None  # Ensure file exists before modifying
-        file1.deleted_at = datetime.now(UTC)
-        await session.commit()
-
-        # Storage should now only include the non-deleted file
-        total_bytes_after_delete = await attachments_service.get_total_storage_used(
-            test_case
-        )
-        assert total_bytes_after_delete == len(content2)
+    assert a1.id != a2.id
+    assert a1.file_id == a2.file_id

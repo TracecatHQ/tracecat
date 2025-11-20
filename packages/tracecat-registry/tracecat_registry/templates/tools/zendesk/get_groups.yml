@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get groups
+  description: Retrieve all groups from Zendesk.
+  display_group: Zendesk
+  doc_url: https://developer.zendesk.com/api-reference/ticketing/groups/groups/
+  namespace: tools.zendesk
+  name: get_groups
+  secrets:
+    - name: zendesk
+      keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+  expects:
+    subdomain:
+      type: str
+      description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
+    page:
+      type: int | None
+      description: Page number for pagination (1-based)
+      default: null
+    per_page:
+      type: int
+      description: Number of groups per page (max 100)
+      default: 100
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          per_page: ${{ FN.min(inputs.per_page, 100) }}
+          page: ${{ inputs.page }}
+        script: |
+          def main(per_page, page):
+              params = {"per_page": per_page}
+              if page is not None:
+                  params["page"] = page
+              return params
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/groups.json
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Accept: application/json
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.call_api.result.data }}

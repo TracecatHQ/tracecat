@@ -5,12 +5,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { DatabaseTable } from "@/components/tables/table-view"
 import { useGetTable } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function TablePage() {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { table, tableIsLoading, tableError } = useGetTable({
     tableId: tableId ?? "",
     workspaceId,
@@ -26,10 +26,8 @@ export default function TablePage() {
     )
 
   return (
-    <div className="size-full overflow-auto">
-      <div className="container h-full gap-8 py-8">
-        <DatabaseTable table={table} />
-      </div>
+    <div className="size-full overflow-auto px-3 py-6">
+      <DatabaseTable table={table} />
     </div>
   )
 }

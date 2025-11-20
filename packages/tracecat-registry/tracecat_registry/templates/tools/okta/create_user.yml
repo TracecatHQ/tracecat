@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Create user
+  description: Create a new user in your Okta organization.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/createUser
+  namespace: tools.okta
+  name: create_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    email:
+      type: str
+      description: Email address of the new user
+    first_name:
+      type: str
+      description: First name of the new user
+    last_name:
+      type: str
+      description: Last name of the new user
+    login:
+      type: str | None
+      description: Login for the user (defaults to email if not provided)
+      default: null
+    activate:
+      type: bool
+      description: Whether to activate the user immediately
+      default: true
+    additional_attributes:
+      type: dict[str, Any] | None
+      description: Additional user profile attributes
+      default: null
+  steps:
+    - ref: prepare_login
+      action: core.transform.reshape
+      args:
+        value: ${{ inputs.login || inputs.email }}
+    - ref: build_profile
+      action: core.transform.reshape
+      args:
+        value:
+          firstName: ${{ inputs.first_name }}
+          lastName: ${{ inputs.last_name }}
+          email: ${{ inputs.email }}
+          login: ${{ steps.prepare_login.result }}
+    - ref: merge_profile
+      action: core.script.run_python
+      args:
+        inputs:
+          profile: ${{ steps.build_profile.result }}
+          additional_attributes: ${{ inputs.additional_attributes }}
+        script: |
+          def main(profile, additional_attributes):
+              if additional_attributes:
+                  return {**profile, **additional_attributes}
+              return profile
+    - ref: create_user
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+        params:
+          activate: ${{ inputs.activate }}
+        payload:
+          profile: ${{ steps.merge_profile.result }}
+  returns: ${{ steps.create_user.result.data }}

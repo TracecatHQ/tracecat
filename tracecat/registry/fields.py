@@ -1,3 +1,4 @@
+import datetime
 import inspect
 import types
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ class ComponentID(StrEnum):
 
     CODE = "code"
     SELECT = "select"
+    AGENT_PRESET = "agent-preset"
     TEXT_AREA = "text-area"
     TOGGLE = "toggle"
     TEXT = "text"
@@ -51,6 +53,13 @@ class Select(Component):
     component_id: Literal[ComponentID.SELECT] = ComponentID.SELECT
     options: list[str] | None = None
     multiple: bool = False
+
+
+@dataclass(slots=True)
+class AgentPreset(Component):
+    """Render field as agent preset dropdown in UI"""
+
+    component_id: Literal[ComponentID.AGENT_PRESET] = ComponentID.AGENT_PRESET
 
 
 @dataclass(slots=True)
@@ -217,6 +226,8 @@ def get_default_component(field_type: Any) -> Component | None:
         return Text()
     elif field_type is Any:
         return Yaml()  # Use Yaml editor for Any type to allow flexible input
+    elif field_type is datetime.datetime:
+        return Yaml()
     elif _safe_issubclass(field_type, Enum):
         member_map = field_type._member_map_
         return Select(options=[member.value for member in member_map.values()])
@@ -279,6 +290,7 @@ class EditorComponent(RootModel):
         | Yaml
         | TagInput
         | ActionType
-        | WorkflowAlias,
+        | WorkflowAlias
+        | AgentPreset,
         Field(discriminator="component_id"),
     ]

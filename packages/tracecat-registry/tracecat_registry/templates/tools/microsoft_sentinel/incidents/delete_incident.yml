@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Delete incident
+  description: Delete an incident from Microsoft Sentinel workspace.
+  display_group: Microsoft Sentinel
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/delete
+  namespace: tools.microsoft_sentinel
+  name: delete_incident
+  secrets:
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: client_credentials
+      optional: true
+  expects:
+    subscription_id:
+      type: str
+      description: Azure subscription ID.
+    resource_group_name:
+      type: str
+      description: Azure resource group name.
+    workspace_name:
+      type: str
+      description: Log Analytics workspace name.
+    incident_id:
+      type: str
+      description: Incident ID.
+    api_version:
+      type: str
+      description: API version.
+      default: "2025-09-01"
+    base_url:
+      type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
+      description: Base URL for the Azure Management API.
+      default: https://management.azure.com
+  steps:
+    - ref: delete_incident
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents/${{ FN.url_encode(inputs.incident_id) }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
+        params:
+          api-version: ${{ inputs.api_version }}
+  returns: ${{ steps.delete_incident.result.data }}

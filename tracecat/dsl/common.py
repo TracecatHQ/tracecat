@@ -21,10 +21,12 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 from temporalio import workflow
-from temporalio.common import RetryPolicy, SearchAttributeKey, TypedSearchAttributes
+from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError, ChildWorkflowError, FailureError
 
-from tracecat.db.schemas import Action
+from tracecat.auth.types import Role
+from tracecat.db.models import Action
+from tracecat.dsl._converter import PydanticPayloadConverter
 from tracecat.dsl.enums import (
     EdgeType,
     FailStrategy,
@@ -32,7 +34,7 @@ from tracecat.dsl.enums import (
     PlatformAction,
     WaitStrategy,
 )
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ROOT_STREAM,
     ActionStatement,
     DSLConfig,
@@ -44,26 +46,32 @@ from tracecat.dsl.models import (
     Trigger,
     TriggerInputs,
 )
-from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
-from tracecat.ee.interactions.models import ActionInteractionValidator
-from tracecat.expressions import patterns
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.core import extract_expressions
-from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers import ScheduleID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.dsl.view import (
+    RFEdge,
+    RFGraph,
+    RFNode,
+    TriggerNode,
+    UDFNode,
+    UDFNodeData,
+)
+from tracecat.exceptions import (
     TracecatCredentialsError,
     TracecatDSLError,
     TracecatException,
     TracecatExpressionError,
     TracecatValidationError,
 )
-from tracecat.workflow.actions.models import ActionControlFlow
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import extract_expressions
+from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers import ScheduleID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.interactions.schemas import ActionInteractionValidator
+from tracecat.logger import logger
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+
+_memo_payload_converter = PydanticPayloadConverter()
 
 
 class DSLEntrypoint(BaseModel):
@@ -101,9 +109,6 @@ class DSLInput(BaseModel):
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
-    inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Static input parameters"
-    )
     returns: Any | None = Field(
         default=None, description="The action ref or value to return."
     )
@@ -114,28 +119,6 @@ class DSLInput(BaseModel):
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         kwargs["mode"] = "json"
         return super().model_dump(*args, **kwargs)
-
-    @field_validator("inputs")
-    @classmethod
-    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
-        try:
-            exceptions = []
-            for loc, value in traverse_leaves(inputs):
-                if not isinstance(value, str):
-                    continue
-                for match in patterns.TEMPLATE_STRING.finditer(value):
-                    template = match.group("template")
-                    exceptions.append(
-                        TracecatDSLError(
-                            "Static `INPUTS` context cannot contain expressions,"
-                            f" but found {template!r} in INPUTS.{loc}"
-                        )
-                    )
-            if exceptions:
-                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
-            return inputs
-        except* TracecatDSLError as eg:
-            raise eg
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
@@ -466,8 +449,9 @@ class DSLRunArgs(BaseModel):
     )
     timeout: timedelta = Field(
         default_factory=lambda: timedelta(minutes=5),
-        description="The maximum time to wait for the workflow to complete.",
+        description="Platform activity start-to-close timeout.",
     )
+    """Platform activity start-to-close timeout."""
     schedule_id: ScheduleID | None = Field(
         default=None,
         description="The schedule ID that triggered this workflow, if any.",
@@ -512,6 +496,42 @@ class ExecuteChildWorkflowArgs(BaseModel):
     def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
         """Convert any valid workflow ID format to WorkflowUUID."""
         return WorkflowUUID.new(v)
+
+
+class AgentActionMemo(BaseModel):
+    action_ref: str = Field(
+        ..., description="The action ref that initiated the child workflow."
+    )
+    action_title: str | None = Field(
+        default=None, description="The action title that initiated the child workflow."
+    )
+    loop_index: int | None = Field(
+        default=None,
+        description="The loop index of the child workflow, if any.",
+    )
+    stream_id: StreamID = Field(
+        default=ROOT_STREAM,
+        description="The execution stream ID where the agent workflow was spawned.",
+    )
+
+    @classmethod
+    def from_temporal(cls, memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
+        data: dict[str, Any] = {}
+        for key, value in memo.fields.items():
+            try:
+                data[key] = _memo_payload_converter.from_payload(value)
+            except Exception as e:
+                logger.warning(
+                    "Error parsing agent action memo field",
+                    error=e,
+                    key=key,
+                    value=value,
+                )
+        if not data.get("action_ref"):
+            data["action_ref"] = "unknown_agent_action"
+        if not data.get("stream_id"):
+            data["stream_id"] = ROOT_STREAM
+        return cls(**data)
 
 
 class ChildWorkflowMemo(BaseModel):
@@ -626,22 +646,23 @@ def build_action_statements(
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
             interaction=interaction,
+            environment=control_flow.environment,
         )
         statements.append(action_stmt)
     return statements
 
 
 def create_default_execution_context(
-    INPUTS: dict[str, Any] | None = None,
     ACTIONS: dict[str, Any] | None = None,
     TRIGGER: dict[str, Any] | None = None,
     ENV: DSLEnvironment | None = None,
+    VARS: dict[str, Any] | None = None,
 ) -> ExecutionContext:
     return {
-        ExprContext.INPUTS: INPUTS or {},
         ExprContext.ACTIONS: ACTIONS or {},
         ExprContext.TRIGGER: TRIGGER or {},
         ExprContext.ENV: cast(DSLEnvironment, ENV or {}),
+        ExprContext.VARS: VARS or {},
     }
 
 
@@ -661,9 +682,7 @@ def get_trigger_type(info: workflow.Info) -> TriggerType:
 def get_trigger_type_from_search_attr(
     search_attributes: TypedSearchAttributes, temporal_workflow_id: str
 ) -> TriggerType:
-    trigger_type = search_attributes.get(
-        SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value)
-    )
+    trigger_type = search_attributes.get(TemporalSearchAttr.TRIGGER_TYPE.key)
     if trigger_type is None:
         logger.debug(
             "Couldn't find trigger type, using manual as fallback",

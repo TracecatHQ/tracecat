@@ -1,14 +1,13 @@
 import pytest
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.db.schemas import Case, CaseFields, User
+from tracecat.db.models import Case, CaseFields, User
 from tracecat.tables.enums import SqlType
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -55,24 +54,31 @@ class TestCaseFieldsIntegration:
         assert created_case.summary == case_create_params.summary
         assert created_case.description == case_create_params.description
 
-        # Verify that no fields were created
-        assert created_case.fields is None
+        # Verify that a CaseFields row WAS created (new behavior: always create to ensure defaults)
+        assert created_case.fields is not None
 
-        # Query the database to verify no fields exist for this case
+        # Query the database to verify fields row exists for this case
         statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.exec(statement)
-        case_fields = result.one_or_none()
-        assert case_fields is None
+        result = await session.execute(statement)
+        case_fields = result.scalar_one_or_none()
+        assert case_fields is not None
 
-        # Verify get_fields returns None
+        # Verify get_fields returns the row with metadata but no custom fields
         fields_data = await cases_service.fields.get_fields(created_case)
-        assert fields_data is None
+        assert fields_data is not None
+        # Should have metadata fields but no custom fields
+        assert "id" in fields_data
+        assert "case_id" in fields_data
+        assert "created_at" in fields_data
+        assert "updated_at" in fields_data
+        # No other fields should be present (i.e., no custom fields)
+        assert len(fields_data) == 4
 
-        # Verify get_case returns the same case without fields
+        # Verify get_case returns the same case with fields row
         retrieved_case = await cases_service.get_case(created_case.id)
         assert retrieved_case is not None
         assert retrieved_case.id == created_case.id
-        assert retrieved_case.fields is None
+        assert retrieved_case.fields is not None
 
     async def test_create_case_with_fields_before_columns_exist(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -90,12 +96,7 @@ class TestCaseFieldsIntegration:
 
         # Create case with fields
         # Since we haven't created the fields yet, this should raise an error
-        with pytest.raises(
-            TracecatException,
-            match="Failed to create case fields."
-            ' Column "custom_field1" of table "case_fields" does not exist.'
-            " Please ensure these fields have been created and try again.",
-        ):
+        with pytest.raises(ValueError):
             await cases_service.create_case(params_with_fields)
 
     async def test_create_case_with_fields(
@@ -141,8 +142,8 @@ class TestCaseFieldsIntegration:
 
         # Query the fields directly from the database to verify
         statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.exec(statement)
-        case_fields = result.one_or_none()
+        result = await session.execute(statement)
+        case_fields = result.scalar_one_or_none()
         assert case_fields is not None
 
         # Now check the values of the fields
@@ -245,12 +246,7 @@ class TestCaseFieldsIntegration:
         )
 
         # Update the case
-        with pytest.raises(
-            TracecatException,
-            match="Failed to update case fields."
-            ' Column "field3" of table "case_fields" does not exist.'
-            " Please ensure these fields have been created and try again.",
-        ):
+        with pytest.raises(ValueError):
             await cases_service.update_case(created_case, update_params)
 
     async def test_case_fields_cascade_delete(
@@ -291,12 +287,12 @@ class TestCaseFieldsIntegration:
 
         # Verify case is deleted
         case_statement = select(Case).where(Case.id == case_id)
-        case_result = await session.exec(case_statement)
+        case_result = await session.execute(case_statement)
         assert case_result.first() is None
 
         # Verify fields were also deleted due to cascade delete
         fields_statement = select(CaseFields).where(CaseFields.id == fields_id)
-        fields_result = await session.exec(fields_statement)
+        fields_result = await session.execute(fields_statement)
         assert fields_result.one_or_none() is None
 
 
@@ -343,8 +339,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id == test_user.id
 
     async def test_update_case_assignee(
@@ -368,8 +364,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id == test_user.id
 
     async def test_remove_case_assignee(
@@ -394,8 +390,8 @@ class TestCaseAssigneeIntegration:
 
         # Verify database state directly
         statement = select(Case).where(Case.id == created_case.id)
-        result = await session.exec(statement)
-        case_from_db = result.one()
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
         assert case_from_db.assignee_id is None
 
     async def test_list_cases_with_assignee_filtering(

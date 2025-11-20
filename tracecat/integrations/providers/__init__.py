@@ -1,68 +1,86 @@
-import importlib
-from pathlib import Path
-from typing import Self
+from typing import Final
 
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.providers.base import BaseOAuthProvider
+from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
+from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
+from tracecat.integrations.providers.google import GoogleServiceAccountOAuthProvider
+from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
+from tracecat.integrations.providers.microsoft import (
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+    AzureManagementACProvider,
+    AzureManagementCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+    MicrosoftDefenderXDRACProvider,
+    MicrosoftDefenderXDRCCProvider,
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
+    MicrosoftTeamsACProvider,
+    MicrosoftTeamsCCProvider,
+)
+from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
+from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
+from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
+from tracecat.integrations.schemas import ProviderKey
+
+_PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    GitHubOAuthProvider,
+    GitHubMCPProvider,
+    GoogleServiceAccountOAuthProvider,
+    LinearMCPProvider,
+    NotionMCPProvider,
+    RunRevealMCPProvider,
+    SentryMCPProvider,
+    AzureManagementACProvider,
+    AzureManagementCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+    MicrosoftDefenderXDRACProvider,
+    MicrosoftDefenderXDRCCProvider,
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
+    MicrosoftTeamsACProvider,
+    MicrosoftTeamsCCProvider,
+]
 
 
-def load_providers():
-    plugins_dir = Path(__file__).parent
-    package_name = "tracecat.integrations.providers"
-    for file in plugins_dir.glob("*.py"):
-        if file.name != "__init__.py":
-            module_name = f"{package_name}.{file.stem}"
-            importlib.import_module(module_name)
+def _build_provider_registry() -> dict[ProviderKey, type[BaseOAuthProvider]]:
+    """Build provider registry with duplicate detection."""
+    registry: dict[ProviderKey, type[BaseOAuthProvider]] = {}
+    for cls in _PROVIDER_CLASSES:
+        if not getattr(cls, "_include_in_registry", True):
+            continue
+        key = ProviderKey(id=cls.id, grant_type=cls.grant_type)
+        if key in registry:
+            raise ValueError(
+                f"Duplicate provider key {key} for {cls.__name__} "
+                f"(already registered by {registry[key].__name__})"
+            )
+        registry[key] = cls
+    return registry
 
 
-load_providers()
+PROVIDER_REGISTRY: Final[dict[ProviderKey, type[BaseOAuthProvider]]] = (
+    _build_provider_registry()
+)
 
 
-def _collect_subclasses(
-    cls: type[BaseOAuthProvider],
-) -> list[type[BaseOAuthProvider]]:
-    """Recursively collect all subclasses of the given class."""
-    subclasses = []
-    for subclass in cls.__subclasses__():
-        if hasattr(subclass, "id"):
-            subclasses.append(subclass)
-        subclasses.extend(_collect_subclasses(subclass))
-    return subclasses
+def get_provider_class(key: ProviderKey) -> type[BaseOAuthProvider] | None:
+    """Return the provider class matching *key*, or ``None``."""
+    return PROVIDER_REGISTRY.get(key)
 
 
-class ProviderRegistry:
-    _instance: Self | None = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self):
-        self._providers: dict[ProviderKey, type[BaseOAuthProvider]] = {}
-
-        all_providers = _collect_subclasses(BaseOAuthProvider)
-        for provider in all_providers:
-            if not provider._include_in_registry:
-                continue
-            key = ProviderKey(id=provider.id, grant_type=provider.grant_type)
-            if key in self._providers:
-                raise ValueError(
-                    f"Duplicate provider ID: {provider.id} with grant type: {provider.grant_type}"
-                )
-            self._providers[key] = provider
-
-    @classmethod
-    def get(cls) -> Self:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def get_class(self, provider_key: ProviderKey) -> type[BaseOAuthProvider] | None:
-        """Get an initialized provider by its ID."""
-        return self._providers.get(provider_key)
-
-    @property
-    def providers(self) -> list[type[BaseOAuthProvider]]:
-        """List all available providers."""
-        return list(self._providers.values())
+def all_providers() -> list[type[BaseOAuthProvider]]:
+    """Return all registered provider classes."""
+    return list(PROVIDER_REGISTRY.values())

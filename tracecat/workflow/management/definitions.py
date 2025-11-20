@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from sqlmodel import select
+from sqlalchemy import select
 from temporalio import activity
 
-from tracecat.db.schemas import WorkflowDefinition
+from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
-from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
 
 
 class WorkflowDefinitionsService(BaseService):
@@ -26,10 +26,10 @@ class WorkflowDefinitionsService(BaseService):
             statement = statement.where(WorkflowDefinition.version == version)
         else:
             # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())  # type: ignore
+            statement = statement.order_by(WorkflowDefinition.version.desc())
 
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def list_workflow_defitinions(
         self, workflow_id: WorkflowID | None = None
@@ -39,8 +39,8 @@ class WorkflowDefinitionsService(BaseService):
         )
         if workflow_id:
             statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
-        result = await self.session.exec(statement)
-        return list(result.all())
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
 
     async def create_workflow_definition(
         self,
@@ -57,10 +57,10 @@ class WorkflowDefinitionsService(BaseService):
                 WorkflowDefinition.owner_id == self.role.workspace_id,
                 WorkflowDefinition.workflow_id == workflow_id,
             )
-            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+            .order_by(WorkflowDefinition.version.desc())
         )
-        result = await self.session.exec(statement)
-        latest_defn = result.first()
+        result = await self.session.execute(statement)
+        latest_defn = result.scalars().first()
 
         version = latest_defn.version + 1 if latest_defn else 1
         defn = WorkflowDefinition(
@@ -69,10 +69,12 @@ class WorkflowDefinitionsService(BaseService):
             content=dsl.model_dump(exclude_unset=True),
             version=version,
         )
+        self.session.add(defn)
         if commit:
-            self.session.add(defn)
             await self.session.commit()
-            await self.session.refresh(defn)
+        else:
+            await self.session.flush()
+        await self.session.refresh(defn)
         return defn
 
 
@@ -85,7 +87,7 @@ async def get_workflow_definition_activity(
             input.workflow_id, version=input.version
         )
         if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
+            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)

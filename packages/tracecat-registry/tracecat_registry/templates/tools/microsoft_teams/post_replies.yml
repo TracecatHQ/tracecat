@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Send replies to a Teams message
+  description: Send a reply to a Microsoft Teams message.
+  display_group: Microsoft Teams
+  doc_url: https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies
+  namespace: tools.microsoft_teams
+  name: post_replies
+  secrets:
+    - type: oauth
+      provider_id: microsoft_teams
+      grant_type: authorization_code
+  expects:
+    team_id:
+      type: str
+      description: The ID of the team.
+    channel_id:
+      type: str
+      description: The ID of the channel.
+    message_id:
+      type: str
+      description: The ID of the message to reply to.
+    message:
+      type: str
+      description: The reply message to send.
+    contentType:
+      type: str
+      description: The content type of the reply message.
+      default: html
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
+  steps:
+    - ref: post_replies
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages/${{ inputs.message_id }}/replies
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}
+          Content-Type: application/json
+        payload:
+          body:
+            content: ${{ inputs.message }}
+            contentType: ${{ inputs.contentType }}
+  returns: ${{ steps.post_replies.result.data }}

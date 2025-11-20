@@ -35,7 +35,7 @@ import { createTemplateRegex } from "@/lib/expressions"
 import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Single-line expression linter
 function expressionLinter(view: EditorView): Diagnostic[] {
@@ -121,7 +121,7 @@ function ExpressionInputCore({
   disabled = false,
   defaultHeight = "input",
 }: ExpressionInputProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const methods = useFormContext()
   const { appSettings } = useOrgAppSettings()
@@ -180,6 +180,85 @@ function ExpressionInputCore({
       ? createTemplatePillPlugin(workspaceId)
       : createSimpleTemplatePlugin(workspaceId)
 
+    const editorVisualTheme = EditorView.theme({
+      // Input-specific styling to match shadcn Input
+      "&": {
+        fontSize: "14px",
+      },
+      ".cm-content": {
+        padding: "8px 12px",
+        lineHeight: "20px",
+        // text-xs
+        fontSize: "12px",
+        caretColor: "hsl(var(--foreground))",
+        ...(defaultHeight === "text-area" && {
+          minHeight: "240px",
+        }),
+      },
+      ".cm-scroller": {
+        fontFamily: "inherit",
+        maxHeight: "800px",
+        overflow: "auto",
+        scrollbarWidth: "none",
+        msOverflowStyle: "none",
+        ...(defaultHeight === "text-area" && {
+          minHeight: "240px",
+        }),
+      },
+      ".cm-scroller::-webkit-scrollbar": {
+        display: "none",
+      },
+      ".cm-editor": {
+        backgroundColor: "hsl(var(--background))",
+        color: "hsl(var(--foreground))",
+        fontSize: "14px",
+        transition: "all 0.2s",
+        overflow: "visible",
+      },
+      ".cm-focused": {
+        outline: "2px solid transparent",
+        outlineOffset: "2px",
+        borderColor: "hsl(var(--ring))",
+        boxShadow: "0 0 0 2px hsl(var(--ring))",
+      },
+      ".cm-editor.cm-focused": {
+        borderColor: "hsl(var(--ring))",
+        boxShadow: "0 0 0 2px hsl(var(--ring))",
+      },
+      "&.cm-disabled": {
+        cursor: "not-allowed",
+        opacity: "0.5",
+      },
+      "&.cm-disabled .cm-content": {
+        color: "hsl(var(--muted-foreground))",
+      },
+      ".cm-placeholder": {
+        color: "hsl(var(--muted-foreground))",
+        fontStyle: "normal",
+      },
+      // Error styling
+      ".cm-diagnostic-error": {
+        borderBottom: "2px wavy hsl(var(--destructive))",
+      },
+      ".cm-lint-marker-error": {
+        backgroundColor: "hsl(var(--destructive))",
+        borderRadius: "50%",
+        width: "0.6em",
+        height: "0.6em",
+      },
+      ".cm-line": {
+        padding: "0px",
+      },
+      ".cm-tooltip": {
+        zIndex: "60",
+        position: "fixed",
+      },
+      ".cm-tooltip-autocomplete": {
+        zIndex: "60",
+        position: "fixed",
+      },
+    })
+
     const baseExtensions = [
       // Core setup
       history(),
@@ -204,6 +283,7 @@ function ExpressionInputCore({
       // Template expression plugin
       templatePlugin,
       templatePillTheme,
+      editorVisualTheme,
     ]
 
     // Add pill-specific extensions only when pills are enabled
@@ -229,70 +309,7 @@ function ExpressionInputCore({
       ]
     }
 
-    return baseExtensions.concat([
-      // Input-specific styling to match shadcn Input
-      EditorView.theme({
-        "&": {
-          fontSize: "14px",
-        },
-        ".cm-content": {
-          padding: "8px 12px",
-          lineHeight: "20px",
-          // text-xs
-          fontSize: "12px",
-          caretColor: "hsl(var(--foreground))",
-          ...(defaultHeight === "text-area" && {
-            minHeight: "240px",
-          }),
-        },
-        ".cm-scroller": {
-          fontFamily: "inherit",
-          ...(defaultHeight === "text-area" && {
-            minHeight: "240px",
-          }),
-        },
-        ".cm-focused": {
-          outline: "2px solid transparent",
-          outlineOffset: "2px",
-          borderColor: "hsl(var(--ring))",
-          boxShadow: "0 0 0 2px hsl(var(--ring))",
-        },
-        ".cm-editor": {
-          backgroundColor: "hsl(var(--background))",
-          color: "hsl(var(--foreground))",
-          fontSize: "14px",
-          transition: "all 0.2s",
-        },
-        ".cm-editor.cm-focused": {
-          borderColor: "hsl(var(--ring))",
-          boxShadow: "0 0 0 2px hsl(var(--ring))",
-        },
-        "&.cm-disabled": {
-          cursor: "not-allowed",
-          opacity: "0.5",
-        },
-        "&.cm-disabled .cm-content": {
-          color: "hsl(var(--muted-foreground))",
-        },
-        ".cm-placeholder": {
-          color: "hsl(var(--muted-foreground))",
-          fontStyle: "normal",
-        },
-        // Error styling
-        ".cm-diagnostic-error": {
-          borderBottom: "2px wavy hsl(var(--destructive))",
-        },
-        ".cm-lint-marker-error": {
-          backgroundColor: "hsl(var(--destructive))",
-          borderRadius: "50%",
-          width: "0.6em",
-          height: "0.6em",
-        },
-        ".cm-line": {
-          padding: "0px",
-        },
-      }),
-    ])
+    return baseExtensions.concat([createCoreKeymap()])
   }, [
     workspaceId,
     actions,
@@ -313,7 +330,7 @@ function ExpressionInputCore({
 
   return (
     <div className={cn("relative", className)}>
-      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border shadow-sm">
+      <div className="relative rounded-md border-[0.5px] border-border shadow-sm">
         <CodeMirror
           value={safeValue}
           height="auto"

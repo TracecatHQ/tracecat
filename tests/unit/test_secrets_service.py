@@ -1,17 +1,20 @@
 import pytest
 from pydantic import SecretStr
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
+from tracecat.exceptions import (
+    TracecatCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretKeyValue,
     SecretSearch,
     SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -194,7 +197,7 @@ class TestSecretsService:
 
     async def test_get_nonexistent_ssh_key(self, service: SecretsService) -> None:
         """Test retrieving non-existent SSH key."""
-        with pytest.raises(TracecatNotFoundError):
+        with pytest.raises(TracecatCredentialsNotFoundError):
             await service.get_ssh_key("nonexistent-key")
 
     async def test_search_secrets(

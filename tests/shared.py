@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import ModuleType
 
 import httpx
 import yaml
 
 from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
-from tracecat.registry.actions.models import TemplateAction
+from tracecat.registry.actions.schemas import TemplateAction
 
 
 def user_client() -> httpx.AsyncClient:
@@ -39,3 +40,17 @@ def load_yaml_template_action(file_path: Path) -> TemplateAction:
 
     action = TemplateAction.model_validate(definition)
     return action
+
+
+def get_package_path(module: ModuleType) -> Path:
+    """Get the path to a package module.
+
+    Args:
+        module: The module object to get the path for
+
+    Returns:
+        Path to the module directory
+    """
+    if not module.__file__:
+        raise ValueError("Module has no __file__ attribute")
+    return Path(module.__file__).parent

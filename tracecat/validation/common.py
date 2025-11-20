@@ -7,9 +7,9 @@ from pydantic.alias_generators import to_camel
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretSearch
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.validation.models import ExprValidationResult
+from tracecat.validation.schemas import ExprValidationResult
 
 
 def json_schema_to_pydantic(
@@ -38,8 +38,9 @@ def json_schema_to_pydantic(
     def create_field(prop_schema: dict[str, Any], enum_field_name: str) -> type:
         if "$ref" in prop_schema:
             referenced_schema = resolve_ref(prop_schema["$ref"])
-            # Pass the original model name for context if the ref is to a simple type that becomes an enum
-            return json_schema_to_pydantic(referenced_schema, base_schema, name=name)
+            # Resolve the referenced schema in-place so enum/object/array handling applies.
+            # This preserves enum -> Literal[...] behavior when $ref points to an enum schema.
+            return create_field(referenced_schema, enum_field_name)
 
         type_ = prop_schema.get("type")
         if "enum" in prop_schema:
@@ -93,7 +94,7 @@ def json_schema_to_pydantic(
             field_params["description"] = prop_schema_val["description"]
 
         if prop_name not in required:
-            field_type = field_type | None
+            field_type = field_type | None  # type: ignore
             field_params["default"] = None
 
         fields[prop_name] = (field_type, Field(**field_params))

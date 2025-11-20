@@ -56,6 +56,7 @@ HISTORY_TO_WF_EVENT_TYPE = {
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_TIMED_OUT,
+    EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_CANCELED,
     # Workflow
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED: WorkflowEventType.WORKFLOW_EXECUTION_STARTED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED: WorkflowEventType.WORKFLOW_EXECUTION_COMPLETED,
@@ -77,6 +78,8 @@ UTILITY_ACTIONS = {
     "validate_action_activity",
     "parse_wait_until_activity",
     "evaluate_single_expression_activity",
+    "resolve_agent_preset_config_activity",
+    "normalize_trigger_inputs_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
     InteractionService.create_interaction_activity.__name__,

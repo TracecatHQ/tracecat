@@ -9,8 +9,6 @@ Create Date: 2024-10-03 19:54:16.459544
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -27,7 +25,7 @@ def upgrade() -> None:
     op.create_table(
         "registryrepository",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -40,16 +38,16 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("origin", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("version", sa.String(), nullable=False),
+        sa.Column("origin", sa.String(), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
         sa.UniqueConstraint("id"),
     )
     op.create_table(
         "registryaction",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -62,15 +60,15 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("namespace", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("origin", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("default_title", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("display_group", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("namespace", sa.String(), nullable=False),
+        sa.Column("version", sa.String(), nullable=False),
+        sa.Column("origin", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("default_title", sa.String(), nullable=True),
+        sa.Column("display_group", sa.String(), nullable=True),
         sa.Column("secrets", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("interface", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(

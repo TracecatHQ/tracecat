@@ -1,3 +1,0 @@
-device_id:
-  type: str
-  description: ID of a managed device.

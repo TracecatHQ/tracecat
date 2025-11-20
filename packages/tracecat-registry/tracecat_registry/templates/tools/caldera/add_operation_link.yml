@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Add link to operation
+  description: Queue an ability on an existing Caldera operation.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  namespace: tools.caldera
+  name: add_operation_link
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    operation_id:
+      type: str
+      description: Operation ID to update.
+    ability_id:
+      type: str
+      description: Ability ID to add to the operation.
+    ability_executor:
+      type: str
+      description: Executor name to run the ability with (e.g. windows, linux, darwin).
+    paw:
+      type: str
+      description: Agent PAW that should run the ability.
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: add_operation_link
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/operations/${{ inputs.operation_id }}/links
+        method: POST
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+        payload:
+          ability_id: ${{ inputs.ability_id }}
+          ability_executor: ${{ inputs.ability_executor }}
+          paw: ${{ inputs.paw }}
+  returns: ${{ steps.add_operation_link.result.data }}

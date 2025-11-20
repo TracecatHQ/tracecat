@@ -1,6 +1,6 @@
+from collections.abc import Mapping
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from lark import Lark, Transformer, v_args
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -33,11 +33,12 @@ BOOLEAN: "bool"
 FLOAT: "float"
 DATETIME: "datetime"
 DURATION: "duration"
-ANY: "any"
+# Allow both lowercase and capitalized variant for the primitive "any"
+ANY: "any" | "Any"
 NULL: "None"
 
 list_type: "list" "[" type "]"
-dict_type: "dict" "[" type "," type "]"
+dict_type: "dict" ("[" type "," type "]")?
 union_type: type ("|" type)+
 enum_type: "enum" "[" STRING_LITERAL ("," STRING_LITERAL)* "]"
 reference_type: "$" CNAME
@@ -59,6 +60,7 @@ TYPE_MAPPING = {
     "datetime": datetime,
     "duration": timedelta,
     "any": Any,
+    "Any": Any,  # Alias for any (preferred over any in templates)
     "None": None,
 }
 
@@ -84,7 +86,15 @@ class TypeTransformer(Transformer):
         return list[item_type]
 
     @v_args(inline=True)
-    def dict_type(self, key_type, value_type) -> type:
+    def dict_type(self, *types) -> type:
+        if not types:
+            logger.trace("Dict type:", key_type="Any", value_type="Any (implicit)")
+            return dict[str, Any]
+
+        if len(types) != 2:
+            raise ValueError("Dict type must have either zero or two type arguments")
+
+        key_type, value_type = types
         logger.trace("Dict type:", key_type=key_type, value_type=value_type)
         return dict[key_type, value_type]
 
@@ -99,11 +109,11 @@ class TypeTransformer(Transformer):
         return f"${name.value}"
 
     @v_args(inline=True)
-    def enum_type(self, *values) -> Enum:
+    def enum_type(self, *values) -> Any:
         if len(values) > self.MAX_ENUM_VALUES:
             raise ValueError(f"Too many enum values (maximum {self.MAX_ENUM_VALUES})")
 
-        enum_values = {}
+        literal_values: list[str] = []
         seen_values = set()
 
         for value in values:
@@ -116,12 +126,11 @@ class TypeTransformer(Transformer):
                 raise ValueError(f"Duplicate enum value: {value}")
 
             seen_values.add(value_lower)
-            enum_values[value] = value
+            literal_values.append(value)
 
-        # Convert to upper camel case (e.g., "user_status" -> "UserStatus")
-        enum_name = "".join(word.title() for word in self.field_name.split("_"))
-        logger.trace("Enum type:", name=enum_name, values=enum_values)
-        return Enum(f"Enum{enum_name}", enum_values)
+        literal_type = Literal.__getitem__(tuple(literal_values))
+        logger.trace("Enum literal type:", field=self.field_name, values=literal_values)
+        return literal_type
 
     @v_args(inline=True)
     def STRING_LITERAL(self, value) -> str:
@@ -142,7 +151,8 @@ class ExpectedField(BaseModel):
 
 
 def create_expectation_model(
-    schema: dict[str, ExpectedField], model_name: str = "ExpectedSchemaModel"
+    schema: Mapping[str, ExpectedField | Mapping[str, Any]],
+    model_name: str = "ExpectedSchemaModel",
 ) -> type[BaseModel]:
     fields = {}
     for field_name, field_info in schema.items():

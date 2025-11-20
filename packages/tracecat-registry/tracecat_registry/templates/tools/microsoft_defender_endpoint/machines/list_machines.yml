@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: List machines
+  description: List Microsoft Defender for Endpoint machines with optional filters.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/get-machines
+  namespace: tools.microsoft_defender_endpoint
+  name: list_machines
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    top:
+      type: int | None
+      description: Maximum number of machines to return (maps to $top).
+      default: null
+    filter:
+      type: str | None
+      description: OData filter expression to apply (for example, healthStatus eq 'Active').
+      default: null
+    order_by:
+      type: str | None
+      description: OData order by clause (for example, lastSeen desc).
+      default: null
+    skip_token:
+      type: str | None
+      description: OData skip token to continue pagination.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          top: ${{ inputs.top }}
+          filter_: ${{ inputs.filter }}
+          order_by: ${{ inputs.order_by }}
+          skip_token: ${{ inputs.skip_token }}
+        script: |
+          def main(top, filter_, order_by, skip_token):
+              params = {}
+              if top is not None:
+                  params["$top"] = top
+              if filter_:
+                  params["$filter"] = filter_
+              if order_by:
+                  params["$orderby"] = order_by
+              if skip_token:
+                  params["$skiptoken"] = skip_token
+              return params
+    - ref: list_machines
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_machines.result.data }}

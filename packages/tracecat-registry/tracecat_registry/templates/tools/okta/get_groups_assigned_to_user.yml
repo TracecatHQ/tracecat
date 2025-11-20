@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get groups assigned to user
+  description: List all groups that a user is a member of.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserResources/#tag/UserResources/operation/listUserGroups
+  namespace: tools.okta
+  name: get_groups_assigned_to_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    user_id:
+      type: str
+      description: User ID, login, or email to get group memberships for
+    limit:
+      type: int
+      description: Maximum number of groups to return (default 200)
+      default: 200
+    after:
+      type: str | None
+      description: Pagination cursor to start from
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(limit, after):
+              params = {"limit": limit}
+              if after is not None:
+                  params["after"] = after
+              return params
+    - ref: get_groups
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users/${{ FN.url_encode(inputs.user_id) }}/groups
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_groups.result.data }}

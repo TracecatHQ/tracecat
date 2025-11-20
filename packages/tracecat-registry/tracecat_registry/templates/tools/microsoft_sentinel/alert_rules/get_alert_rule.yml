@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get alert rule
+  description: Get a specific alert rule by ID from Microsoft Sentinel workspace.
+  display_group: Microsoft Sentinel
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rules/get
+  namespace: tools.microsoft_sentinel
+  name: get_alert_rule
+  secrets:
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: client_credentials
+      optional: true
+  expects:
+    subscription_id:
+      type: str
+      description: Azure subscription ID.
+    resource_group_name:
+      type: str
+      description: Azure resource group name.
+    workspace_name:
+      type: str
+      description: Log Analytics workspace name.
+    rule_id:
+      type: str
+      description: Alert rule ID.
+    api_version:
+      type: str
+      description: API version.
+      default: "2025-09-01"
+    base_url:
+      type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
+      description: Base URL for the Azure Management API.
+      default: https://management.azure.com
+  steps:
+    - ref: get_rule
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/alertRules/${{ FN.url_encode(inputs.rule_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
+        params:
+          api-version: ${{ inputs.api_version }}
+  returns: ${{ steps.get_rule.result.data }}

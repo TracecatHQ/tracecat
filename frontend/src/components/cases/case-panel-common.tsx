@@ -1,6 +1,9 @@
-import { Clock } from "lucide-react"
+"use client"
+
+import { Clock, PlayCircle } from "lucide-react"
 import type React from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import {
   HoverCard,
   HoverCardContent,
@@ -14,6 +17,8 @@ import {
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
 import { cn, shortTimeAgo } from "@/lib/utils"
+
+export const CASE_WORKFLOW_TRIGGER_EVENT = "tracecat:open-case-workflow-trigger"
 
 export function UserHoverCard({
   user,
@@ -106,8 +111,8 @@ export function CaseEventTimestamp({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger className="cursor-default">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground  hover:text-foreground">
-            {showIcon && <Clock className="size-3" />}
+          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            {showIcon && <Clock className="h-3 w-3 flex-shrink-0" />}
             {shortTimeAgo(createdAtDate)}
             {lastEditedAt && <span className="ml-1">(edited)</span>}
           </span>
@@ -120,6 +125,38 @@ export function CaseEventTimestamp({
               Edited: {lastEditedAtDate.toLocaleString()}
             </>
           )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+export function CaseWorkflowTriggerButton({
+  className,
+}: {
+  className?: string
+}) {
+  const handleClick = () => {
+    window.dispatchEvent(new Event(CASE_WORKFLOW_TRIGGER_EVENT))
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn("h-7 w-7 shrink-0 text-muted-foreground", className)}
+            onClick={handleClick}
+          >
+            <PlayCircle className="h-4 w-4" />
+            <span className="sr-only">Trigger workflow</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Trigger workflow
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

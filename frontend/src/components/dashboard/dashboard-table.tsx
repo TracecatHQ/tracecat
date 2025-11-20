@@ -6,7 +6,7 @@ import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
-import type { TagRead, WorkflowReadMinimal } from "@/client"
+import type { WorkflowReadMinimal } from "@/client"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowActions } from "@/components/dashboard/table-actions"
@@ -16,6 +16,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,14 +30,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsDashboardTable() {
+export function WorkflowsTagsDashboardTable() {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const queryTags = searchParams?.getAll("tag") || undefined
@@ -121,13 +122,13 @@ export function WorkflowsDashboardTable() {
               enableHiding: false,
             },
             {
-              id: "Last Edited",
+              id: "Last edited",
               accessorKey: "updated_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Edited"
+                  title="Last edited"
                 />
               ),
               cell: ({ getValue }) => {
@@ -188,13 +189,13 @@ export function WorkflowsDashboardTable() {
               enableSorting: true,
             },
             {
-              id: "Last Saved",
+              id: "Last saved",
               accessorKey: "latest_definition.created_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Saved"
+                  title="Last saved"
                 />
               ),
               cell: ({ getValue }) => {
@@ -323,20 +324,4 @@ const defaultToolbarProps: DataTableToolbarProps<WorkflowReadMinimal> = {
     placeholder: "Search workflows...",
     column: "title",
   },
-}
-
-export function TagBadge({ tag }: { tag: TagRead }) {
-  return (
-    <Badge
-      key={tag.id}
-      variant="secondary"
-      className="text-xs"
-      style={{
-        backgroundColor: tag.color || undefined,
-        color: tag.color ? "white" : undefined,
-      }}
-    >
-      {tag.name}
-    </Badge>
-  )
 }

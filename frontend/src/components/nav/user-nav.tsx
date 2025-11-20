@@ -25,18 +25,16 @@ import {
 import UserAvatar from "@/components/user-avatar"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { useWorkspaceManager } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 
 export default function UserNav() {
-  const { user, logout } = useAuth()
-  const { clearLastWorkspaceId } = useWorkspaceManager()
+  const { user } = useAuth()
+  const { logout } = useAuthActions()
   const params = useParams<{ workspaceId?: string }>()
   const workspaceId = params?.workspaceId
   const workspaceUrl = workspaceId ? `/workspaces/${workspaceId}` : null
 
   const handleLogout = async () => {
-    clearLastWorkspaceId()
     await logout()
   }
   const displayName = user ? user.getDisplayName() : userDefaults.name
@@ -110,7 +108,7 @@ export default function UserNav() {
               </DropdownMenuItem>
             </Link>
             <Link
-              href={`${workspaceUrl}/custom-fields`}
+              href={`${workspaceUrl}/cases/custom-fields`}
               className="my-2 w-full"
             >
               <DropdownMenuItem className="text-xs hover:cursor-pointer">

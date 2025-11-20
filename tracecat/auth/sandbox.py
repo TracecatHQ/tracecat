@@ -8,15 +8,15 @@ from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import BaseSecret
+from tracecat.db.models import BaseSecret
+from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue, SecretSearch
+from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatCredentialsError
 
 
 class AuthSandbox:
@@ -162,7 +162,7 @@ class AuthSandbox:
             missing_secrets = unique_req_secret_names - defined_req_secret_names
             logger.error("Missing secrets", missing_secrets=missing_secrets)
             raise TracecatCredentialsError(
-                f"Missing secrets: {', '.join(missing_secrets)}",
+                f"Missing workspace secrets: {', '.join(missing_secrets)}.",
                 detail=[
                     {"secret_name": name, "environment": self._environment}
                     for name in missing_secrets

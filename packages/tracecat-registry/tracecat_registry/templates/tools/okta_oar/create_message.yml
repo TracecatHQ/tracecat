@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Create message
+  description: Create a message in an Okta Access Request ticket.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/createRequestMessage
+  namespace: tools.okta_oar
+  name: create_message
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    request_id:
+      type: str
+      description: ID of the access request to add message to
+    message:
+      type: str
+      description: Message content to add to the request
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.okta_oar.base_url }}/governance/api/v1/requests/${{ inputs.request_id }}/messages
+        method: POST
+        headers:
+          Authorization: ${{ FN.concat("SSWS ", SECRETS.okta.OKTA_API_TOKEN) }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          message: ${{ inputs.message }}
+    - ref: handle_response
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.call_api.result.data }}
+          status_code: ${{ steps.call_api.result.status_code }}
+        script: |
+          def main(response, status_code):
+              # Handle empty response (successful creation)
+              if not response or (isinstance(response, dict) and not response):
+                  return {"message": "Message created successfully"}
+              return response
+  returns: ${{ steps.handle_response.result }}

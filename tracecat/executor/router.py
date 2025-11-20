@@ -4,20 +4,22 @@ import orjson
 from fastapi import APIRouter, HTTPException, status
 from pydantic_core import to_jsonable_python
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorActionErrorInfo
-from tracecat.executor.service import dispatch_action_on_cluster
-from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.db.engine import get_async_engine
+from tracecat.dsl.schemas import RunActionInput
+from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     PayloadSizeExceeded,
     TracecatSettingsError,
 )
+from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.service import dispatch_action_on_cluster
+from tracecat.logger import logger
 
 router = APIRouter()
 
@@ -89,3 +91,92 @@ async def run_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
         ) from e
+
+
+@router.get("/health/db-pool", tags=["health"])
+def get_database_pool_metrics() -> dict[str, Any]:
+    """Get SQLAlchemy QueuePool metrics for health monitoring.
+
+    Returns connection pool statistics including:
+    - pool_size: Current pool size
+    - checked_out: Number of checked out connections
+    - checked_in: Number of connections in the pool
+    - overflow: Current overflow count
+    - status: Formatted pool status string
+    """
+    try:
+        engine = get_async_engine()
+        pool = engine.pool
+
+        return {
+            "pool_size": pool.size(),  # type: ignore
+            "checked_out": pool.checkedout(),  # type: ignore
+            "checked_in": pool.checkedin(),  # type: ignore
+            "overflow": pool.overflow(),  # type: ignore
+            "status": pool.status(),
+            "healthy": True,
+        }
+    except Exception as e:
+        logger.error("Error retrieving database pool metrics", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to retrieve database pool metrics",
+                "error": str(e),
+            },
+        ) from e
+
+
+if config.TRACECAT__APP_ENV == "development":
+
+    @router.get("/health/db-pool/reset", tags=["health"], include_in_schema=False)
+    async def reset_database_pool(
+        role: Role = RoleACL(
+            allow_user=False,
+            allow_service=True,
+            require_workspace="no",
+        ),
+    ) -> dict[str, Any]:
+        """Reset/recreate the database connection pool.
+
+        This forcefully disposes of all connections and recreates the pool.
+        Use with caution as it will interrupt any active database operations.
+        """
+        try:
+            engine = get_async_engine()
+
+            # Get metrics before reset
+            pool = engine.pool
+            before_metrics = {
+                "pool_size": pool.size(),  # type: ignore
+                "checked_out": pool.checkedout(),  # type: ignore
+                "overflow": pool.overflow(),  # type: ignore
+            }
+
+            # Dispose of all connections in the pool
+            # This will close all connections and recreate the pool
+            await engine.dispose()
+            logger.info("Database pool reset", before=before_metrics)
+
+            # Get new pool metrics after reset
+            new_pool = engine.pool
+            after_metrics = {
+                "pool_size": new_pool.size(),  # type: ignore
+                "checked_out": new_pool.checkedout(),  # type: ignore
+                "overflow": new_pool.overflow(),  # type: ignore
+            }
+
+            return {
+                "status": "reset_complete",
+                "before": before_metrics,
+                "after": after_metrics,
+            }
+        except Exception as e:
+            logger.error("Error resetting database pool", exc_info=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "message": "Failed to reset database pool",
+                    "error": str(e),
+                },
+            ) from e

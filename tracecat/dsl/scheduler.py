@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -32,23 +33,25 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
-    from tracecat.dsl.models import (
+    from tracecat.dsl.schemas import (
         ROOT_STREAM,
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
         ActionStatement,
         ExecutionContext,
         GatherArgs,
         ScatterArgs,
         StreamID,
-        Task,
-        TaskExceptionInfo,
         TaskResult,
     )
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
+        Task,
+        TaskExceptionInfo,
+    )
+    from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
-    from tracecat.types.exceptions import TaskUnreachable
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +136,7 @@ class DSLScheduler:
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
 
-        self.logger.error(
+        self.logger.info(
             "Handling error path",
             task=task,
             type=exc.__class__.__name__,
@@ -152,7 +155,7 @@ class DSLScheduler:
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
-                self.logger.warning(
+                self.logger.info(
                     "Task failed with application error",
                     ref=ref,
                     exc=exc,
@@ -160,7 +163,7 @@ class DSLScheduler:
                 )
                 details = exc.details[0]
                 if not isinstance(details, dict):
-                    self.logger.warning(
+                    self.logger.info(
                         "Application error details are not a dictionary",
                         ref=ref,
                         details=details,
@@ -169,7 +172,7 @@ class DSLScheduler:
                     try:
                         message += f"\nGot: {to_json(details, fallback=str).decode()}"
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.debug(
                             "Couldn't jsonify application error details",
                             ref=ref,
                             error=e,
@@ -179,6 +182,7 @@ class DSLScheduler:
                         ref=ref,
                         message=message,
                         type=exc.__class__.__name__,
+                        stream_id=task.stream_id,
                     )
                 elif all(k in details for k in ("ref", "message", "type")):
                     # Regular action error
@@ -187,7 +191,7 @@ class DSLScheduler:
                         # This is normal action error
                         details = ActionErrorInfo(**details)
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.info(
                             "Failed to parse regular application error details",
                             ref=ref,
                             error=e,
@@ -198,7 +202,7 @@ class DSLScheduler:
                         try:
                             message += f"\n{to_json(details, fallback=str).decode()}"
                         except Exception as e:
-                            self.logger.warning(
+                            self.logger.debug(
                                 "Couldn't jsonify application error details",
                                 ref=ref,
                                 error=e,
@@ -208,6 +212,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
                 else:
                     # Child workflow error
@@ -217,7 +222,7 @@ class DSLScheduler:
                         val = list(details.values())[0]
                         details = ActionErrorInfo(**val)
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.info(
                             "Failed to parse child wf application error details",
                             ref=ref,
                             error=e,
@@ -228,7 +233,7 @@ class DSLScheduler:
                                 f"\nGot: {to_json(details, fallback=str).decode()}"
                             )
                         except Exception as e:
-                            self.logger.warning(
+                            self.logger.debug(
                                 "Couldn't jsonify child wf application error details",
                                 ref=ref,
                                 error=e,
@@ -238,9 +243,10 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
             else:
-                self.logger.warning(
+                self.logger.info(
                     "Task failed with non-application error",
                     ref=ref,
                     exc=exc,
@@ -248,7 +254,7 @@ class DSLScheduler:
                 try:
                     message = str(exc)
                 except Exception as e:
-                    self.logger.warning(
+                    self.logger.info(
                         "Failed to stringify non-application error",
                         ref=ref,
                         error=e,
@@ -258,6 +264,7 @@ class DSLScheduler:
                     ref=ref,
                     message=message,
                     type=exc.__class__.__name__,
+                    stream_id=task.stream_id,
                 )
             if task.stream_id == ROOT_STREAM:
                 self.logger.debug(
@@ -354,7 +361,8 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(ref=next_ref, stream_id=stream_id)
+                # Inherit the delay if it exists. We need this to stagger tasks for scatter.
+                next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -385,6 +393,10 @@ class DSLScheduler:
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
+        # Normalize delay immediately so downstream tasks never inherit it when we skip.
+        original_delay = task.delay
+        if original_delay > 0:
+            task = replace(task, delay=0.0)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
@@ -402,6 +414,13 @@ class DSLScheduler:
                 return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
+
+            # Respect the task delay if it exists. We need this to stagger tasks for scatter.
+            if original_delay > 0:
+                self.logger.info(
+                    "Task has delay, sleeping", task=task, delay=original_delay
+                )
+                await asyncio.sleep(original_delay)
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
@@ -593,7 +612,14 @@ class DSLScheduler:
         if run_if is not None:
             context = self.get_context(task.stream_id)
             self.logger.debug("`run_if` condition", run_if=run_if)
-            expr_result = await self.resolve_expression(run_if, context)
+            try:
+                expr_result = await self.resolve_expression(run_if, context)
+            except Exception as e:
+                raise ApplicationError(
+                    f"Error evaluating `run_if` condition: {e}",
+                    non_retryable=True,
+                ) from e
+
             if not bool(expr_result):
                 self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
@@ -677,7 +703,10 @@ class DSLScheduler:
 
         # -- EXECUTION STREAM
         self.logger.debug(
-            "Exploding collection", task=task, collection_size=len(collection)
+            "Scattering collection",
+            task=task,
+            collection_size=len(collection),
+            interval=args.interval,
         )
 
         # Create stream for each collection item
@@ -697,7 +726,9 @@ class DSLScheduler:
             }
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
+            # Calculate the task delay
+            delay = i * (args.interval or 0)
+            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
                 item=item,
@@ -915,7 +946,13 @@ class DSLScheduler:
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
         current_context = self.get_context(stream_id)
-        items = await self.resolve_expression(args.items, current_context)
+        try:
+            items = await self.resolve_expression(args.items, current_context)
+        except Exception as e:
+            raise ApplicationError(
+                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
+                non_retryable=True,
+            ) from e
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0
@@ -998,21 +1035,49 @@ class DSLScheduler:
 
         # Error handling strategy
         results = []
-        errors = []
+        errors: list[ActionErrorInfo] = []
         # Consume generator here
         match err_strategy := gather_args.error_strategy:
             # Default behavior
             case StreamErrorHandlingStrategy.PARTITION:
                 # Filter out and place in task result error
-                for item in filtered_items:
-                    if _is_error_info(item):
-                        errors.append(item)
-                    else:
-                        results.append(item)
+                results, errors = _partition_errors(filtered_items)
             case StreamErrorHandlingStrategy.DROP:
                 results = [item for item in filtered_items if not _is_error_info(item)]
             case StreamErrorHandlingStrategy.INCLUDE:
                 results = list(filtered_items)
+            case StreamErrorHandlingStrategy.RAISE:
+                # 'raise' partitions first so we can raise an error if there are errors in the stream
+                # Only raise an error if there are errors in the stream
+                results, errors = _partition_errors(filtered_items)
+                if errors:
+                    message = (
+                        f"Gather '{gather_ref}' encountered {len(errors)} error(s)"
+                    )
+                    gather_error = ActionErrorInfo(
+                        ref=gather_ref,
+                        message=message,
+                        type=ApplicationError.__name__,
+                        children=errors,
+                        stream_id=parent_stream_id,
+                    )
+                    app_error = ApplicationError(
+                        message,
+                        {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                        non_retryable=True,
+                    )
+                    self.logger.warning(
+                        "Raising gather error", errors=errors, app_error=app_error
+                    )
+
+                    # Register the gather failure so the scheduler halts and the workflow error
+                    # handler can run, even though the exception originates from a non-root stream.
+                    self.task_exceptions[gather_ref] = TaskExceptionInfo(
+                        exception=app_error,
+                        details=gather_error,
+                    )
+                    raise app_error
+
             case _:
                 raise ApplicationError(
                     f"Invalid error handling strategy: {err_strategy}"
@@ -1030,7 +1095,6 @@ class DSLScheduler:
         task_result.update(result=results)
         if errors:
             task_result.update(error=errors, error_typename=type(errors).__name__)
-
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
             task=task,
@@ -1115,12 +1179,31 @@ class DSLScheduler:
         self.logger.trace(
             "Resolving expression", expression=expression, context=context
         )
-        return await workflow.execute_activity(
-            DSLActivities.evaluate_single_expression_activity,
-            args=(expression, context),
-            start_to_close_timeout=timedelta(seconds=10),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+        try:
+            return await workflow.execute_activity(
+                DSLActivities.evaluate_single_expression_activity,
+                args=(expression, context),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            # Capture the ApplicationError from the activity so we can fail the wf
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
+                case _:
+                    raise
+
+
+def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results = []
+    errors = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
 
 
 def _is_error_info(detail: Any) -> bool:
@@ -1133,3 +1216,10 @@ def _is_error_info(detail: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None

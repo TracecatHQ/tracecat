@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: List groups in organization
+  description: List all groups in your Okta organization with optional filtering.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/listGroups
+  namespace: tools.okta
+  name: list_groups_in_org
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    limit:
+      type: int
+      description: Number of groups to return (default 200)
+      default: 200
+    search:
+      type: str | None
+      description: Search expression for filtering groups
+      default: null
+    after:
+      type: str | None
+      description: Pagination cursor to start from
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          search: ${{ inputs.search }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(limit, search, after):
+              params = {"limit": limit}
+              if search is not None:
+                  params["search"] = search
+              if after is not None:
+                  params["after"] = after
+              return params
+    - ref: list_groups
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/groups
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_groups.result.data }}

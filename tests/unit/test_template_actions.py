@@ -12,15 +12,16 @@ from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ActionStatement,
     RunActionInput,
     RunContext,
 )
+from tracecat.exceptions import RegistryValidationError, TracecatValidationError
 from tracecat.executor import service
 from tracecat.executor.service import run_action_from_input
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     BoundRegistryAction,
     RegistryActionCreate,
@@ -29,9 +30,10 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import RegistryValidationError, TracecatValidationError
+from tracecat.variables.schemas import VariableCreate
+from tracecat.variables.service import VariablesService
 
 
 @pytest.fixture
@@ -652,3 +654,318 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
             context={},
         )
         assert result == expected
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_template_action_with_vars_expressions(
+    test_role,
+    db_session_with_repo,
+):
+    """Test template action with VARS expressions.
+
+    The test verifies:
+    1. Template action can reference workspace variables using VARS expressions
+    2. VARS expressions support nested path access (e.g., VARS.config.base_url)
+    3. VARS expressions work with fallback logic (e.g., inputs.value || VARS.default)
+    4. VARS expressions are properly evaluated during template action execution
+    """
+    session, db_repo_id = db_session_with_repo
+
+    # Create workspace variables
+    var_service = VariablesService(session, role=test_role)
+    await var_service.create_variable(
+        VariableCreate(
+            name="test",
+            description="Test configuration",
+            values={"url": "https://api.example.com", "timeout": 30},
+            environment="default",
+        )
+    )
+    await var_service.create_variable(
+        VariableCreate(
+            name="api_config",
+            description="API configuration",
+            values={"base_url": "https://example.com", "version": "v1"},
+            environment="default",
+        )
+    )
+
+    # Create a template action that uses VARS expressions
+    template_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test VARS Expression",
+            description="Test action that uses VARS expressions",
+            name="test_vars",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "url": ExpectedField(
+                    type="str | None",
+                    description="The URL to test",
+                    default=None,
+                ),
+                "custom_timeout": ExpectedField(
+                    type="int | None",
+                    description="Custom timeout",
+                    default=None,
+                ),
+            },
+            steps=[
+                # Test VARS with fallback using || operator
+                ActionStep(
+                    ref="url_with_fallback",
+                    action="core.transform.reshape",
+                    args={
+                        "value": "${{ inputs.url || VARS.test.url }}",
+                    },
+                ),
+                # Test direct VARS access
+                ActionStep(
+                    ref="base_url",
+                    action="core.transform.reshape",
+                    args={
+                        "value": "${{ VARS.api_config.base_url }}",
+                    },
+                ),
+                # Test VARS in complex expression
+                ActionStep(
+                    ref="full_url",
+                    action="core.transform.reshape",
+                    args={
+                        "value": "${{ VARS.api_config.base_url + '/api/' + VARS.api_config.version }}",
+                    },
+                ),
+                # Test VARS with timeout fallback
+                ActionStep(
+                    ref="timeout",
+                    action="core.transform.reshape",
+                    args={
+                        "value": "${{ inputs.custom_timeout || VARS.test.timeout }}",
+                    },
+                ),
+            ],
+            returns={
+                "url": "${{ steps.url_with_fallback.result }}",
+                "base_url": "${{ steps.base_url.result }}",
+                "full_url": "${{ steps.full_url.result }}",
+                "timeout": "${{ steps.timeout.result }}",
+            },
+        ),
+    )
+
+    # Register the action
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(template_action)
+
+    # Register the action in the database
+    ra_service = RegistryActionsService(session, role=test_role)
+    bound_action = repo.get(template_action.definition.action)
+    action_create_params = RegistryActionCreate.from_bound(bound_action, db_repo_id)
+    await ra_service.create_action(action_create_params)
+
+    # Test case 1: Without inputs, should use VARS defaults
+    input1 = RunActionInput(
+        task=ActionStatement(
+            ref="test_vars_no_inputs",
+            action="testing.test_vars",
+            args={},
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_vars_no_inputs"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result1 = await run_action_from_input(input=input1, role=test_role)
+    assert result1 == {
+        "url": "https://api.example.com",  # From VARS.test.url
+        "base_url": "https://example.com",  # From VARS.api_config.base_url
+        "full_url": "https://example.com/api/v1",  # Concatenated VARS
+        "timeout": 30,  # From VARS.test.timeout
+    }
+
+    # Test case 2: With inputs, should override VARS defaults
+    input2 = RunActionInput(
+        task=ActionStatement(
+            ref="test_vars_with_inputs",
+            action="testing.test_vars",
+            args={"url": "https://custom.example.com", "custom_timeout": 60},
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_vars_with_inputs"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result2 = await run_action_from_input(input=input2, role=test_role)
+    assert result2 == {
+        "url": "https://custom.example.com",  # From inputs.url (overrides VARS)
+        "base_url": "https://example.com",  # From VARS.api_config.base_url
+        "full_url": "https://example.com/api/v1",  # Concatenated VARS
+        "timeout": 60,  # From inputs.custom_timeout (overrides VARS)
+    }
+
+    # Test case 3: Partial inputs, should use VARS for missing inputs
+    input3 = RunActionInput(
+        task=ActionStatement(
+            ref="test_vars_partial_inputs",
+            action="testing.test_vars",
+            args={"url": "https://another.example.com"},
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_vars_partial"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result3 = await run_action_from_input(input=input3, role=test_role)
+    assert result3 == {
+        "url": "https://another.example.com",  # From inputs.url (overrides VARS)
+        "base_url": "https://example.com",  # From VARS.api_config.base_url
+        "full_url": "https://example.com/api/v1",  # Concatenated VARS
+        "timeout": 30,  # From VARS.test.timeout (inputs.custom_timeout not provided)
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_template_action_with_multi_level_fallback_chain(
+    test_role,
+    db_session_with_repo,
+):
+    """Test template action with multi-level fallback chain using || operator.
+
+    The test verifies that the fallback chain correctly evaluates in order:
+    ${{ inputs.url || VARS.config.url || "http://default-url.com" }}
+
+    Test cases:
+    1. inputs.url provided -> uses inputs.url
+    2. inputs.url not provided, VARS.config.url available -> uses VARS.config.url
+    3. Neither inputs.url nor VARS.config.url available -> uses literal default
+    """
+    session, db_repo_id = db_session_with_repo
+
+    # Create workspace variable for fallback
+    var_service = VariablesService(session, role=test_role)
+    await var_service.create_variable(
+        VariableCreate(
+            name="config",
+            description="Configuration with URL",
+            values={"url": "http://vars-url.com"},
+            environment="default",
+        )
+    )
+
+    # Create a template action with multi-level fallback
+    template_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Multi-level Fallback",
+            description="Test action with multi-level fallback chain",
+            name="test_fallback_chain",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "url": ExpectedField(
+                    type="str | None",
+                    description="The URL to use",
+                    default=None,
+                ),
+            },
+            steps=[
+                ActionStep(
+                    ref="url_with_fallback_chain",
+                    action="core.transform.reshape",
+                    args={
+                        "value": '${{ inputs.url || VARS.config.url || "http://default-url.com" }}',
+                    },
+                ),
+            ],
+            returns="${{ steps.url_with_fallback_chain.result }}",
+        ),
+    )
+
+    # Register the action
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(template_action)
+
+    # Register the action in the database
+    ra_service = RegistryActionsService(session, role=test_role)
+    bound_action = repo.get(template_action.definition.action)
+    action_create_params = RegistryActionCreate.from_bound(bound_action, db_repo_id)
+    await ra_service.create_action(action_create_params)
+
+    # Test case 1: inputs.url provided -> should use inputs.url (first in chain)
+    input1 = RunActionInput(
+        task=ActionStatement(
+            ref="test_fallback_1",
+            action="testing.test_fallback_chain",
+            args={"url": "http://input-url.com"},
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_fallback_chain_input"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result1 = await run_action_from_input(input=input1, role=test_role)
+    assert result1 == "http://input-url.com", (
+        "Should use inputs.url when provided (first in fallback chain)"
+    )
+
+    # Test case 2: inputs.url not provided, VARS.config.url available -> should use VARS.config.url (second in chain)
+    input2 = RunActionInput(
+        task=ActionStatement(
+            ref="test_fallback_2",
+            action="testing.test_fallback_chain",
+            args={},  # No input provided
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_fallback_chain_vars"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result2 = await run_action_from_input(input=input2, role=test_role)
+    assert result2 == "http://vars-url.com", (
+        "Should use VARS.config.url when inputs.url not provided (second in fallback chain)"
+    )
+
+    # Test case 3: Neither inputs.url nor VARS.config.url available -> should use literal default (third in chain)
+    # Delete the variable to test the final fallback
+    variables = await var_service.list_variables(environment="default")
+    config_var = next(var for var in variables if var.name == "config")
+    await var_service.delete_variable(config_var)
+
+    input3 = RunActionInput(
+        task=ActionStatement(
+            ref="test_fallback_3",
+            action="testing.test_fallback_chain",
+            args={},  # No input provided
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_fallback_chain_default"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+        ),
+    )
+    result3 = await run_action_from_input(input=input3, role=test_role)
+    assert result3 == "http://default-url.com", (
+        "Should use literal default when neither inputs.url nor VARS.config.url available (third in fallback chain)"
+    )

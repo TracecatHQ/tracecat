@@ -9,7 +9,7 @@ Create Date: 2025-01-09 00:02:47.484038
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -25,7 +25,7 @@ def upgrade() -> None:
     op.create_table(
         "organization_settings",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -38,10 +38,10 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("key", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("key", sa.String(), nullable=False),
         sa.Column("value", sa.LargeBinary(), nullable=False),
-        sa.Column("value_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("value_type", sa.String(), nullable=False),
         sa.Column("is_encrypted", sa.Boolean(), nullable=False),
         sa.PrimaryKeyConstraint("surrogate_id"),
     )

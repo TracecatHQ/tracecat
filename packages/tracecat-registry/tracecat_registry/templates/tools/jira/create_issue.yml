@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Create issue
+  description: Create a new issue in Jira.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post
+  namespace: tools.jira
+  name: create_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    summary:
+      type: str
+      description: Brief one-line summary of the incident.
+    description:
+      type: str
+      description: Detailed description of the incident.
+    priority_id:
+      type: str
+      description: Priority ID. Must be one of the priorities in the priority scheme.
+    tags:
+      type: list[str]
+      description: Tags to categorize the incident. Added as Jira labels.
+      default: []
+    fields:
+      type: list[dict[str, Any]]
+      description: >-
+        List of fields to add to the issue.
+        Each field is an object with the following keys:
+        - `key`: The Jira custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "customfield_10000", "value": "New value"},
+          {"key": "customfield_10001", "value": "Another value"}
+        ]
+        ```
+      default: []
+    project_id:
+      type: str
+      description: Jira project ID.
+    issue_type_id:
+      type: str
+      description: Jira issue type ID.
+    base_url:
+      type: str | None
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+      default: null
+  steps:
+    # Format the required fields
+    - ref: required_fields
+      action: core.transform.reshape
+      args:
+        value:
+          summary: ${{ inputs.summary }}
+          # See: https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
+          description:
+            version: 1
+            type: doc
+            content:
+              - type: paragraph
+                content:
+                  - type: text
+                    text: ${{ inputs.description }}
+          labels: ${{ inputs.tags }}
+          priority:
+            id: ${{ inputs.priority_id }}
+          project:
+            id: ${{ inputs.project_id }}
+          issuetype:
+            id: ${{ inputs.issue_type_id }}
+    # Fields
+    - ref: fields
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.fields)]) }}
+    # Create the issue
+    - ref: create_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue
+        method: POST
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          fields: ${{ steps.fields.result }}
+  returns: ${{ steps.create_issue.result.data }}

@@ -5,6 +5,21 @@ class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
     TRANSFORM_SCATTER = "core.transform.scatter"
     TRANSFORM_GATHER = "core.transform.gather"
+    AI_AGENT = "ai.agent"
+    AI_PRESET_AGENT = "ai.preset_agent"
+    AI_APPROVALS_AGENT = "ai.approvals_agent"
+    AI_PRESET_APPROVALS_AGENT = "ai.preset_approvals_agent"
+    AI_ACTION = "ai.action"
+
+    @classmethod
+    def is_streamable(cls, action: str) -> bool:
+        return action in (
+            cls.AI_AGENT,
+            cls.AI_PRESET_AGENT,
+            cls.AI_APPROVALS_AGENT,
+            cls.AI_PRESET_APPROVALS_AGENT,
+            cls.AI_ACTION,
+        )
 
 
 class FailStrategy(StrEnum):
@@ -62,6 +77,8 @@ class StreamErrorHandlingStrategy(StrEnum):
     PARTITION = "partition"
     """Partition the error into a list of errors."""
     INCLUDE = "include"
-    """Include the error in the result. This is the default behavior."""
+    """Include the error in the result."""
     DROP = "drop"
     """Drop the error."""
+    RAISE = "raise"
+    """Raise an error if any gathered item failed."""

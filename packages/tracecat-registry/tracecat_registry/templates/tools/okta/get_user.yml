@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get user
+  description: Retrieve a specific user by ID, login, or email from your Okta organization.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/getUser
+  namespace: tools.okta
+  name: get_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    user_id:
+      type: str
+      description: User ID, login, or email of the user to retrieve
+  steps:
+    - ref: get_user
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users/${{ FN.url_encode(inputs.user_id) }}
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+  returns: ${{ steps.get_user.result.data }}

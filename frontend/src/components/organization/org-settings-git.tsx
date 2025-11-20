@@ -17,9 +17,10 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { validateGitSshUrl } from "@/lib/git"
 import { useOrgGitSettings } from "@/lib/hooks"
 
-const gitFormSchema = z.object({
+export const gitFormSchema = z.object({
   git_allowed_domains: z.array(
     z.object({
       id: z.string(),
@@ -29,11 +30,14 @@ const gitFormSchema = z.object({
   git_repo_url: z
     .string()
     .nullish()
-    .refine(
-      (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
-      "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
-    ),
-  git_repo_package_name: z.string().nullish(),
+    // Empty string signals removal
+    .transform((url) => url?.trim() || null)
+    .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
+  git_repo_package_name: z
+    .string()
+    .nullish()
+    // Empty string signals removal
+    .transform((name) => name?.trim() || null),
 })
 
 type GitFormValues = z.infer<typeof gitFormSchema>
@@ -56,9 +60,12 @@ export function OrgSettingsGitForm() {
           text: domain,
         })
       ) ?? [{ id: "0", text: "github.com" }],
-      git_repo_url: gitSettings?.git_repo_url,
-      git_repo_package_name: gitSettings?.git_repo_package_name,
+      git_repo_url: gitSettings?.git_repo_url ?? "",
+      git_repo_package_name: gitSettings?.git_repo_package_name ?? "",
     },
+    mode: "onChange",
+    // when a field already has an error, re-validate it on change too
+    reValidateMode: "onChange",
   })
   const onSubmit = async (data: GitFormValues) => {
     try {
@@ -99,15 +106,23 @@ export function OrgSettingsGitForm() {
               <FormLabel>Remote repository URL</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="git+ssh://git@my-host/my-org/my-repo.git"
+                  placeholder="git+ssh://git@gitlab.example.com:2222/org/team/repo.git"
                   {...field}
                   value={field.value ?? ""}
                 />
               </FormControl>
-              <FormDescription>
-                Git URL of the remote repository. Must use{" "}
-                <span className="font-mono tracking-tighter">git+ssh</span>{" "}
-                scheme.
+              <FormDescription className="flex flex-col gap-2">
+                <span>
+                  The pip git URL of the remote repository, which uses the{" "}
+                  <span className="font-mono tracking-tighter">git+ssh</span>{" "}
+                  scheme. Supports nested groups and custom ports.
+                </span>
+                <span>
+                  Format:{" "}
+                  <span className="font-mono tracking-tight">
+                    {"git+ssh://git@<hostname>[:<port>]/<org>/<repo>.git"}
+                  </span>
+                </span>
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -151,7 +166,7 @@ export function OrgSettingsGitForm() {
               </FormControl>
               <FormDescription>
                 Add domains that are allowed for Git operations (e.g.,
-                github.com)
+                github.com, gitlab.com, or gitlab.example.com:2222 with port)
               </FormDescription>
               <FormMessage />
             </FormItem>

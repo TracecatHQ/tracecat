@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pydantic_core import to_json
 
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     RegistryActionMetadata,
     TemplateAction,
 )

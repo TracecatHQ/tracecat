@@ -4,27 +4,36 @@ import os
 from collections.abc import Sequence
 
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import BaseSecret, OrganizationSecret, Secret
+from tracecat.auth.types import Role
+from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatCredentialsError,
+    TracecatCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
-from tracecat.registry.constants import GIT_SSH_KEY_SECRET_NAME
+from tracecat.registry.constants import (
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+    STORE_GIT_SSH_KEY_SECRET_NAME,
+)
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import (
+from tracecat.secrets.schemas import (
     SecretCreate,
     SecretKeyValue,
     SecretSearch,
     SecretUpdate,
+    SSHKeyTarget,
 )
 from tracecat.service import BaseService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 
 
 class SecretsService(BaseService):
@@ -96,9 +105,9 @@ class SecretsService(BaseService):
 
         statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
         if types:
-            statement = statement.where(col(Secret.type).in_(types))
-        result = await self.session.exec(statement)
-        return result.all()
+            statement = statement.where(Secret.type.in_(types))
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
@@ -107,9 +116,9 @@ class SecretsService(BaseService):
             Secret.owner_id == self.role.workspace_id,
             Secret.id == secret_id,
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             logger.error(
                 "Multiple secrets found",
@@ -153,9 +162,9 @@ class SecretsService(BaseService):
         )
         if environment:
             statement = statement.where(Secret.environment == environment)
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             raise TracecatNotFoundError(
                 "Multiple secrets found when searching by name."
@@ -211,14 +220,14 @@ class SecretsService(BaseService):
         self.logger.info("Searching secrets", set_fields=fields)
 
         if ids := fields.get("ids"):
-            stmt = stmt.where(col(Secret.id).in_(ids))
+            stmt = stmt.where(Secret.id.in_(ids))
         if names := fields.get("names"):
-            stmt = stmt.where(col(Secret.name).in_(names))
+            stmt = stmt.where(Secret.name.in_(names))
         if "environment" in fields:
             stmt = stmt.where(Secret.environment == fields["environment"])
 
-        result = await self.session.exec(stmt)
-        return result.all()
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     # === Organization secrets ===
 
@@ -231,9 +240,9 @@ class SecretsService(BaseService):
             OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID
         )
         if types:
-            stmt = stmt.where(col(OrganizationSecret.type).in_(types))
-        result = await self.session.exec(stmt)
-        return result.all()
+            stmt = stmt.where(OrganizationSecret.type.in_(types))
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
 
     async def get_org_secret(self, secret_id: SecretID) -> OrganizationSecret:
         """Get an organization secret by ID."""
@@ -242,8 +251,8 @@ class SecretsService(BaseService):
             OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             OrganizationSecret.id == secret_id,
         )
-        result = await self.session.exec(statement)
-        return result.one()
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     async def get_org_secret_by_name(
         self,
@@ -257,9 +266,9 @@ class SecretsService(BaseService):
             OrganizationSecret.name == secret_name,
             OrganizationSecret.environment == environment,
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as e:
             raise TracecatNotFoundError(
                 "Multiple organization secrets found when searching by name."
@@ -295,10 +304,23 @@ class SecretsService(BaseService):
 
     async def get_ssh_key(
         self,
-        key_name: str = GIT_SSH_KEY_SECRET_NAME,
+        key_name: str | None = None,
         environment: str | None = None,
+        target: SSHKeyTarget = "registry",
+    ) -> SecretStr:
+        match target:
+            case "registry":
+                return await self.get_registry_ssh_key(key_name, environment)
+            case "store":
+                return await self.get_store_ssh_key(key_name, environment)
+            case _:
+                raise ValueError(f"Invalid target: {target}")
+
+    async def get_registry_ssh_key(
+        self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:
         try:
+            key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
             secret = await self.get_org_secret_by_name(key_name, environment)
             kv = self.decrypt_keys(secret.encrypted_keys)[0]
             logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
@@ -310,7 +332,33 @@ class SecretsService(BaseService):
                 raw_value += "\n"
             return SecretStr(raw_value)
         except TracecatNotFoundError as e:
-            raise TracecatNotFoundError(
+            raise TracecatCredentialsNotFoundError(
                 f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
                 " If not, please create a key in your organization's credentials page and try again."
+            ) from e
+
+    async def get_store_ssh_key(
+        self, key_name: str | None = None, environment: str | None = None
+    ) -> SecretStr:
+        """Get the SSH key for the store."""
+        key_name = key_name or STORE_GIT_SSH_KEY_SECRET_NAME
+        try:
+            secret = await self.get_secret_by_name(key_name, environment)
+            if secret.type != SecretType.SSH_KEY:
+                raise TracecatCredentialsError(
+                    f"SSH key type mismatch. Expected SSH key, got {secret.type}."
+                )
+            [kv] = self.decrypt_keys(secret.encrypted_keys)
+            logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
+            raw_value = kv.value.get_secret_value()
+            # SSH keys must end with a newline char otherwise we run into
+            # load key errors in librcrypto.
+            # https://github.com/openssl/openssl/discussions/21481
+            if not raw_value.endswith("\n"):
+                raw_value += "\n"
+            return SecretStr(raw_value)
+        except TracecatNotFoundError as e:
+            raise TracecatCredentialsNotFoundError(
+                f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
+                " If not, please create a key in your workspace's credentials page and try again.",
             ) from e

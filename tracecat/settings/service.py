@@ -6,19 +6,21 @@ import orjson
 from async_lru import alru_cache
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
-from tracecat.contexts import ctx_role
-from tracecat.db.schemas import OrganizationSetting
+from tracecat.contexts import ctx_role, ctx_session
+from tracecat.db.models import OrganizationSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
 from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.models import (
+from tracecat.settings.schemas import (
+    AgentSettingsUpdate,
     AppSettingsUpdate,
     AuthSettingsUpdate,
     BaseSettingsGroup,
@@ -28,7 +30,6 @@ from tracecat.settings.models import (
     SettingCreate,
     SettingUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
 
 
 class SettingsService(BaseService):
@@ -36,6 +37,7 @@ class SettingsService(BaseService):
 
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
+        AgentSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
         AuthSettingsUpdate,
@@ -111,7 +113,7 @@ class SettingsService(BaseService):
         statement = select(OrganizationSetting)
 
         if keys is not None:
-            statement = statement.where(col(OrganizationSetting.key).in_(keys))
+            statement = statement.where(OrganizationSetting.key.in_(keys))
         if value_type is not None:
             statement = statement.where(OrganizationSetting.value_type == value_type)
         if is_encrypted is not None:
@@ -124,8 +126,8 @@ class SettingsService(BaseService):
         if limit is not None:
             statement = statement.limit(limit)
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_org_setting(self, key: str) -> OrganizationSetting | None:
         """Get the current organization settings.
@@ -135,12 +137,12 @@ class SettingsService(BaseService):
         """
         if self.role is None and key not in PUBLIC_SETTINGS_KEYS:
             # Block access to private settings
-            self.logger.warning("Blocked attempted access to private setting", key=key)
+            self.logger.debug("Blocked attempted access to private setting", key=key)
             return None
 
         statement = select(OrganizationSetting).where(OrganizationSetting.key == key)
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
@@ -265,6 +267,11 @@ class SettingsService(BaseService):
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
 
+    @require_access_level(AccessLevel.ADMIN)
+    async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
+        agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
+        await self._update_grouped_settings(agent_settings, params)
+
 
 async def get_setting(
     key: str,
@@ -303,7 +310,7 @@ async def get_setting(
             no_default_val = service.get_value(setting) if setting else None
 
     if no_default_val is None and default is not UNSET:
-        logger.warning("Setting not found, using default value", key=key)
+        logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
 
@@ -328,7 +335,8 @@ async def get_setting_cached(
         The setting value or None if not found
     """
     logger.debug("Cache miss", key=key)
-    return await get_setting(key, role=role, session=session, default=default)
+    sess = session or ctx_session.get(None)
+    return await get_setting(key, role=role, session=sess, default=default)
 
 
 def get_setting_override(key: str) -> Any | None:

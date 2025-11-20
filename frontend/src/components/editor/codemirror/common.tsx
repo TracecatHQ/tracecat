@@ -41,6 +41,7 @@ import {
 import {
   AtSignIcon,
   BracesIcon,
+  DatabaseIcon,
   DollarSignIcon,
   FunctionSquareIcon,
   KeyIcon,
@@ -54,6 +55,8 @@ import {
   editorValidateExpression,
   type SecretReadMinimal,
   secretsListSecrets,
+  type VariableReadMinimal,
+  variablesListVariables,
 } from "@/client"
 
 import { createTemplateRegex } from "@/lib/expressions"
@@ -107,6 +110,7 @@ export const CONTEXT_ICONS = {
   FN: () => <FunctionSquareIcon {...commonIconStyle} />,
   ENV: () => <DollarSignIcon {...commonIconStyle} />,
   SECRETS: () => <KeyIcon {...commonIconStyle} />,
+  VARS: () => <DatabaseIcon {...commonIconStyle} />,
   var: () => <BracesIcon {...commonIconStyle} />,
 } as const
 
@@ -152,10 +156,11 @@ export interface TemplateExpressionValidation {
   }>
 }
 
-// Caches for functions, actions, and secrets
+// Caches for functions, actions, secrets, and variables
 export const functionCache = new Map<string, EditorFunctionRead[]>()
 export const actionCache = new Map<string, ActionRead[]>()
 export const secretsCache = new Map<string, SecretReadMinimal[]>()
+export const variablesCache = new Map<string, VariableReadMinimal[]>()
 
 export async function fetchFunctions(
   workspaceId: string
@@ -542,6 +547,7 @@ export class InnerContentWidget extends WidgetType {
         FN: "#8b5cf6",
         ENV: "#10b981",
         SECRETS: "#f59e0b",
+        VARS: "#06b6d4",
         var: "#ef4444",
       }
 
@@ -839,10 +845,10 @@ export async function createNodeTooltipForPosition(
 
       // Prefer tokens that start with context keywords (ACTIONS, FN, etc.)
       const currentIsContextToken = current.value.match(
-        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+        /^(ACTIONS|FN|SECRETS|VARS|ENV|TRIGGER|var)\b/
       )
       const longestIsContextToken = longest.value.match(
-        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+        /^(ACTIONS|FN|SECRETS|VARS|ENV|TRIGGER|var)\b/
       )
 
       if (currentIsContextToken && !longestIsContextToken) {
@@ -907,6 +913,8 @@ async function createNodeTooltipContent(
     await addFunctionTooltipInfo(container, tokenValue, workspaceId)
   } else if (fullExpression.startsWith("SECRETS.")) {
     addSecretTooltipInfo(container, tokenValue)
+  } else if (fullExpression.startsWith("VARS.")) {
+    addVarsTooltipInfo(container, tokenValue)
   } else if (fullExpression.startsWith("ENV.")) {
     addEnvTooltipInfo(container, tokenValue)
   } else if (fullExpression.startsWith("TRIGGER")) {
@@ -915,6 +923,7 @@ async function createNodeTooltipContent(
     token.type === "ACTIONS" ||
     token.type === "FN" ||
     token.type === "SECRETS" ||
+    token.type === "VARS" ||
     token.type === "ENV" ||
     token.type === "TRIGGER"
   ) {
@@ -925,6 +934,8 @@ async function createNodeTooltipContent(
       await addFunctionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "SECRETS") {
       addSecretTooltipInfo(container, tokenValue)
+    } else if (token.type === "VARS") {
+      addVarsTooltipInfo(container, tokenValue)
     } else if (token.type === "ENV") {
       addEnvTooltipInfo(container, tokenValue)
     } else if (token.type === "TRIGGER") {
@@ -1052,6 +1063,37 @@ function addSecretTooltipInfo(container: HTMLElement, value: string) {
   container.appendChild(info)
 }
 
+function addVarsTooltipInfo(container: HTMLElement, value: string) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-vars-info"
+
+  const match = value.match(/VARS\.(\w+)(?:\.(.+))?/)
+  if (match) {
+    const [, varName, key] = match
+    info.innerHTML = `
+      <div class="vars-name">Variable: <strong>${varName}</strong></div>
+      ${key ? `<div class="vars-key">Key: <strong>${key}</strong></div>` : ""}
+      <div class="vars-desc">References workspace variable</div>
+    `
+  } else {
+    // Fallback for partial matches or just "VARS"
+    const cleanValue = value.replace(/^VARS\.?/, "")
+    if (cleanValue) {
+      info.innerHTML = `
+        <div class="vars-name">Variable reference: <strong>${cleanValue}</strong></div>
+        <div class="vars-desc">References workspace variable</div>
+      `
+    } else {
+      info.innerHTML = `
+        <div class="vars-name">Variables namespace</div>
+        <div class="vars-desc">Used to reference workspace variables</div>
+      `
+    }
+  }
+
+  container.appendChild(info)
+}
+
 function addEnvTooltipInfo(container: HTMLElement, value: string) {
   const info = document.createElement("div")
   info.className = "cm-tooltip-env-info"
@@ -1121,6 +1163,11 @@ export const TEMPLATE_SUGGESTIONS = [
     label: "SECRETS",
     detail: "Workspace secrets",
     info: "Access configured secrets and credentials",
+  },
+  {
+    label: "VARS",
+    detail: "Workspace variables",
+    info: "Access configured workspace variables",
   },
   {
     label: "ENV",
@@ -1249,6 +1296,7 @@ export function createMentionCompletion(): (
             suggestion.label === "ACTIONS" ||
             suggestion.label === "FN" ||
             suggestion.label === "SECRETS" ||
+            suggestion.label === "VARS" ||
             suggestion.label === "ENV" ||
             suggestion.label === "var"
           const labelWithDot = needsDot
@@ -1432,6 +1480,25 @@ export async function fetchSecrets(
   }
 }
 
+export async function fetchVariables(
+  workspaceId: string
+): Promise<VariableReadMinimal[]> {
+  if (variablesCache.has(workspaceId)) {
+    return variablesCache.get(workspaceId)!
+  }
+
+  try {
+    const variables = await variablesListVariables({
+      workspaceId,
+    })
+    variablesCache.set(workspaceId, variables)
+    return variables
+  } catch (error) {
+    console.warn("Failed to fetch variables:", error)
+    return []
+  }
+}
+
 export function createSecretsCompletion(workspaceId: string) {
   return async (
     context: CompletionContext
@@ -1537,6 +1604,120 @@ export function createSecretsCompletion(workspaceId: string) {
       }
     } catch (error) {
       console.warn("Failed to get secrets completions:", error)
+      return null
+    }
+  }
+}
+
+export function createVarsCompletion(workspaceId: string) {
+  return async (
+    context: CompletionContext
+  ): Promise<CompletionResult | null> => {
+    // Try to match variable key pattern first (VARS.variable_name.key)
+    const varKeyWord = context.matchBefore(/VARS\.\w+\.\w*/)
+    if (varKeyWord) {
+      try {
+        const variables = await fetchVariables(workspaceId)
+        const text = context.state.doc.sliceString(
+          varKeyWord.from,
+          varKeyWord.to
+        )
+
+        // Extract variable name and partial key from the text
+        const match = text.match(/^VARS\.(\w+)\.(\w*)$/)
+        if (!match) return null
+
+        const [, variableName, partialKey] = match
+
+        // Find the specific variable
+        const variable = variables.find((v) => v.name === variableName)
+        if (!variable || !variable.values) return null
+
+        const keys = Object.keys(variable.values)
+
+        // Filter keys based on partial input
+        const filteredKeys = keys.filter((key) =>
+          key.toLowerCase().startsWith(partialKey.toLowerCase())
+        )
+
+        if (filteredKeys.length === 0) return null
+
+        // Calculate the position to insert from (after the last dot)
+        const lastDotIndex = text.lastIndexOf(".")
+        const keyStartPosition = varKeyWord.from + lastDotIndex + 1
+
+        return {
+          from: keyStartPosition,
+          options: filteredKeys.map((key) => ({
+            label: key,
+            detail: "variable key",
+            info: `Variable key: ${variableName}.${key}`,
+            apply: (
+              view: EditorView,
+              completion: Completion,
+              from: number,
+              to: number
+            ) => {
+              view.dispatch({
+                changes: { from, to, insert: key },
+                selection: { anchor: from + key.length },
+              })
+            },
+          })),
+        }
+      } catch (error) {
+        console.warn("Failed to get variable key completions:", error)
+        return null
+      }
+    }
+
+    // Fall back to variable name completion (VARS.variable_name)
+    const varWord = context.matchBefore(/VARS\.\w*/)
+    if (!varWord) return null
+
+    try {
+      const variables = await fetchVariables(workspaceId)
+      const text = context.state.doc.sliceString(varWord.from, varWord.to)
+      const partialVar = text.replace(/^VARS\./, "")
+
+      const filteredVars = variables.filter((variable) =>
+        variable.name.toLowerCase().startsWith(partialVar.toLowerCase())
+      )
+
+      return {
+        from: varWord.from + 5,
+        options: filteredVars.map((variable) => {
+          const hasKeys =
+            variable.values && Object.keys(variable.values).length > 0
+          const keys = hasKeys ? Object.keys(variable.values) : []
+          return {
+            label: variable.name,
+            detail: "variable",
+            info: `Variable: ${variable.name}${variable.description ? ` - ${variable.description}` : ""}\nKeys: ${keys.join(", ") || "none"}`,
+            apply: (
+              view: EditorView,
+              completion: Completion,
+              from: number,
+              to: number
+            ) => {
+              // Add dot for variables that have keys to trigger key completion
+              const insertText = hasKeys ? `${variable.name}.` : variable.name
+
+              view.dispatch({
+                changes: { from, to, insert: insertText },
+                selection: { anchor: from + insertText.length },
+              })
+
+              // Trigger key completion for variables with keys
+              if (hasKeys) {
+                startCompletion(view)
+              }
+            },
+          }
+        }),
+      }
+    } catch (error) {
+      console.warn("Failed to get variables completions:", error)
       return null
     }
   }
@@ -1882,6 +2063,7 @@ export function createAutocomplete({
       createActionCompletion(Object.values(actions).map((a) => a)),
       createVarCompletion(forEach),
       createSecretsCompletion(workspaceId),
+      createVarsCompletion(workspaceId),
       createEnvCompletion(),
     ],
   })
@@ -1951,6 +2133,10 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-template-pill.cm-context-secrets": {
     color: "#f59e0b !important",
+    fontWeight: "600",
+  },
+  ".cm-template-pill.cm-context-vars": {
+    color: "#06b6d4 !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-var": {
@@ -2030,6 +2216,21 @@ export const templatePillTheme = EditorView.theme({
     color: "#fed7aa",
   },
   ".cm-tooltip-secret-info .secret-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-vars-info": {
+    color: "#22d3ee",
+  },
+  ".cm-tooltip-vars-info .vars-name": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-vars-info .vars-key": {
+    marginBottom: "2px",
+    color: "#a5f3fc",
+  },
+  ".cm-tooltip-vars-info .vars-desc": {
     fontSize: "11px",
     color: "#9ca3af",
     fontStyle: "italic",

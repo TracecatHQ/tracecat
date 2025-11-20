@@ -1,18 +1,2 @@
-from enum import StrEnum
-
-
-class InteractionStatus(StrEnum):
-    IDLE = "idle"
-    PENDING = "pending"
-    ERROR = "error"
-    TIMED_OUT = "timed_out"
-    COMPLETED = "completed"
-
-
-class InteractionType(StrEnum):
-    APPROVAL = "approval"
-    RESPONSE = "response"
-
-
-class InteractionCategory(StrEnum):
-    SLACK = "slack"
+# Shim to re-export core enums for backward compatibility
+from tracecat.interactions.enums import *  # noqa: F401,F403

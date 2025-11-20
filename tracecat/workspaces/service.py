@@ -3,56 +3,64 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from pydantic import UUID4
-from sqlmodel import select
+from sqlalchemy import select
+from sqlalchemy.orm import load_only, noload
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel
 from tracecat.authz.controls import require_access_level
-from tracecat.authz.models import OwnerType
-from tracecat.db.schemas import Membership, Ownership, User, Workspace
+from tracecat.authz.enums import OwnerType
+from tracecat.db.models import Membership, Ownership, User, Workspace
+from tracecat.exceptions import TracecatException, TracecatManagementError
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
-from tracecat.types.exceptions import TracecatException, TracecatManagementError
-from tracecat.workspaces.models import WorkspaceSearch, WorkspaceUpdate
+from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 
 
 class WorkspaceService(BaseService):
     """Manage workspaces."""
 
     service_name = "workspace"
+    _load_only = ["id", "name"]
 
     @require_access_level(AccessLevel.ADMIN)
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
         """List all workspaces in the organization."""
-        statement = select(Workspace)
-        if limit is not None:
-            if limit <= 0:
-                raise TracecatException("List workspace limit must be greater than 0")
-            statement = statement.limit(limit)
-        result = await self.session.exec(statement)
-        return result.all()
-
-    async def list_workspaces(
-        self, user_id: UserID, limit: int | None = None
-    ) -> Sequence[Workspace]:
-        """List all workspaces that a user is a member of.
-
-        If user_id is provided, list only workspaces where user is a member.
-        if user_id is None, list all workspaces.
-        """
-        # List workspaces where user is a member
-        statement = select(Workspace).where(
-            Workspace.id == Membership.workspace_id,
-            Membership.user_id == user_id,
+        statement = select(Workspace).options(
+            load_only(
+                *(getattr(Workspace, f) for f in self._load_only)
+            ),  # only what the route returns
+            noload("*"),  # disable all relationship loaders
         )
         if limit is not None:
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")
             statement = statement.limit(limit)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    async def list_workspaces(
+        self, user_id: UserID, limit: int | None = None
+    ) -> Sequence[Workspace]:
+        """List all workspaces that a user is a member of."""
+        statement = (
+            select(Workspace)
+            .where(
+                Workspace.id == Membership.workspace_id, Membership.user_id == user_id
+            )
+            .options(
+                load_only(*(getattr(Workspace, f) for f in self._load_only)),
+                noload("*"),
+            )
+        )
+        if limit is not None:
+            if limit <= 0:
+                raise TracecatException("List workspace limit must be greater than 0")
+            statement = statement.limit(limit)
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     @require_access_level(AccessLevel.ADMIN)
     async def create_workspace(
@@ -67,12 +75,14 @@ class WorkspaceService(BaseService):
         kwargs = {
             "name": name,
             "owner_id": owner_id,
-            "users": users or [],
+            # Workspace model defines the relationship as "members"
+            "members": users or [],
         }
         if override_id:
             kwargs["id"] = override_id
         workspace = Workspace(**kwargs)
         self.session.add(workspace)
+        await self.session.flush()
 
         # Create ownership record
         ownership = Ownership(
@@ -90,23 +100,22 @@ class WorkspaceService(BaseService):
     async def get_workspace(self, workspace_id: WorkspaceID) -> Workspace | None:
         """Retrieve a workspace by ID."""
         statement = select(Workspace).where(Workspace.id == workspace_id)
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
-        self, workspace_id: WorkspaceID, params: WorkspaceUpdate
-    ) -> None:
+        self, workspace: Workspace, params: WorkspaceUpdate
+    ) -> Workspace:
         """Update a workspace."""
-        statement = select(Workspace).where(Workspace.id == workspace_id)
-        result = await self.session.exec(statement)
-        workspace = result.one()
         set_fields = params.model_dump(exclude_unset=True)
+        self.logger.info("Updating workspace", set_fields=set_fields)
         for field, value in set_fields.items():
             setattr(workspace, field, value)
         self.session.add(workspace)
         await self.session.commit()
         await self.session.refresh(workspace)
+        return workspace
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
@@ -117,8 +126,8 @@ class WorkspaceService(BaseService):
                 "There must be at least one workspace in the organization."
             )
         statement = select(Workspace).where(Workspace.id == workspace_id)
-        result = await self.session.exec(statement)
-        workspace = result.one()
+        result = await self.session.execute(statement)
+        workspace = result.scalar_one()
         await self.session.delete(workspace)
         await self.session.commit()
 
@@ -133,5 +142,5 @@ class WorkspaceService(BaseService):
             )
         if params.name:
             statement = statement.where(Workspace.name == params.name)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()

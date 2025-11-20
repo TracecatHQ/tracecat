@@ -8,53 +8,161 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
+import aioboto3
 import pytest
+import tracecat_registry.integrations.aws_boto3 as boto3_module
+from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
-from pydantic import SecretStr
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.schemas import Workspace
+from tracecat.db.models import Base, Workspace
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
 
-# Define Slack test skip markers
-skip_if_no_slack_token = pytest.mark.skipif(
-    not os.getenv("SLACK_BOT_TOKEN"),
-    reason="SLACK_BOT_TOKEN must be set as environment variable",
-)
+# Worker-specific configuration for pytest-xdist parallel execution
+# Get xdist worker ID, defaults to "master" if not using xdist
+WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
 
-skip_if_no_slack_credentials = pytest.mark.skipif(
-    not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
-    reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set as environment variables",
-)
+# Generate worker-specific port offsets
+# master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
+if WORKER_ID == "master":
+    WORKER_OFFSET = 0
+else:
+    # Extract number from "gwN" format
+    WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
-# Define a reusable usefixture marker for slack tests
-requires_slack_mocks = pytest.mark.usefixtures("mock_slack_secrets")
-
-# MinIO test configuration
-MINIO_ENDPOINT = "localhost:9002"
+# MinIO test configuration - worker-specific
+MINIO_BASE_PORT = 9002
+MINIO_CONSOLE_BASE_PORT = 9003
+MINIO_PORT = MINIO_BASE_PORT + (WORKER_OFFSET * 2)  # Each worker gets 2 ports
+MINIO_CONSOLE_PORT = MINIO_CONSOLE_BASE_PORT + (WORKER_OFFSET * 2)
+MINIO_ENDPOINT = f"localhost:{MINIO_PORT}"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
-MINIO_CONTAINER_NAME = "test-minio-grep"
+MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
+
+# ---------------------------------------------------------------------------
+# Redis test configuration - worker-specific
+# ---------------------------------------------------------------------------
+
+REDIS_BASE_PORT = 6380
+REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
+REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
+
+
+# ---------------------------------------------------------------------------
+# Redis fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def redis_server():
+    """Start Redis server in Docker for the test session."""
+
+    import redis as redis_sync
+
+    # Stop any existing container with the same name
+    subprocess.run(
+        [
+            "docker",
+            "stop",
+            REDIS_CONTAINER_NAME,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "docker",
+            "rm",
+            REDIS_CONTAINER_NAME,
+        ],
+        check=False,
+        capture_output=True,
+    )
+
+    # Launch Redis container
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            REDIS_CONTAINER_NAME,
+            "-p",
+            f"{REDIS_PORT}:6379",
+            "redis:7-alpine",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    # Wait until Redis is ready
+    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    for _ in range(30):
+        try:
+            if client.ping():
+                break
+        except Exception:
+            time.sleep(1)
+    else:
+        raise RuntimeError("Redis server failed to start in time")
+
+    # Ensure library code picks up the correct URL
+    os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
+
+    try:
+        yield
+    finally:
+        subprocess.run(
+            [
+                "docker",
+                "stop",
+                REDIS_CONTAINER_NAME,
+            ],
+            check=False,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "docker",
+                "rm",
+                REDIS_CONTAINER_NAME,
+            ],
+            check=False,
+            capture_output=True,
+        )
+
+
+@pytest.fixture(autouse=True, scope="function")
+def clean_redis_db(redis_server):
+    """Flush Redis before every test function to guarantee isolation."""
+
+    import redis as redis_sync
+
+    # Use sync redis client to avoid event loop issues
+    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client.flushdb()
+    yield
+    # Optionally flush again after test
+    client.flushdb()
 
 
 @pytest.fixture
@@ -112,7 +220,7 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
-            SQLModel.metadata.create_all(conn)
+            Base.metadata.create_all(conn)
         yield
     finally:
         test_engine.dispose()
@@ -166,8 +274,6 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
-    from dotenv import load_dotenv
-
     load_dotenv()
     logger.info("Setting up environment variables")
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
@@ -256,36 +362,33 @@ async def test_admin_role(test_workspace, mock_org_id):
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
     )
-    yield admin_role
+    token = ctx_role.set(admin_role)
+    try:
+        yield admin_role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture(scope="function")
 async def test_workspace():
     """Create a test workspace for the test session."""
-    workspace_name = "__test_workspace"
+    ws_id = uuid.uuid4()
+    workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
     async with WorkspaceService.with_session(role=system_role()) as svc:
-        # Check if test workspace already exists
-        existing_workspaces = await svc.admin_list_workspaces()
-        for ws in existing_workspaces:
-            if ws.name == workspace_name:
-                logger.info("Found existing test workspace, deleting it first")
-                await svc.delete_workspace(ws.id)
-
         # Create new test workspace
-        workspace = await svc.create_workspace(name=workspace_name)
+        workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.info("Created test workspace", workspace=workspace)
-
+        logger.debug("Created test workspace", workspace=workspace)
         try:
             yield workspace
         finally:
             # Clean up the workspace
-            logger.info("Teardown test workspace")
+            logger.debug("Teardown test workspace")
             try:
-                await svc.delete_workspace(workspace.id)
+                await svc.delete_workspace(ws_id)
             except Exception as e:
-                logger.error(f"Error during workspace cleanup: {e}")
+                logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
@@ -296,7 +399,9 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(get_temporal_client())
+    client = loop.run_until_complete(
+        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    )
     return client
 
 
@@ -332,7 +437,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     try:
         yield workspace
     finally:
-        logger.info("Cleaning up test workspace")
+        logger.debug("Cleaning up test workspace")
         try:
             if session.is_active:
                 # Reset transaction state in case it was aborted
@@ -381,86 +486,6 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     )
 
 
-@pytest.fixture
-async def mock_slack_secrets():
-    """Mock the secrets.get function for slack_sdk integration.
-
-    This fixture is used by both the agent builder tests and MCP slackbot tests.
-    It mocks the secrets.get function for direct SDK access.
-    """
-    slack_token = os.getenv("SLACK_BOT_TOKEN")
-    if not slack_token:
-        pytest.skip("SLACK_BOT_TOKEN not set in environment")
-
-    with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
-
-        def side_effect(key):
-            if key == "SLACK_BOT_TOKEN":
-                return slack_token
-            return None
-
-        mock_get.side_effect = side_effect
-        yield mock_get
-
-
-@pytest.fixture
-async def slack_secret(test_role):
-    """Create a Slack secret in the Tracecat secrets manager for testing.
-
-    This fixture creates a temporary secret in the Tracecat secrets manager that
-    can be used by tests that need to access Slack via the Tracecat service.
-    """
-    slack_token = os.getenv("SLACK_BOT_TOKEN")
-    if not slack_token:
-        pytest.skip("SLACK_BOT_TOKEN not set in environment")
-
-    async with SecretsService.with_session(role=test_role) as svc:
-        # Check if slack secret already exists
-        try:
-            existing_secret = await svc.get_secret_by_name("slack")
-            if existing_secret:
-                # Update the existing secret
-                await svc.update_secret(
-                    existing_secret,
-                    SecretUpdate(
-                        keys=[
-                            SecretKeyValue(
-                                key="SLACK_BOT_TOKEN", value=SecretStr(slack_token)
-                            )
-                        ]
-                    ),
-                )
-                yield existing_secret
-                return
-        except Exception:
-            # Secret doesn't exist, create it
-            pass
-
-        # Create the slack secret
-        await svc.create_secret(
-            SecretCreate(
-                name="slack",
-                description="Slack bot token for testing",
-                environment="default",
-                keys=[
-                    SecretKeyValue(key="SLACK_BOT_TOKEN", value=SecretStr(slack_token))
-                ],
-            )
-        )
-
-        # Get the created secret to yield it
-        created_secret = await svc.get_secret_by_name("slack")
-
-        try:
-            yield created_secret
-        finally:
-            # Clean up the secret
-            try:
-                await svc.delete_secret(created_secret)
-            except Exception as e:
-                logger.warning(f"Failed to clean up slack secret: {e}")
-
-
 # MinIO and S3 testing fixtures
 @pytest.fixture(scope="session")
 def minio_server():
@@ -486,9 +511,9 @@ def minio_server():
                 "--name",
                 MINIO_CONTAINER_NAME,
                 "-p",
-                "9002:9000",
+                f"{MINIO_PORT}:9000",
                 "-p",
-                "9003:9001",
+                f"{MINIO_CONSOLE_PORT}:9001",
                 "-e",
                 f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
                 "-e",
@@ -597,8 +622,6 @@ def mock_s3_secrets():
 @pytest.fixture
 async def aioboto3_minio_client(monkeypatch):
     """Fixture that mocks aioboto3 to use MinIO endpoint."""
-    import aioboto3
-    import tracecat_registry.integrations.aws_boto3 as boto3_module
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
@@ -642,13 +665,132 @@ async def test_worker_factory(
         task_queue: str | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
+
+        activities = activities or get_activities()
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=activities or get_activities(),
+            activities=activities,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
             activity_executor=threadpool,
         )
 
     yield create_worker
+
+
+# ---------------------------------------------------------------------------
+# 3rd party credentials
+# Loaded in either via dotenv or env vars into the mocked Tracecat secrets manager
+# ---------------------------------------------------------------------------
+
+### OpenAI
+
+
+@pytest.fixture
+def mock_openai_secrets(monkeypatch: pytest.MonkeyPatch):
+    """Set up env_sandbox with OpenAI API key from environment."""
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        pytest.skip("OPENAI_API_KEY not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"OPENAI_API_KEY": openai_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "OPENAI_API_KEY":
+                return openai_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Anthropic
+
+
+@pytest.fixture
+def mock_anthropic_secrets():
+    """Set up env_sandbox with Anthropic API key from environment."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        pytest.skip("ANTHROPIC_API_KEY not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"ANTHROPIC_API_KEY": anthropic_key}),
+    ):
+
+        def side_effect(key: str):
+            if key == "ANTHROPIC_API_KEY":
+                return anthropic_key
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Bedrock
+
+
+@pytest.fixture
+def mock_bedrock_secrets():
+    """Set up env_sandbox with AWS credentials from environment for Bedrock."""
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+
+    if not aws_access_key or not aws_secret_key:
+        pytest.skip(
+            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY not found in environment"
+        )
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox(
+            {
+                "AWS_ACCESS_KEY_ID": aws_access_key,
+                "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+                "AWS_REGION": aws_region,
+            }
+        ),
+    ):
+
+        def side_effect(key: str):
+            if key == "AWS_ACCESS_KEY_ID":
+                return aws_access_key
+            if key == "AWS_SECRET_ACCESS_KEY":
+                return aws_secret_key
+            if key == "AWS_REGION":
+                return aws_region
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+### Slack
+
+
+@pytest.fixture
+def mock_slack_secrets():
+    """Mock Slack secrets lookups for direct SDK access while keeping env sandbox."""
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not found in environment")
+
+    with (
+        patch("tracecat_registry._internal.secrets.get") as mock_get,
+        secrets_manager.env_sandbox({"SLACK_BOT_TOKEN": slack_token}),
+    ):
+
+        def side_effect(key: str):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get

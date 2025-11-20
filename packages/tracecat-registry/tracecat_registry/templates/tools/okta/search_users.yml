@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Search users
+  description: Search for users using a query string that matches login, email, firstName, or lastName.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
+  namespace: tools.okta
+  name: search_users
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
+    query:
+      type: str
+      description: Query string to search for users
+    limit:
+      type: int
+      description: Number of users to return (default 10)
+      default: 10
+    after:
+      type: str | None
+      description: Pagination cursor to start from
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(query, limit, after):
+              params = {"search": query, "limit": limit}
+              if after is not None:
+                  params["after"] = after
+              return params
+    - ref: search_users
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.search_users.result.data }}

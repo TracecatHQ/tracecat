@@ -1,45 +1,38 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefined
-from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Action
-from tracecat.ee.interactions.models import ActionInteractionValidator
+from tracecat.exceptions import RegistryError, TracecatValidationError
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
-from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionInterface
+from tracecat.interactions.schemas import ActionInteractionValidator
+from tracecat.registry.actions.schemas import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.types.exceptions import RegistryError
 from tracecat.validation.common import json_schema_to_pydantic
-from tracecat.workflow.actions.models import (
+from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,
     ActionRead,
     ActionReadMinimal,
     ActionUpdate,
 )
+from tracecat.workflow.actions.service import WorkflowActionService
 
-router = APIRouter(prefix="/actions")
+router = APIRouter(prefix="/actions", tags=["actions"])
 
 
-@router.get("", tags=["actions"])
+@router.get("")
 async def list_actions(
     role: WorkspaceUserRole,
     workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> list[ActionReadMinimal]:
     """List all actions for a workflow."""
-    statement = select(Action).where(
-        Action.owner_id == role.workspace_id,
-        Action.workflow_id == workflow_id,
-    )
-    results = await session.exec(statement)
-    actions = results.all()
-    response = [
+    svc = WorkflowActionService(session, role=role)
+    actions = await svc.list_actions(workflow_id=workflow_id)
+    return [
         ActionReadMinimal(
             id=action.id,
             workflow_id=WorkflowUUID.new(action.workflow_id).short(),
@@ -51,10 +44,9 @@ async def list_actions(
         )
         for action in actions
     ]
-    return response
 
 
-@router.post("", tags=["actions"])
+@router.post("")
 async def create_action(
     role: WorkspaceUserRole,
     params: ActionCreate,
@@ -65,35 +57,16 @@ async def create_action(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    action = Action(
-        owner_id=role.workspace_id,
-        workflow_id=WorkflowUUID.new(params.workflow_id),
-        type=params.type,
-        title=params.title,
-        description="",  # Default to empty string
-        inputs=params.inputs,
-        control_flow=params.control_flow.model_dump() if params.control_flow else {},
-        is_interactive=params.is_interactive,
-        interaction=params.interaction.model_dump() if params.interaction else None,
-    )
-    # Check if a clashing action ref exists
-    statement = select(Action).where(
-        Action.owner_id == role.workspace_id,
-        Action.workflow_id == action.workflow_id,
-        Action.ref == action.ref,
-    )
-    result = await session.exec(statement)
-    if result.first():
+    svc = WorkflowActionService(session, role=role)
+    try:
+        action = await svc.create_action(params)
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Action ref already exists in the workflow",
-        )
+        ) from e
 
-    session.add(action)
-    await session.commit()
-    await session.refresh(action)
-
-    action_metadata = ActionReadMinimal(
+    return ActionReadMinimal(
         id=action.id,
         workflow_id=WorkflowUUID.new(action.workflow_id).short(),
         type=action.type,
@@ -102,10 +75,9 @@ async def create_action(
         status=action.status,
         is_interactive=action.is_interactive,
     )
-    return action_metadata
 
 
-@router.get("/{action_id}", tags=["actions"])
+@router.get("/{action_id}")
 async def get_action(
     role: WorkspaceUserRole,
     action_id: ActionID,
@@ -113,18 +85,12 @@ async def get_action(
     session: AsyncDBSession,
 ) -> ActionRead:
     """Get an action."""
-    statement = select(Action).where(
-        Action.owner_id == role.workspace_id,
-        Action.id == action_id,
-        Action.workflow_id == workflow_id,
-    )
-    result = await session.exec(statement)
-    try:
-        action = result.one()
-    except NoResultFound as e:
+    svc = WorkflowActionService(session, role=role)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
+    if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+        )
 
     # Add default value for input if it's empty
     if len(action.inputs) == 0:
@@ -166,68 +132,38 @@ async def get_action(
     )
 
 
-@router.post("/{action_id}", tags=["actions"])
+@router.post("/{action_id}")
 async def update_action(
     role: WorkspaceUserRole,
     action_id: ActionID,
+    workflow_id: AnyWorkflowIDPath,
     params: ActionUpdate,
     session: AsyncDBSession,
 ) -> ActionRead:
     """Update an action."""
     # Fetch the action by id
-    statement = select(Action).where(
-        Action.owner_id == role.workspace_id,
-        Action.id == action_id,
-    )
-    result = await session.exec(statement)
-    try:
-        action = result.one()
-    except NoResultFound as e:
+    svc = WorkflowActionService(session, role=role)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
+    if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-    set_fields = params.model_dump(exclude_unset=True)
-    for field, value in set_fields.items():
-        setattr(action, field, value)
-    session.add(action)
-    await session.commit()
-    await session.refresh(action)
-
-    return ActionRead(
-        id=action.id,
-        type=action.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        inputs=action.inputs,
-        control_flow=ActionControlFlow(**action.control_flow),
-        is_interactive=action.is_interactive,
-        interaction=(
-            ActionInteractionValidator.validate_python(action.interaction)
-            if action.interaction is not None
-            else None
-        ),
-    )
+        )
+    action = await svc.update_action(action, params)
+    return ActionRead.model_validate(action)
 
 
-@router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
+@router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_action(
     role: WorkspaceUserRole,
     action_id: ActionID,
+    workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> None:
     """Delete an action."""
-    statement = select(Action).where(
-        Action.owner_id == role.workspace_id,
-        Action.id == action_id,
-    )
-    result = await session.exec(statement)
-    try:
-        action = result.one()
-    except NoResultFound:
-        logger.error(f"Action not found: {action_id}. Ignore delete.")
-        return
-    # If the user doesn't own this workflow, they can't delete the action
-    await session.delete(action)
-    await session.commit()
+    svc = WorkflowActionService(session, role=role)
+    action = await svc.get_action(action_id=action_id, workflow_id=workflow_id)
+    if action is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        )
+    await svc.delete_action(action)

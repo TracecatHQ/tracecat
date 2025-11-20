@@ -44,13 +44,15 @@ import {
 import {
   executionId,
   groupEventsByActionRef,
+  refToLabel,
+  WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowEventsHeader({
   execution,
@@ -58,7 +60,7 @@ export function WorkflowEventsHeader({
   execution: WorkflowExecutionReadCompact
 }) {
   const { setSelectedNodeId } = useWorkflowBuilder()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
   return (
@@ -210,8 +212,10 @@ export function WorkflowEventsHeader({
 }
 export function WorkflowEvents({
   events,
+  status,
 }: {
   events: WorkflowExecutionEventCompact[]
+  status: WorkflowExecutionReadCompact["status"]
 }) {
   const {
     selectedActionEventRef,
@@ -339,7 +343,7 @@ export function WorkflowEvents({
                         <div className="flex flex-1 items-center justify-between">
                           <div className="flex items-center gap-2">
                             <div className="truncate text-foreground/70">
-                              {actionRef}
+                              {refToLabel(actionRef)}
                             </div>
                             {instanceCount > 1 && (
                               <Badge
@@ -394,7 +398,10 @@ export function WorkflowEvents({
                                   <span>View last input</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  disabled={!isActionRefValid(actionRef)}
+                                  disabled={
+                                    !isActionRefValid(actionRef) &&
+                                    actionRef !== WF_FAILURE_EVENT_REF
+                                  }
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     sidebarRef.current?.setOpen(true)
@@ -435,8 +442,17 @@ export function WorkflowEvents({
             ) : (
               <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
                 <div className="flex items-center justify-center gap-2">
-                  <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-                  <span>Waiting for events...</span>
+                  {status === "RUNNING" ? (
+                    <>
+                      <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                      <span>Waiting for events...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CircleDot className="size-3 text-muted-foreground" />
+                      <span>No events</span>
+                    </>
+                  )}
                 </div>
               </div>
             )}
