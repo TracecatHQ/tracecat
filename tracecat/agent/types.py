@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, runtime_checkable
 
 import pydantic
 from pydantic import TypeAdapter
@@ -19,6 +19,13 @@ if TYPE_CHECKING:
     CustomToolList = list[_PATool[Any]]
 else:  # pragma: no cover - runtime type hint fallback to appease pydantic
     CustomToolList = list[Any]
+
+
+class MCPServerConfig(TypedDict):
+    """Configuration for an MCP server."""
+
+    url: str
+    headers: dict[str, str]
 
 
 class StreamKey(str):
@@ -89,9 +96,8 @@ class AgentConfig:
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
     # MCP
-    mcp_server_url: str | None = None
-    mcp_server_headers: dict[str, str] | None = None
     model_settings: dict[str, Any] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

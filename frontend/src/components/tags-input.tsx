@@ -112,6 +112,7 @@ export function MultiTagCommandInput({
           id: `${index}`,
           text: suggestion?.label || val,
           value: val,
+          icon: suggestion?.icon,
         }
       }) || []
     )
@@ -214,7 +215,16 @@ export function MultiTagCommandInput({
                 variant="secondary"
                 className="gap-1 pr-1 text-xs"
               >
-                {tag.text}
+                {tag.icon ? (
+                  <span className="flex items-center gap-1">
+                    <span className="flex items-center justify-center rounded-sm bg-transparent">
+                      {tag.icon}
+                    </span>
+                    <span>{tag.text}</span>
+                  </span>
+                ) : (
+                  tag.text
+                )}
                 {!disabled && (
                   <button
                     type="button"

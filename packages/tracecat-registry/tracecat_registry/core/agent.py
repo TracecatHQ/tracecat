@@ -264,8 +264,7 @@ async def preset_agent(
         max_requests=max_requests,
         retries=config.retries,
         base_url=config.base_url,
-        mcp_server_url=config.mcp_server_url,
-        mcp_server_headers=config.mcp_server_headers,
+        mcp_servers=config.mcp_servers,
     )
     return output.model_dump(mode="json")
 
