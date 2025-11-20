@@ -2455,6 +2455,16 @@ export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
 
+/**
+ * Configuration for an MCP server.
+ */
+export type MCPServerConfig = {
+  url: string
+  headers: {
+    [key: string]: string
+  }
+}
+
 export type ModelConfig = {
   /**
    * The name of the model. This is used to identify the model in the system.
