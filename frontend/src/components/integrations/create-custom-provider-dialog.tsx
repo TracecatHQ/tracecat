@@ -162,7 +162,7 @@ export function CreateCustomProviderDialog({
           Add OAuth provider
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add custom OAuth provider</DialogTitle>
           <DialogDescription>
@@ -172,7 +172,7 @@ export function CreateCustomProviderDialog({
         </DialogHeader>
         <Form {...form}>
           <form
-            className="space-y-5"
+            className="space-y-5 overflow-y-auto pr-2"
             onSubmit={form.handleSubmit(onSubmit)}
             noValidate
           >

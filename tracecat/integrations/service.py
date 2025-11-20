@@ -90,14 +90,14 @@ class IntegrationService(BaseWorkspaceService):
     ) -> str:
         """Generate a unique provider identifier for a custom provider."""
         base_source = requested_id or name
-        slug = slugify(base_source, separator="-") or uuid4().hex
-        if not slug.startswith("custom-"):
-            slug = f"custom-{slug}"
+        slug = slugify(base_source, separator="_") or uuid4().hex
+        if not slug.startswith("custom_"):
+            slug = f"custom_{slug}"
 
         candidate = slug
         suffix = 1
         while await self._provider_identifier_taken(candidate, grant_type):
-            candidate = f"{slug}-{suffix}"
+            candidate = f"{slug}_{suffix}"
             suffix += 1
         return candidate
 
@@ -459,7 +459,7 @@ class IntegrationService(BaseWorkspaceService):
         provider_key = ProviderKey(
             id=integration.provider_id, grant_type=integration.grant_type
         )
-        is_custom_provider = integration.provider_id.startswith("custom-")
+        is_custom_provider = integration.provider_id.startswith("custom_")
 
         # Delete the integration record
         await self.session.delete(integration)
