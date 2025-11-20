@@ -252,7 +252,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
 
@@ -317,7 +317,7 @@ class BaseTablesService(BaseWorkspaceService):
 
         return table
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
         # We need to update the table name in the physical table
@@ -348,7 +348,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return table
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
         # Delete the metadata first
@@ -376,7 +376,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError("Column not found")
         return column
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(
         self, table: Table, params: TableColumnCreate
     ) -> TableColumn:
@@ -447,7 +447,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return column
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(
         self,
         column: TableColumn,
@@ -579,7 +579,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return column
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
 
@@ -616,7 +616,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Commit the transaction
         await self.session.flush()
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         full_table_name = self._full_table_name(column.table.name)
@@ -851,7 +851,7 @@ class BaseTablesService(BaseWorkspaceService):
 
         return dict(row)
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
         schema_name = self._get_schema_name()
@@ -1710,7 +1710,7 @@ class TableEditorService(BaseService):
         columns = await conn.run_sync(inspect_columns)
         return columns
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
 
@@ -1760,7 +1760,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
 
@@ -1846,7 +1846,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
         sanitized_column = sanitize_identifier(column_name)
@@ -1988,7 +1988,7 @@ class TableEditorService(BaseService):
 
         return dict(row)
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
         conn = await self.session.connection()
