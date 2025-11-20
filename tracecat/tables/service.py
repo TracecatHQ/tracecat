@@ -24,11 +24,11 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.controls import require_access_level
+from tracecat.auth.types import Role
+from tracecat.authz.controls import require_workspace_role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
-    TracecatAuthorizationError,
     TracecatImportError,
     TracecatNotFoundError,
 )
@@ -40,7 +40,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseService
+from tracecat.service import BaseService, BaseWorkspaceService
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
@@ -72,10 +72,14 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 
 
-class BaseTablesService(BaseService):
+class BaseTablesService(BaseWorkspaceService):
     """Service for managing user-defined tables."""
 
     service_name = "tables"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Sanitize table/column names to prevent SQL injection."""
@@ -83,7 +87,7 @@ class BaseTablesService(BaseService):
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
-        ws_id = workspace_id or self._workspace_id()
+        ws_id = workspace_id or self.ws_uuid
         # Using double quotes to allow dots in schema name
         return f"tables_{ws_id.short()}"
 
@@ -106,13 +110,6 @@ class BaseTablesService(BaseService):
                 return candidate
             candidate = f"{base_name}_{suffix}"
             suffix += 1
-
-    def _workspace_id(self) -> WorkspaceUUID:
-        """Get the workspace ID for the current role."""
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
-        return WorkspaceUUID.new(workspace_id)
 
     def _normalize_options_for_type(
         self, sql_type: SqlType, options: list[str] | None
@@ -192,16 +189,14 @@ class BaseTablesService(BaseService):
         Raises:
             ValueError: If the workspace ID is invalid
         """
-        ws_id = self._workspace_id()
-        statement = select(Table).where(Table.owner_id == ws_id)
+        statement = select(Table).where(Table.owner_id == self.ws_uuid)
         result = await self.session.execute(statement)
         return result.scalars().all()
 
     async def get_table(self, table_id: TableID) -> Table:
         """Get a lookup table by ID."""
-        ws_id = self._workspace_id()
         statement = select(Table).where(
-            Table.owner_id == ws_id,
+            Table.owner_id == self.ws_uuid,
             Table.id == table_id,
         )
         result = await self.session.execute(statement)
@@ -246,10 +241,9 @@ class BaseTablesService(BaseService):
         Raises:
             TracecatNotFoundError: If the table does not exist
         """
-        ws_id = self._workspace_id()
         sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
-            Table.owner_id == ws_id,
+            Table.owner_id == self.ws_uuid,
             Table.name == sanitized_name,
         )
         result = await self.session.execute(statement)
@@ -258,7 +252,7 @@ class BaseTablesService(BaseService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
 
@@ -272,8 +266,7 @@ class BaseTablesService(BaseService):
             TracecatAuthorizationError: If user lacks required permissions
             ValueError: If table name is invalid
         """
-        ws_id = self._workspace_id()
-        schema_name = self._get_schema_name(ws_id)
+        schema_name = self._get_schema_name(self.ws_uuid)
         table_name = self._sanitize_identifier(params.name)
 
         # Create schema if it doesn't exist
@@ -313,7 +306,7 @@ class BaseTablesService(BaseService):
         await conn.run_sync(new_table.create)
 
         # Create metadata entry
-        table = Table(owner_id=ws_id, name=table_name)
+        table = Table(owner_id=self.ws_uuid, name=table_name)
         self.session.add(table)
         await self.session.flush()
 
@@ -324,7 +317,7 @@ class BaseTablesService(BaseService):
 
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
         # We need to update the table name in the physical table
@@ -355,7 +348,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
         # Delete the metadata first
@@ -383,7 +376,7 @@ class BaseTablesService(BaseService):
             raise TracecatNotFoundError("Column not found")
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(
         self, table: Table, params: TableColumnCreate
     ) -> TableColumn:
@@ -454,7 +447,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(
         self,
         column: TableColumn,
@@ -586,7 +579,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
 
@@ -623,7 +616,7 @@ class BaseTablesService(BaseService):
         # Commit the transaction
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         full_table_name = self._full_table_name(column.table.name)
@@ -858,7 +851,7 @@ class BaseTablesService(BaseService):
 
         return dict(row)
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
         schema_name = self._get_schema_name()
@@ -1717,7 +1710,7 @@ class TableEditorService(BaseService):
         columns = await conn.run_sync(inspect_columns)
         return columns
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
 
@@ -1767,7 +1760,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
 
@@ -1853,7 +1846,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
         sanitized_column = sanitize_identifier(column_name)
@@ -1995,7 +1988,7 @@ class TableEditorService(BaseService):
 
         return dict(row)
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
         conn = await self.session.connection()
