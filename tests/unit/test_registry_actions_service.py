@@ -505,7 +505,7 @@ async def test_sync_actions_from_repository_with_malformed_function(
     # This assertion may vary depending on when the import error occurs
     # If the error occurs during module import, no actions will be created
     # If the error occurs after some actions are created, those will remain
-    assert len(actions) >= 0  # Could be 0 or more depending on error timing
+    assert len(actions) == 0
 
 
 @pytest.mark.anyio
