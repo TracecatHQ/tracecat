@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar, cast
 
@@ -16,6 +17,27 @@ from tracecat.expressions.common import (
 from tracecat.logger import logger
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
+
+ATTRIBUTE_SEGMENT_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def _format_attribute_path(path: str) -> tuple[list[str], str]:
+    """Format an attribute path for jsonpath evaluation.
+
+    Converts segments that are not valid identifiers (e.g. containing hyphens)
+    to bracket-notation so that jsonpath-ng can parse them.
+    """
+
+    trimmed = path.lstrip(".")
+    segments = trimmed.split(".") if trimmed else []
+    formatted_segments: list[str] = []
+    for segment in segments:
+        if ATTRIBUTE_SEGMENT_PATTERN.fullmatch(segment):
+            formatted_segments.append(f".{segment}")
+        else:
+            escaped = segment.replace("\\", "\\\\").replace("\"", "\\\"")
+            formatted_segments.append(f'["{escaped}"]')
+    return segments, "".join(formatted_segments)
 
 
 class ExprEvaluator(Transformer):
@@ -137,23 +159,23 @@ class ExprEvaluator(Transformer):
     @v_args(inline=True)
     def secrets(self, path: str):
         logger.trace("Visiting secrets:", path=path)
-        expr = ExprContext.SECRETS + path
+        _, formatted_path = _format_attribute_path(path)
+        expr = ExprContext.SECRETS + formatted_path
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
     def vars(self, path: str):
         logger.trace("Visiting vars:", path=path)
-        trimmed = path.lstrip(".")
-        parts = trimmed.split(".") if trimmed else []
-        key_segments = parts[1:] if len(parts) > 1 else []
+        segments, formatted_path = _format_attribute_path(path)
+        key_segments = segments[1:] if len(segments) > 1 else []
         if len(key_segments) > MAX_VARS_PATH_DEPTH:
-            formatted = ".".join(parts)
+            formatted = ".".join(segments)
             raise TracecatExpressionError(
                 "VARS expressions currently support at most one key segment "
                 "(`VARS.<name>.<key>`). "
                 f"Got VARS.{formatted!s} with {len(key_segments)} key segments after the variable name."
             )
-        expr = ExprContext.VARS + path
+        expr = ExprContext.VARS + formatted_path
         return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)

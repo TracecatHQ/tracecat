@@ -99,7 +99,7 @@ list: "[" [arg_list] "]"
 dict : "{" [kvpair ("," kvpair)*] "}"
 kvpair : STRING_LITERAL ":" expression
 
-ATTRIBUTE_PATH: ("." CNAME)+
+ATTRIBUTE_PATH: ("." /[a-zA-Z_][a-zA-Z0-9_-]*/)+
 FN_NAME_WITH_TRANSFORM: CNAME FN_TRANSFORM?
 FN_TRANSFORM: "." CNAME
 

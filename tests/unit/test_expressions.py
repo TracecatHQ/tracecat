@@ -960,6 +960,23 @@ def test_expression_binary_ops(lhs, rhs, condition, expected):
     assert eval_templated_object(expr) == expected
 
 
+def test_secrets_with_hyphenated_identifier():
+    context = {
+        ExprContext.SECRETS: {
+            "custom-secureapp_oauth": {
+                "CUSTOM-SECUREAPP_SERVICE_TOKEN": "hyphen-token",
+            }
+        }
+    }
+
+    expr = "SECRETS.custom-secureapp_oauth.CUSTOM-SECUREAPP_SERVICE_TOKEN"
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    ev = ExprEvaluator(operand=context)
+    assert parse_tree is not None
+    assert ev.transform(parse_tree) == "hyphen-token"
+
+
 def test_jsonpath_wildcard():
     context = {
         ExprContext.ACTIONS: {
