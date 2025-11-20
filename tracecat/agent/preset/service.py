@@ -10,9 +10,13 @@ from slugify import slugify
 from sqlalchemy import func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.db.models import AgentPreset, RegistryAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.integrations.providers.base import MCPAuthProvider
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.service import IntegrationService
+from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 
 
@@ -41,6 +45,8 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
+        if params.mcp_integrations:
+            await self._validate_mcp_integrations(params.mcp_integrations)
         preset = AgentPreset(
             owner_id=self.workspace_id,
             slug=slug,
@@ -54,9 +60,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=params.actions,
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
-            mcp_server_url=params.mcp_server_url,
-            mcp_server_headers=params.mcp_server_headers,
-            model_settings=params.model_settings,
+            mcp_integrations=params.mcp_integrations,
             retries=params.retries,
         )
         self.session.add(preset)
@@ -106,6 +110,11 @@ class AgentPresetService(BaseWorkspaceService):
             # If we reach this point, all actions are valid or was empty
             preset.actions = actions
 
+        if "mcp_integrations" in set_fields:
+            if mcp_integrations := set_fields.pop("mcp_integrations"):
+                await self._validate_mcp_integrations(mcp_integrations)
+            preset.mcp_integrations = mcp_integrations
+
         # Update remaining fields
         for field, value in set_fields.items():
             setattr(preset, field, value)
@@ -121,15 +130,15 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
 
     async def get_agent_config_by_slug(self, slug: str) -> AgentConfig:
-        """Resolve the agent configuration for a preset by slug."""
+        """Get the agent configuration for a preset by slug."""
         if preset := await self.get_preset_by_slug(slug):
-            return self._preset_to_agent_config(preset)
+            return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with slug '{slug}' not found")
 
     async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
-        """Resolve the agent configuration for a preset by ID."""
+        """Get the agent configuration for a preset by ID."""
         if preset := await self.get_preset(preset_id):
-            return self._preset_to_agent_config(preset)
+            return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
 
     async def resolve_agent_preset_config(
@@ -138,13 +147,97 @@ class AgentPresetService(BaseWorkspaceService):
         preset_id: uuid.UUID | None = None,
         slug: str | None = None,
     ) -> AgentConfig:
-        """Get an agent configuration from a preset by ID or slug."""
+        """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
         if preset_id is None and slug is None:
             raise ValueError("Either preset_id or slug must be provided")
 
         if preset_id is not None:
             return await self.get_agent_config(preset_id)
         return await self.get_agent_config_by_slug(slug or "")
+
+    async def _validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
+        """Validate MCP OAuth integration provider IDs for the workspace."""
+        mcp_integrations_set = set(mcp_integrations)
+        integrations_service = IntegrationService(self.session, role=self.role)
+        integrations = await integrations_service.list_integrations()
+        available_provider_ids = {
+            integration.provider_id for integration in integrations
+        }
+        if missing_integrations := mcp_integrations_set - available_provider_ids:
+            raise TracecatValidationError(
+                f"{len(missing_integrations)} MCP integrations were not found in this workspace: {sorted(missing_integrations)}"
+            )
+        # Verify that each provider is actually an MCP provider
+        # MCP providers follow the naming convention of ending with "_mcp"
+        non_mcp_providers = [
+            pid for pid in mcp_integrations_set if not pid.endswith("_mcp")
+        ]
+        if non_mcp_providers:
+            raise TracecatValidationError(
+                f"Providers are not MCP providers: {sorted(non_mcp_providers)}"
+            )
+
+    async def _resolve_mcp_integrations(
+        self, mcp_integrations: list[str] | None
+    ) -> list[MCPServerConfig] | None:
+        """Resolve MCP provider URLs and authorization headers from selected integrations."""
+        if not mcp_integrations:
+            return None
+
+        integrations_service = IntegrationService(self.session, role=self.role)
+        integrations = await integrations_service.list_integrations()
+        by_provider = {
+            integration.provider_id: integration for integration in integrations
+        }
+
+        # Collect all matching integrations in preset order
+        mcp_servers = []
+        for provider_id in mcp_integrations:
+            if provider_id not in by_provider:
+                continue
+
+            integration = by_provider[provider_id]
+            provider_key = ProviderKey(
+                id=integration.provider_id, grant_type=integration.grant_type
+            )
+            provider_impl = await integrations_service.resolve_provider_impl(
+                provider_key=provider_key
+            )
+            if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+                raise TracecatValidationError(
+                    f"Provider {integration.provider_id!r} is not a valid MCP provider"
+                )
+
+            await integrations_service.refresh_token_if_needed(integration)
+            access_token = await integrations_service.get_access_token(integration)
+            if not access_token:
+                logger.warning(
+                    "Skipping MCP integration %r: no access token (likely disconnected)",
+                    integration.provider_id,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "provider_id": integration.provider_id,
+                        "integration_status": integration.status,
+                    },
+                )
+                continue
+
+            token_type = integration.token_type or "Bearer"
+            mcp_servers.append(
+                {
+                    "url": provider_impl.mcp_server_uri,
+                    "headers": {
+                        "Authorization": f"{token_type} {access_token.get_secret_value()}"
+                    },
+                }
+            )
+
+        if not mcp_servers:
+            raise TracecatValidationError(
+                "No matching MCP integrations found for this preset in the workspace"
+            )
+
+        return mcp_servers
 
     async def _normalize_and_validate_slug(
         self,
@@ -190,7 +283,8 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
+    async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
+        mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
         return AgentConfig(
             model_name=preset.model_name,
             model_provider=preset.model_provider,
@@ -200,8 +294,6 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
-            mcp_server_url=preset.mcp_server_url,
-            mcp_server_headers=preset.mcp_server_headers,
-            model_settings=preset.model_settings,
+            mcp_servers=mcp_servers,
             retries=preset.retries,
         )

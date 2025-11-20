@@ -165,6 +165,16 @@ async def run_agent(
     )
     executor = AioStreamingAgentExecutor(deps=deps, role=role)
     try:
+        # Convert legacy mcp_server_url/headers to mcp_servers format
+        mcp_servers = None
+        if mcp_server_url:
+            mcp_servers = [
+                {
+                    "url": mcp_server_url,
+                    "headers": mcp_server_headers or {},
+                }
+            ]
+
         args = RunAgentArgs(
             user_prompt=user_prompt,
             session_id=session_id,
@@ -177,8 +187,7 @@ async def run_agent(
                 model_settings=model_settings,
                 retries=retries,
                 deps_type=type(deps),
-                mcp_server_url=mcp_server_url,
-                mcp_server_headers=mcp_server_headers,
+                mcp_servers=mcp_servers,
                 actions=actions,
                 namespaces=namespaces,
                 tool_approvals=tool_approvals,

@@ -1656,18 +1656,10 @@ class AgentPreset(RecordModel):
         nullable=True,
         doc="Tool approval requirements by tool name",
     )
-    mcp_server_url: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, doc="Optional MCP server URL"
-    )
-    mcp_server_headers: Mapped[dict[str, str] | None] = mapped_column(
+    mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
-        doc="Headers to include when connecting to the MCP server",
-    )
-    model_settings: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Provider specific model settings",
+        doc="MCP integrations to use",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"

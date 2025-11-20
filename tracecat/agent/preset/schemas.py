@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,9 +24,7 @@ class AgentPresetBase(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_server_url: str | None = Field(default=None, max_length=500)
-    mcp_server_headers: dict[str, str] | None = Field(default=None)
-    model_settings: dict[str, Any] | None = Field(default=None)
+    mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
 
 
@@ -52,9 +49,7 @@ class AgentPresetUpdate(BaseModel):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_server_url: str | None = Field(default=None, max_length=500)
-    mcp_server_headers: dict[str, str] | None = Field(default=None)
-    model_settings: dict[str, Any] | None = Field(default=None)
+    mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
 
 
@@ -94,9 +89,7 @@ class AgentPresetRead(AgentPresetBase):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
-            mcp_server_url=self.mcp_server_url,
-            mcp_server_headers=self.mcp_server_headers,
-            model_settings=self.model_settings,
+            mcp_integrations=self.mcp_integrations,
             retries=self.retries,
         )
 

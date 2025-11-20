@@ -79,12 +79,14 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         instructions = "\n".join(part for part in instruction_parts if part)
 
     toolsets = None
-    if config.mcp_server_url:
-        mcp_server = MCPServerStreamableHTTP(
-            url=config.mcp_server_url,
-            headers=config.mcp_server_headers,
-        )
-        toolsets = [mcp_server]
+    if config.mcp_servers:
+        toolsets = [
+            MCPServerStreamableHTTP(
+                url=server["url"],
+                headers=server["headers"],
+            )
+            for server in config.mcp_servers
+        ]
 
     output_type_for_agent: type[Any] | list[type[Any]]
     # If any tool requires approval, include DeferredToolRequests in output types

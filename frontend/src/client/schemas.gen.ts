@@ -860,43 +860,19 @@ export const $AgentPresetCreate = {
       ],
       title: "Tool Approvals",
     },
-    mcp_server_url: {
+    mcp_integrations: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Server Url",
-    },
-    mcp_server_headers: {
-      anyOf: [
-        {
-          additionalProperties: {
+          items: {
             type: "string",
           },
-          type: "object",
+          type: "array",
         },
         {
           type: "null",
         },
       ],
-      title: "Mcp Server Headers",
-    },
-    model_settings: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Settings",
+      title: "Mcp Integrations",
     },
     retries: {
       type: "integer",
@@ -1031,43 +1007,19 @@ export const $AgentPresetRead = {
       ],
       title: "Tool Approvals",
     },
-    mcp_server_url: {
+    mcp_integrations: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Server Url",
-    },
-    mcp_server_headers: {
-      anyOf: [
-        {
-          additionalProperties: {
+          items: {
             type: "string",
           },
-          type: "object",
+          type: "array",
         },
         {
           type: "null",
         },
       ],
-      title: "Mcp Server Headers",
-    },
-    model_settings: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Settings",
+      title: "Mcp Integrations",
     },
     retries: {
       type: "integer",
@@ -1316,43 +1268,19 @@ export const $AgentPresetUpdate = {
       ],
       title: "Tool Approvals",
     },
-    mcp_server_url: {
+    mcp_integrations: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Server Url",
-    },
-    mcp_server_headers: {
-      anyOf: [
-        {
-          additionalProperties: {
+          items: {
             type: "string",
           },
-          type: "object",
+          type: "array",
         },
         {
           type: "null",
         },
       ],
-      title: "Mcp Server Headers",
-    },
-    model_settings: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Settings",
+      title: "Mcp Integrations",
     },
     retries: {
       anyOf: [
