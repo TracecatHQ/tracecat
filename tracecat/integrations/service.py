@@ -459,7 +459,7 @@ class IntegrationService(BaseWorkspaceService):
         provider_key = ProviderKey(
             id=integration.provider_id, grant_type=integration.grant_type
         )
-        is_custom_provider = integration.provider_id.startswith("custom_")
+        is_custom_provider = integration.provider_id.startswith(("custom_", "custom-"))
 
         # Delete the integration record
         await self.session.delete(integration)
