@@ -16,7 +16,7 @@ from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,
@@ -76,6 +76,7 @@ async def run_agent(
     tool_approvals: dict[str, bool] | None = None,
     mcp_server_url: str | None = None,
     mcp_server_headers: dict[str, str] | None = None,
+    mcp_servers: list[MCPServerConfig] | None = None,
     instructions: str | None = None,
     output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
@@ -102,8 +103,9 @@ async def run_agent(
         tool_approvals: Optional per-tool approval requirements keyed by action name.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
-        mcp_server_url: Optional URL of the MCP server to use.
-        mcp_server_headers: Optional headers for the MCP server.
+        mcp_server_url: (Legacy) Optional URL of the MCP server to use.
+        mcp_server_headers: (Legacy) Optional headers for the MCP server.
+        mcp_servers: Optional list of MCP server configurations (preferred over legacy params).
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
                     Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
@@ -165,6 +167,16 @@ async def run_agent(
     )
     executor = AioStreamingAgentExecutor(deps=deps, role=role)
     try:
+        # Merge legacy mcp_server_url/headers with new mcp_servers format
+        if mcp_server_url:
+            if mcp_servers is None:
+                mcp_servers = []
+            legacy_mcp_server = MCPServerConfig(
+                url=mcp_server_url,
+                headers=mcp_server_headers or {},
+            )
+            mcp_servers.append(legacy_mcp_server)
+
         args = RunAgentArgs(
             user_prompt=user_prompt,
             session_id=session_id,
@@ -177,8 +189,7 @@ async def run_agent(
                 model_settings=model_settings,
                 retries=retries,
                 deps_type=type(deps),
-                mcp_server_url=mcp_server_url,
-                mcp_server_headers=mcp_server_headers,
+                mcp_servers=mcp_servers or None,
                 actions=actions,
                 namespaces=namespaces,
                 tool_approvals=tool_approvals,

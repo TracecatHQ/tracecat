@@ -98,9 +98,7 @@ def agent_preset_create_params() -> AgentPresetCreate:
         actions=None,
         namespaces=None,
         tool_approvals=None,
-        mcp_server_url=None,
-        mcp_server_headers=None,
-        model_settings=None,
+        mcp_integrations=None,
         retries=3,
     )
 
@@ -456,11 +454,6 @@ class TestAgentPresetService:
         agent_preset_create_params.actions = ["tools.test.test_action"]
         agent_preset_create_params.namespaces = ["tools.test"]
         agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
-        agent_preset_create_params.model_settings = {"temperature": 0.7}
-        agent_preset_create_params.mcp_server_url = "http://mcp.example.com"
-        agent_preset_create_params.mcp_server_headers = {
-            "Authorization": "Bearer token"
-        }
 
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
@@ -476,11 +469,6 @@ class TestAgentPresetService:
         assert config.actions == agent_preset_create_params.actions
         assert config.namespaces == agent_preset_create_params.namespaces
         assert config.tool_approvals == agent_preset_create_params.tool_approvals
-        assert config.model_settings == agent_preset_create_params.model_settings
-        assert config.mcp_server_url == agent_preset_create_params.mcp_server_url
-        assert (
-            config.mcp_server_headers == agent_preset_create_params.mcp_server_headers
-        )
         assert config.retries == agent_preset_create_params.retries
 
     async def test_get_agent_config_by_slug(
@@ -620,7 +608,7 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
 
         # Test conversion
-        config = agent_preset_service._preset_to_agent_config(preset)
+        config = await agent_preset_service._preset_to_agent_config(preset)
 
         assert isinstance(config, AgentConfig)
         assert config.model_name == preset.model_name
@@ -631,7 +619,4 @@ class TestAgentPresetService:
         assert config.actions == preset.actions
         assert config.namespaces == preset.namespaces
         assert config.tool_approvals == preset.tool_approvals
-        assert config.mcp_server_url == preset.mcp_server_url
-        assert config.mcp_server_headers == preset.mcp_server_headers
-        assert config.model_settings == preset.model_settings
         assert config.retries == preset.retries
