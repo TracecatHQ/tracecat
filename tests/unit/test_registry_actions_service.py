@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryAction
+from tracecat.exceptions import RegistryError
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
@@ -207,8 +208,10 @@ async def test_sync_actions_from_repository_updates_existing_actions(
     actions_file = local_package_path / "test_package" / "udfs.py"
     actions_file.write_text(updated_udf_content)
 
-    # Sync again
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    # Sync again (explicitly allow full deletion)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, allow_delete_all=True
+    )
 
     # Verify action was updated (same ID, different metadata)
     result = await session.execute(
@@ -279,8 +282,10 @@ async def test_sync_actions_from_repository_deletes_removed_actions(
     # Refresh the session to get latest db_repo with updated actions relationship
     await session.refresh(db_repo)
 
-    # Sync again
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    # Sync again (explicitly allow removal of all actions)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, allow_delete_all=True
+    )
 
     # Verify action was deleted
     result = await session.execute(
@@ -290,6 +295,64 @@ async def test_sync_actions_from_repository_deletes_removed_actions(
         )
     )
     assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
+async def test_sync_actions_from_repository_empty_snapshot_rejected(
+    svc_role: Role,
+    local_package_path: Path,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure we refuse to wipe actions when snapshot is empty."""
+
+    monkeypatch.syspath_prepend(str(local_package_path))
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH",
+        str(local_package_path),
+    )
+
+    repo_service = RegistryReposService(session, role=svc_role)
+    db_repo = await repo_service.create_repository(
+        RegistryRepositoryCreate(origin=DEFAULT_LOCAL_REGISTRY_ORIGIN)
+    )
+
+    actions_service = RegistryActionsService(session, role=svc_role)
+
+    # Seed with one action
+    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+
+    # Blank out the repo so the snapshot is empty
+    actions_file = local_package_path / "test_package" / "udfs.py"
+    actions_file.write_text("")
+
+    import importlib
+    import sys
+
+    if "test_package" in sys.modules:
+        modules_to_remove = [
+            name for name in sys.modules if name.startswith("test_package")
+        ]
+        for name in modules_to_remove:
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
+    await session.refresh(db_repo)
+
+    with pytest.raises(RegistryError, match="produced no actions"):
+        await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+
+    # Original action should remain
+    result = await session.execute(
+        select(RegistryAction).where(
+            RegistryAction.namespace == "test",
+            RegistryAction.name == "add_numbers",
+        )
+    )
+
+    assert result.scalar_one_or_none() is not None
 
 
 @pytest.mark.anyio
