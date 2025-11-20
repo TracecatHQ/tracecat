@@ -7729,6 +7729,26 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $MCPServerConfig = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    headers: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Headers",
+    },
+  },
+  type: "object",
+  required: ["url", "headers"],
+  title: "MCPServerConfig",
+  description: "Configuration for an MCP server.",
+} as const
+
 export const $ModelConfig = {
   properties: {
     name: {
