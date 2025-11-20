@@ -19,11 +19,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
-from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
-    DEFAULT_REGISTRY_ORIGIN,
-    REGISTRY_REPOS_PATH,
-)
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
 from tracecat.registry.repositories.schemas import (
     GitCommitInfo,
     RegistryRepositoryCreate,
@@ -407,7 +403,7 @@ async def delete_registry_repository(
             detail="Registry repository not found",
         ) from e
     logger.info("Deleting registry repository", repository_id=repository_id)
-    if repository.origin in (DEFAULT_REGISTRY_ORIGIN, CUSTOM_REPOSITORY_ORIGIN):
+    if repository.origin == DEFAULT_REGISTRY_ORIGIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The {repository.origin!r} repository cannot be deleted.",

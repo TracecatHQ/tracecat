@@ -8,11 +8,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionRead,
     RegistryActionValidationErrorInfo,
 )
-from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
-    DEFAULT_LOCAL_REGISTRY_ORIGIN,
-    DEFAULT_REGISTRY_ORIGIN,
-)
+from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN, DEFAULT_REGISTRY_ORIGIN
 
 
 class RegistryRepositoryRead(BaseModel):
@@ -53,7 +49,6 @@ class RegistryRepositoryCreate(BaseModel):
         """
         if v in (
             DEFAULT_REGISTRY_ORIGIN,
-            CUSTOM_REPOSITORY_ORIGIN,
             DEFAULT_LOCAL_REGISTRY_ORIGIN,
         ):
             return v
