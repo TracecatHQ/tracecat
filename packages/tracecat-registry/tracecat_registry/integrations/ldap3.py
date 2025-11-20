@@ -109,16 +109,20 @@ class LdapClient:
         if isinstance(attributes, str):
             attributes = getattr(ldap3, attributes)
 
-        entries = self.connection.search(
+        result = self.connection.search(
             search_base=search_base,
             search_filter=search_filter,
             search_scope=scope,
             attributes=attributes,
             **kwargs,
         )
-        if entries:
-            return [orjson.loads(entry.entry_to_json()) for entry in entries]
-        return []
+        if not result:
+            return []
+
+        return [
+            orjson.loads(entry.entry_to_json())
+            for entry in getattr(self.connection, "entries", [])
+        ]
 
 
 def get_ldap_secrets() -> dict[str, Any]:
