@@ -11,7 +11,6 @@ import {
   WorkflowTriggerForm,
 } from "@/components/cases/workflow-trigger-form"
 import { JsonViewWithControls } from "@/components/json-viewer"
-import { SystemInfoAlert } from "@/components/system"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -29,8 +28,6 @@ import { useWorkflowTriggerInputs } from "@/hooks/use-workflow-trigger-inputs"
 import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import type { TracecatJsonSchema } from "@/lib/schema"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const SHOW_BETA_ALERT = true
 
 type WorkflowWithSchema = WorkflowRead & {
   expects_schema?: TracecatJsonSchema | null
@@ -175,7 +172,6 @@ export function WorkflowTriggerDialog({
               : `Are you sure you want to trigger "${selectedWorkflowName}" with the following inputs?`}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {SHOW_BETA_ALERT && <SystemInfoAlert kind="beta-ee-contact-us" />}
         {triggerSchema ? (
           <WorkflowTriggerForm
             schema={triggerSchema}

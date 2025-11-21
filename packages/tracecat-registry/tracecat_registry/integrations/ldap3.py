@@ -8,7 +8,7 @@ Requires: A secret named `ldap` with the following keys:
 
 """
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol
 
 import ldap3
 import orjson
@@ -31,6 +31,33 @@ ldap_secret = RegistrySecret(
 """
 
 
+class LdapConnectionProtocol(Protocol):
+    @property
+    def entries(self) -> list[Any]: ...
+
+    @property
+    def result(self) -> dict[str, Any]: ...
+
+    def unbind(self) -> None: ...
+
+    def add(
+        self,
+        dn: str,
+        object_class: str,
+        attributes: dict[str, Any],
+    ) -> bool: ...
+
+    def delete(self, dn: str) -> bool: ...
+
+    def modify(
+        self,
+        dn: str,
+        changes: dict[str, list[tuple[str, list[str | int]]]],
+    ) -> bool: ...
+
+    def search(self, *args: Any, **kwargs: Any) -> bool: ...
+
+
 class LdapClient:
     def __init__(
         self,
@@ -47,6 +74,7 @@ class LdapClient:
         self.password = password
         self.server_kwargs = server_kwargs or {}
         self.connection_kwargs = connection_kwargs or {}
+        self.connection: LdapConnectionProtocol | None = None
 
     def __enter__(self):
         server = ldap3.Server(
@@ -68,48 +96,65 @@ class LdapClient:
         if self.connection:
             self.connection.unbind()
 
+    def _get_connection(self) -> LdapConnectionProtocol:
+        if not self.connection:
+            msg = "LDAP connection has not been established"
+            raise RuntimeError(msg)
+        return self.connection
+
     def add_entry(
         self,
         dn: str,
         object_class: str,
         attributes: dict[str, Any],
     ) -> None:
-        result = self.connection.add(
+        connection = self._get_connection()
+        result = connection.add(
             dn,
             object_class=object_class,
             attributes=attributes,
         )
         if not result:
-            raise PermissionError(self.connection.result)
+            raise PermissionError(connection.result)
 
     def delete_entry(self, dn: str) -> None:
-        result = self.connection.delete(dn)
+        connection = self._get_connection()
+        result = connection.delete(dn)
         if not result:
-            raise PermissionError(self.connection.result)
+            raise PermissionError(connection.result)
 
     def modify_entry(
         self,
         dn: str,
         changes: dict[str, list[tuple[str, list[str | int]]]],
     ) -> None:
-        result = self.connection.modify(dn, changes)
+        connection = self._get_connection()
+        result = connection.modify(dn, changes)
         if not result:
-            raise PermissionError(self.connection.result)
+            raise PermissionError(connection.result)
 
     def search(
         self,
         search_base: str,
         search_filter: str,
         search_scope: Literal["BASE", "ONE", "SUBTREE"] = "SUBTREE",
-        attributes: Literal["ALL_ATTRIBUTES", "ALL_OPERATIONAL_ATTRIBUTES"]
-        | list[str] = "ALL_ATTRIBUTES",
+        attributes: str | list[str] = "ALL_ATTRIBUTES",
         **kwargs,
     ) -> list[dict[str, Any]]:
         scope = getattr(ldap3, search_scope)
         if isinstance(attributes, str):
-            attributes = getattr(ldap3, attributes)
+            normalized = attributes.strip()
+            if normalized in {"ALL_ATTRIBUTES", "ALL_OPERATIONAL_ATTRIBUTES"}:
+                attributes = getattr(ldap3, normalized)
+            else:
+                attributes = [
+                    attr.strip()
+                    for attr in normalized.replace("\n", ",").split(",")
+                    if attr.strip()
+                ] or ldap3.ALL_ATTRIBUTES
 
-        result = self.connection.search(
+        connection = self._get_connection()
+        result = connection.search(
             search_base=search_base,
             search_filter=search_filter,
             search_scope=scope,
@@ -121,7 +166,7 @@ class LdapClient:
 
         return [
             orjson.loads(entry.entry_to_json())
-            for entry in getattr(self.connection, "entries", [])
+            for entry in getattr(connection, "entries", [])
         ]
 
 
@@ -235,8 +280,15 @@ def search_entries(
         Literal["BASE", "ONE", "SUBTREE"], Field(..., description="Search scope")
     ] = "SUBTREE",
     attributes: Annotated[
-        Literal["ALL_ATTRIBUTES", "ALL_OPERATIONAL_ATTRIBUTES"] | list[str],
-        Field(..., description="Attributes to return"),
+        str | list[str],
+        Field(
+            ...,
+            description=(
+                "Attributes to return. "
+                "Use ALL_ATTRIBUTES/ALL_OPERATIONAL_ATTRIBUTES for the ldap3 constants "
+                "or provide a comma/newline separated list of attribute names."
+            ),
+        ),
     ] = "ALL_ATTRIBUTES",
     server_kwargs: Annotated[
         dict[str, Any] | None, Field(..., description="Additional server parameters")

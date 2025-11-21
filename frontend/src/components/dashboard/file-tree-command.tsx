@@ -59,19 +59,18 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
                 toggleFolder(item.path)
               }
             }}
-            className={cn(
-              "flex items-center gap-2 px-2",
-              { "pl-[calc(0.5rem+var(--indent))]": level > 0 },
-              isSelected && "bg-accent"
-            )}
+            className={cn("px-2", {
+              "pl-[calc(0.5rem+var(--indent))]": level > 0,
+              "bg-accent": isSelected,
+            })}
             style={{ "--indent": `${level * 1.5}rem` } as React.CSSProperties}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {hasChildren ? (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-4 p-0"
+                  className="size-4 shrink-0 p-0"
                   onClick={(e) => {
                     e.stopPropagation()
                     toggleFolder(item.path)
@@ -92,7 +91,9 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
               ) : (
                 <Folder className="size-4 text-muted-foreground" />
               )}
-              <span>{item.name}</span>
+              <span className="truncate" title={item.name}>
+                {item.name}
+              </span>
             </div>
           </CommandItem>
 

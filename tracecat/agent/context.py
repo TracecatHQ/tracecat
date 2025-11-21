@@ -151,7 +151,7 @@ def truncate_tool_content(content: object, limit: int) -> tuple[object, bool]:
     try:
         if isinstance(content, str):
             serialized = content
-        elif isinstance(content, (dict, list)):
+        elif isinstance(content, dict | list):
             serialized = orjson.dumps(content).decode()
         else:
             serialized = str(content)
