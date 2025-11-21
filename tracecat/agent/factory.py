@@ -61,37 +61,28 @@ def _configure_model_settings(config: AgentConfig) -> dict[str, Any]:
         # No explicit preference, don't modify settings
         return settings
 
+    auto_managed_provider = config.model_provider in {"openai", "anthropic"}
+
     if enable_thinking:
-        # Enable thinking/reasoning based on provider
+        if not auto_managed_provider:
+            return settings
+
         if config.model_provider == "openai":
-            # OpenAI o1 models use reasoning_effort
             if "reasoning_effort" not in settings:
                 settings["reasoning_effort"] = "medium"
         elif config.model_provider == "anthropic":
-            # Anthropic models use anthropic_thinking
             if "anthropic_thinking" not in settings:
                 settings["anthropic_thinking"] = {
                     "type": "enabled",
                     "budget_tokens": 1024,
                 }
-        elif config.model_provider == "bedrock" and "anthropic" in config.model_name:
-            # Bedrock Anthropic models use thinking in additional fields
-            if "anthropic_thinking" not in settings:
-                settings["anthropic_thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": 1024,
-                }
-        elif config.model_provider in ("custom-model-provider", "ollama"):
-            # Custom providers might follow OpenAI format
-            if "reasoning_effort" not in settings:
-                settings["reasoning_effort"] = "medium"
     else:
-        # Explicitly disable thinking/reasoning
-        if config.model_provider in ("openai", "custom-model-provider", "ollama"):
+        if not auto_managed_provider:
+            return settings
+
+        if config.model_provider == "openai":
             settings["reasoning_effort"] = None
-        elif config.model_provider == "anthropic" or (
-            config.model_provider == "bedrock" and "anthropic" in config.model_name
-        ):
+        elif config.model_provider == "anthropic":
             settings["anthropic_thinking"] = {"type": "disabled"}
     return settings
 
