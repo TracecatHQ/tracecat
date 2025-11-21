@@ -480,3 +480,25 @@ TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS"
 
 TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES", 20))
 """The maximum number of retries that can be made per agent run."""
+
+TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 128_000)
+)
+"""Default character limit for agent message history when truncating context."""
+
+TRACECAT__AGENT_TOOL_OUTPUT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 20_000)
+)
+"""Default character limit for individual tool outputs when truncating context."""
+
+TRACECAT__MODEL_CONTEXT_LIMITS = {
+    "gpt-4o-mini": 128_000,
+    "gpt-5-mini": 128_000,
+    "gpt-5-nano": 128_000,
+    "gpt-5": 128_000,
+    "claude-sonnet-4-5-20250929": 200_000,
+    "claude-haiku-4-5-20251001": 200_000,
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": 200_000,
+    "anthropic.claude-haiku-4-5-20251001-v1:0": 200_000,
+}
+"""Model-specific character limits for agent message history truncation."""
