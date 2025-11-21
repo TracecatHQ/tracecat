@@ -36,11 +36,11 @@ const PasswordInput = React.forwardRef<HTMLInputElement, InputProps>(
     )
 
     return (
-      <div className="relative">
+      <div className={cn("relative", className)}>
         <input
           ref={inputRef}
           type={isRevealed ? "text" : "password"}
-          className={cn(inputVariants({ variant }), "pr-10", className)}
+          className={cn(inputVariants({ variant }), "pr-10")}
           {...props}
         />
         <button
