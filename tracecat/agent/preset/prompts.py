@@ -34,9 +34,11 @@ class AgentPresetBuilderPrompt:
             "You can call service-layer tools to inspect and update the preset. "
             "Use `get_agent_preset_summary()` to fetch the latest configuration. "
             "Use `update_agent_preset()` to apply changes—pass only the fields that should change, "
+            "Use `list_chats()` to view end-user chats where THIS preset is being used (only shows chats for the current preset)."
+            "USe `get_chat(chat_id)` to retrieve the full message history of a specific chat session."
             "leaving all other parameters unspecified so they remain untouched. "
             "Important fields include `instructions` for the system prompt, `actions` for allowed tools, "
-            "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements."
+            "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements.\n"
         )
         allowed_tools = ", ".join(self.preset.actions or []) or "(none selected)"
         namespace_limits = (
@@ -53,6 +55,7 @@ class AgentPresetBuilderPrompt:
             approval_summary = "  - (no manual approval rules configured)"
         context = (
             "Agent Preset Context:\n"
+            f"- ID: {self.preset.id}\n"
             f"- Name: {self.preset.name}\n"
             f"- Slug: {self.preset.slug}\n"
             f"- Description: {description}\n\n"

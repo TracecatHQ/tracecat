@@ -14,6 +14,7 @@ from sqlalchemy import func, or_, select
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tools import build_agent_tools
+from tracecat.chat.schemas import ChatMessage, ChatRead, ChatReadMinimal
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryAction
@@ -27,6 +28,8 @@ from tracecat.logger import logger
 AGENT_PRESET_BUILDER_TOOL_NAMES = [
     "get_agent_preset_summary",
     "update_agent_preset",
+    "list_chats",
+    "get_chat",
 ]
 
 
@@ -39,6 +42,20 @@ async def _preset_service():
         )
 
     async with AgentPresetService.with_session(role=role) as service:
+        yield service
+
+
+@asynccontextmanager
+async def _chat_service():
+    from tracecat.chat.service import ChatService
+
+    role = ctx_role.get()
+    if role is None:
+        raise TracecatAuthorizationError(
+            "Agent preset builder tools require an authenticated workspace role",
+        )
+
+    async with ChatService.with_session(role=role) as service:
         yield service
 
 
@@ -130,6 +147,75 @@ async def build_agent_preset_builder_tools(
                 raise ModelRetry(str(error)) from error
         return AgentPresetRead.model_validate(updated)
 
+    async def list_chats(
+        limit: int = 50,
+    ) -> list[ChatReadMinimal]:
+        """List chats where this agent preset is being used by end users.
+
+        Args:
+            limit: Maximum number of chats to return (default 50).
+        """
+        try:
+            target_entity_type = "agent_preset"
+            target_entity_id = str(preset_id)
+
+            async with _chat_service() as service:
+                if service.role.user_id is None:
+                    raise ModelRetry("Unable to list chats: authentication required.")
+                chats = await service.list_chats(
+                    user_id=service.role.user_id,
+                    entity_type=target_entity_type,
+                    entity_id=target_entity_id,
+                    limit=limit,
+                )
+                return [
+                    ChatReadMinimal.model_validate(chat, from_attributes=True)
+                    for chat in chats
+                ]
+        except ModelRetry:
+            raise
+        except Exception as e:
+            logger.error("Failed to list chats", error=str(e), preset_id=str(preset_id))
+            raise ModelRetry("Unable to list chats at this time.") from e
+
+    async def get_chat(chat_id: str) -> ChatRead:
+        """Get the full message history and metadata for a specific chat.
+
+        Args:
+            chat_id: The UUID of the chat to retrieve.
+        """
+        try:
+            uuid_id = uuid.UUID(chat_id)
+        except ValueError as e:
+            raise ModelRetry(f"Invalid chat ID format: {chat_id}") from e
+
+        try:
+            async with _chat_service() as service:
+                chat = await service.get_chat(uuid_id, with_messages=True)
+                if not chat:
+                    raise ModelRetry(f"Chat {chat_id} not found.")
+
+                return ChatRead(
+                    id=chat.id,
+                    title=chat.title,
+                    user_id=chat.user_id,
+                    entity_type=chat.entity_type,
+                    entity_id=chat.entity_id,
+                    tools=chat.tools,
+                    agent_preset_id=chat.agent_preset_id,
+                    created_at=chat.created_at,
+                    updated_at=chat.updated_at,
+                    last_stream_id=chat.last_stream_id,
+                    messages=[
+                        ChatMessage.from_db(message) for message in chat.messages
+                    ],
+                )
+        except ModelRetry:
+            raise
+        except Exception as e:
+            logger.error("Failed to get chat", error=str(e), chat_id=chat_id)
+            raise ModelRetry(f"Unable to retrieve chat {chat_id}.") from e
+
     # Tracecat tools
     build_tools_result = await build_agent_tools(
         actions=[
@@ -149,5 +235,7 @@ async def build_agent_preset_builder_tools(
         Tool(get_agent_preset_summary),
         Tool(update_agent_preset),
         Tool(list_available_agent_tools),
+        Tool(list_chats),
+        Tool(get_chat),
         *build_tools_result.tools,
     ]
