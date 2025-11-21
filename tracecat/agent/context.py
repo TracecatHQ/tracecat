@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import orjson
 from pydantic_ai.messages import (
@@ -19,6 +19,15 @@ from tracecat.config import (
     TRACECAT__MODEL_CONTEXT_LIMITS,
 )
 from tracecat.logger import logger
+
+
+@dataclass(slots=True, frozen=True)
+class _MessageEntry:
+    """Helper for tracking retained messages during pruning."""
+
+    index: int
+    message: ModelMessage
+    size: int
 
 
 def prune_history(
@@ -42,7 +51,7 @@ def prune_history(
     context_limit = max(0, context_limit - reserved_tokens)
     tool_limit = TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
 
-    retained: list[tuple[int, ModelMessage, int]] = []
+    retained: list[_MessageEntry] = []
     total_size = 0
 
     # Iterate from newest to oldest, keeping messages that fit within the limit
@@ -56,8 +65,18 @@ def prune_history(
         if retained and total_size + message_size > context_limit:
             break
 
-        retained.append((index, truncated, message_size))
+        retained.append(_MessageEntry(index, truncated, message_size))
         total_size += message_size
+
+    # Warn if the most recent message alone exceeds budget
+    if retained and total_size > context_limit:
+        logger.warning(
+            "Most recent message exceeds context budget; model invocation may fail",
+            message_size=retained[-1].size,
+            total_size=total_size,
+            context_limit=context_limit,
+            reserved_tokens=reserved_tokens,
+        )
 
     retained.reverse()
 
@@ -65,23 +84,21 @@ def prune_history(
     if (
         messages
         and _has_system_prompt(messages[0])
-        and all(idx != 0 for idx, _, _ in retained)
+        and all(entry.index != 0 for entry in retained)
     ):
         system_message = messages[0]
         system_size = _estimate_message_size(system_message)
         if retained:
             while retained and total_size + system_size > context_limit:
-                _, _, popped_size = retained[0]
-                total_size -= popped_size
-                _ = retained.pop(0)
-        retained.insert(0, (0, system_message, system_size))
+                popped = retained.pop(0)
+                total_size -= popped.size
+        retained.insert(0, _MessageEntry(0, system_message, system_size))
         total_size += system_size
 
     # Drop orphaned tool results from the start of history
-    while retained and _is_tool_result_only(retained[0][1]):
-        _, _, popped_size = retained[0]
-        total_size -= popped_size
-        _ = retained.pop(0)
+    while retained and _is_tool_result_only(retained[0].message):
+        popped = retained.pop(0)
+        total_size -= popped.size
 
     logger.debug(
         "Pruned message history",
@@ -91,7 +108,7 @@ def prune_history(
         context_limit=context_limit,
     )
 
-    return [message for _, message, _ in retained]
+    return [entry.message for entry in retained]
 
 
 def _truncate_tool_outputs(message: ModelMessage, limit: int) -> ModelMessage:
