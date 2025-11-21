@@ -49,6 +49,7 @@ class FileSecurityValidator:
         allowed_extensions: Sequence[str] | None = None,
         allowed_mime_types: Sequence[str] | None = None,
         validate_magic_number: bool = True,
+        verbose_magic_errors: bool = False,
     ):
         self.max_file_size = max_file_size or config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
         self.max_filename_length = (
@@ -65,6 +66,7 @@ class FileSecurityValidator:
             allowed_mime_types or config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
         )
         self.validate_magic_number = validate_magic_number
+        self.verbose_magic_errors = verbose_magic_errors
 
     def validate_file(
         self, content: bytes, filename: str, declared_mime_type: str
@@ -87,7 +89,9 @@ class FileSecurityValidator:
         self._validate_mime_type(normalized_mime)
         # Polyfile magic number check (if enabled)
         if self.validate_magic_number:
-            self._validate_magic_number(content, normalized_mime)
+            self._validate_magic_number(
+                content, normalized_mime, verbose=self.verbose_magic_errors
+            )
         return FileValidationResult(
             filename=filename,
             content_type=normalized_mime,
@@ -192,16 +196,28 @@ class FileSecurityValidator:
             )
         return True
 
-    def _validate_magic_number(self, content: bytes, declared_mime_type: str) -> bool:
+    def _validate_magic_number(
+        self, content: bytes, declared_mime_type: str, *, verbose: bool | None = None
+    ) -> bool:
         """Validate file type via polyfile magic matching with generic errors.
 
         We trust polyfile's detection and intentionally avoid custom fallbacks
         or leaking detailed types in error messages.
         """
+        verbose_mode = self.verbose_magic_errors if verbose is None else verbose
+        declared_base = self._normalize_mime_type(declared_mime_type)
+
         if not content:
             # Generic user-facing message
             logger.error("Unknown or unsupported file type")
-            raise FileContentMismatchError("Unknown or unsupported file type")
+            raise FileContentMismatchError(
+                self._build_magic_error_message(
+                    reason="File content was empty",
+                    declared=declared_base,
+                    detected=set(),
+                    verbose=verbose_mode,
+                )
+            )
 
         detected_types: set[str] = set()
         detected_equiv: set[str] = set()
@@ -219,13 +235,26 @@ class FileSecurityValidator:
         except Exception as e:
             # Keep messages generic for user-facing responses
             logger.error("Unknown or unsupported file type")
-            raise FileContentMismatchError("Unknown or unsupported file type") from e
+            raise FileContentMismatchError(
+                self._build_magic_error_message(
+                    reason="Magic matcher failed to inspect file",
+                    declared=declared_base,
+                    detected=set(),
+                    verbose=verbose_mode,
+                )
+            ) from e
 
         if not detected_types:
             logger.error("Unknown or unsupported file type")
-            raise FileContentMismatchError("Unknown or unsupported file type")
+            raise FileContentMismatchError(
+                self._build_magic_error_message(
+                    reason="Magic matcher produced no MIME candidates",
+                    declared=declared_base,
+                    detected=set(),
+                    verbose=verbose_mode,
+                )
+            )
 
-        declared_base = self._normalize_mime_type(declared_mime_type)
         declared_key = self._mime_equivalence_key(declared_base)
         if declared_key not in detected_equiv:
             # Keep message generic for users
@@ -235,7 +264,12 @@ class FileSecurityValidator:
                 detected_types=list(detected_types),
             )
             raise FileMimeTypeError(
-                "Unknown or unsupported file type",
+                self._build_magic_error_message(
+                    reason="Detected MIME types do not match declared MIME type",
+                    declared=declared_base,
+                    detected=detected_types,
+                    verbose=verbose_mode,
+                ),
                 declared_base,
                 self.allowed_mime_types,
             )
@@ -253,9 +287,33 @@ class FileSecurityValidator:
             allowed_types=self.allowed_mime_types,
         )
         raise FileMimeTypeError(
-            "Unknown or unsupported file type",
+            self._build_magic_error_message(
+                reason="Detected MIME types are not in the allowed list",
+                declared=declared_base,
+                detected=detected_types,
+                verbose=verbose_mode,
+            ),
             representative,
             self.allowed_mime_types,
+        )
+
+    def _build_magic_error_message(
+        self,
+        *,
+        reason: str,
+        declared: str,
+        detected: set[str],
+        verbose: bool,
+    ) -> str:
+        """Generate either a generic or verbose error message for magic validation."""
+        if not verbose:
+            return "Unknown or unsupported file type"
+
+        detected_list = sorted(detected) if detected else []
+        declared_repr = declared or "unknown"
+        return (
+            f"{reason}; declared={declared_repr}; detected={detected_list}; "
+            f"allowed={self.allowed_mime_types}"
         )
 
     @staticmethod

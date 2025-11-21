@@ -774,6 +774,12 @@ async def upload_attachment(
             "The MIME type of the file (e.g., 'application/pdf'). If not provided, defaults to 'application/octet-stream'."
         ),
     ] = None,
+    verbose_magic_errors: Annotated[
+        bool,
+        Doc(
+            "Return verbose MIME mismatch errors showing detected content types instead of generic messages. Useful for debugging."
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Upload a file attachment to a case."""
     # Validate case_id format
@@ -805,6 +811,7 @@ async def upload_attachment(
                 size=len(content),
                 content=content,
             ),
+            verbose_magic_errors=verbose_magic_errors,
         )
     return CaseAttachmentRead(
         id=attachment.id,

@@ -100,6 +100,27 @@ def test_mime_mismatch_raises_generic_message(
     assert str(exc.value) == "Unknown or unsupported file type"
 
 
+def test_mime_mismatch_with_verbose_message() -> None:
+    verbose_validator = FileSecurityValidator(
+        max_file_size=1024 * 1024,
+        max_filename_length=128,
+        allowed_extensions={".pdf", ".txt"},  # pyright: ignore[reportArgumentType]
+        allowed_mime_types={"application/pdf", "text/plain"},  # pyright: ignore[reportArgumentType]
+        verbose_magic_errors=True,
+    )
+
+    with pytest.raises(FileMimeTypeError) as exc:
+        verbose_validator.validate_file(
+            content=pdf_bytes(),
+            filename="doc.pdf",
+            declared_mime_type="text/plain",
+        )
+
+    message = str(exc.value)
+    assert "detected=['application/pdf']" in message
+    assert "declared=text/plain" in message
+
+
 def test_zip_upload_passes(validator_basic: FileSecurityValidator) -> None:
     validation_result = validator_basic.validate_file(
         content=zip_bytes(),

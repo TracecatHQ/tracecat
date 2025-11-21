@@ -194,13 +194,18 @@ class CaseAttachmentService(BaseWorkspaceService):
         return attachment
 
     async def create_attachment(
-        self, case: Case, params: CaseAttachmentCreate
+        self,
+        case: Case,
+        params: CaseAttachmentCreate,
+        *,
+        verbose_magic_errors: bool = False,
     ) -> CaseAttachment:
         """Create a new attachment for a case with security validations.
 
         Args:
             case: The case to attach the file to
             params: The attachment parameters
+            verbose_magic_errors: Enable detailed MIME mismatch messages for debugging
 
         Returns:
             The created attachment
@@ -267,6 +272,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 list(allowed_mime_types) if allowed_mime_types else None
             ),
             validate_magic_number=validate_magic_number,
+            verbose_magic_errors=verbose_magic_errors,
         )
         # Strip "Content-Type" from the declared MIME type
         declared_mime_type = params.content_type.split(";")[0].strip()
