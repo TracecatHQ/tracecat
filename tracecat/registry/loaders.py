@@ -38,6 +38,7 @@ def get_bound_action_impl(
         RegistrySecretTypeValidator.validate_python(secret)
         for secret in action.secrets or []
     ]
+    options = action.options or {}
     if impl.type == "udf":
         fn = load_udf_impl(impl)
         key = getattr(fn, "__tracecat_udf_key")
@@ -69,6 +70,8 @@ def get_bound_action_impl(
             author=action.author,
             deprecated=action.deprecated,
             origin=action.origin,
+            include_in_schema=options.get("include_in_schema", True),
+            requires_approval=options.get("requires_approval", False),
         )
     else:
         logger.trace("Binding template action", name=action.name)
@@ -95,9 +98,10 @@ def get_bound_action_impl(
             doc_url=action.doc_url,
             author=action.author,
             deprecated=action.deprecated,
-            include_in_schema=True,
+            include_in_schema=options.get("include_in_schema", True),
             template_action=impl.template_action,
             origin=action.origin,
+            requires_approval=options.get("requires_approval", False),
         )
 
 

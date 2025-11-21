@@ -15,6 +15,7 @@ from types import ModuleType
 from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 from pydantic import (
+    UUID4,
     BaseModel,
     ConfigDict,
     Field,
@@ -52,6 +53,7 @@ from tracecat.registry.fields import (
     get_components_for_union_type,
     type_drop_null,
 )
+from tracecat.registry.index import RegistryIndex
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -178,6 +180,8 @@ class Repository:
         self._is_initialized: bool = False
         self._origin = origin
         self.role = role or ctx_role.get()
+        self.index: RegistryIndex | None = None
+        self.repository_id: UUID4 | None = None
 
     def __contains__(self, name: str) -> bool:
         return name in self._store
@@ -196,6 +200,19 @@ class Repository:
 
     def __repr__(self) -> str:
         return f"Registry(origin={self._origin}, store={json.dumps([x.action for x in self._store.values()], indent=2)})"
+
+    def build_index(
+        self,
+        *,
+        registry_version: str | None = None,
+        extension: str | None = None,
+    ) -> None:
+        self.index = RegistryIndex.from_store(
+            self._store,
+            registry_version=registry_version,
+            extension=extension,
+            repository_id=self.repository_id,
+        )
 
     @property
     def is_initialized(self) -> bool:
@@ -230,6 +247,7 @@ class Repository:
                 self._load_base_template_actions()
 
             logger.info("Registry initialized", num_actions=len(self._store))
+            self.build_index()
             self._is_initialized = True
 
     def register_udf(
@@ -329,12 +347,15 @@ class Repository:
 
         If we pass a local directory, load the files directly.
         """
+        resolved_commit_sha = commit_sha
+        registry_version: str | None = None
+
         if self._origin == DEFAULT_REGISTRY_ORIGIN:
             # This is a builtin registry, nothing to load
             logger.info("Loading builtin registry")
             self._load_base_udfs()
             self._load_base_template_actions()
-            return None
+            registry_version = resolved_commit_sha or "builtin"
 
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
@@ -374,7 +395,7 @@ class Repository:
 
                 # Install the local repository in editable mode
                 env = {"GIT_DIR": dot_git.as_posix()}
-                if commit_sha is None:
+                if resolved_commit_sha is None:
                     # Get the current commit SHA
                     process = await asyncio.create_subprocess_exec(
                         "git",
@@ -388,7 +409,7 @@ class Repository:
                     stdout, _ = await process.communicate()
                     if process.returncode != 0:
                         raise RegistryError("Failed to get current commit SHA")
-                    commit_sha = stdout.decode().strip()
+                    resolved_commit_sha = stdout.decode().strip()
             else:
                 logger.info(
                     "Local repository is not a git repository, skipping commit SHA"
@@ -424,7 +445,7 @@ class Repository:
                 if conflicts:
                     toast_msg = get_conflict_summary(error_message)
                     raise RegistryDependencyConflictError(
-                        f"Failed to install local repository due to dependency conflicts:"
+                        "Failed to install local repository due to dependency conflicts:"
                         f"\n{toast_msg or 'See details'}"
                         "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
                         conflicts=conflicts,
@@ -440,9 +461,9 @@ class Repository:
                 "Imported and reloaded local repository",
                 module_name=module.__name__,
                 package_name=package_name,
-                commit_sha=commit_sha,
+                commit_sha=resolved_commit_sha,
             )
-            return None
+            registry_version = resolved_commit_sha or "local"
         elif self._origin.startswith("git+ssh://"):
             # Load from remote
             logger.info("Loading UDFs from origin", origin=self._origin)
@@ -479,19 +500,22 @@ class Repository:
             )
 
             logger.debug("Git URL", git_url=git_url)
-            commit_sha = await self._install_remote_repository(
-                git_url=git_url, commit_sha=commit_sha
+            resolved_commit_sha = await self._install_remote_repository(
+                git_url=git_url, commit_sha=resolved_commit_sha
             )
             module = await self._load_repository(cleaned_url, package_name)
             logger.info(
                 "Imported and reloaded remote repository",
                 module_name=module.__name__,
                 package_name=package_name,
-                commit_sha=commit_sha,
+                commit_sha=resolved_commit_sha,
             )
-            return commit_sha
+            registry_version = resolved_commit_sha
         else:
             raise RegistryError(f"Unsupported origin: {self._origin}.")
+
+        self.build_index(registry_version=registry_version)
+        return resolved_commit_sha
 
     async def _install_remote_repository(
         self, git_url: GitUrl, commit_sha: str | None = None

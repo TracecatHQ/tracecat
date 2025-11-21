@@ -208,6 +208,7 @@ class RegistryActionsService(BaseService):
         """
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
+        repo.repository_id = db_repo.id
         # Load the repository
         # Determine which commit SHA to use:
         # 1. If target_commit_sha is provided, use it
@@ -235,11 +236,17 @@ class RegistryActionsService(BaseService):
         )
         self.logger.info("Registry validation enabled", enabled=should_validate)
         if should_validate:
-            self.logger.info("Validating actions", all_actions=repo.store.keys())
+            if not repo.index:
+                raise RegistryError("Registry index was not initialized")
+
+            self.logger.info(
+                "Validating actions",
+                all_actions=[entry.action_id for entry in repo.index.iter_entries()],
+            )
             val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(
                 list
             )
-            for action in repo.store.values():
+            for action in repo.index.iter_loaders():
                 if not action.is_template:
                     continue
                 if errs := await self.validate_action_template(action, repo):
@@ -295,12 +302,16 @@ class RegistryActionsService(BaseService):
         # actions should be propogated to the db.
         # Safety: We're in a db session so we can call this
         await self.session.refresh(db_repo)
+        if not repo.index:
+            raise RegistryError("Registry index was not initialized")
+
         db_actions = db_repo.actions
         db_actions_map = {db_action.action: db_action for db_action in db_actions}
+        specs = list(repo.index.iter_specs())
         self.logger.info(
             "Syncing actions from repository",
             repository=db_repo.origin,
-            incoming_actions=len(repo.store.keys()),
+            incoming_actions=len(specs),
             existing_actions=len(db_actions_map.keys()),
         )
 
@@ -325,34 +336,32 @@ class RegistryActionsService(BaseService):
         n_created = 0
         n_updated = 0
         n_deleted = 0
-        for action_name, new_bound_action in repo.store.items():
+        for spec in specs:
             try:
-                registry_action = await self.get_action(action_name=action_name)
+                registry_action = await self.get_action(action_name=spec.action_id)
             except RegistryError:
                 self.logger.debug(
                     "Action not found, creating",
-                    namespace=new_bound_action.namespace,
-                    origin=new_bound_action.origin,
+                    namespace=spec.namespace,
+                    origin=spec.origin,
                     repository_id=db_repo.id,
                 )
-                create_params = RegistryActionCreate.from_bound(
-                    new_bound_action, db_repo.id
-                )
+                create_params = spec.to_create_params()
                 await self.create_action(create_params, commit=commit)
                 n_created += 1
             else:
                 self.logger.debug(
                     "Action found, updating",
-                    namespace=new_bound_action.namespace,
-                    origin=new_bound_action.origin,
+                    namespace=spec.namespace,
+                    origin=spec.origin,
                     repository_id=db_repo.id,
                 )
-                update_params = RegistryActionUpdate.from_bound(new_bound_action)
+                update_params = spec.to_update_params()
                 await self.update_action(registry_action, update_params, commit=commit)
                 n_updated += 1
             finally:
                 # Mark action as not to delete
-                db_actions_map.pop(action_name, None)
+                db_actions_map.pop(spec.action_id, None)
 
         # Remove actions that are marked for deletion
         if db_actions_map:
@@ -464,7 +473,9 @@ async def validate_action_template(
     # 1. Validate template steps
     for step in defn.steps:
         # (A) Ensure that the step action type exists
-        if step.action in repo.store:
+        if repo.index and step.action in repo.index:
+            bound_action = repo.index.get_loader(step.action)
+        elif step.action in repo.store:
             # If this action is already in the repo, we can just use it
             # We will overwrite the action in the DB anyways
             bound_action = repo.store[step.action]
