@@ -248,6 +248,11 @@ class TemplateAction(BaseModel):
 # API models
 
 
+class RegistryActionOptions(BaseModel):
+    include_in_schema: bool = True
+    requires_approval: bool = False
+
+
 class RegistryActionBase(BaseModel):
     """API read model for a registered action."""
 
@@ -311,6 +316,100 @@ class RegistryActionBase(BaseModel):
         description="The options for the action",
     )
     repository_id: UUID4 = Field(..., description="The repository id")
+
+
+class RegistryActionSpec(BaseModel):
+    """Index projection for registry actions."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    description: str
+    namespace: str
+    type: RegistryActionType
+    origin: str
+    secrets: list[RegistrySecretType] | None = None
+    interface: RegistryActionInterface
+    implementation: AnnotatedRegistryActionImpl
+    default_title: str | None = None
+    display_group: str | None = None
+    doc_url: str | None = None
+    author: str | None = None
+    deprecated: str | None = None
+    options: RegistryActionOptions = Field(default_factory=RegistryActionOptions)
+    repository_id: UUID4 | None = None
+    registry_version: str | None = None
+
+    @computed_field(return_type=str)
+    @property
+    def action_id(self) -> str:
+        return f"{self.namespace}.{self.name}"
+
+    @staticmethod
+    def from_bound(
+        bound: BoundRegistryAction,
+        *,
+        repository_id: UUID4 | None = None,
+        registry_version: str | None = None,
+    ) -> RegistryActionSpec:
+        return RegistryActionSpec(
+            name=bound.name,
+            description=bound.description,
+            namespace=bound.namespace,
+            type=bound.type,
+            origin=bound.origin,
+            secrets=bound.secrets,
+            interface=bound.get_interface(),
+            implementation=bound.get_implementation(),
+            default_title=bound.default_title,
+            display_group=bound.display_group,
+            doc_url=bound.doc_url,
+            author=bound.author,
+            deprecated=bound.deprecated,
+            options=RegistryActionOptions(
+                include_in_schema=bound.include_in_schema,
+                requires_approval=bound.requires_approval,
+            ),
+            repository_id=repository_id,
+            registry_version=registry_version,
+        )
+
+    def to_create_params(self) -> RegistryActionCreate:
+        if self.repository_id is None:
+            raise RegistryValidationError("Repository id is required for create params")
+
+        return RegistryActionCreate(
+            repository_id=self.repository_id,
+            name=self.name,
+            description=self.description,
+            namespace=self.namespace,
+            type=self.type,
+            interface=self.interface,
+            implementation=self.implementation,
+            default_title=self.default_title,
+            display_group=self.display_group,
+            doc_url=self.doc_url,
+            author=self.author,
+            deprecated=self.deprecated,
+            origin=self.origin,
+            secrets=self.secrets,
+            options=self.options,
+        )
+
+    def to_update_params(self) -> RegistryActionUpdate:
+        return RegistryActionUpdate(
+            name=self.name,
+            description=self.description,
+            interface=self.interface,
+            implementation=self.implementation,
+            default_title=self.default_title,
+            display_group=self.display_group,
+            doc_url=self.doc_url,
+            author=self.author,
+            deprecated=self.deprecated,
+            options=self.options,
+            secrets=self.secrets,
+        )
 
 
 class RegistryActionReadMinimal(BaseModel):
@@ -535,11 +634,6 @@ class RegistryActionValidateResponse(BaseModel):
 """DB Schema related """
 # These classes will be used for the db
 # UDFs can only store reference to a function in a package
-
-
-class RegistryActionOptions(BaseModel):
-    include_in_schema: bool = True
-    requires_approval: bool = False
 
 
 class RegistryActionInterface(TypedDict):
