@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangleIcon, RefreshCcw } from "lucide-react"
+import { RefreshCcw } from "lucide-react"
 import type {
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoryReadMinimal,
@@ -72,15 +72,6 @@ export function SyncRepositoryDialog({
       })
     } catch (error) {
       console.error("Error syncing repository", error)
-      toast({
-        title: "Error syncing repository",
-        description: (
-          <div className="flex items-start gap-2">
-            <AlertTriangleIcon className="size-4 fill-rose-600 text-white" />
-            <span>An error occurred while reloading the repository.</span>
-          </div>
-        ),
-      })
     } finally {
       setSelectedRepo(null)
     }
