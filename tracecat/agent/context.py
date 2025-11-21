@@ -8,7 +8,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelRequestPart,
+    ModelResponse,
     SystemPromptPart,
+    ToolCallPart,
     ToolReturnPart,
 )
 
@@ -95,10 +97,13 @@ def prune_history(
         retained.insert(0, _MessageEntry(0, system_message, system_size))
         total_size += system_size
 
-    # Drop orphaned tool results from the start of history
+    # Drop orphaned tool returns from the start of history
     while retained and _is_tool_result_only(retained[0].message):
         popped = retained.pop(0)
         total_size -= popped.size
+
+    # Sanitize: remove any tool returns that don't have corresponding tool calls
+    retained, total_size = _sanitize_orphaned_tool_returns(retained)
 
     logger.debug(
         "Pruned message history",
@@ -175,3 +180,60 @@ def _is_tool_result_only(message: ModelMessage) -> bool:
     if not isinstance(message, ModelRequest):
         return False
     return all(isinstance(part, ToolReturnPart) for part in message.parts)
+
+
+def _sanitize_orphaned_tool_returns(
+    retained: list[_MessageEntry],
+) -> tuple[list[_MessageEntry], int]:
+    """Remove tool returns that don't have corresponding tool calls in the history.
+    When messages are pruned, we might drop a ModelResponse containing ToolCallPart
+    but keep a later ModelRequest containing the corresponding ToolReturnPart. This
+    causes API errors since the tool result references a non-existent tool call.
+    Args:
+        retained: List of message entries to clean.
+    Returns:
+        Tuple of (cleaned list, new total_size).
+    """
+    # Collect all valid tool_call_ids from tool calls in the history
+    valid_tool_ids: set[str] = set()
+    for entry in retained:
+        if isinstance(entry.message, ModelResponse):
+            for part in entry.message.parts:
+                if isinstance(part, ToolCallPart):
+                    valid_tool_ids.add(part.tool_call_id)
+
+    # Filter out orphaned tool returns
+    cleaned: list[_MessageEntry] = []
+    for entry in retained:
+        if not isinstance(entry.message, ModelRequest):
+            cleaned.append(entry)
+            continue
+
+        # Filter parts, keeping only non-orphaned tool returns
+        filtered_parts: list[ModelRequestPart] = []
+        for part in entry.message.parts:
+            if isinstance(part, ToolReturnPart):
+                if part.tool_call_id in valid_tool_ids:
+                    filtered_parts.append(part)
+                else:
+                    logger.debug(
+                        "Dropping orphaned tool return",
+                        tool_call_id=part.tool_call_id,
+                        tool_name=part.tool_name,
+                    )
+            else:
+                filtered_parts.append(part)
+
+        # Only keep the message if it has parts left
+        if filtered_parts:
+            if len(filtered_parts) != len(entry.message.parts):
+                # Message was modified, recalculate size
+                updated_message = replace(entry.message, parts=tuple(filtered_parts))
+                updated_size = _estimate_message_size(updated_message)
+                entry = replace(entry, message=updated_message, size=updated_size)
+            cleaned.append(entry)
+        else:
+            logger.debug("Dropping empty message after removing orphaned tool returns")
+
+    total_size = sum(entry.size for entry in cleaned)
+    return cleaned, total_size
