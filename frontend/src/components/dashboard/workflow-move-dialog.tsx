@@ -125,7 +125,7 @@ export function WorkflowMoveDialog({
                 <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="max-h-[300px] w-[--radix-popover-trigger-width] overflow-y-auto p-0">
+            <PopoverContent className="w-[--radix-popover-trigger-width] overflow-hidden p-0">
               <FileTreeCommand
                 items={fileTreeItems}
                 onSelect={handleSelectFolder}

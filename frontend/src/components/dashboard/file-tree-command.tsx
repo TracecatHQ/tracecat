@@ -60,7 +60,7 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
               }
             }}
             className={cn(
-              "flex items-center gap-2 px-2",
+              "flex items-center gap-2 overflow-hidden px-2",
               { "pl-[calc(0.5rem+var(--indent))]": level > 0 },
               isSelected && "bg-accent"
             )}
@@ -92,7 +92,7 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
               ) : (
                 <Folder className="size-4 text-muted-foreground" />
               )}
-              <span>{item.name}</span>
+              <span className="truncate">{item.name}</span>
             </div>
           </CommandItem>
 
