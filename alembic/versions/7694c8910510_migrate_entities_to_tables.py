@@ -119,7 +119,7 @@ def upgrade() -> None:
                 "updated_at": entity.updated_at,
             },
         )
-        table_id = table_insert_result.fetchone().id
+        table_id = table_insert_result.one().id
 
         # 4. Get entity fields and create table columns
         fields_result = connection.execute(
