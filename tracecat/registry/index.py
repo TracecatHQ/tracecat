@@ -84,7 +84,7 @@ class RegistryIndex:
         registry_version: str | None = None,
         extension: str | None = None,
         repository_id: Any | None = None,
-    ) -> "RegistryIndex":
+    ) -> RegistryIndex:
         index = cls()
         for bound in store.values():
             index.add(
@@ -94,4 +94,3 @@ class RegistryIndex:
                 repository_id=repository_id,
             )
         return index
-

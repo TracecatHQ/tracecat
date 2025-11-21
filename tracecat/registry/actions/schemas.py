@@ -248,7 +248,6 @@ class TemplateAction(BaseModel):
 # API models
 
 
-
 class RegistryActionOptions(BaseModel):
     include_in_schema: bool = True
     requires_approval: bool = False
@@ -352,7 +351,7 @@ class RegistryActionSpec(BaseModel):
         *,
         repository_id: UUID4 | None = None,
         registry_version: str | None = None,
-    ) -> "RegistryActionSpec":
+    ) -> RegistryActionSpec:
         return RegistryActionSpec(
             name=bound.name,
             description=bound.description,
@@ -375,7 +374,7 @@ class RegistryActionSpec(BaseModel):
             registry_version=registry_version,
         )
 
-    def to_create_params(self) -> "RegistryActionCreate":
+    def to_create_params(self) -> RegistryActionCreate:
         if self.repository_id is None:
             raise RegistryValidationError("Repository id is required for create params")
 
@@ -397,7 +396,7 @@ class RegistryActionSpec(BaseModel):
             options=self.options,
         )
 
-    def to_update_params(self) -> "RegistryActionUpdate":
+    def to_update_params(self) -> RegistryActionUpdate:
         return RegistryActionUpdate(
             name=self.name,
             description=self.description,
@@ -635,6 +634,7 @@ class RegistryActionValidateResponse(BaseModel):
 """DB Schema related """
 # These classes will be used for the db
 # UDFs can only store reference to a function in a package
+
 
 class RegistryActionInterface(TypedDict):
     expects: dict[str, Any]
