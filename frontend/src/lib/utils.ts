@@ -67,6 +67,12 @@ export function slugify(value: string, delimiter: string = "-"): string {
     .replace(trimEdges, "") // Trim delimiters from ends
 }
 
+export const ACTION_REF_DELIMITER = "_"
+
+export function slugifyActionRef(value: string): string {
+  return slugify(value, ACTION_REF_DELIMITER)
+}
+
 export function undoSlugify(value: string, delimiter: string = "-"): string {
   return value
     .replace(new RegExp(delimiter, "g"), " ")

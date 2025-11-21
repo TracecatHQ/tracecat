@@ -1,5 +1,10 @@
 import { compressActionsInString } from "@/lib/expressions"
-import { isServer, slugify, undoSlugify } from "@/lib/utils"
+import {
+  isServer,
+  slugify,
+  slugifyActionRef,
+  undoSlugify,
+} from "@/lib/utils"
 
 describe("slugify", () => {
   it("should convert a string to a slug", () => {
@@ -40,6 +45,13 @@ describe("slugify", () => {
     expected.forEach((pythonSlug, idx) => {
       expect(slugify(cases[idx], "_")).toBe(pythonSlug)
     })
+  })
+})
+
+describe("slugifyActionRef", () => {
+  it("uses underscore delimiter to align with backend action refs", () => {
+    expect(slugifyActionRef("Hello World")).toBe("hello_world")
+    expect(slugifyActionRef("foo--bar baz")).toBe("foo_bar_baz")
   })
 })
 

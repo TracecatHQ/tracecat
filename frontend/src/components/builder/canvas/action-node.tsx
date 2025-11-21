@@ -73,7 +73,7 @@ import {
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { cn, slugify } from "@/lib/utils"
+import { cn, slugifyActionRef } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -123,8 +123,9 @@ export default React.memo(function ActionNode({
   )
   const actionValidationErrors = useMemo(() => {
     return (
-      validationErrors?.filter((e) => e.ref === slugify(action?.title ?? "")) ??
-      []
+      validationErrors?.filter(
+        (e) => e.ref === slugifyActionRef(action?.title ?? "")
+      ) ?? []
     )
   }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
@@ -629,7 +630,7 @@ function ActionNodeToolbar({
           <CommandGroup>
             <CommandItem
               onSelect={() => {
-                const value = `ACTIONS.${slugify(action.title)}.result`
+                const value = `ACTIONS.${slugifyActionRef(action.title)}.result`
                 navigator.clipboard.writeText(value)
                 toast({
                   title: "Copied action reference",
@@ -659,7 +660,7 @@ function ActionNodeToolbar({
               onSelect={() => {
                 sidebarRef.current?.setOpen(true)
                 sidebarRef.current?.setActiveTab("action-input")
-                setSelectedActionEventRef(slugify(action.title))
+                setSelectedActionEventRef(slugifyActionRef(action.title))
               }}
             >
               <LayoutListIcon className="mr-2 size-3" />
@@ -669,7 +670,7 @@ function ActionNodeToolbar({
               onSelect={() => {
                 sidebarRef.current?.setOpen(true)
                 sidebarRef.current?.setActiveTab("action-result")
-                setSelectedActionEventRef(slugify(action.title))
+                setSelectedActionEventRef(slugifyActionRef(action.title))
               }}
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
@@ -680,7 +681,7 @@ function ActionNodeToolbar({
                 onSelect={() => {
                   sidebarRef.current?.setOpen(true)
                   sidebarRef.current?.setActiveTab("action-interaction")
-                  setSelectedActionEventRef(slugify(action.title))
+                  setSelectedActionEventRef(slugifyActionRef(action.title))
                 }}
               >
                 <MessagesSquare className="mr-2 size-3" />
