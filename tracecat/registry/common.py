@@ -9,7 +9,6 @@ from tracecat.logger import logger
 from tracecat.parse import safe_url
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
@@ -38,21 +37,6 @@ async def reload_registry(session: AsyncSession, role: Role):
             await actions_service.sync_actions_from_repository(base_repo)
     else:
         logger.info("Base registry repository already exists", origin=base_origin)
-
-    # Setup custom repository
-    # This is where custom template actions are created and stored
-    custom_origin = CUSTOM_REPOSITORY_ORIGIN
-    if await repos_service.get_repository(custom_origin) is None:
-        try:
-            await repos_service.create_repository(
-                RegistryRepositoryCreate(origin=custom_origin)
-            )
-        except Exception as e:
-            logger.error("Error creating custom registry repository", error=e)
-        else:
-            logger.info("Created custom repository", origin=custom_origin)
-    else:
-        logger.info("Custom repository already exists", origin=custom_origin)
 
     # Setup local repository
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
