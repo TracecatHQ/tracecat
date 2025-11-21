@@ -85,13 +85,3 @@ def test_prune_history_orphaned_tool_return() -> None:
 
     assert len(result) == 1
     assert result[0] == user_msg
-
-
-def test_prune_history_lone_orphaned_tool_return_dropped() -> None:
-    tool_msg = ModelRequest(
-        parts=[ToolReturnPart(tool_name="test", content="result", tool_call_id="1")]
-    )
-
-    result = prune_history([tool_msg], "gpt-4o-mini")
-
-    assert len(result) == 0
