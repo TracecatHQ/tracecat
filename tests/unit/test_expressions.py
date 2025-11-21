@@ -1027,11 +1027,7 @@ def test_jsonpath_filter_returns_list():
                         {
                             "attributes": {
                                 "incident_role": {
-                                    "data": {
-                                        "attributes": {
-                                            "slug": "primary-role"
-                                        }
-                                    }
+                                    "data": {"attributes": {"slug": "primary-role"}}
                                 }
                             }
                         },
@@ -1048,10 +1044,7 @@ def test_jsonpath_filter_returns_list():
         }
     }
 
-    expr = (
-        "ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug"
-        " != \"primary-role\")].attributes.incident_role.data.attributes.slug"
-    )
+    expr = 'ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug != "primary-role")].attributes.incident_role.data.attributes.slug'
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
@@ -1059,10 +1052,7 @@ def test_jsonpath_filter_returns_list():
     actual = ev.transform(parse_tree)
     assert actual == ["secondary-role"]
 
-    expr = (
-        "ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug"  # noqa: E501
-        ").attributes.incident_role.data.attributes.slug"
-    )
+    expr = "ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug)].attributes.incident_role.data.attributes.slug"
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
     actual = ev.transform(parse_tree)
