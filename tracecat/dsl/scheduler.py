@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
 
@@ -610,7 +611,19 @@ class DSLScheduler:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
-            context = self.get_context(task.stream_id)
+            base_context = self.get_context(task.stream_id, inherit=True)
+            action_refs = extract_expressions({"run_if": run_if}).get(
+                ExprContext.ACTIONS, set()
+            )
+            resolved_actions = {
+                ref: self.get_stream_aware_action_result(ref, task.stream_id)
+                for ref in action_refs
+            }
+            actions_context = {
+                **base_context.get(ExprContext.ACTIONS, {}),
+                **resolved_actions,
+            }
+            context = {**base_context, ExprContext.ACTIONS: actions_context}
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
@@ -748,10 +761,47 @@ class DSLScheduler:
             scopes_created=len(streams),
         )
 
-    def get_context(self, stream_id: StreamID) -> ExecutionContext:
+    def get_context(
+        self, stream_id: StreamID, *, inherit: bool = False
+    ) -> ExecutionContext:
+        """Get the execution context for a stream.
+
+        Args:
+            stream_id: The stream to retrieve the context for.
+            inherit: If True, merge the current stream's context with all parent
+                streams so expressions (e.g. ``run_if``) can access ACTIONS data
+                outside the local stream.
+        """
+        if inherit:
+            return self._get_inherited_context(stream_id)
+
         context = self.streams[stream_id]
         self.logger.trace("Getting stream context", stream_id=stream_id)
         return context
+
+    def _get_inherited_context(self, stream_id: StreamID) -> ExecutionContext:
+        """Create a merged view of a stream's context with its ancestors."""
+
+        contexts: list[ExecutionContext] = []
+        curr = stream_id
+        while curr is not None:
+            if stream_context := self.streams.get(curr):
+                contexts.append(stream_context)
+            curr = self.stream_hierarchy.get(curr)
+
+        merged_actions: dict[str, TaskResult] = {}
+        merged_context: ExecutionContext = {ExprContext.ACTIONS: merged_actions}
+
+        for context in reversed(contexts):
+            if actions := context.get(ExprContext.ACTIONS):
+                merged_actions.update(actions)
+
+            for key, value in context.items():
+                if key == ExprContext.ACTIONS:
+                    continue
+                merged_context[key] = value
+
+        return merged_context
 
     async def _handle_gather_skip_stream(
         self, task: Task, stmt: ActionStatement, stream_id: StreamID
