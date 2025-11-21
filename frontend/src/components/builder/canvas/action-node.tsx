@@ -9,6 +9,7 @@ import {
 } from "@xyflow/react"
 import {
   AlertTriangleIcon,
+  BracesIcon,
   CircleCheckBigIcon,
   CircleHelp,
   CopyIcon,
@@ -73,6 +74,7 @@ import {
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
+import { isExpression } from "@/lib/expressions"
 import { cn, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -336,10 +338,17 @@ export default React.memo(function ActionNode({
   const childWorkflowAlias = actionInputsObj?.workflow_alias
     ? String(actionInputsObj?.workflow_alias)
     : undefined
+  const isDynamicChildWorkflowAlias = useMemo(
+    () => !!childWorkflowAlias && isExpression(childWorkflowAlias),
+    [childWorkflowAlias]
+  )
   const { workflows } = useWorkflowManager()
   const childIdFromAlias = useMemo(
-    () => workflows?.find((w) => w.alias === childWorkflowAlias)?.id,
-    [workflows, childWorkflowAlias]
+    () =>
+      childWorkflowAlias && !isDynamicChildWorkflowAlias
+        ? workflows?.find((w) => w.alias === childWorkflowAlias)?.id
+        : undefined,
+    [workflows, childWorkflowAlias, isDynamicChildWorkflowAlias]
   )
 
   const childWorkflowInfo: ChildWorkflowInfo = {
@@ -768,6 +777,25 @@ function ChildWorkflowLink({
     )
   }
   if (childWorkflowAlias) {
+    if (isDynamicChildWorkflowAlias) {
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <div className="rounded-sm border bg-muted-foreground/10 p-0.5">
+              <BracesIcon className="size-3 text-foreground/70" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={20}>
+            <span>
+              This subflow is resolved dynamically at runtime using the{" "}
+              <TooltipCode value="workflow_alias" />
+              {" "}
+              expression
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
     if (!childIdFromAlias) {
       // Cannot get child wf ID from alias
       return (
