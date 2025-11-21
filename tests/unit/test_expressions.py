@@ -1018,6 +1018,50 @@ def test_jsonpath_wildcard():
     assert actual == [1]
 
 
+def test_jsonpath_filter_returns_list():
+    context = {
+        ExprContext.ACTIONS: {
+            "parse_event": {
+                "result": {
+                    "included": [
+                        {
+                            "attributes": {
+                                "incident_role": {
+                                    "data": {"attributes": {"slug": "primary-role"}}
+                                }
+                            }
+                        },
+                        {
+                            "attributes": {
+                                "incident_role": {
+                                    "data": {"attributes": {"slug": "secondary-role"}}
+                                }
+                            }
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    expr = 'ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug != "primary-role")].attributes.incident_role.data.attributes.slug'
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    ev = ExprEvaluator(operand=context)
+    actual = ev.transform(parse_tree)
+    assert actual == ["secondary-role"]
+
+    expr = "ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug)].attributes.incident_role.data.attributes.slug"
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    actual = ev.transform(parse_tree)
+    assert actual == [
+        "primary-role",
+        "secondary-role",
+    ]
+
+
 def test_time_funcs():
     time_now_expr = "${{ FN.now() }}"
     dt = eval_templated_object(time_now_expr)
