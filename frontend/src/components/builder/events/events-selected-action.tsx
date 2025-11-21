@@ -212,15 +212,45 @@ export function SuccessEvent({
       )
     case "result":
       return (
-        <JsonViewWithControls
-          src={event.action_result}
+        <ActionResultViewer
+          result={event.action_result}
+          eventRef={eventRef}
           defaultExpanded={defaultExpanded}
           defaultTab={defaultTab}
-          copyPrefix={`ACTIONS.${eventRef}.result`}
         />
       )
   }
   return null
+}
+
+function ActionResultViewer({
+  result,
+  eventRef,
+  defaultExpanded = true,
+  defaultTab = "nested",
+}: {
+  result: unknown
+  eventRef: string
+  defaultExpanded?: boolean
+  defaultTab?: "nested" | "flat"
+}) {
+  if (result === null || result === undefined) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <CircleDot className="size-3 text-muted-foreground" />
+        <span>This action returned no result (null).</span>
+      </div>
+    )
+  }
+
+  return (
+    <JsonViewWithControls
+      src={result}
+      defaultExpanded={defaultExpanded}
+      defaultTab={defaultTab}
+      copyPrefix={`ACTIONS.${eventRef}.result`}
+    />
+  )
 }
 
 function StreamDetails({
@@ -340,11 +370,11 @@ function ActionEventContent({
               <ActionSessionStream session={session} />
             </TabsContent>
             <TabsContent value="result" className="mt-1">
-              <JsonViewWithControls
-                src={actionEvent.action_result}
+              <ActionResultViewer
+                result={actionEvent.action_result}
+                eventRef={eventRef}
                 defaultExpanded={true}
                 defaultTab="nested"
-                copyPrefix={`ACTIONS.${eventRef}.result`}
               />
             </TabsContent>
           </Tabs>
