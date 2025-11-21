@@ -4,13 +4,48 @@ import { isServer, slugify, undoSlugify } from "@/lib/utils"
 describe("slugify", () => {
   it("should convert a string to a slug", () => {
     const slug = slugify("Hello World")
-    expect(slug).toBe("hello_world")
+    expect(slug).toBe("hello-world")
+  })
+
+  it("matches the python implementation for key edge cases", () => {
+    const cases = [
+      "foo/bar:baz",
+      "  Café déjà-vu  ",
+      "foo__bar",
+      "foo--bar",
+      "Action: Name/Version",
+      "ACTIONS.test.result",
+      "ACTIONS test result",
+    ]
+
+    const expected = [
+      "foobarbaz",
+      "cafe-deja-vu",
+      "foo__bar",
+      "foo-bar",
+      "action-nameversion",
+      "actionstestresult",
+      "actions-test-result",
+    ]
+
+    expected.forEach((pythonSlug, idx) => {
+      expect(slugify(cases[idx])).toBe(pythonSlug)
+    })
+  })
+
+  it("supports alternative delimiters like python", () => {
+    const cases = ["Hello World", "foo--bar", "foo/bar:baz"]
+    const expected = ["hello_world", "foo_bar", "foobarbaz"]
+
+    expected.forEach((pythonSlug, idx) => {
+      expect(slugify(cases[idx], "_")).toBe(pythonSlug)
+    })
   })
 })
 
 describe("undoSlugify", () => {
   it("should convert a slug back to a string", () => {
-    const string = undoSlugify("hello_world")
+    const string = undoSlugify("hello-world")
     expect(string).toBe("Hello World")
   })
 })
