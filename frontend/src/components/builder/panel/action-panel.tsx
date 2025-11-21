@@ -116,7 +116,7 @@ import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
 import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
-import { cn, slugify } from "@/lib/utils"
+import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -659,7 +659,7 @@ function ActionPanelContent({
                 msg: String(error),
               },
             ],
-            ref: slugify(action?.title ?? ""),
+            ref: slugifyActionRef(action?.title ?? ""),
           },
         ])
       }
@@ -770,7 +770,7 @@ function ActionPanelContent({
   const finalValErrors = [
     ...(validationResults || []),
     ...(validationErrors || []),
-  ].filter((e) => e.ref === slugify(action.title))
+  ].filter((e) => e.ref === slugifyActionRef(action.title))
 
   return (
     <div

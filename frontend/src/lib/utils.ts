@@ -50,18 +50,30 @@ export const copyToClipboard = async ({
   }
 }
 
-export function slugify(value: string, delimiter: string = "_"): string {
-  return value
-    .normalize("NFD")
+export function slugify(value: string, delimiter: string = "-"): string {
+  const normalized = value
+    .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+    .replace(/[^\x00-\x7F]/g, "") // Drop non-ASCII remnants
     .toLowerCase()
     .trim()
-    .replace(/['`]/g, "_") // Replace quotes and apostrophes with underscore
-    .replace(/[^a-z0-9_ ]/g, "") // Remove other special chars except underscore
-    .replace(/\s+/g, delimiter) // Replace spaces with delimiter
+
+  const escapedDelimiter = delimiter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const trimEdges = new RegExp(`^${escapedDelimiter}|${escapedDelimiter}$`, "g")
+
+  return normalized
+    .replace(/[^\w\s-]/g, "") // Remove non-word, non-space, non-hyphen characters
+    .replace(/[-\s]+/g, delimiter) // Collapse whitespace and hyphens into the delimiter
+    .replace(trimEdges, "") // Trim delimiters from ends
 }
 
-export function undoSlugify(value: string, delimiter: string = "_"): string {
+export const ACTION_REF_DELIMITER = "_"
+
+export function slugifyActionRef(value: string): string {
+  return slugify(value, ACTION_REF_DELIMITER)
+}
+
+export function undoSlugify(value: string, delimiter: string = "-"): string {
   return value
     .replace(new RegExp(delimiter, "g"), " ")
     .replace(/\b\w/g, (l) => l.toUpperCase())
