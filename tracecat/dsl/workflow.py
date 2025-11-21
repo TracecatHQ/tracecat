@@ -107,7 +107,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
-    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
@@ -1122,14 +1121,7 @@ class DSLWorkflow:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Construct the execution context for an action with resolved dependencies."""
-        expr_ctxs = extract_expressions(task.model_dump())
-        resolved_actions: dict[str, Any] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
-            resolved_actions[action_ref] = (
-                self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
-            )
-
-        return {**self.context, ExprContext.ACTIONS: resolved_actions}
+        return self.scheduler.build_stream_aware_context(task, stream_id)
 
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
