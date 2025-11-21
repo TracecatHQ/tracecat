@@ -9,6 +9,7 @@ import {
 } from "@xyflow/react"
 import {
   AlertTriangleIcon,
+  BracesIcon,
   CircleCheckBigIcon,
   CircleHelp,
   CopyIcon,
@@ -68,6 +69,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast, useToast } from "@/components/ui/use-toast"
 import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
+import { isExpression } from "@/lib/expressions"
 import {
   useAction,
   useGetRegistryAction,
@@ -96,6 +98,7 @@ type ChildWorkflowInfo = {
   childWorkflowId?: string
   childWorkflowAlias?: string
   childIdFromAlias?: string
+  isDynamicChildWorkflowAlias: boolean
 }
 
 export default React.memo(function ActionNode({
@@ -337,10 +340,17 @@ export default React.memo(function ActionNode({
   const childWorkflowAlias = actionInputsObj?.workflow_alias
     ? String(actionInputsObj?.workflow_alias)
     : undefined
+  const isDynamicChildWorkflowAlias = useMemo(
+    () => !!childWorkflowAlias && isExpression(childWorkflowAlias),
+    [childWorkflowAlias]
+  )
   const { workflows } = useWorkflowManager()
   const childIdFromAlias = useMemo(
-    () => workflows?.find((w) => w.alias === childWorkflowAlias)?.id,
-    [workflows, childWorkflowAlias]
+    () =>
+      childWorkflowAlias && !isDynamicChildWorkflowAlias
+        ? workflows?.find((w) => w.alias === childWorkflowAlias)?.id
+        : undefined,
+    [workflows, childWorkflowAlias, isDynamicChildWorkflowAlias]
   )
 
   const childWorkflowInfo: ChildWorkflowInfo = {
@@ -348,6 +358,7 @@ export default React.memo(function ActionNode({
     childIdFromAlias,
     childWorkflowAlias,
     childWorkflowId,
+    isDynamicChildWorkflowAlias,
   }
 
   return (
@@ -735,8 +746,12 @@ function ChildWorkflowLink({
   workspaceId: string
   childWorkflowInfo: ChildWorkflowInfo
 }) {
-  const { childWorkflowId, childWorkflowAlias, childIdFromAlias } =
-    childWorkflowInfo
+  const {
+    childWorkflowId,
+    childWorkflowAlias,
+    childIdFromAlias,
+    isDynamicChildWorkflowAlias,
+  } = childWorkflowInfo
   const { setSelectedNodeId } = useWorkflowBuilder()
 
   const handleClearSelection = () => {
@@ -769,6 +784,26 @@ function ChildWorkflowLink({
     )
   }
   if (childWorkflowAlias) {
+    if (isDynamicChildWorkflowAlias) {
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <div className="rounded-sm border bg-blue-200/30 p-0.5">
+              <BracesIcon className="size-3 text-blue-600/80" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent
+            sideOffset={20}
+            className="max-w-[300px] whitespace-normal break-words"
+          >
+            <span>
+              This subflow is resolved dynamically at runtime using the{" "}
+              <TooltipCode value="workflow_alias" /> expression
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
     if (!childIdFromAlias) {
       // Cannot get child wf ID from alias
       return (
@@ -824,7 +859,7 @@ function ChildWorkflowLink({
 
 function TooltipCode({ value }: { value: string }) {
   return (
-    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
+    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 px-0.5 py-0.25 font-mono tracking-tighter">
       {value}
     </span>
   )
