@@ -69,12 +69,12 @@ import {
 } from "@/components/ui/tooltip"
 import { toast, useToast } from "@/components/ui/use-toast"
 import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
+import { isExpression } from "@/lib/expressions"
 import {
   useAction,
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { isExpression } from "@/lib/expressions"
 import { cn, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -98,6 +98,7 @@ type ChildWorkflowInfo = {
   childWorkflowId?: string
   childWorkflowAlias?: string
   childIdFromAlias?: string
+  isDynamicChildWorkflowAlias: boolean
 }
 
 export default React.memo(function ActionNode({
@@ -356,6 +357,7 @@ export default React.memo(function ActionNode({
     childIdFromAlias,
     childWorkflowAlias,
     childWorkflowId,
+    isDynamicChildWorkflowAlias,
   }
 
   return (
@@ -743,8 +745,12 @@ function ChildWorkflowLink({
   workspaceId: string
   childWorkflowInfo: ChildWorkflowInfo
 }) {
-  const { childWorkflowId, childWorkflowAlias, childIdFromAlias } =
-    childWorkflowInfo
+  const {
+    childWorkflowId,
+    childWorkflowAlias,
+    childIdFromAlias,
+    isDynamicChildWorkflowAlias,
+  } = childWorkflowInfo
   const { setSelectedNodeId } = useWorkflowBuilder()
 
   const handleClearSelection = () => {
@@ -781,16 +787,17 @@ function ChildWorkflowLink({
       return (
         <Tooltip>
           <TooltipTrigger>
-            <div className="rounded-sm border bg-muted-foreground/10 p-0.5">
-              <BracesIcon className="size-3 text-foreground/70" />
+            <div className="rounded-sm border bg-blue-200/30 p-0.5">
+              <BracesIcon className="size-3 text-blue-600/80" />
             </div>
           </TooltipTrigger>
-          <TooltipContent sideOffset={20}>
+          <TooltipContent
+            sideOffset={20}
+            className="max-w-[300px] whitespace-normal break-words"
+          >
             <span>
               This subflow is resolved dynamically at runtime using the{" "}
-              <TooltipCode value="workflow_alias" />
-              {" "}
-              expression
+              <TooltipCode value="workflow_alias" /> expression
             </span>
           </TooltipContent>
         </Tooltip>
@@ -851,7 +858,7 @@ function ChildWorkflowLink({
 
 function TooltipCode({ value }: { value: string }) {
   return (
-    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
+    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 px-0.5 py-0.25 font-mono tracking-tighter">
       {value}
     </span>
   )
