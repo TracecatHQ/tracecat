@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -33,6 +34,8 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     model_converters,
 )
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.index import RegistryIndex
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
@@ -43,6 +46,70 @@ class RegistryActionsService(BaseService):
     """Registry actions service."""
 
     service_name = "registry_actions"
+    # Runtime registry indexes keyed by repository ID (or 'builtin' for the core bundle).
+    _runtime_indexes: dict[str, RegistryIndex] = {}
+    _runtime_index_lock = asyncio.Lock()
+
+    @classmethod
+    async def _ensure_builtin_index(cls, role) -> RegistryIndex:
+        """Lazily build the core registry index for runtime execution."""
+        async with cls._runtime_index_lock:
+            if builtin := cls._runtime_indexes.get("builtin"):
+                return builtin
+
+            repo = Repository(origin=DEFAULT_REGISTRY_ORIGIN, role=role)
+            await repo.load_from_origin()
+            if not repo.index:
+                raise RegistryError("Registry index was not initialized")
+
+            cls._runtime_indexes["builtin"] = repo.index
+            return repo.index
+
+    @classmethod
+    def _register_runtime_index(cls, key: str, index: RegistryIndex) -> None:
+        """Cache a repository index for runtime lookups (per process)."""
+        cls._runtime_indexes[key] = index
+
+    @classmethod
+    async def _get_loader_from_runtime_indexes(
+        cls, action_name: str, role
+    ) -> tuple[RegistryIndex | None, BoundRegistryAction | None]:
+        """Find a bound loader from any cached runtime index."""
+        if not cls._runtime_indexes or "builtin" not in cls._runtime_indexes:
+            await cls._ensure_builtin_index(role)
+
+        for index in cls._runtime_indexes.values():
+            if action_name in index:
+                return index, index.get_loader(action_name)
+
+        return None, None
+
+    @staticmethod
+    def _collect_loader_secrets(
+        loader: BoundRegistryAction, index: RegistryIndex
+    ) -> set[RegistrySecretType]:
+        """Recursively collect secrets from a bound loader (uses runtime index)."""
+        secrets: set[RegistrySecretType] = set(loader.secrets or [])
+
+        if loader.is_template and loader.template_action:
+            defn = loader.template_action.definition
+            if defn.secrets:
+                secrets.update(defn.secrets)
+            for step in defn.steps:
+                try:
+                    step_loader = index.get_loader(step.action)
+                except RegistryError:
+                    logger.warning(
+                        "Step action not found in runtime index",
+                        step_action=step.action,
+                        parent_action=loader.action,
+                    )
+                    continue
+                secrets.update(
+                    RegistryActionsService._collect_loader_secrets(step_loader, index)
+                )
+
+        return secrets
 
     async def list_actions(
         self,
@@ -269,6 +336,10 @@ class RegistryActionsService(BaseService):
                     repo, db_repo, commit=False, allow_delete_all=allow_delete_all
                 )
 
+        # Cache the runtime index for execution (per-process in-memory).
+        if repo.index:
+            self._register_runtime_index(str(db_repo.id), repo.index)
+
         return commit_sha
 
     async def get_action_or_none(self, action_name: str) -> RegistryAction | None:
@@ -387,15 +458,48 @@ class RegistryActionsService(BaseService):
         """
         Load the implementation for a registry action.
         """
+        # Prefer in-memory runtime indexes (source of truth).
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if loader:
+            return loader
+
         action = await self.get_action(action_name=action_name)
         bound_action = get_bound_action_impl(action, mode=mode)
         return bound_action
+
+    async def load_action_for_execution(
+        self, action_name: str
+    ) -> tuple[BoundRegistryAction, set[RegistrySecretType]]:
+        """Return a bound action and its secrets, preferring the runtime index."""
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if loader and index:
+            secrets = self._collect_loader_secrets(loader, index)
+            return loader, secrets
+
+        action = await self.get_action(action_name=action_name)
+        secrets = await self.fetch_all_action_secrets(action)
+        return self.get_bound(action, mode="execution"), secrets
 
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
     ) -> RegistryActionRead:
         extra_secrets = await self.fetch_all_action_secrets(action)
         return RegistryActionRead.from_database(action, list(extra_secrets))
+
+    async def fetch_all_action_secrets_from_index(
+        self, action_name: str
+    ) -> set[RegistrySecretType]:
+        """Collect secrets for an action using the runtime index if available."""
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if not loader or not index:
+            return set()
+        return self._collect_loader_secrets(loader, index)
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction

@@ -283,9 +283,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     action_name = task.action
 
     async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        action_secrets = await service.fetch_all_action_secrets(reg_action)
-        action = service.get_bound(reg_action, mode="execution")
+        action, action_secrets = await service.load_action_for_execution(action_name)
 
     collected = collect_expressions(task.args)
     secrets = await secrets_manager.get_action_secrets(
