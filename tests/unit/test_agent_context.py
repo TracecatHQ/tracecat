@@ -8,9 +8,7 @@ from pydantic_ai.messages import (
 )
 
 from tracecat.agent.context import prune_history
-from tracecat.config import (
-    TRACECAT__MODEL_CONTEXT_LIMITS,
-)
+from tracecat.config import TRACECAT__MODEL_CONTEXT_LIMITS
 
 
 def test_prune_history_returns_messages_without_modification() -> None:
