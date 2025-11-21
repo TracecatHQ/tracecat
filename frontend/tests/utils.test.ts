@@ -1,10 +1,5 @@
 import { compressActionsInString } from "@/lib/expressions"
-import {
-  isServer,
-  slugify,
-  slugifyActionRef,
-  undoSlugify,
-} from "@/lib/utils"
+import { isServer, slugify, slugifyActionRef, undoSlugify } from "@/lib/utils"
 
 describe("slugify", () => {
   it("should convert a string to a slug", () => {
