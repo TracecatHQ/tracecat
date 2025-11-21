@@ -458,16 +458,17 @@ class RegistryActionsService(BaseService):
         """
         Load the implementation for a registry action.
         """
-        # Prefer in-memory runtime indexes (source of truth).
         index, loader = await self._get_loader_from_runtime_indexes(
             action_name, self.role
         )
-        if loader:
+        if not loader:
+            raise RegistryError(
+                f"Action {action_name} not found in runtime registry index. "
+                "Ensure the registry index is built and registered for this process."
+            )
+        if mode == "execution":
             return loader
-
-        action = await self.get_action(action_name=action_name)
-        bound_action = get_bound_action_impl(action, mode=mode)
-        return bound_action
+        return loader
 
     async def load_action_for_execution(
         self, action_name: str
@@ -476,13 +477,13 @@ class RegistryActionsService(BaseService):
         index, loader = await self._get_loader_from_runtime_indexes(
             action_name, self.role
         )
-        if loader and index:
-            secrets = self._collect_loader_secrets(loader, index)
-            return loader, secrets
-
-        action = await self.get_action(action_name=action_name)
-        secrets = await self.fetch_all_action_secrets(action)
-        return self.get_bound(action, mode="execution"), secrets
+        if not (loader and index):
+            raise RegistryError(
+                f"Action {action_name} not found in runtime registry index. "
+                "Execution requires the registry index to be present."
+            )
+        secrets = self._collect_loader_secrets(loader, index)
+        return loader, secrets
 
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
