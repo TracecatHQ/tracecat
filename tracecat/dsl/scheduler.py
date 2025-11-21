@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
 
@@ -115,7 +116,11 @@ class DSLScheduler:
                 self.adj[src_ref].add((task.ref, edge_type))
 
         # Scope management
-        self.streams: dict[StreamID, ExecutionContext] = {ROOT_STREAM: context}
+        self._root_context = context
+        """Points to the worklfow roots stream context"""
+        self.streams: dict[StreamID, ExecutionContext] = {
+            ROOT_STREAM: self._root_context
+        }
 
         self.stream_hierarchy: dict[StreamID, StreamID | None] = {ROOT_STREAM: None}
         """Points to the parent stream ID for each stream ID"""
@@ -610,7 +615,7 @@ class DSLScheduler:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
-            context = self.get_context(task.stream_id)
+            context = self.build_stream_aware_context(stmt, task.stream_id)
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
@@ -1109,6 +1114,18 @@ class DSLScheduler:
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
         return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
+
+    def build_stream_aware_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Build a context that is aware of the stream hierarchy."""
+        expr_ctxs = extract_expressions(task.model_dump())
+        resolved_actions: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            resolved_actions[action_ref] = self.get_stream_aware_action_result(
+                action_ref, stream_id
+            )
+        return {**self._root_context, ExprContext.ACTIONS: resolved_actions}
 
     def get_stream_aware_action_result(
         self, action_ref: str, stream_id: StreamID
