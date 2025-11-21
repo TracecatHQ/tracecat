@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from "lucide-react"
 import { cva, type VariantProps } from "class-variance-authority"
 import * as React from "react"
 
@@ -24,13 +25,62 @@ export interface InputProps
   extends React.InputHTMLAttributes<HTMLInputElement>,
     VariantProps<typeof inputVariants> {}
 
+const PasswordInput = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, variant, ...props }, forwardedRef) => {
+    const inputRef = React.useRef<HTMLInputElement | null>(null)
+    const [isRevealed, setIsRevealed] = React.useState(false)
+
+    React.useImperativeHandle(
+      forwardedRef,
+      () => inputRef.current as HTMLInputElement
+    )
+
+    return (
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type={isRevealed ? "text" : "password"}
+          className={cn(inputVariants({ variant }), "pr-10", className)}
+          {...props}
+        />
+        <button
+          type="button"
+          className="absolute inset-y-0 right-0 flex items-center rounded-md pr-3 text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          onClick={() => setIsRevealed((prev) => !prev)}
+        >
+          <span className="sr-only">
+            {isRevealed ? "Hide password" : "Show password"}
+          </span>
+          {isRevealed ? (
+            <EyeOff aria-hidden="true" className="size-4" />
+          ) : (
+            <Eye aria-hidden="true" className="size-4" />
+          )}
+        </button>
+      </div>
+    )
+  }
+)
+PasswordInput.displayName = "PasswordInput"
+
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, variant, ...props }, ref) => {
+  ({ className, type = "text", variant, ...props }, forwardedRef) => {
+    if (type === "password") {
+      return (
+        <PasswordInput
+          {...props}
+          className={className}
+          variant={variant}
+          ref={forwardedRef}
+        />
+      )
+    }
+
     return (
       <input
+        ref={forwardedRef}
         type={type}
         className={cn(inputVariants({ variant }), className)}
-        ref={ref}
         {...props}
       />
     )
