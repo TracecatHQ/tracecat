@@ -1060,6 +1060,7 @@ function AgentPresetForm({
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
   const outputTypeKind = form.watch("outputTypeKind")
+  const enableThinking = form.watch("enableThinking")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
   const hasStructuredOutput =
@@ -1084,6 +1085,13 @@ function AgentPresetForm({
       })
     }
   }, [form, modelOptions])
+
+  // Auto-disable thinking when structured output is selected
+  useEffect(() => {
+    if (hasStructuredOutput && enableThinking !== false) {
+      form.setValue("enableThinking", false, { shouldDirty: false })
+    }
+  }, [form, hasStructuredOutput, enableThinking])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const payload = formValuesToPayload(values)
