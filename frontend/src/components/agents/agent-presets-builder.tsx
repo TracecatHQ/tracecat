@@ -156,6 +156,7 @@ const agentPresetSchema = z
         })
       )
       .default([]),
+    enableThinking: z.boolean().optional(),
     retries: z.coerce
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
@@ -199,6 +200,17 @@ const agentPresetSchema = z
         }
       }
     }
+    // Validate thinking is not enabled with structured outputs
+    if (
+      data.enableThinking === true &&
+      (data.outputTypeKind === "data-type" || data.outputTypeKind === "json")
+    ) {
+      ctx.addIssue({
+        path: ["enableThinking"],
+        code: z.ZodIssueCode.custom,
+        message: "Thinking cannot be enabled with structured output types",
+      })
+    }
   })
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
@@ -219,6 +231,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   namespaces: [],
   mcpIntegrations: [],
   toolApprovals: [],
+  enableThinking: true,
   retries: DEFAULT_RETRIES,
 }
 
@@ -1049,6 +1062,9 @@ function AgentPresetForm({
   const outputTypeKind = form.watch("outputTypeKind")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
+  const hasStructuredOutput =
+    outputTypeKind === "data-type" || outputTypeKind === "json"
+
   useEffect(() => {
     const nextSlug = slugify(watchedName ?? "", "-")
     if (form.getValues("slug") !== nextSlug) {
@@ -1415,6 +1431,44 @@ function AgentPresetForm({
                   )}
                 />
               </div>
+              <FormField
+                control={form.control}
+                name="enableThinking"
+                render={({ field, fieldState }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5 flex-1">
+                      <FormLabel className="text-sm font-medium">
+                        Enable thinking
+                      </FormLabel>
+                      <FormDescription className="text-xs">
+                        {hasStructuredOutput ? (
+                          <span className="text-amber-600">
+                            Thinking is not compatible with structured output
+                            types.
+                          </span>
+                        ) : (
+                          <>
+                            Allow the model to use extended reasoning. May
+                            increase response time and token usage.
+                          </>
+                        )}
+                      </FormDescription>
+                      {fieldState.error ? (
+                        <p className="text-xs font-medium text-destructive">
+                          {fieldState.error.message}
+                        </p>
+                      ) : null}
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value ?? false}
+                        onCheckedChange={field.onChange}
+                        disabled={isSaving || hasStructuredOutput}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
             </section>
 
             <Separator />
@@ -1940,6 +1994,11 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         )
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
+    enableThinking:
+      preset.model_settings &&
+      typeof preset.model_settings.enable_thinking === "boolean"
+        ? preset.model_settings.enable_thinking
+        : undefined,
     retries: preset.retries ?? DEFAULT_RETRIES,
   }
 }
@@ -1953,6 +2012,12 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
         : values.outputTypeJson
           ? JSON.parse(values.outputTypeJson)
           : null
+
+  // Build model_settings with enable_thinking
+  const modelSettings =
+    values.enableThinking !== undefined
+      ? { enable_thinking: values.enableThinking }
+      : null
 
   return {
     name: values.name.trim(),
@@ -1970,6 +2035,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     mcp_integrations:
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
+    model_settings: modelSettings,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
   }

@@ -294,6 +294,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
+            model_settings=preset.model_settings,
             mcp_servers=mcp_servers,
             retries=preset.retries,
         )

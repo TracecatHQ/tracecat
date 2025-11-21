@@ -874,6 +874,18 @@ export const $AgentPresetCreate = {
       ],
       title: "Mcp Integrations",
     },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
+    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -1020,6 +1032,18 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
     },
     retries: {
       type: "integer",
@@ -1281,6 +1305,18 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    model_settings: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Settings",
     },
     retries: {
       anyOf: [
