@@ -139,7 +139,7 @@ export function FolderMoveDialog({
             <span className="font-medium">{selectedFolder?.name}</span>.
             <div className="mt-2 text-xs">
               Current location:{" "}
-              <span className="font-medium">
+              <span className="font-medium break-words">
                 {currentParentPath === "/"
                   ? ROOT_FOLDER_NAME
                   : currentParentPath}
@@ -148,22 +148,31 @@ export function FolderMoveDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center py-4">
+        <div className="flex w-full items-center py-4">
           <Popover open={openFolderSelect} onOpenChange={setOpenFolderSelect}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
                 role="combobox"
                 aria-expanded={openFolderSelect}
-                className="w-full justify-between"
+                className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
                 disabled={isMoving}
               >
                 {destinationPath ? (
-                  <div className="flex items-center gap-2">
-                    <FolderIcon className="size-4" />
-                    {destinationPath === "/"
-                      ? ROOT_FOLDER_NAME
-                      : destinationPath}
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <FolderIcon className="size-4 shrink-0" />
+                    <span
+                      className="truncate"
+                      title={
+                        destinationPath === "/"
+                          ? ROOT_FOLDER_NAME
+                          : destinationPath
+                      }
+                    >
+                      {destinationPath === "/"
+                        ? ROOT_FOLDER_NAME
+                        : destinationPath}
+                    </span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
