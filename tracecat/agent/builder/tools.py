@@ -12,7 +12,6 @@ from pydantic_ai.tools import Tool
 from sqlalchemy import func, or_, select
 
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
-from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tools import build_agent_tools
 from tracecat.chat.schemas import ChatMessage, ChatRead, ChatReadMinimal
 from tracecat.contexts import ctx_role
@@ -35,6 +34,8 @@ AGENT_PRESET_BUILDER_TOOL_NAMES = [
 
 @asynccontextmanager
 async def _preset_service():
+    from tracecat.agent.preset.service import AgentPresetService
+
     role = ctx_role.get()
     if role is None:
         raise TracecatAuthorizationError(
@@ -184,15 +185,11 @@ async def build_agent_preset_builder_tools(
         Args:
             chat_id: The UUID of the chat to retrieve.
         """
-        try:
-            uuid_id = uuid.UUID(chat_id)
-        except ValueError as e:
-            raise ModelRetry(f"Invalid chat ID format: {chat_id}") from e
 
         try:
             async with _chat_service() as service:
-                chat = await service.get_chat(uuid_id, with_messages=True)
-                if not chat:
+                chat = await service.get_chat(uuid.UUID(chat_id), with_messages=True)
+                if not chat or str(chat.entity_id) != str(preset_id):
                     raise ModelRetry(f"Chat {chat_id} not found.")
 
                 return ChatRead(
