@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Search events
+  description: Search events from Elasticsearch using query DSL.
+  display_group: Elasticsearch
+  doc_url: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-search.html
+  namespace: tools.elasticsearch
+  name: search_events
+  secrets:
+    - name: elasticsearch
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    query:
+      type: dict[str, Any]
+      description: Elasticsearch query DSL.
+    index:
+      type: str | None
+      description: Index name to search. If not specified, searches all indices.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of events to return.
+      default: 100
+    base_url:
+      type: str | None
+      description: Elasticsearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_search_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          def main(index):
+              if index:
+                  return f"{index}/_search"
+              return "_search"
+    - ref: build_search_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          limit: ${{ inputs.limit }}
+        script: |
+          def main(query, limit):
+              payload = {**query, "size": limit}
+              return payload
+    - ref: search_events
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/${{ steps.build_search_path.result }}
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_search_payload.result }}
+  returns: ${{ steps.search_events.result.data }}
