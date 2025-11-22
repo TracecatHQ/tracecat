@@ -156,6 +156,15 @@ const agentPresetSchema = z
         })
       )
       .default([]),
+    modelSettings: z
+      .array(
+        z.object({
+          key: z.string().min(1, "Setting key is required"),
+          value: z.string().optional(),
+        })
+      )
+      .default([]),
+    enableThinking: z.boolean().optional(),
     retries: z.coerce
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
@@ -199,10 +208,22 @@ const agentPresetSchema = z
         }
       }
     }
+    // Validate thinking is not enabled with structured outputs
+    if (
+      data.enableThinking === true &&
+      (data.outputTypeKind === "data-type" || data.outputTypeKind === "json")
+    ) {
+      ctx.addIssue({
+        path: ["enableThinking"],
+        code: z.ZodIssueCode.custom,
+        message: "Thinking cannot be enabled with structured output types",
+      })
+    }
   })
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
+type ModelSettingFormValue = AgentPresetFormValues["modelSettings"][number]
 
 const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   name: "",
@@ -219,6 +240,8 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   namespaces: [],
   mcpIntegrations: [],
   toolApprovals: [],
+  modelSettings: [],
+  enableThinking: false,
   retries: DEFAULT_RETRIES,
 }
 
@@ -1039,6 +1062,15 @@ function AgentPresetForm({
     name: "toolApprovals",
   })
 
+  const {
+    fields: modelSettingsFields,
+    append: appendModelSetting,
+    remove: removeModelSetting,
+  } = useFieldArray({
+    control: form.control,
+    name: "modelSettings",
+  })
+
   useEffect(() => {
     const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
     form.reset(defaults, { keepDirty: false })
@@ -1047,7 +1079,15 @@ function AgentPresetForm({
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
   const outputTypeKind = form.watch("outputTypeKind")
+  const enableThinking = form.watch("enableThinking")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
+
+  const hasStructuredOutput =
+    outputTypeKind === "data-type" || outputTypeKind === "json"
+
+  // Show enable_thinking toggle for openai/anthropic
+  const isStandardProvider =
+    providerValue === "openai" || providerValue === "anthropic"
 
   useEffect(() => {
     const nextSlug = slugify(watchedName ?? "", "-")
@@ -1068,6 +1108,13 @@ function AgentPresetForm({
       })
     }
   }, [form, modelOptions])
+
+  // Auto-disable thinking when structured output is selected
+  useEffect(() => {
+    if (hasStructuredOutput && enableThinking !== false && isStandardProvider) {
+      form.setValue("enableThinking", false, { shouldDirty: false })
+    }
+  }, [form, hasStructuredOutput, enableThinking, isStandardProvider])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const payload = formValuesToPayload(values)
@@ -1415,6 +1462,128 @@ function AgentPresetForm({
                   )}
                 />
               </div>
+              {isStandardProvider && (
+                <FormField
+                  control={form.control}
+                  name="enableThinking"
+                  render={({ field, fieldState }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5 flex-1">
+                        <FormLabel className="text-sm font-medium">
+                          Enable thinking
+                        </FormLabel>
+                        <FormDescription className="text-xs">
+                          {hasStructuredOutput ? (
+                            <span className="text-amber-600">
+                              Thinking is not compatible with structured output
+                              types.
+                            </span>
+                          ) : (
+                            <>
+                              Allow the model to use extended reasoning. May
+                              increase response time and token usage.
+                            </>
+                          )}
+                        </FormDescription>
+                        {fieldState.error ? (
+                          <p className="text-xs font-medium text-destructive">
+                            {fieldState.error.message}
+                          </p>
+                        ) : null}
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value ?? false}
+                          onCheckedChange={field.onChange}
+                          disabled={isSaving || hasStructuredOutput}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
+              {!isStandardProvider && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium">Model settings</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Optional model parameters (temperature, max_tokens, etc)
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => appendModelSetting({ key: "", value: "" })}
+                      disabled={isSaving}
+                    >
+                      <Plus className="mr-2 size-4" />
+                      Add
+                    </Button>
+                  </div>
+                  {modelSettingsFields.length === 0 ? (
+                    <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+                      No custom settings. Defaults will be used.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {modelSettingsFields.map((field, index) => (
+                        <div
+                          key={field.id}
+                          className="grid gap-2 rounded-md border px-3 py-3 md:grid-cols-[1fr_1fr_auto]"
+                        >
+                          <FormField
+                            control={form.control}
+                            name={`modelSettings.${index}.key`}
+                            render={({ field: innerField }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">Key</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="temperature"
+                                    {...innerField}
+                                    value={innerField.value ?? ""}
+                                    disabled={isSaving}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`modelSettings.${index}.value`}
+                            render={({ field: innerField }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">Value</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="0.7"
+                                    {...innerField}
+                                    value={innerField.value ?? ""}
+                                    disabled={isSaving}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeModelSetting(index)}
+                              disabled={isSaving}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             <Separator />
@@ -1940,6 +2109,21 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         )
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
+    enableThinking:
+      preset.model_settings &&
+      typeof preset.model_settings.enable_thinking === "boolean"
+        ? preset.model_settings.enable_thinking
+        : false,
+    modelSettings: preset.model_settings
+      ? Object.entries(preset.model_settings)
+          .filter(([key]) => key !== "enable_thinking")
+          .map(
+            ([key, value]): ModelSettingFormValue => ({
+              key,
+              value: typeof value === "string" ? value : JSON.stringify(value),
+            })
+          )
+      : [],
     retries: preset.retries ?? DEFAULT_RETRIES,
   }
 }
@@ -1953,6 +2137,17 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
         : values.outputTypeJson
           ? JSON.parse(values.outputTypeJson)
           : null
+
+  // Build model_settings: manual settings override everything
+  const manualSettings = keyValueArrayToRecord(
+    values.modelSettings,
+    parseMaybeJson
+  )
+  const modelSettings =
+    manualSettings ??
+    (values.enableThinking !== undefined
+      ? { enable_thinking: values.enableThinking }
+      : null)
 
   return {
     name: values.name.trim(),
@@ -1970,6 +2165,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     mcp_integrations:
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
+    model_settings: modelSettings,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
   }
@@ -1998,4 +2194,29 @@ function toToolApprovalMap(
   }
 
   return Object.fromEntries(entries.map(({ tool, allow }) => [tool, allow]))
+}
+
+function keyValueArrayToRecord<T = string>(
+  entries: ModelSettingFormValue[],
+  transform: (value: string) => T = (value) => value as T
+): Record<string, T> | null {
+  const result: Record<string, T> = {}
+  for (const entry of entries) {
+    const key = entry.key.trim()
+    if (!key) continue
+    result[key] = transform(entry.value ?? "")
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
+function parseMaybeJson(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ""
+  }
+  try {
+    return JSON.parse(trimmed)
+  } catch (_error) {
+    return trimmed
+  }
 }

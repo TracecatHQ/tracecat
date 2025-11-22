@@ -203,6 +203,9 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
   retries?: number
   name: string
   slug?: string | null
@@ -224,6 +227,9 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
   retries?: number
   id: string
   owner_id: string
@@ -264,6 +270,9 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  model_settings?: {
+    [key: string]: unknown
+  } | null
   retries?: number | null
 }
 

@@ -1661,6 +1661,11 @@ class AgentPreset(RecordModel):
         nullable=True,
         doc="MCP integrations to use",
     )
+    model_settings: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Model-specific settings like enable_thinking",
+    )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )

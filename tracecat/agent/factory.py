@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
@@ -46,6 +46,47 @@ def _parse_output_type(output_type: OutputType) -> type[Any]:
         return str
 
 
+def _configure_model_settings(config: AgentConfig) -> dict[str, Any]:
+    """Configure model settings based on provider and enable_thinking option.
+
+    Dynamically adds provider-specific thinking/reasoning settings based on
+    the enable_thinking flag in model_settings and model provider.
+    """
+    settings = config.model_settings.copy() if config.model_settings else {}
+
+    # Extract and remove enable_thinking from model_settings
+    enable_thinking = cast(bool | None, settings.pop("enable_thinking", None))
+
+    if enable_thinking is None:
+        # No explicit preference, don't modify settings
+        return settings
+
+    auto_managed_provider = config.model_provider in {"openai", "anthropic"}
+
+    if enable_thinking:
+        if not auto_managed_provider:
+            return settings
+
+        if config.model_provider == "openai":
+            if "reasoning_effort" not in settings:
+                settings["reasoning_effort"] = "medium"
+        elif config.model_provider == "anthropic":
+            if "anthropic_thinking" not in settings:
+                settings["anthropic_thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": 1024,
+                }
+    else:
+        if not auto_managed_provider:
+            return settings
+
+        if config.model_provider == "openai":
+            settings["reasoning_effort"] = None
+        elif config.model_provider == "anthropic":
+            settings["anthropic_thinking"] = {"type": "disabled"}
+    return settings
+
+
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
@@ -63,8 +104,11 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)
     _output_type = _parse_output_type(config.output_type) if config.output_type else str
+
+    # Configure model settings with enable_thinking support
+    effective_model_settings = _configure_model_settings(config)
     _model_settings = (
-        ModelSettings(**config.model_settings) if config.model_settings else None
+        ModelSettings(**effective_model_settings) if effective_model_settings else None
     )
 
     # Add verbosity prompt

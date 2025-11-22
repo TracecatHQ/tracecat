@@ -61,6 +61,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
+            model_settings=params.model_settings,
             retries=params.retries,
         )
         self.session.add(preset)
@@ -294,6 +295,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
+            model_settings=preset.model_settings,
             mcp_servers=mcp_servers,
             retries=preset.retries,
         )
