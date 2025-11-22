@@ -4,6 +4,8 @@ import uuid
 from collections.abc import Sequence
 from typing import Literal
 
+import yaml
+
 import sqlalchemy as sa
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import selectinload
@@ -23,6 +25,7 @@ from tracecat.workflow.management.folders.schemas import (
     DirectoryItem,
     FolderDirectoryItem,
     WorkflowDirectoryItem,
+    WorkflowRelationRead,
 )
 from tracecat.workflow.management.schemas import WorkflowDefinitionReadMinimal
 
@@ -523,6 +526,7 @@ class WorkflowFolderService(BaseService):
 
         workflow_result = await self.session.execute(workflow_statement)
         workflows_with_defns = workflow_result.tuples().all()
+        relations = await self._get_workflow_relations()
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
@@ -577,6 +581,9 @@ class WorkflowFolderService(BaseService):
                 )
             else:
                 latest_definition = None
+            workflow_relations = relations.get(
+                workflow.id, {"parents": [], "subflows": []}
+            )
             directory_items.append(
                 WorkflowDirectoryItem(
                     type="workflow",
@@ -594,7 +601,72 @@ class WorkflowFolderService(BaseService):
                         TagRead.model_validate(tag, from_attributes=True)
                         for tag in workflow.tags
                     ],
+                    parents=workflow_relations["parents"],
+                    subflows=workflow_relations["subflows"],
                 )
             )
 
         return directory_items
+
+    async def _get_workflow_relations(
+        self,
+    ) -> dict[uuid.UUID, dict[str, list[WorkflowRelationRead]]]:
+        """Return parent/subflow relations for workflows in the workspace."""
+
+        workflows_stmt = select(Workflow).where(
+            Workflow.owner_id == self.workspace_id
+        ).options(selectinload(Workflow.actions))
+        workflows_result = await self.session.execute(workflows_stmt)
+        workflows = workflows_result.scalars().unique().all()
+
+        alias_index: dict[str, Workflow] = {
+            workflow.alias: workflow for workflow in workflows if workflow.alias
+        }
+        id_index: dict[uuid.UUID, Workflow] = {workflow.id: workflow for workflow in workflows}
+
+        relation_map: dict[uuid.UUID, dict[str, list[WorkflowRelationRead]]] = {
+            workflow.id: {"parents": [], "subflows": []} for workflow in workflows
+        }
+
+        for workflow in workflows:
+            parent_short_id = WorkflowUUID.new(workflow.id).short()
+            for action in workflow.actions:
+                if action.type != "core.workflow.execute":
+                    continue
+
+                try:
+                    action_inputs = yaml.safe_load(action.inputs) or {}
+                except yaml.YAMLError:
+                    continue
+
+                target_alias = action_inputs.get("workflow_alias")
+                target_id_raw = action_inputs.get("workflow_id")
+
+                target_workflow: Workflow | None = None
+                if target_alias and target_alias in alias_index:
+                    target_workflow = alias_index[target_alias]
+                elif target_id_raw:
+                    try:
+                        target_uuid = WorkflowUUID.new(target_id_raw)
+                        target_workflow = id_index.get(target_uuid.uuid())
+                    except Exception:
+                        continue
+
+                if not target_workflow:
+                    continue
+
+                target_relation = WorkflowRelationRead(
+                    id=WorkflowUUID.new(target_workflow.id).short(),
+                    alias=target_workflow.alias,
+                    title=target_workflow.title,
+                )
+                relation_map[workflow.id]["subflows"].append(target_relation)
+                relation_map[target_workflow.id]["parents"].append(
+                    WorkflowRelationRead(
+                        id=parent_short_id,
+                        alias=workflow.alias,
+                        title=workflow.title,
+                    )
+                )
+
+        return relation_map
