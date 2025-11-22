@@ -864,3 +864,42 @@ async def http_paginate(
         form_data = request.get("form_data", form_data)
 
     return results
+
+
+async def fetch_url_to_bytes(
+    url: str, headers: dict[str, str] | None = None, verify_ssl: bool = True
+) -> tuple[bytes, str | None]:
+    """Fetch file content from an HTTP/HTTPS URL.
+
+    Returns:
+        Tuple of (content bytes, content_type from response headers)
+
+    Raises:
+        ValueError: If the file size exceeds the maximum allowed size.
+        httpx.HTTPStatusError: If the HTTP request fails.
+    """
+    async with httpx.AsyncClient(
+        follow_redirects=True, timeout=60.0, verify=verify_ssl
+    ) as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+
+        content_length = response.headers.get("content-length")
+        if content_length and int(content_length) > TRACECAT__MAX_FILE_SIZE_BYTES:
+            raise ValueError(
+                f"File size ({int(content_length) / 1024 / 1024:.1f}MB) exceeds maximum "
+                f"allowed size ({TRACECAT__MAX_FILE_SIZE_BYTES / 1024 / 1024:.0f}MB)"
+            )
+
+        content = response.content
+        if len(content) > TRACECAT__MAX_FILE_SIZE_BYTES:
+            raise ValueError(
+                f"File size ({len(content) / 1024 / 1024:.1f}MB) exceeds maximum "
+                f"allowed size ({TRACECAT__MAX_FILE_SIZE_BYTES / 1024 / 1024:.0f}MB)"
+            )
+
+        content_type = response.headers.get("content-type")
+        if content_type:
+            content_type = content_type.split(";")[0].strip()
+
+        return content, content_type

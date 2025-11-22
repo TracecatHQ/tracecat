@@ -94,6 +94,33 @@ async def call_method(
         return await getattr(s3_client, method_name)(**params)
 
 
+async def get_object_bytes(
+    bucket: str,
+    key: str,
+    endpoint_url: str | None = None,
+) -> tuple[bytes, str | None, int]:
+    """Download an object from S3 and return raw bytes with metadata.
+
+    Returns:
+        Tuple of (content bytes, content_type, size)
+    """
+    session = await aws_boto3.get_session()
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
+        head_response = await s3_client.head_object(Bucket=bucket, Key=key)
+        content_length = head_response.get("ContentLength", 0)
+
+        if content_length > TRACECAT__MAX_FILE_SIZE_BYTES:
+            raise ValueError(
+                f"File size ({content_length / 1024 / 1024:.1f}MB) exceeds maximum "
+                f"allowed size ({TRACECAT__MAX_FILE_SIZE_BYTES / 1024 / 1024:.0f}MB)"
+            )
+
+        obj = await s3_client.get_object(Bucket=bucket, Key=key)
+        content = await obj["Body"].read()
+        content_type = head_response.get("ContentType")
+        return content, content_type, content_length
+
+
 @registry.register(
     default_title="Get S3 object",
     description="Download an object from S3 and return its body as a string.",

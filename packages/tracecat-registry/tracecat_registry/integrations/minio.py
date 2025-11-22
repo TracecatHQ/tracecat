@@ -63,6 +63,35 @@ def call_method(
     return to_jsonable_python(getattr(client, method_name)(**params))
 
 
+def get_object_bytes(
+    bucket: str,
+    key: str,
+    endpoint: str | None = None,
+    cert_check: bool = True,
+    secure: bool = True,
+) -> tuple[bytes, str | None, int]:
+    """Download an object from MinIO and return raw bytes with metadata.
+
+    Returns:
+        Tuple of (content bytes, content_type, size)
+    """
+    client = _get_client(endpoint, cert_check, secure)
+
+    stat = client.stat_object(bucket, key)
+    if stat.size and stat.size > TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"File size ({stat.size / 1024 / 1024:.1f}MB) exceeds maximum "
+            f"allowed size ({TRACECAT__MAX_FILE_SIZE_BYTES / 1024 / 1024:.0f}MB)"
+        )
+
+    response = client.get_object(bucket, key)
+    content = response.read()
+    response.close()
+    response.release_conn()
+
+    return content, stat.content_type, stat.size or len(content)
+
+
 @registry.register(
     default_title="Get MinIO object",
     description="Download an object from MinIO and return its body as a string.",

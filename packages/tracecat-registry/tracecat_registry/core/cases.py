@@ -1,6 +1,8 @@
 import base64
+import mimetypes
 from datetime import datetime
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import urlparse
 from uuid import UUID
 
 from sqlalchemy.exc import NoResultFound, ProgrammingError
@@ -10,6 +12,15 @@ from typing_extensions import Doc
 
 from tracecat.auth.schemas import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat_registry.core.http import fetch_url_to_bytes
+from tracecat_registry.integrations.amazon_s3 import (
+    s3_secret,
+    get_object_bytes as s3_get_object_bytes,
+)
+from tracecat_registry.integrations.minio import (
+    minio_secret,
+    get_object_bytes as minio_get_object_bytes,
+)
 from tracecat.cases.attachments import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
@@ -88,6 +99,77 @@ StatusType = Literal[
     "closed",
     "other",
 ]
+
+
+def _extract_filename_from_url(url: str) -> str:
+    """Extract a filename from a URL path."""
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    if path:
+        return path.split("/")[-1]
+    return "attachment"
+
+
+def _guess_content_type(filename: str, content: bytes) -> str:
+    """Guess content type from filename or content."""
+    content_type, _ = mimetypes.guess_type(filename)
+    if content_type:
+        return content_type
+    return "application/octet-stream"
+
+
+def _resolve_case_uuid(case_id: str) -> UUID:
+    try:
+        return UUID(case_id)
+    except ValueError:
+        raise ValueError(f"Invalid case ID format: {case_id}")
+
+
+def _resolve_content_type(
+    provided: str | None, detected: str | None, filename: str, content: bytes
+) -> str:
+    if provided:
+        return provided
+    if detected:
+        return detected
+    return _guess_content_type(filename, content)
+
+
+async def _persist_case_attachment(
+    case_uuid: UUID,
+    case_id: str,
+    filename: str,
+    content_type: str,
+    content: bytes,
+    verbose_magic_errors: bool,
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        attachment = await service.attachments.create_attachment(
+            case=case,
+            params=CaseAttachmentCreate(
+                file_name=filename,
+                content_type=content_type,
+                size=len(content),
+                content=content,
+            ),
+            verbose_magic_errors=verbose_magic_errors,
+        )
+
+    return CaseAttachmentRead(
+        id=attachment.id,
+        case_id=attachment.case_id,
+        file_id=attachment.file_id,
+        file_name=attachment.file.name,
+        content_type=attachment.file.content_type,
+        size=attachment.file.size,
+        sha256=attachment.file.sha256,
+        created_at=attachment.created_at,
+        updated_at=attachment.updated_at,
+    ).model_dump(mode="json")
 
 
 @registry.register(
@@ -206,8 +288,9 @@ async def update_case(
         ),
     ] = False,
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -273,8 +356,9 @@ async def create_comment(
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as case_service:
-        case = await case_service.get_case(UUID(case_id))
+        case = await case_service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -337,8 +421,9 @@ async def get_case(
         Doc("The ID of the case to retrieve."),
     ],
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -538,8 +623,9 @@ async def delete_case(
         Doc("The ID of the case to delete."),
     ],
 ) -> None:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
         await service.delete_case(case)
@@ -557,12 +643,7 @@ async def list_case_events(
         Doc("The ID of the case to get events for."),
     ],
 ) -> dict[str, Any]:
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
-
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
@@ -608,9 +689,10 @@ async def list_comments(
         Doc("The ID of the case to get comments for."),
     ],
 ) -> list[dict[str, Any]]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with get_async_session_context_manager() as session:
         case_service = CasesService(session)
-        case = await case_service.get_case(UUID(case_id))
+        case = await case_service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -647,8 +729,9 @@ async def assign_user(
         Doc("The ID of the user to assign to the case."),
     ],
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -674,8 +757,9 @@ async def assign_user_by_email(
         Doc("The email of the user to assign to the case."),
     ],
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -709,8 +793,9 @@ async def add_case_tag(
         Doc("If true, create the tag if it does not exist."),
     ] = False,
 ) -> dict[str, Any]:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -741,8 +826,9 @@ async def remove_case_tag(
         Doc("The tag identifier (ID or ref) to remove from the case."),
     ],
 ) -> None:
+    case_uuid = _resolve_case_uuid(case_id)
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        case = await service.get_case(case_uuid)
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
 
@@ -782,11 +868,7 @@ async def upload_attachment(
     ] = False,
 ) -> dict[str, Any]:
     """Upload a file attachment to a case."""
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
+    case_uuid = _resolve_case_uuid(case_id)
 
     # Decode base64 content
     try:
@@ -839,11 +921,7 @@ async def list_attachments(
     ],
 ) -> list[dict[str, Any]]:
     """List all attachments for a case."""
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
+    case_uuid = _resolve_case_uuid(case_id)
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
@@ -889,11 +967,11 @@ async def download_attachment(
     File integrity is automatically verified via SHA256 hash.
     """
     # Validate UUID formats
+    case_uuid = _resolve_case_uuid(case_id)
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+    except ValueError as exc:
+        raise ValueError(f"Invalid ID format: {str(exc)}") from exc
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
@@ -932,12 +1010,11 @@ async def get_attachment(
     ],
 ) -> dict[str, Any]:
     """Get attachment metadata without downloading the content."""
-    # Validate UUID formats
+    case_uuid = _resolve_case_uuid(case_id)
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+    except ValueError as exc:
+        raise ValueError(f"Invalid ID format: {str(exc)}") from exc
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
@@ -982,11 +1059,11 @@ async def delete_attachment(
     This performs a soft delete, preserving the audit trail while removing
     the file from storage. Only the attachment creator or admins can delete.
     """
+    case_uuid = _resolve_case_uuid(case_id)
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+    except ValueError as exc:
+        raise ValueError(f"Invalid ID format: {str(exc)}") from exc
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
@@ -1018,14 +1095,12 @@ async def get_attachment_download_url(
     ] = None,
 ) -> str:
     """Get a presigned S3 URL for downloading an attachment."""
-    # Validate UUID formats
+    case_uuid = _resolve_case_uuid(case_id)
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+    except ValueError as exc:
+        raise ValueError(f"Invalid ID format: {str(exc)}") from exc
 
-    # Validate expiry if provided
     if expiry is not None:
         if expiry <= 0:
             raise ValueError("Expiry must be a positive number of seconds")
@@ -1043,3 +1118,177 @@ async def get_attachment_download_url(
             expiry=expiry,
         )
     return download_url
+
+
+@registry.register(
+    default_title="Upload attachment from URL",
+    display_group="Cases",
+    description="Upload a file attachment to a case from an HTTP/HTTPS URL.",
+    namespace="core.cases",
+)
+async def upload_attachment_from_url(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to attach the file to."),
+    ],
+    url: Annotated[
+        str,
+        Doc("The HTTP or HTTPS URL to fetch the file from."),
+    ],
+    file_name: Annotated[
+        str | None,
+        Doc(
+            "Optional filename for the attachment. If not provided, "
+            "it will be extracted from the URL path."
+        ),
+    ] = None,
+    content_type: Annotated[
+        str | None,
+        Doc(
+            "Optional MIME type of the file. If not provided, it will be "
+            "inferred from the response headers or filename."
+        ),
+    ] = None,
+    headers: Annotated[
+        dict[str, str] | None,
+        Doc("Optional headers to include when fetching the URL."),
+    ] = None,
+    verify_ssl: Annotated[
+        bool,
+        Doc("Whether to verify SSL certificates when fetching the URL."),
+    ] = True,
+    verbose_magic_errors: Annotated[
+        bool,
+        Doc(
+            "Return verbose MIME mismatch errors showing detected content types "
+            "instead of generic messages. Useful for debugging."
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    """Upload a file attachment to a case from an HTTP/HTTPS URL."""
+    case_uuid = _resolve_case_uuid(case_id)
+    url = url.strip()
+    parsed_url = urlparse(url)
+    scheme = parsed_url.scheme.lower()
+
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"Unsupported URL scheme: {scheme}. Supported schemes: http, https"
+        )
+
+    content, response_content_type = await fetch_url_to_bytes(
+        url=url, headers=headers, verify_ssl=verify_ssl
+    )
+
+    final_filename = file_name or _extract_filename_from_url(url)
+    final_content_type = _resolve_content_type(
+        content_type, response_content_type, final_filename, content
+    )
+
+    return await _persist_case_attachment(
+        case_uuid=case_uuid,
+        case_id=case_id,
+        filename=final_filename,
+        content_type=final_content_type,
+        content=content,
+        verbose_magic_errors=verbose_magic_errors,
+    )
+
+
+@registry.register(
+    default_title="Upload attachment from S3",
+    display_group="Cases",
+    description="Upload a file attachment to a case from S3 or MinIO object storage.",
+    namespace="core.cases",
+    secrets=[s3_secret, minio_secret],
+)
+async def upload_attachment_from_s3(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to attach the file to."),
+    ],
+    uri: Annotated[
+        str,
+        Doc(
+            "The S3 or MinIO URI pointing to the object (s3://bucket/key or minio://bucket/key)."
+        ),
+    ],
+    file_name: Annotated[
+        str | None,
+        Doc(
+            "Optional filename for the attachment. If not provided, "
+            "it will be extracted from the object key."
+        ),
+    ] = None,
+    content_type: Annotated[
+        str | None,
+        Doc(
+            "Optional MIME type of the file. If not provided, it will be "
+            "inferred from object metadata or filename."
+        ),
+    ] = None,
+    endpoint_url: Annotated[
+        str | None,
+        Doc(
+            "Optional endpoint URL for S3-compatible storage (e.g., MinIO, LocalStack)."
+        ),
+    ] = None,
+    secure: Annotated[
+        bool,
+        Doc("Whether to use HTTPS for S3-compatible endpoints."),
+    ] = True,
+    verify_ssl: Annotated[
+        bool,
+        Doc("Whether to verify SSL certificates for S3-compatible endpoints."),
+    ] = True,
+    verbose_magic_errors: Annotated[
+        bool,
+        Doc(
+            "Return verbose MIME mismatch errors showing detected content types "
+            "instead of generic messages. Useful for debugging."
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    """Upload a file attachment to a case from S3 or MinIO."""
+    case_uuid = _resolve_case_uuid(case_id)
+    uri = uri.strip()
+    parsed_url = urlparse(uri)
+    scheme = parsed_url.scheme.lower()
+
+    bucket = parsed_url.netloc
+    key = parsed_url.path.lstrip("/")
+    if not bucket or not key:
+        raise ValueError(
+            f"Invalid object URI format: {uri}. Expected scheme://bucket/key"
+        )
+
+    if scheme == "s3":
+        content, response_content_type, _ = await s3_get_object_bytes(
+            bucket, key, endpoint_url=endpoint_url
+        )
+    elif scheme == "minio":
+        content, response_content_type, _ = minio_get_object_bytes(
+            bucket,
+            key,
+            endpoint=endpoint_url,
+            secure=secure,
+            cert_check=verify_ssl,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported URI scheme: {scheme}. Supported schemes: s3, minio"
+        )
+
+    final_filename = file_name or (key.split("/")[-1] or "attachment")
+    final_content_type = _resolve_content_type(
+        content_type, response_content_type, final_filename, content
+    )
+
+    return await _persist_case_attachment(
+        case_uuid=case_uuid,
+        case_id=case_id,
+        filename=final_filename,
+        content_type=final_content_type,
+        content=content,
+        verbose_magic_errors=verbose_magic_errors,
+    )
