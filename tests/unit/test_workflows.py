@@ -4756,6 +4756,56 @@ async def test_workflow_detached_child_workflow(
             },
             id="scope-shadowing-stream-lookup",
         ),
+        pytest.param(
+            DSLInput(
+                title="run_if can access parent stream context inside scatter",
+                description=(
+                    "Verify that run_if evaluation inside a scatter branch can read action results "
+                    "from an ancestor (parent) stream via stream-aware context resolution."
+                ),
+                entrypoint=DSLEntrypoint(ref="outside"),
+                actions=[
+                    # Parent action produces a constant
+                    ActionStatement(
+                        ref="outside",
+                        action="core.transform.reshape",
+                        args={"value": "__OUTSIDE__"},
+                    ),
+                    # Scatter over a simple collection
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outside"],
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # Inside scatter: run_if should consult parent action "a"
+                    ActionStatement(
+                        ref="inside",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        run_if="${{ ACTIONS.outside.result == '__OUTSIDE__' }}",
+                        args={"value": "${{ ACTIONS.scatter.result * 10 }}"},
+                    ),
+                    # Gather the results from inside
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["inside"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inside.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outside": {"result": "__OUTSIDE__", "result_typename": "str"},
+                    "gather": {"result": [10, 20], "result_typename": "list"},
+                },
+                "TRIGGER": {},
+            },
+            id="run-if-stream-aware-context",
+        ),
     ],
 )
 async def test_workflow_scatter_gather(

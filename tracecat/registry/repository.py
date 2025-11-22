@@ -39,7 +39,6 @@ from tracecat.logger import logger
 from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
@@ -337,8 +336,6 @@ class Repository:
             self._load_base_template_actions()
             return None
 
-        elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
-            raise RegistryError("This repository cannot be synced.")
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
             # The local repo doesn't have to be a git repo, but it should be a directory

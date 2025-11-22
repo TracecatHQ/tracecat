@@ -134,6 +134,11 @@ class CompressionPayloadCodec(PayloadCodec):
                 result.append(payload)
                 continue
 
+            # Non-compression binary encodings (e.g. Temporal NullPayloadConverter)
+            if encoding == "binary/null":
+                result.append(payload)
+                continue
+
             try:
                 # Decompress based on encoding
                 if encoding == "binary/zstd":

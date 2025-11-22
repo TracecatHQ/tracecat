@@ -11,6 +11,7 @@ from pydantic import SecretStr
 
 from tracecat.auth.types import AccessLevel
 from tracecat.authz.controls import require_access_level
+from tracecat.exceptions import TracecatException
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
@@ -22,7 +23,7 @@ from tracecat.vcs.github.schemas import (
 )
 
 
-class GitHubAppError(Exception):
+class GitHubAppError(TracecatException):
     """GitHub App operation error."""
 
 

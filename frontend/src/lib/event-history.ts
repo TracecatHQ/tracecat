@@ -7,7 +7,7 @@ import type {
   WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_,
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_,
 } from "@/client"
-import { undoSlugify } from "@/lib/utils"
+import { ACTION_REF_DELIMITER, undoSlugify } from "@/lib/utils"
 
 export type WorkflowExecutionEventCompact =
   WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_
@@ -219,5 +219,5 @@ export function refToLabel(actionRef: string) {
   if (actionRef === WF_FAILURE_EVENT_REF) {
     return WF_FAILURE_EVENT_LABEL
   }
-  return undoSlugify(actionRef)
+  return undoSlugify(actionRef, ACTION_REF_DELIMITER)
 }

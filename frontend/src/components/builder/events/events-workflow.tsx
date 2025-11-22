@@ -49,7 +49,7 @@ import {
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
-import { cn, slugify, undoSlugify } from "@/lib/utils"
+import { cn, slugifyActionRef, undoSlugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -233,7 +233,7 @@ export function WorkflowEvents({
   const centerNode = useCallback(
     (actionRef: string) => {
       const action = Object.values(workflow?.actions || {}).find(
-        (act) => slugify(act.title) === actionRef
+        (act) => slugifyActionRef(act.title) === actionRef
       )
       const id = action?.id
       if (id) {
@@ -263,7 +263,7 @@ export function WorkflowEvents({
   const isActionRefValid = useCallback(
     (actionRef: string) => {
       const action = Object.values(workflow?.actions || {}).find(
-        (act) => slugify(act.title) === actionRef
+        (act) => slugifyActionRef(act.title) === actionRef
       )
       return action !== undefined
     },
@@ -390,7 +390,7 @@ export function WorkflowEvents({
                                       "action-input"
                                     )
                                     setSelectedActionEventRef(
-                                      slugify(actionRef)
+                                      slugifyActionRef(actionRef)
                                     )
                                   }}
                                 >
@@ -409,7 +409,7 @@ export function WorkflowEvents({
                                       "action-result"
                                     )
                                     setSelectedActionEventRef(
-                                      slugify(actionRef)
+                                      slugifyActionRef(actionRef)
                                     )
                                   }}
                                 >
