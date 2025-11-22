@@ -241,7 +241,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   toolApprovals: [],
   modelSettings: [],
-  enableThinking: true,
+  enableThinking: false,
   retries: DEFAULT_RETRIES,
 }
 
@@ -1086,12 +1086,8 @@ function AgentPresetForm({
     outputTypeKind === "data-type" || outputTypeKind === "json"
 
   // Show enable_thinking toggle for openai/anthropic
-  const showThinkingToggle =
+  const isStandardProvider =
     providerValue === "openai" || providerValue === "anthropic"
-
-  // Show model_settings editor only for bedrock/custom providers
-  const showModelSettings =
-    providerValue !== "openai" && providerValue !== "anthropic"
 
   useEffect(() => {
     const nextSlug = slugify(watchedName ?? "", "-")
@@ -1115,10 +1111,10 @@ function AgentPresetForm({
 
   // Auto-disable thinking when structured output is selected
   useEffect(() => {
-    if (hasStructuredOutput && enableThinking !== false && showThinkingToggle) {
+    if (hasStructuredOutput && enableThinking !== false && isStandardProvider) {
       form.setValue("enableThinking", false, { shouldDirty: false })
     }
-  }, [form, hasStructuredOutput, enableThinking, showThinkingToggle])
+  }, [form, hasStructuredOutput, enableThinking, isStandardProvider])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const payload = formValuesToPayload(values)
@@ -1466,7 +1462,7 @@ function AgentPresetForm({
                   )}
                 />
               </div>
-              {showThinkingToggle && (
+              {isStandardProvider && (
                 <FormField
                   control={form.control}
                   name="enableThinking"
@@ -1506,7 +1502,7 @@ function AgentPresetForm({
                   )}
                 />
               )}
-              {showModelSettings && (
+              {!isStandardProvider && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -2117,7 +2113,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       preset.model_settings &&
       typeof preset.model_settings.enable_thinking === "boolean"
         ? preset.model_settings.enable_thinking
-        : true,
+        : false,
     modelSettings: preset.model_settings
       ? Object.entries(preset.model_settings)
           .filter(([key]) => key !== "enable_thinking")
