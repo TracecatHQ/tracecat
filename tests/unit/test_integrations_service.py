@@ -1152,10 +1152,21 @@ class TestIntegrationService:
     ) -> None:
         """Ensure request schema rejects insecure OAuth endpoints."""
         with pytest.raises(ValidationError):
-            IntegrationUpdate(
-                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
-                **{field: value},
-            )
+            # Explicitly construct kwargs to avoid type checker issues with **{field: value}
+            # when client_secret expects SecretStr | None
+            match field:
+                case "authorization_endpoint":
+                    IntegrationUpdate(
+                        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                        authorization_endpoint=value,
+                    )
+                case "token_endpoint":
+                    IntegrationUpdate(
+                        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                        token_endpoint=value,
+                    )
+                case _:
+                    raise ValueError(f"Unexpected field: {field}")
 
     async def test_store_provider_config_includes_default_endpoints(
         self,

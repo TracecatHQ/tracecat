@@ -2,7 +2,8 @@ from io import BytesIO
 
 import pytest
 from fastapi import HTTPException, status
-from starlette.datastructures import Headers, UploadFile
+from fastapi.datastructures import UploadFile
+from starlette.datastructures import Headers
 
 from tracecat.tables.router import _read_csv_upload_with_limit
 
