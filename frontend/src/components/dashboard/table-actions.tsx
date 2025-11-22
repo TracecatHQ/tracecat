@@ -8,6 +8,7 @@ import {
   FolderKanban,
   FolderUp,
   Pencil,
+  CalendarClockIcon,
   TagsIcon,
   Trash2,
   WebhookIcon,
@@ -39,6 +40,7 @@ import {
   useWorkflowTags,
 } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import { useAuth } from "@/hooks/use-auth"
 
 export function WorkflowActions({
   view,
