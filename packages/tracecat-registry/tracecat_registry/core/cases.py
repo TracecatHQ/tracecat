@@ -868,14 +868,15 @@ async def upload_attachment_from_url(
     """Upload a file attachment to a case from a URL."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
+        response.raise_for_status()
         content = response.content
         content_type = response.headers.get("Content-Type")
 
     if not content:
-        raise ValueError(f"Failed to download content from URL: {url}")
+        raise ValueError(f"No content found in response from URL: {url}")
 
     if not content_type:
-        raise ValueError(f"Failed to get content type from URL: {url}")
+        raise ValueError(f"No content type found in response from URL: {url}")
 
     file_name = file_name or _infer_filename_from_url(url)
 
