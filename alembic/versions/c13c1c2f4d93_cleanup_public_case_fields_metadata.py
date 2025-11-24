@@ -19,6 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 # Constants for the migration
 PUBLIC_SCHEMA = "public"
+SCHEMA_PREFIX = "custom_fields_"
 TABLE_NAME = "case_fields"
 # These are the core columns that should always exist in the case_fields table
 BASE_COLUMNS = {"id", "case_id", "created_at", "updated_at", "owner_id"}
@@ -35,7 +36,7 @@ def _workspace_schema(workspace_id: uuid.UUID | str) -> str:
         workspace_id: The workspace UUID (as UUID object or string)
 
     Returns:
-        Schema name in format "case_fields_{short_uuid}"
+        Schema name in format "custom_fields_{short_uuid}"
     """
     workspace_uuid = (
         workspace_id
@@ -43,7 +44,7 @@ def _workspace_schema(workspace_id: uuid.UUID | str) -> str:
         else uuid.UUID(str(workspace_id))
     )
     ws_short = WorkspaceUUID.new(workspace_uuid).short()
-    return f"case_fields_{ws_short}"
+    return f"{SCHEMA_PREFIX}{ws_short}"
 
 
 def upgrade() -> None:
