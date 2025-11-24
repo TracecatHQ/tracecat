@@ -2,7 +2,7 @@ import { format, isValid as isValidDate } from "date-fns"
 import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
-import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
+import type { CaseFieldRead, CaseUpdate } from "@/client"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   FormControl,
@@ -52,7 +52,7 @@ export function CustomField({
   onValueChange,
   formClassName,
 }: {
-  customField: CaseCustomFieldRead
+  customField: CaseFieldRead
   updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
   inputClassName?: string
   inputStyle?: CSSProperties
@@ -96,7 +96,7 @@ export function CustomField({
   )
 }
 interface CustomFieldProps {
-  customField: CaseCustomFieldRead
+  customField: CaseFieldRead
   onBlur?: (id: string, value: unknown) => void
   inputClassName?: string
   inputStyle?: CSSProperties

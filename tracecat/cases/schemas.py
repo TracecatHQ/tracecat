@@ -53,7 +53,7 @@ class CaseRead(Schema):
     priority: CasePriority
     severity: CaseSeverity
     description: str
-    fields: list[CaseCustomFieldRead]
+    fields: list[CaseFieldRead]
     assignee: UserRead | None = None
     payload: dict[str, Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
@@ -84,8 +84,8 @@ class CaseUpdate(Schema):
 # Case Fields
 
 
-class CaseFieldRead(CustomFieldRead):
-    """Read model for a case field."""
+class CaseFieldReadMinimal(CustomFieldRead):
+    """Minimal read model for a case field."""
 
 
 class CaseFieldCreate(CustomFieldCreate):
@@ -96,7 +96,9 @@ class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
 
-class CaseCustomFieldRead(CaseFieldRead):
+class CaseFieldRead(CaseFieldReadMinimal):
+    """Read model for a case field."""
+
     value: Any
 
 

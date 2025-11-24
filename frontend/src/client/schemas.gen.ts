@@ -2927,55 +2927,6 @@ export const $CaseCreate = {
   title: "CaseCreate",
 } as const
 
-export const $CaseCustomFieldRead = {
-  properties: {
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    type: {
-      $ref: "#/components/schemas/SqlType",
-    },
-    description: {
-      type: "string",
-      title: "Description",
-    },
-    nullable: {
-      type: "boolean",
-      title: "Nullable",
-    },
-    default: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default",
-    },
-    reserved: {
-      type: "boolean",
-      title: "Reserved",
-    },
-    value: {
-      title: "Value",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "type",
-    "description",
-    "nullable",
-    "default",
-    "reserved",
-    "value",
-  ],
-  title: "CaseCustomFieldRead",
-} as const
-
 export const $CaseDurationAnchorSelection = {
   type: "string",
   enum: ["first", "last"],
@@ -3633,11 +3584,61 @@ export const $CaseFieldRead = {
       type: "boolean",
       title: "Reserved",
     },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+    "value",
+  ],
+  title: "CaseFieldRead",
+  description: "Read model for a case field.",
+} as const
+
+export const $CaseFieldReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+    reserved: {
+      type: "boolean",
+      title: "Reserved",
+    },
   },
   type: "object",
   required: ["id", "type", "description", "nullable", "default", "reserved"],
-  title: "CaseFieldRead",
-  description: "Read model for a case field.",
+  title: "CaseFieldReadMinimal",
+  description: "Minimal read model for a case field.",
 } as const
 
 export const $CaseFieldUpdate = {
@@ -3778,7 +3779,7 @@ export const $CaseRead = {
     },
     fields: {
       items: {
-        $ref: "#/components/schemas/CaseCustomFieldRead",
+        $ref: "#/components/schemas/CaseFieldRead",
       },
       type: "array",
       title: "Fields",

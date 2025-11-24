@@ -25,11 +25,11 @@ from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseCustomFieldRead,
     CaseEventRead,
     CaseEventsWithUsers,
     CaseFieldCreate,
     CaseFieldRead,
+    CaseFieldReadMinimal,
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
@@ -292,9 +292,9 @@ async def get_case(
     field_definitions = await service.fields.list_fields()
     final_fields = []
     for defn in field_definitions:
-        f = CaseFieldRead.from_sa(defn)
+        f = CaseFieldReadMinimal.from_sa(defn)
         final_fields.append(
-            CaseCustomFieldRead(
+            CaseFieldRead(
                 id=f.id,
                 type=f.type,
                 description=f.description,
@@ -514,11 +514,11 @@ async def list_fields(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> list[CaseFieldRead]:
+) -> list[CaseFieldReadMinimal]:
     """List all case fields."""
     service = CaseFieldsService(session, role)
     columns = await service.list_fields()
-    return [CaseFieldRead.from_sa(column) for column in columns]
+    return [CaseFieldReadMinimal.from_sa(column) for column in columns]
 
 
 @case_fields_router.post("", status_code=HTTP_201_CREATED)

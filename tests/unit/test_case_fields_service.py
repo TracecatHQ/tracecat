@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseFieldCreate, CaseFieldRead, CaseFieldUpdate
+from tracecat.cases.schemas import (
+    CaseFieldCreate,
+    CaseFieldReadMinimal,
+    CaseFieldUpdate,
+)
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Case, CaseFields
 from tracecat.exceptions import TracecatAuthorizationError
@@ -94,7 +98,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMP
         assert field.reserved is True
 
@@ -108,7 +112,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 
@@ -122,7 +126,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 
