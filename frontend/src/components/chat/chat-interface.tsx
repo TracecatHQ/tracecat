@@ -3,7 +3,9 @@
 import { formatDistanceToNow } from "date-fns"
 import {
   BoxIcon,
+  Check,
   ChevronDown,
+  ChevronsUpDown,
   Loader2,
   MessageSquare,
   Plus,
@@ -32,11 +34,32 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Tooltip,
@@ -77,6 +100,7 @@ export function ChatInterface({
     chatId
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -170,27 +194,32 @@ export function ChatInterface({
     presetsIsLoading || isUpdating || chatLoading || selectedPresetLoading
   const hasPresetOptions = presetOptions.length > 0
 
+  useEffect(() => {
+    if (presetMenuDisabled) {
+      setPresetMenuOpen(false)
+    }
+  }, [presetMenuDisabled])
+
   // Show empty state if no chats exist
   if (chats && chats.length === 0) {
     return (
-      <div className="flex h-full flex-col">
-        {/* Empty State */}
-        <div className="flex h-full items-center justify-center p-8">
-          <div className="text-center max-w-sm">
-            <MessageSquare className="mx-auto h-8 w-8 text-gray-400 mb-3" />
-            <h4 className="text-sm font-medium text-gray-900 mb-1">
-              No chat sessions
-            </h4>
-            <p className="text-xs text-gray-500 mb-4">
-              Create a chat session to start conversing with the AI assistant
-              about this {entityType}.
-            </p>
+      <div className="flex h-full items-center justify-center p-8">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <MessageSquare />
+            </EmptyMedia>
+            <EmptyTitle>AI {entityType} chat</EmptyTitle>
+            <EmptyDescription>
+              Start a chat session with the {entityType} copilot.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
             <Button onClick={handleCreateChat} disabled={createChatPending}>
-              <Plus className="h-3 w-3 mr-1" />
-              Create chat session
+              Start {entityType} chat
             </Button>
-          </div>
-        </div>
+          </EmptyContent>
+        </Empty>
       </div>
     )
   }
@@ -255,12 +284,20 @@ export function ChatInterface({
           {/* Right-side controls: preset selector + actions */}
           <div className="flex items-center gap-1">
             {presetsEnabled && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+              <Popover
+                open={presetMenuOpen}
+                onOpenChange={(nextOpen) => {
+                  if (presetMenuDisabled) return
+                  setPresetMenuOpen(nextOpen)
+                }}
+              >
+                <PopoverTrigger asChild>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="px-2"
+                    className="px-2 justify-between"
+                    role="combobox"
+                    aria-expanded={presetMenuOpen}
                     disabled={presetMenuDisabled}
                   >
                     <div className="flex items-center gap-1.5">
@@ -275,69 +312,90 @@ export function ChatInterface({
                     {showPresetSpinner ? (
                       <Loader2 className="ml-1 size-3 animate-spin text-muted-foreground" />
                     ) : (
-                      <ChevronDown className="ml-1 size-3" />
+                      <ChevronsUpDown className="ml-1 size-3 opacity-70" />
                     )}
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-0">
                   {presetsIsLoading ? (
-                    <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading presets…
                     </div>
                   ) : presetsError ? (
-                    <DropdownMenuItem disabled>
-                      <span className="text-red-600">
-                        Failed to load presets
-                      </span>
-                    </DropdownMenuItem>
+                    <div className="p-3 text-sm text-red-600">
+                      Failed to load presets
+                    </div>
                   ) : (
-                    <ScrollArea className="max-h-64">
-                      <div className="py-1">
-                        <DropdownMenuItem
-                          onClick={() => handlePresetChange(null)}
-                          className={cn(
-                            "flex cursor-pointer flex-col items-start gap-1 py-2",
-                            effectivePresetId === null && "bg-accent"
-                          )}
-                        >
-                          <span className="text-sm font-medium">No preset</span>
-                          <span className="text-xs text-muted-foreground">
-                            Use workspace default case agent instructions.
-                          </span>
-                        </DropdownMenuItem>
-                        {hasPresetOptions ? (
-                          presetOptions.map((preset) => (
-                            <DropdownMenuItem
-                              key={preset.id}
-                              onClick={() => handlePresetChange(preset.id)}
-                              className={cn(
-                                "flex cursor-pointer flex-col items-start gap-1 py-2",
-                                effectivePresetId === preset.id && "bg-accent"
-                              )}
-                            >
+                    <Command>
+                      <CommandInput
+                        placeholder="Search presets..."
+                        className="h-9"
+                      />
+                      <CommandList className="max-h-64 overflow-y-auto">
+                        <CommandEmpty>No presets found.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            value="no preset"
+                            onSelect={() => {
+                              setPresetMenuOpen(false)
+                              void handlePresetChange(null)
+                            }}
+                            className="flex items-start justify-between gap-2 py-2"
+                          >
+                            <div className="flex flex-col">
                               <span className="text-sm font-medium">
-                                {preset.name}
+                                No preset
                               </span>
-                              {preset.description && (
-                                <span className="text-xs text-muted-foreground">
-                                  {preset.description}
-                                </span>
-                              )}
-                            </DropdownMenuItem>
-                          ))
-                        ) : (
-                          <DropdownMenuItem disabled className="py-2">
-                            <span className="text-xs text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
+                                Use workspace default case agent instructions.
+                              </span>
+                            </div>
+                            {effectivePresetId === null ? (
+                              <Check className="mt-1 size-4" />
+                            ) : null}
+                          </CommandItem>
+                          {hasPresetOptions ? (
+                            presetOptions.map((preset) => (
+                              <CommandItem
+                                key={preset.id}
+                                value={`${preset.name} ${preset.description ?? ""}`}
+                                onSelect={() => {
+                                  setPresetMenuOpen(false)
+                                  void handlePresetChange(preset.id)
+                                }}
+                                className="flex items-start justify-between gap-2 py-2"
+                              >
+                                <div className="flex min-w-0 flex-col">
+                                  <span className="truncate text-sm font-medium">
+                                    {preset.name}
+                                  </span>
+                                  {preset.description ? (
+                                    <span className="text-xs text-muted-foreground">
+                                      {preset.description}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {effectivePresetId === preset.id ? (
+                                  <Check className="mt-1 size-4" />
+                                ) : null}
+                              </CommandItem>
+                            ))
+                          ) : (
+                            <CommandItem
+                              disabled
+                              value="no presets available"
+                              className="py-2 text-xs text-muted-foreground"
+                            >
                               No presets available
-                            </span>
-                          </DropdownMenuItem>
-                        )}
-                      </div>
-                    </ScrollArea>
+                            </CommandItem>
+                          )}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </PopoverContent>
+              </Popover>
             )}
             {/* New chat icon button with tooltip */}
             <AlertDialog

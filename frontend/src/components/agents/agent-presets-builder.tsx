@@ -42,6 +42,7 @@ import type {
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
@@ -66,6 +67,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Form,
   FormControl,
@@ -589,18 +598,25 @@ function PresetsSidebar({
         </Button>
       </div>
       <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full">
-          <div className="space-y-1 px-2 py-3">
-            {list.length === 0 ? (
-              <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
-                <Bot className="size-4 opacity-60" />
-                <span>No saved presets yet.</span>
-                <span>
-                  Create one to reuse agents across workflows and chat.
-                </span>
-              </div>
-            ) : (
-              list.map((preset) => (
+        {list.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-2">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Bot />
+                </EmptyMedia>
+                <EmptyTitle>No agent preset found.</EmptyTitle>
+                <EmptyDescription>
+                  Create an AI agent preset to reuse across workflows, cases,
+                  and chat.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </div>
+        ) : (
+          <ScrollArea className="h-full">
+            <div className="px-2 py-3 space-y-1">
+              {list.map((preset) => (
                 <SidebarItem
                   key={preset.id}
                   href={`/workspaces/${workspaceId}/agents/${preset.id}`}
@@ -609,10 +625,10 @@ function PresetsSidebar({
                   description={preset.description}
                   slug={preset.slug}
                 />
-              ))
-            )}
-          </div>
-        </ScrollArea>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
       </div>
     </div>
   )
@@ -779,9 +795,18 @@ function AgentPresetChatPane({
   const renderBody = () => {
     if (!preset) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
-          <MessageCircle className="size-5" />
-          <p>Select a saved preset to start a conversation.</p>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Select a saved preset</EmptyTitle>
+              <EmptyDescription>
+                Select a saved preset to start a conversation.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </div>
       )
     }
@@ -835,19 +860,30 @@ function AgentPresetChatPane({
 
     if (!activeChatId) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <Bot className="size-5 text-muted-foreground" />
-          <p>Create a chat session to test this agent live.</p>
-          <Button
-            size="sm"
-            onClick={() => void handleStartChat()}
-            disabled={createChatPending || !canStartChat}
-          >
-            {createChatPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : null}
-            Start chat
-          </Button>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Bot />
+              </EmptyMedia>
+              <EmptyTitle>Live chat</EmptyTitle>
+              <EmptyDescription>
+                Converse with the agent live in a chat session.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                size="sm"
+                onClick={() => void handleStartChat()}
+                disabled={createChatPending || !canStartChat}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : null}
+                Start chat
+              </Button>
+            </EmptyContent>
+          </Empty>
         </div>
       )
     }
@@ -1110,7 +1146,7 @@ function AgentPresetForm({
   return (
     <Form {...form}>
       <div className="flex h-full flex-col">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b p-6 py-4">
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <FormField
               control={form.control}
@@ -1154,27 +1190,7 @@ function AgentPresetForm({
                       onBlur={field.onBlur}
                       disabled={isSaving}
                       placeholder="Short summary of what this agent does."
-                      className="min-h-[3.5rem] w-full resize-none overflow-hidden border-none bg-transparent px-0 text-xs leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="actions"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Allowed tools</FormLabel>
-                  <FormControl>
-                    <MultiTagCommandInput
-                      value={field.value}
-                      onChange={field.onChange}
-                      suggestions={actionSuggestions}
-                      placeholder="+ Add tool"
-                      searchKeys={["label", "value", "description", "group"]}
-                      allowCustomTags
-                      disabled={isSaving}
+                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-xs leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                     />
                   </FormControl>
                 </FormItem>
@@ -1278,8 +1294,69 @@ function AgentPresetForm({
               event.preventDefault()
               void handleSubmit()
             }}
-            className="flex flex-col gap-8 px-6 py-6 text-sm"
+            className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm"
           >
+            <section className="space-y-6">
+              <FormField
+                control={form.control}
+                name="actions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Allowed tools</FormLabel>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        suggestions={actionSuggestions}
+                        placeholder="+ Add tool"
+                        searchKeys={["label", "value", "description", "group"]}
+                        allowCustomTags
+                        disabled={isSaving}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="mcpIntegrations"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Allowed MCP integrations</FormLabel>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value ?? []}
+                        onChange={(next) => field.onChange(next)}
+                        searchKeys={["label", "value"]}
+                        suggestions={(mcpIntegrations ?? []).map(
+                          (integration) => ({
+                            id: integration.providerId,
+                            label: integration.name,
+                            value: integration.providerId,
+                            description: integration.description || "Connected",
+                            icon: (
+                              <ProviderIcon
+                                providerId={integration.providerId}
+                                className="size-3 bg-transparent p-0 mx-1"
+                              />
+                            ),
+                          })
+                        )}
+                        placeholder={
+                          mcpIntegrationsIsLoading
+                            ? "Loading integrations..."
+                            : "Select MCP integrations"
+                        }
+                        disabled={isSaving}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </section>
+
+            <Separator />
+
             <section className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
@@ -1356,49 +1433,6 @@ function AgentPresetForm({
                   )}
                 />
               </div>
-              <div className="md:col-span-2">
-                <FormField
-                  control={form.control}
-                  name="mcpIntegrations"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>MCP OAuth integrations</FormLabel>
-                      <FormControl>
-                        <MultiTagCommandInput
-                          value={field.value ?? []}
-                          onChange={(next) => field.onChange(next)}
-                          searchKeys={["label", "value"]}
-                          suggestions={(mcpIntegrations ?? []).map(
-                            (integration) => ({
-                              id: integration.providerId,
-                              label: integration.name,
-                              value: integration.providerId,
-                              description:
-                                integration.description || "Connected",
-                              icon: (
-                                <ProviderIcon
-                                  providerId={integration.providerId}
-                                  className="size-3 bg-transparent p-0 mx-1"
-                                />
-                              ),
-                            })
-                          )}
-                          placeholder={
-                            mcpIntegrationsIsLoading
-                              ? "Loading integrations..."
-                              : "Select MCP integrations"
-                          }
-                          disabled={isSaving}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Connected MCP providers whose tokens will be used to
-                        build the MCP server headers.
-                      </FormDescription>
-                    </FormItem>
-                  )}
-                />
-              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -1435,140 +1469,6 @@ function AgentPresetForm({
                   )}
                 />
               </div>
-            </section>
-
-            <Separator />
-
-            <section className="space-y-4">
-              <FormField
-                control={form.control}
-                name="instructions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>System prompt</FormLabel>
-                    <FormControl>
-                      <div className="min-h-[300px] rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
-                        <SimpleEditor
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          onBlur={field.onBlur}
-                          placeholder="You are a helpful analyst..."
-                          editable={!isSaving}
-                          className="min-h-[300px]"
-                        />
-                      </div>
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="outputTypeKind"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Output type</FormLabel>
-                      <FormControl>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          disabled={isSaving}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">
-                              <div className="flex items-center gap-2">
-                                <Type className="size-4" />
-                                <span>Text only</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="data-type">
-                              <div className="flex items-center gap-2">
-                                <Box className="size-4" />
-                                <span>Structured</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="json">
-                              <div className="flex items-center gap-2">
-                                <Braces className="size-4" />
-                                <span>JSON schema</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                {outputTypeKind === "data-type" ? (
-                  <FormField
-                    control={form.control}
-                    name="outputTypeDataType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Data type</FormLabel>
-                        <FormControl>
-                          <Select
-                            value={field.value ?? ""}
-                            onValueChange={field.onChange}
-                            disabled={isSaving}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DATA_TYPE_OUTPUT_TYPES.map((option) => {
-                                const Icon = option.icon
-                                return (
-                                  <SelectItem
-                                    key={option.value}
-                                    value={option.value}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <Icon className="size-4" />
-                                      <span>{option.label}</span>
-                                    </div>
-                                  </SelectItem>
-                                )
-                              })}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                ) : null}
-              </div>
-              {outputTypeKind === "json" ? (
-                <FormField
-                  control={form.control}
-                  name="outputTypeJson"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>JSON schema</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder='{"type": "object", "properties": {...}}'
-                          rows={8}
-                          className="font-mono text-xs"
-                          {...field}
-                          disabled={isSaving}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Provide a JSON schema describing the desired response.
-                      </FormDescription>
-                    </FormItem>
-                  )}
-                />
-              ) : null}
-            </section>
-
-            <Separator />
-
-            <section className="space-y-4">
               <FormField
                 control={form.control}
                 name="namespaces"
@@ -1702,6 +1602,135 @@ function AgentPresetForm({
                 )}
               </div>
             </section>
+
+            <Separator />
+
+            <section className="space-y-6">
+              <FormField
+                control={form.control}
+                name="instructions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>System prompt</FormLabel>
+                    <FormControl>
+                      <div className="min-h-[300px] rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
+                        <SimpleEditor
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          placeholder="You are a helpful analyst..."
+                          editable={!isSaving}
+                          className="min-h-[300px]"
+                        />
+                      </div>
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="outputTypeKind"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Output type</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          disabled={isSaving}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">
+                              <div className="flex items-center gap-2">
+                                <Type className="size-4" />
+                                <span>Text only</span>
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="data-type">
+                              <div className="flex items-center gap-2">
+                                <Box className="size-4" />
+                                <span>Structured</span>
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="json">
+                              <div className="flex items-center gap-2">
+                                <Braces className="size-4" />
+                                <span>JSON schema</span>
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {outputTypeKind === "data-type" ? (
+                  <FormField
+                    control={form.control}
+                    name="outputTypeDataType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Data type</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value ?? ""}
+                            onValueChange={field.onChange}
+                            disabled={isSaving}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DATA_TYPE_OUTPUT_TYPES.map((option) => {
+                                const Icon = option.icon
+                                return (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <Icon className="size-4" />
+                                      <span>{option.label}</span>
+                                    </div>
+                                  </SelectItem>
+                                )
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </div>
+              {outputTypeKind === "json" ? (
+                <FormField
+                  control={form.control}
+                  name="outputTypeJson"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>JSON schema</FormLabel>
+                      <FormDescription>
+                        Define a JSON schema for structured output.
+                      </FormDescription>
+                      <FormControl>
+                        <CodeEditor
+                          value={field.value ?? ""}
+                          onChange={(value) => field.onChange(value)}
+                          language="json"
+                          readOnly={isSaving}
+                          className="min-h-[200px]"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+            </section>
           </form>
         </ScrollArea>
       </div>
@@ -1783,15 +1812,6 @@ function AgentPresetBuilderChatPane({
   }
 
   const renderBody = () => {
-    if (!presetId) {
-      return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <MessageCircle className="size-5" />
-          <p>Save this preset to chat with the builder assistant.</p>
-        </div>
-      )
-    }
-
     if (chatReadyLoading) {
       return (
         <div className="flex h-full items-center justify-center">
@@ -1838,22 +1858,31 @@ function AgentPresetBuilderChatPane({
 
     if (!activeChatId) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <MessageCircle className="size-5 text-muted-foreground" />
-          <p>
-            Ask the assistant for prompt, tool, or approval suggestions to get
-            started.
-          </p>
-          <Button
-            size="sm"
-            onClick={() => void handleStartChat()}
-            disabled={createChatPending || !canStartChat}
-          >
-            {createChatPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : null}
-            Start assistant
-          </Button>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Builder assistant</EmptyTitle>
+              <EmptyDescription>
+                Save the preset name and model provider to activate the builder
+                assistant.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                size="sm"
+                onClick={() => void handleStartChat()}
+                disabled={createChatPending || !canStartChat}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : null}
+                Start assistant
+              </Button>
+            </EmptyContent>
+          </Empty>
         </div>
       )
     }
