@@ -28,6 +28,7 @@ def upgrade() -> None:
         existing_type=postgresql.TIMESTAMP(),
         type_=sa.TIMESTAMP(timezone=True),
         existing_nullable=True,
+        postgresql_using="start_at AT TIME ZONE 'UTC'",
     )
     op.alter_column(
         "schedule",
@@ -35,6 +36,7 @@ def upgrade() -> None:
         existing_type=postgresql.TIMESTAMP(),
         type_=sa.TIMESTAMP(timezone=True),
         existing_nullable=True,
+        postgresql_using="end_at AT TIME ZONE 'UTC'",
     )
     # ### end Alembic commands ###
 
