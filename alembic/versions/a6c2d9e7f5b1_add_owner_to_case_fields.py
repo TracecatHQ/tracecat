@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects.postgresql import UUID
 
 from alembic import op
 
@@ -19,7 +19,7 @@ def upgrade() -> None:
     # This allows the column to be added without violating NOT NULL constraints
     op.add_column(
         "case_fields",
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=True),
+        sa.Column("owner_id", UUID(as_uuid=True), nullable=True),
         schema="public",
     )
 
