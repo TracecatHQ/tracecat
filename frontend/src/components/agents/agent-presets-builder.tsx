@@ -1293,7 +1293,7 @@ function AgentPresetForm({
               event.preventDefault()
               void handleSubmit()
             }}
-            className="flex flex-col gap-8 px-6 py-6 pb-16 text-sm"
+            className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm"
           >
             <section className="space-y-6">
               <FormField
@@ -1714,6 +1714,9 @@ function AgentPresetForm({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>JSON schema</FormLabel>
+                      <FormDescription>
+                        Define a JSON schema for structured output.
+                      </FormDescription>
                       <FormControl>
                         <CodeEditor
                           value={field.value ?? ""}
@@ -1723,9 +1726,6 @@ function AgentPresetForm({
                           className="min-h-[200px]"
                         />
                       </FormControl>
-                      <FormDescription>
-                        Provide a JSON schema describing the desired response.
-                      </FormDescription>
                     </FormItem>
                   )}
                 />
