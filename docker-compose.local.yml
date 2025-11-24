@@ -81,6 +81,8 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
+      postgres_db:
+        condition: service_healthy
       temporal:
         condition: service_healthy
       minio:
@@ -126,8 +128,14 @@ services:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
-      - api
-      - temporal
+      postgres_db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   executor:
     build:
@@ -184,8 +192,12 @@ services:
       retries: 3
       start_period: 120s
     depends_on:
-      - temporal
-      - redis
+      postgres_db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   ui:
     build:
@@ -220,6 +232,12 @@ services:
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   temporal_postgres_db:
     image: postgres:13

@@ -72,9 +72,14 @@ services:
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - temporal
-      - minio
-      - redis
+      postgres_db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
@@ -117,9 +122,14 @@ services:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
-      - api
-      - temporal
-      - redis
+      postgres_db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   executor:
     build:
@@ -183,8 +193,12 @@ services:
       retries: 3
       start_period: 120s
     depends_on:
-      - temporal
-      - redis
+      postgres_db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   ui:
     # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
@@ -227,6 +241,12 @@ services:
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   temporal_postgres_db:
     image: postgres:13
@@ -249,6 +269,11 @@ services:
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "127.0.0.1:7233", "cluster", "health"]
+      interval: 1s
+      timeout: 5s
+      start_period: 2s
     depends_on:
       - temporal_postgres_db
 
