@@ -1393,7 +1393,7 @@ const scheduleInputsSchema = z
     }
 
     if (startAt) {
-      if (!parseDate(startAt)) {
+      if (parseDate(startAt) === null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["startAt"],
@@ -1403,7 +1403,7 @@ const scheduleInputsSchema = z
     }
 
     if (endAt) {
-      if (!parseDate(endAt)) {
+      if (parseDate(endAt) === null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["endAt"],
@@ -1415,7 +1415,7 @@ const scheduleInputsSchema = z
     if (startAt && endAt) {
       const start = parseDate(startAt)
       const end = parseDate(endAt)
-      if (start && end && start > end) {
+      if (start !== null && end !== null && start > end) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["endAt"],
