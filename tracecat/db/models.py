@@ -779,10 +779,26 @@ class Schedule(RecordModel):
     cron: Mapped[str | None] = mapped_column(String, nullable=True)
     inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=True)
     every: Mapped[timedelta | None] = mapped_column(Interval(), nullable=True)
-    offset: Mapped[timedelta | None] = mapped_column(Interval(), nullable=True)
-    start_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(), nullable=True)
-    end_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(), nullable=True)
-    timeout: Mapped[float | None] = mapped_column(Float, nullable=True)
+    offset: Mapped[timedelta | None] = mapped_column(
+        Interval(),
+        nullable=True,
+        doc="ISO 8601 duration string",
+    )
+    start_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="ISO 8601 datetime string",
+    )
+    end_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="ISO 8601 datetime string",
+    )
+    timeout: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        doc="The maximum number of seconds to wait for the workflow to complete",
+    )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
