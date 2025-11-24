@@ -6,6 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -804,17 +805,21 @@ class CaseFieldsService(BaseWorkspaceService):
     async def _ensure_workspace_row(self, case_fields: CaseFields) -> None:
         """Ensure a workspace data row exists for the metadata record."""
         await self._ensure_schema_ready()
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.text(
-                f"""
-                INSERT INTO {self._workspace_table()} (id, case_id)
-                VALUES (:id, :case_id)
-                ON CONFLICT (id) DO NOTHING
-                """
-            ),
-            {"id": case_fields.id, "case_id": case_fields.case_id},
+        workspace_table = sa.Table(
+            self._sanitized_table,
+            sa.MetaData(),
+            sa.Column("id", UUID(as_uuid=True), primary_key=True),
+            sa.Column("case_id", UUID(as_uuid=True), nullable=False),
+            schema=self.schema_name,
         )
+        insert_stmt = insert(workspace_table).values(
+            id=case_fields.id, case_id=case_fields.case_id
+        )
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[workspace_table.c.case_id],
+            set_={"id": insert_stmt.excluded.id},
+        )
+        await self.session.execute(stmt)
         await self.session.flush()
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
