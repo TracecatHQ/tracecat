@@ -1,5 +1,8 @@
 import base64
 from datetime import datetime
+import posixpath
+from urllib.parse import unquote, urlsplit
+import httpx
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
@@ -749,6 +752,46 @@ async def remove_case_tag(
         await service.tags.remove_case_tag(case.id, tag)
 
 
+async def _upload_attachment(
+    case_id: str,
+    file_name: str,
+    content: bytes,
+    content_type: str,
+) -> dict[str, Any]:
+    """Upload an attachment to a case."""
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError:
+        raise ValueError(f"Invalid case ID format: {case_id}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        attachment = await service.attachments.create_attachment(
+            case=case,
+            params=CaseAttachmentCreate(
+                file_name=file_name,
+                content_type=content_type,
+                size=len(content),
+                content=content,
+            ),
+        )
+
+    return CaseAttachmentRead(
+        id=attachment.id,
+        case_id=attachment.case_id,
+        file_id=attachment.file_id,
+        file_name=attachment.file.name,
+        content_type=attachment.file.content_type,
+        size=attachment.file.size,
+        sha256=attachment.file.sha256,
+        created_at=attachment.created_at,
+        updated_at=attachment.updated_at,
+    ).model_dump(mode="json")
+
+
 @registry.register(
     default_title="Upload attachment",
     display_group="Cases",
@@ -769,54 +812,75 @@ async def upload_attachment(
         Doc("The file content encoded in base64."),
     ],
     content_type: Annotated[
-        str | None,
-        Doc(
-            "The MIME type of the file (e.g., 'application/pdf'). If not provided, defaults to 'application/octet-stream'."
-        ),
-    ] = None,
+        str,
+        Doc("The MIME type of the file (e.g., 'application/pdf')."),
+    ],
 ) -> dict[str, Any]:
     """Upload a file attachment to a case."""
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
-
     # Decode base64 content
     try:
         content = base64.b64decode(content_base64, validate=True)
     except Exception as e:
         raise ValueError(f"Invalid base64 encoding: {str(e)}")
 
-    # Default content type if not provided
+    return await _upload_attachment(case_id, file_name, content, content_type)
+
+
+def _infer_filename_from_url(url: str) -> str:
+    """Infer a safe filename from a URL path with conservative fallbacks."""
+    parsed = urlsplit(url.strip())
+    path = parsed.path.rstrip("/")
+
+    if path:
+        filename = unquote(posixpath.basename(path))
+        if filename:
+            return filename
+
+    raise ValueError(f"Unable to infer filename from URL: {url}")
+
+
+@registry.register(
+    default_title="Upload attachment from URL",
+    display_group="Cases",
+    description="Upload a file attachment to a case from a URL.",
+    namespace="core.cases",
+)
+async def upload_attachment_from_url(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to attach the file to."),
+    ],
+    url: Annotated[
+        str,
+        Doc("The URL of the file to upload."),
+    ],
+    headers: Annotated[
+        dict[str, str] | None,
+        Doc("The headers to use when downloading the file."),
+    ] = None,
+    file_name: Annotated[
+        str | None,
+        Doc(
+            "Filename of the file to upload. If not provided, the filename will be inferred from the URL."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Upload a file attachment to a case from a URL."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        content = response.content
+        content_type = response.headers.get("Content-Type")
+
+    if not content:
+        raise ValueError(f"No content found in response from URL: {url}")
+
     if not content_type:
-        content_type = "application/octet-stream"
+        raise ValueError(f"No content type found in response from URL: {url}")
 
-    async with CasesService.with_session() as service:
-        case = await service.get_case(case_uuid)
-        if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+    file_name = file_name or _infer_filename_from_url(url)
 
-        attachment = await service.attachments.create_attachment(
-            case=case,
-            params=CaseAttachmentCreate(
-                file_name=file_name,
-                content_type=content_type,
-                size=len(content),
-                content=content,
-            ),
-        )
-    return CaseAttachmentRead(
-        id=attachment.id,
-        case_id=attachment.case_id,
-        file_id=attachment.file_id,
-        file_name=attachment.file.name,
-        content_type=attachment.file.content_type,
-        size=attachment.file.size,
-        sha256=attachment.file.sha256,
-        created_at=attachment.created_at,
-        updated_at=attachment.updated_at,
-    ).model_dump(mode="json")
+    return await _upload_attachment(case_id, file_name, content, content_type)
 
 
 @registry.register(

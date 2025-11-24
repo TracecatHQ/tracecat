@@ -128,7 +128,7 @@ class TypeTransformer(Transformer):
             seen_values.add(value_lower)
             literal_values.append(value)
 
-        literal_type = Literal.__getitem__(tuple(literal_values))
+        literal_type = Literal.__getitem__(tuple(literal_values))  # pyright: ignore[reportAttributeAccessIssue]
         logger.trace("Enum literal type:", field=self.field_name, values=literal_values)
         return literal_type
 

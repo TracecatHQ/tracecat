@@ -19,6 +19,17 @@ import type {
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -65,6 +76,7 @@ export function ChatInterface({
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -132,6 +144,7 @@ export function ChatInterface({
   }, [chats, selectedChatId, onChatSelect])
 
   const handleCreateChat = async () => {
+    setNewChatDialogOpen(false)
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
@@ -327,22 +340,43 @@ export function ChatInterface({
               </DropdownMenu>
             )}
             {/* New chat icon button with tooltip */}
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="size-6 p-0"
-                    onClick={handleCreateChat}
-                    disabled={createChatPending}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">New chat</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <AlertDialog
+              open={newChatDialogOpen}
+              onOpenChange={setNewChatDialogOpen}
+            >
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <AlertDialogTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="size-6 p-0"
+                        disabled={createChatPending}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                  </AlertDialogTrigger>
+                  <TooltipContent side="bottom">New chat</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will create a new conversation. Your current chat will
+                    remain accessible from the conversations menu.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void handleCreateChat()}>
+                    Start new chat
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       </div>

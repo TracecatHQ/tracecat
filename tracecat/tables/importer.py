@@ -223,7 +223,7 @@ class CSVSchemaInferer:
     def initialise(cls, headers: Sequence[str | None]) -> Self:
         return cls(headers)
 
-    def observe(self, row: dict[str, str | None]) -> None:
+    def observe(self, row: dict[str, str]) -> None:
         for stats in self._columns:
             stats.observe(row.get(stats.original_name))
 

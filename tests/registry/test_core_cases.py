@@ -18,6 +18,7 @@ from tracecat_registry.core.cases import (
     search_cases,
     update_case,
     update_comment,
+    upload_attachment_from_url,
 )
 
 # Import UserRead and UserRole for realistic user objects
@@ -2042,3 +2043,47 @@ class TestCoreCreateCaseErrorHandling:
 
         # In production, the transaction should rollback, leaving no partial data
         # This is verified by the service-level tests
+
+
+@pytest.mark.anyio
+class TestCoreUploadAttachmentFromURL:
+    """Tests for upload_attachment_from_url registry action."""
+
+    @patch("tracecat_registry.core.cases._upload_attachment", new_callable=AsyncMock)
+    @patch("tracecat_registry.core.cases.httpx.AsyncClient")
+    async def test_upload_attachment_from_url_success(
+        self,
+        mock_httpx_client,
+        mock_upload_attachment,
+    ):
+        """Ensure files downloaded via HTTP are passed to the uploader."""
+        mock_response = MagicMock()
+        mock_response.content = b"file-bytes"
+        mock_response.headers = {"Content-Type": "application/pdf"}
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client
+
+        mock_upload_attachment.return_value = {"id": "attachment-id"}
+
+        case_id = str(uuid.uuid4())
+        result = await upload_attachment_from_url(
+            case_id=case_id,
+            url="https://example.com/docs/report.pdf",
+            headers={"Authorization": "Bearer token"},
+            file_name="incident-report.pdf",
+        )
+
+        mock_client.get.assert_awaited_once_with(
+            "https://example.com/docs/report.pdf",
+            headers={"Authorization": "Bearer token"},
+        )
+        mock_upload_attachment.assert_awaited_once_with(
+            case_id,
+            "incident-report.pdf",
+            b"file-bytes",
+            "application/pdf",
+        )
+
+        assert result == {"id": "attachment-id"}
