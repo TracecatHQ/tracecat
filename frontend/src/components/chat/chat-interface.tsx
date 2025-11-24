@@ -216,7 +216,6 @@ export function ChatInterface({
           </EmptyHeader>
           <EmptyContent>
             <Button onClick={handleCreateChat} disabled={createChatPending}>
-              <Plus className="mr-1 size-4" />
               Start chat
             </Button>
           </EmptyContent>

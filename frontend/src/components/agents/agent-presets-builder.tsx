@@ -617,12 +617,6 @@ function PresetsSidebar({
                     Create an AI agent preset to reuse across workflows, cases, and chat.
                   </EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent>
-                  <Button size="sm" onClick={onCreate}>
-                    <Plus className="mr-1 size-4" />
-                    New agent preset
-                  </Button>
-                </EmptyContent>
               </Empty>
             ) : (
               list.map((preset) => (
@@ -889,7 +883,6 @@ function AgentPresetChatPane({
                 {createChatPending ? (
                   <Loader2 className="mr-1 size-4 animate-spin" />
                 ) : null}
-                <Plus className="mr-1 size-4" />
                 Start chat
               </Button>
             </EmptyContent>
