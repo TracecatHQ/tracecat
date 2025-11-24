@@ -585,7 +585,7 @@ def eval_jsonpath(
                 getattr(current, "fields_list", None),
                 getattr(current, "components", None),
             ):
-                if isinstance(children, (list, tuple)):
+                if isinstance(children, list | tuple):
                     stack.extend(
                         child
                         for child in children
