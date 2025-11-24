@@ -14,8 +14,9 @@ definition:
       type: str
       description: JQL query to search for issues.
     base_url:
-      type: str
+      type: str | None
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+      default: null
     next_page:
       type: str
       description: Next page token to get the next page of results. If not provided, the first page of results will be returned.
@@ -34,7 +35,7 @@ definition:
     - ref: search_issues
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/search/jql
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/search/jql
         method: GET
         params:
           fields: ${{ inputs.fields }}

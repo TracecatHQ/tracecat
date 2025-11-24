@@ -50,9 +50,13 @@ iterator: "for" local_vars_assignment "in" expression
            | "-" unary_expr -> neg_op
            | "+" unary_expr -> pos_op
 
-?primary_expr: atom
-             | TYPE_SPECIFIER "(" expression ")" -> typecast
-             | "(" expression ")"
+?primary_expr: base_expr indexer*
+
+?base_expr: atom
+          | TYPE_SPECIFIER "(" expression ")" -> typecast
+          | "(" expression ")"
+
+indexer: "[" expression "]"
 
 ?atom: context
      | literal

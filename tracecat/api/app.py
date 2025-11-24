@@ -9,10 +9,12 @@ from httpx_oauth.clients.google import GoogleOAuth2
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.agent.router import router as ee_agent_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
@@ -23,9 +25,10 @@ from tracecat.api.common import (
 )
 from tracecat.auth.dependencies import require_auth_type_enabled
 from tracecat.auth.enums import AuthType
-from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
+from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidEmailException,
@@ -34,7 +37,6 @@ from tracecat.auth.users import (
 )
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.durations.router import router as case_durations_router
-from tracecat.cases.records.router import router as case_records_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.cases.tag_definitions.router import (
@@ -46,8 +48,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
-from tracecat.entities.router import router as entities_router
-from tracecat.feature_flags import feature_flag_dep
+from tracecat.exceptions import TracecatException
+from tracecat.feature_flags import FeatureFlag, feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
@@ -57,7 +59,6 @@ from tracecat.middleware import (
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
-from tracecat.records.router import router as records_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
@@ -68,8 +69,6 @@ from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -215,12 +214,18 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(secrets_router)
     app.include_router(variables_router)
     app.include_router(schedules_router)
-    app.include_router(entities_router)
     app.include_router(tags_router)
-    app.include_router(records_router)
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(agent_router)
+    app.include_router(
+        agent_preset_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
+    )
+    app.include_router(
+        ee_agent_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_APPROVALS))],
+    )
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
@@ -234,9 +239,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_attachments_router)
     app.include_router(
         case_durations_router,
-        dependencies=[Depends(feature_flag_dep("case-durations"))],
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
     )
-    app.include_router(case_records_router)
     app.include_router(chat_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
@@ -244,7 +248,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(feature_flags_router)
     app.include_router(
         vcs_router,
-        dependencies=[Depends(feature_flag_dep("git-sync"))],
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
     )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),

@@ -4,14 +4,15 @@ from collections.abc import AsyncGenerator, Sequence
 import pytest
 from slugify import slugify
 from sqlalchemy.exc import DatabaseError, IntegrityError, NoResultFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.schemas import Case
-from tracecat.tags.models import TagCreate
-from tracecat.types.auth import Role
+from tracecat.db.models import Case
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -311,8 +312,6 @@ class TestCaseTagsService:  # noqa: D101
         tag = await case_tags_service.create_tag(tag_params)
         non_existent_case_id = uuid.uuid4()
 
-        # This should fail due to foreign key constraint
-        from sqlalchemy.exc import IntegrityError
-
-        with pytest.raises(IntegrityError):
+        # This should fail because the case does not exist in the workspace
+        with pytest.raises(TracecatNotFoundError):
             await case_tags_service.add_case_tag(non_existent_case_id, str(tag.id))

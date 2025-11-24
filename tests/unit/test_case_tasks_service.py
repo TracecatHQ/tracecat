@@ -2,14 +2,15 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
-from tracecat.cases.models import CaseCreate, CaseTaskCreate, CaseTaskUpdate
+from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CasesService, CaseTasksService
-from tracecat.db.schemas import Case, Workflow, Workspace
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.db.models import Case, Workflow, Workspace
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.identifiers import WorkflowUUID
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -113,7 +114,7 @@ class TestCaseTasksService:
         test_workflow: Workflow,
     ) -> None:
         """Test creating a task with a workflow_id."""
-        task_create_params.workflow_id = test_workflow.id
+        task_create_params.workflow_id = WorkflowUUID.new(test_workflow.id)
 
         created_task = await case_tasks_service.create_task(
             test_case.id, task_create_params
@@ -277,7 +278,7 @@ class TestCaseTasksService:
 
         # Add workflow_id
         updated_task = await case_tasks_service.update_task(
-            task.id, CaseTaskUpdate(workflow_id=test_workflow.id)
+            task.id, CaseTaskUpdate(workflow_id=WorkflowUUID.new(test_workflow.id))
         )
         assert updated_task.workflow_id == test_workflow.id
 
@@ -328,7 +329,7 @@ class TestCaseTasksService:
                 description="Task with all fields",
                 priority=CasePriority.CRITICAL,
                 status=CaseTaskStatus.IN_PROGRESS,
-                workflow_id=test_workflow.id,
+                workflow_id=WorkflowUUID.new(test_workflow.id),
             ),
         )
 

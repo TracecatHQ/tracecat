@@ -72,6 +72,7 @@ jest.mock("@/lib/utils", () => ({
   ),
   undoSlugify: jest.fn((str: string) => str),
   slugify: jest.fn((str: string) => str),
+  slugifyActionRef: jest.fn((str: string) => str),
 }))
 
 // Mock complex dependency chains that cause issues

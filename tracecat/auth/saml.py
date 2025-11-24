@@ -35,7 +35,7 @@ from tracecat.config import (
     XMLSEC_BINARY_PATH,
 )
 from tracecat.db.engine import get_async_session
-from tracecat.db.schemas import SAMLRequestData
+from tracecat.db.models import SAMLRequestData
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 

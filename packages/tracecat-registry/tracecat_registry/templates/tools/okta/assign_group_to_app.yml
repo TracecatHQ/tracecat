@@ -11,8 +11,9 @@ definition:
       keys: ["OKTA_API_TOKEN"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      default: null
     app_id:
       type: str
       description: Application ID to assign the group to
@@ -44,7 +45,7 @@ definition:
       action: core.http_request
       args:
         method: PUT
-        url: ${{ inputs.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
+        url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"

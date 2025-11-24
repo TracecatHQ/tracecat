@@ -11,9 +11,9 @@ definition:
       type: str
       description: ID of the view to update.
     view:
-      type: list[dict[str, Any]]
+      type: dict[str, Any]
       description: >
-        List of blocks to update the view with.
+        Updated view payload for the modal.
         See: https://docs.slack.dev/reference/views/modal-views
   steps:
     - ref: update_view

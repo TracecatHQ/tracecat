@@ -17,23 +17,20 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
-from temporalio.common import (
-    SearchAttributeKey,
-    SearchAttributePair,
-    TypedSearchAttributes,
-)
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Interaction
+from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
-from tracecat.dsl.models import Task, TriggerInputs
-from tracecat.dsl.validation import validate_trigger_inputs
+from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
@@ -42,8 +39,6 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -62,7 +57,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
     WorkflowDispatchResponse,
@@ -712,12 +707,6 @@ class WorkflowExecutionsService:
 
         Note: This method blocks until the workflow execution completes.
         """
-        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
-        if validation_result.status == "error":
-            logger.error(validation_result.msg, detail=validation_result.detail)
-            raise TracecatValidationError(
-                validation_result.msg, detail=validation_result.detail
-            )
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
@@ -762,12 +751,13 @@ class WorkflowExecutionsService:
         pairs = [trigger_type.to_temporal_search_attr_pair()]
         if self.role.user_id is not None:
             pairs.append(
-                SearchAttributePair(
-                    key=SearchAttributeKey.for_keyword(
-                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-                    ),
-                    value=str(self.role.user_id),
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                    str(self.role.user_id)
                 )
+            )
+        if self.role.workspace_id is not None:
+            pairs.append(
+                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
             )
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:

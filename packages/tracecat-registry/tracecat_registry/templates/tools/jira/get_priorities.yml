@@ -14,8 +14,9 @@ definition:
       type: str
       description: Jira priority scheme ID.
     base_url:
-      type: str
+      type: str | None
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+      default: null
     limit:
       type: int
       description: Maximum number of priorities to return.
@@ -24,7 +25,7 @@ definition:
     - ref: get_priorities
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/priorityscheme/${{ inputs.priority_scheme_id }}/priorities
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/priorityscheme/${{ inputs.priority_scheme_id }}/priorities
         method: GET
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}

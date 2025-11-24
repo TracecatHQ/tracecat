@@ -12,10 +12,11 @@ from github.GithubException import GithubException
 from github.InputGitAuthor import InputGitAuthor
 from pydantic import ValidationError
 
-from tracecat.db.schemas import User
+from tracecat.db.models import User
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.git.utils import GitUrl
 from tracecat.logger import logger
-from tracecat.registry.repositories.models import GitCommitInfo
+from tracecat.registry.repositories.schemas import GitCommitInfo
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import (
     CommitInfo,
@@ -25,10 +26,9 @@ from tracecat.sync import (
     PushObject,
     PushOptions,
 )
-from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.workflow.store.import_service import WorkflowImportService
-from tracecat.workflow.store.models import RemoteWorkflowDefinition
+from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspaces.service import WorkspaceService
 
 

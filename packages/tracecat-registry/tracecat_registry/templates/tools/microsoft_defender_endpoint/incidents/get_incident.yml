@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get incident
+  description: Retrieve a Microsoft Defender for Endpoint incident by ID.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/exposed-apis-list
+  namespace: tools.microsoft_defender_endpoint
+  name: get_incident
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    incident_id:
+      type: str
+      description: Incident ID to retrieve.
+  steps:
+    - ref: get_incident
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/incidents/${{ FN.url_encode(inputs.incident_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+  returns: ${{ steps.get_incident.result.data }}

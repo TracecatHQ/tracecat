@@ -66,6 +66,15 @@ const nextConfig = {
       },
     ]
   },
+  redirects: async () => {
+    return [
+      {
+        source: "/workspaces/:workspaceId/agents/presets/:path*",
+        destination: "/workspaces/:workspaceId/agents/:path*",
+        permanent: true,
+      },
+    ]
+  },
 }
 
 // Override settings for non-production environments

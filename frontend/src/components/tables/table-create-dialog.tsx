@@ -4,8 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
+import type { TableColumnCreate } from "@/client"
 import { ApiError } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
+import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,6 +38,43 @@ import { useCreateTable } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const isSelectableColumnType = (type?: string) =>
+  type === "SELECT" || type === "MULTI_SELECT"
+
+const sanitizeColumnOptions = (options?: string[]) => {
+  if (!options) return []
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  for (const option of options) {
+    const trimmed = option.trim()
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue
+    }
+    seen.add(trimmed)
+    cleaned.push(trimmed)
+  }
+  return cleaned
+}
+
+const tableColumnSchema = z
+  .object({
+    name: z.string().min(1, "Column name is required"),
+    type: z.enum(SqlTypeCreatableEnum),
+    options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
+  })
+  .superRefine((column, ctx) => {
+    if (isSelectableColumnType(column.type)) {
+      const hasValidOptions = column.options && column.options.length > 0
+      if (!hasValidOptions) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please add at least one option",
+          path: ["options"],
+        })
+      }
+    }
+  })
+
 const createTableSchema = z.object({
   name: z
     .string()
@@ -45,14 +84,7 @@ const createTableSchema = z.object({
       /^[a-zA-Z0-9_]+$/,
       "Name must contain only letters, numbers, and underscores"
     ),
-  columns: z
-    .array(
-      z.object({
-        name: z.string().min(1, "Column name is required"),
-        type: z.enum(SqlTypeCreatableEnum),
-      })
-    )
-    .min(1, "At least one column is required"),
+  columns: z.array(tableColumnSchema).min(1, "At least one column is required"),
 })
 
 type CreateTableSchema = z.infer<typeof createTableSchema>
@@ -71,7 +103,7 @@ export function CreateTableDialog({
     resolver: zodResolver(createTableSchema),
     defaultValues: {
       name: "",
-      columns: [{ name: "", type: SqlTypeCreatableEnum[0] }],
+      columns: [{ name: "", type: SqlTypeCreatableEnum[0], options: [] }],
     },
     mode: "onSubmit",
   })
@@ -90,10 +122,23 @@ export function CreateTableDialog({
         return
       }
 
+      const payloadColumns: TableColumnCreate[] = data.columns.map(
+        ({ name, type, options }) => {
+          const columnPayload: TableColumnCreate = {
+            name,
+            type,
+          }
+          if (isSelectableColumnType(type)) {
+            columnPayload.options = sanitizeColumnOptions(options)
+          }
+          return columnPayload
+        }
+      )
+
       await createTable({
         requestBody: {
           name: data.name,
-          columns: data.columns,
+          columns: payloadColumns,
         },
         workspaceId,
       })
@@ -165,71 +210,103 @@ export function CreateTableDialog({
                     <FormDescription>
                       Define the columns of the table.
                     </FormDescription>
-                    {fields.map((field, index) => (
-                      <div key={field.id} className="mb-2 flex items-start">
-                        <div className="grid flex-1 grid-cols-3 gap-2">
-                          <FormField
-                            control={form.control}
-                            name={`columns.${index}.name`}
-                            render={({ field }) => (
-                              <FormItem className="col-span-2">
-                                <FormControl>
-                                  <Input
-                                    placeholder="Enter column name..."
-                                    {...field}
-                                    value={field.value ?? ""}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
+                    {fields.map((field, index) => {
+                      const columnType = form.watch(`columns.${index}.type`)
+                      const requiresOptions = isSelectableColumnType(columnType)
+
+                      return (
+                        <div key={field.id} className="mb-2 flex items-start">
+                          <div className="grid flex-1 grid-cols-3 gap-2">
+                            <FormField
+                              control={form.control}
+                              name={`columns.${index}.name`}
+                              render={({ field }) => (
+                                <FormItem className="col-span-2">
+                                  <FormControl>
+                                    <Input
+                                      placeholder="Enter column name..."
+                                      {...field}
+                                      value={field.value ?? ""}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`columns.${index}.type`}
+                              render={({ field }) => (
+                                <FormItem className="col-span-1">
+                                  <FormControl>
+                                    <Select
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select column type" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {SqlTypeCreatableEnum.map((type) => (
+                                          <SelectItem key={type} value={type}>
+                                            <SqlTypeDisplay
+                                              type={type}
+                                              labelClassName="text-xs"
+                                            />
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            {requiresOptions && (
+                              <FormField
+                                control={form.control}
+                                name={`columns.${index}.options`}
+                                render={({ field }) => (
+                                  <FormItem className="col-span-3">
+                                    <FormLabel>Options</FormLabel>
+                                    <FormControl>
+                                      <MultiTagCommandInput
+                                        value={field.value || []}
+                                        onChange={field.onChange}
+                                        placeholder="Add allowed values..."
+                                        allowCustomTags
+                                        disableSuggestions
+                                        className="w-full"
+                                        searchKeys={["label"]}
+                                      />
+                                    </FormControl>
+                                    <FormDescription className="text-xs">
+                                      Values that will be available when
+                                      inserting rows.
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
                             )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`columns.${index}.type`}
-                            render={({ field }) => (
-                              <FormItem className="col-span-1">
-                                <FormControl>
-                                  <Select
-                                    value={field.value}
-                                    onValueChange={field.onChange}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select column type" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {SqlTypeCreatableEnum.map((type) => (
-                                        <SelectItem key={type} value={type}>
-                                          <SqlTypeDisplay
-                                            type={type}
-                                            labelClassName="text-xs"
-                                          />
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="ml-2"
+                            onClick={() => {
+                              if (fields.length > 1) {
+                                remove(index)
+                              }
+                            }}
+                            disabled={fields.length <= 1}
+                            aria-label="Remove column"
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="ml-2"
-                          onClick={() => {
-                            if (fields.length > 1) {
-                              remove(index)
-                            }
-                          }}
-                          disabled={fields.length <= 1}
-                          aria-label="Remove column"
-                        >
-                          <Trash2Icon className="size-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </FormItem>
                 )}
               />
@@ -237,7 +314,11 @@ export function CreateTableDialog({
                 type="button"
                 variant="outline"
                 onClick={() =>
-                  append({ name: "", type: SqlTypeCreatableEnum[0] })
+                  append({
+                    name: "",
+                    type: SqlTypeCreatableEnum[0],
+                    options: [],
+                  })
                 }
                 className="space-x-2 text-xs"
                 aria-label="Add new column"

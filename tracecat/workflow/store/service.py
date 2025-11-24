@@ -1,15 +1,15 @@
 from pathlib import Path
 from typing import cast
 
-from tracecat.db.schemas import Workflow
+from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushObject, PushOptions
-from tracecat.types.exceptions import TracecatSettingsError, TracecatValidationError
-from tracecat.workflow.store.models import (
+from tracecat.workflow.store.schemas import (
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,

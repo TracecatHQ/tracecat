@@ -1,6 +1,6 @@
 from typing import Any
 
-from tracecat.interactions.models import InteractionInput
+from tracecat.interactions.schemas import InteractionInput
 
 
 def parse_slack_interaction_input(payload: dict[str, Any]) -> InteractionInput:

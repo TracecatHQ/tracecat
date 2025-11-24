@@ -6,24 +6,24 @@ import uuid
 
 import yaml
 from pydantic import ValidationError
-from sqlmodel import select
+from sqlalchemy import select
 
-from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.models import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.types.exceptions import TracecatAuthorizationError
-from tracecat.workflow.actions.models import ActionControlFlow
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.schedules.models import ScheduleCreate
+from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
-from tracecat.workflow.store.models import (
+from tracecat.workflow.store.schemas import (
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -315,6 +315,9 @@ class WorkflowImportService(BaseWorkspaceService):
         actions = await self._create_actions_from_dsl(dsl, wf_id)
         existing_workflow.actions = actions
 
+        # Ensure IDs are generated before regenerating the graph
+        await self.session.flush()
+
         # 5. Regenerate the React Flow graph
         base_graph = RFGraph.with_defaults(existing_workflow)
         ref2id = {act.ref: act.id for act in actions}
@@ -468,8 +471,8 @@ class WorkflowImportService(BaseWorkspaceService):
         stmt = select(Tag).where(
             Tag.owner_id == self.workspace_id, Tag.name == tag_name
         )
-        result = await self.session.exec(stmt)
-        tag = result.first()
+        result = await self.session.execute(stmt)
+        tag = result.scalars().first()
 
         if not tag:
             tag = Tag(

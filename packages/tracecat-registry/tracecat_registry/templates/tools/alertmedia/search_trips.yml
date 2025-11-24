@@ -11,8 +11,9 @@ definition:
       keys: ["ALERTMEDIA_API_KEY"]
   expects:
     base_url:
-      type: str
+      type: str | None
       description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+      default: null
     ordering:
       type: str
       description: Sort trips in response by one of start_date, end_date, name, city, country, state, country_code. Add - before the field name to reverse the order (e.g. ?ordering=-start_date returns trips sorted by start date Z-A). Default is -active_date.
@@ -29,7 +30,7 @@ definition:
     - ref: search_trips
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/trips
+        url: ${{ inputs.base_url || VARS.alertmedia.base_url }}/api/trips
         method: GET
         params:
           ordering: ${{ inputs.ordering }}

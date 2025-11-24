@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlmodel import col, select
 
-from tracecat.db.schemas import WorkspaceVariable
+from tracecat.db.models import WorkspaceVariable
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
-from tracecat.variables.models import (
+from tracecat.variables.schemas import (
     VariableCreate,
     VariableSearch,
     VariableUpdate,
@@ -29,8 +29,8 @@ class VariablesService(BaseWorkspaceService):
         )
         if environment is not None:
             statement = statement.where(WorkspaceVariable.environment == environment)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def search_variables(
         self, params: VariableSearch
@@ -44,21 +44,21 @@ class VariablesService(BaseWorkspaceService):
                 WorkspaceVariable.environment == params.environment
             )
         if params.names:
-            statement = statement.where(col(WorkspaceVariable.name).in_(params.names))
+            statement = statement.where(WorkspaceVariable.name.in_(params.names))
         if params.ids:
-            statement = statement.where(col(WorkspaceVariable.id).in_(params.ids))
+            statement = statement.where(WorkspaceVariable.id.in_(params.ids))
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_variable(self, variable_id: VariableID) -> WorkspaceVariable:
         statement = select(WorkspaceVariable).where(
             WorkspaceVariable.owner_id == self.workspace_id,
             WorkspaceVariable.id == variable_id,
         )
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as exc:
             self.logger.error(
                 "Multiple variables found with ID",
@@ -87,9 +87,9 @@ class VariablesService(BaseWorkspaceService):
         )
         if environment is not None:
             statement = statement.where(WorkspaceVariable.environment == environment)
-        result = await self.session.exec(statement)
+        result = await self.session.execute(statement)
         try:
-            return result.one()
+            return result.scalar_one()
         except MultipleResultsFound as exc:
             self.logger.error(
                 "Multiple variables found with name",

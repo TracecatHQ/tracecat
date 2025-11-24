@@ -6,6 +6,7 @@ import { type FeatureFlag, featureFlagsGetFeatureFlags } from "@/client"
 export function useFeatureFlag(): {
   isFeatureEnabled: (flag: FeatureFlag) => boolean
   isLoading: boolean
+  hasFeatureData: boolean
 } {
   const {
     data: featureFlags,
@@ -21,6 +22,8 @@ export function useFeatureFlag(): {
     refetchOnWindowFocus: false,
   })
 
+  const hasFeatureData = featureFlags !== undefined
+
   return {
     isFeatureEnabled: (flag: FeatureFlag) => {
       // Returns false while loading or on error; components should use isLoading to handle loading state
@@ -28,6 +31,7 @@ export function useFeatureFlag(): {
       return featureFlags?.has(flag) ?? false
     },
     isLoading,
+    hasFeatureData,
   }
 }
 

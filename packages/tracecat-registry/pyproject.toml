@@ -34,6 +34,7 @@ dependencies = [
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
     "nh3==0.2.18",
+    "openai-guardrails==0.1.6",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tavily-python==0.7.6",

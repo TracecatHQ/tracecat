@@ -2,8 +2,8 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.base import MCPAuthProvider
+from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
 class LinearMCPProvider(MCPAuthProvider):
@@ -20,7 +20,7 @@ class LinearMCPProvider(MCPAuthProvider):
     id: ClassVar[str] = "linear_mcp"
 
     # MCP server endpoint - OAuth endpoints discovered automatically
-    _mcp_server_uri: ClassVar[str] = "https://mcp.linear.app/mcp"
+    mcp_server_uri: ClassVar[str] = "https://mcp.linear.app/mcp"
 
     # No default scopes - authorization server determines based on user permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])

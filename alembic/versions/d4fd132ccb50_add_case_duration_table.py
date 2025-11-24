@@ -9,7 +9,7 @@ Create Date: 2025-10-21 12:43:53.678129
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -37,7 +37,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
         sa.Column("case_id", sa.UUID(), nullable=False),
         sa.Column("definition_id", sa.UUID(), nullable=False),

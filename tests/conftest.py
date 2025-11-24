@@ -15,39 +15,55 @@ from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.schemas import Workspace
+from tracecat.db.models import Base, Workspace
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
-from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
 
-# MinIO test configuration
-MINIO_ENDPOINT = "localhost:9002"
+# Worker-specific configuration for pytest-xdist parallel execution
+# Get xdist worker ID, defaults to "master" if not using xdist
+WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+# Generate worker-specific port offsets
+# master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
+if WORKER_ID == "master":
+    WORKER_OFFSET = 0
+else:
+    # Extract number from "gwN" format
+    WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
+
+# MinIO test configuration - worker-specific
+MINIO_BASE_PORT = 9002
+MINIO_CONSOLE_BASE_PORT = 9003
+MINIO_PORT = MINIO_BASE_PORT + (WORKER_OFFSET * 2)  # Each worker gets 2 ports
+MINIO_CONSOLE_PORT = MINIO_CONSOLE_BASE_PORT + (WORKER_OFFSET * 2)
+MINIO_ENDPOINT = f"localhost:{MINIO_PORT}"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
-MINIO_CONTAINER_NAME = "test-minio-grep"
+MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
 
 # ---------------------------------------------------------------------------
-# Redis test configuration
+# Redis test configuration - worker-specific
 # ---------------------------------------------------------------------------
 
-REDIS_PORT = "6380"
-REDIS_CONTAINER_NAME = "test-redis-grep"
+REDIS_BASE_PORT = 6380
+REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
+REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +220,7 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
-            SQLModel.metadata.create_all(conn)
+            Base.metadata.create_all(conn)
         yield
     finally:
         test_engine.dispose()
@@ -346,7 +362,11 @@ async def test_admin_role(test_workspace, mock_org_id):
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
     )
-    yield admin_role
+    token = ctx_role.set(admin_role)
+    try:
+        yield admin_role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture(scope="function")
@@ -359,13 +379,12 @@ async def test_workspace():
         # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.info("Created test workspace", workspace=workspace)
-
+        logger.debug("Created test workspace", workspace=workspace)
         try:
             yield workspace
         finally:
             # Clean up the workspace
-            logger.info("Teardown test workspace")
+            logger.debug("Teardown test workspace")
             try:
                 await svc.delete_workspace(ws_id)
             except Exception as e:
@@ -380,7 +399,9 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(get_temporal_client())
+    client = loop.run_until_complete(
+        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    )
     return client
 
 
@@ -416,7 +437,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     try:
         yield workspace
     finally:
-        logger.info("Cleaning up test workspace")
+        logger.debug("Cleaning up test workspace")
         try:
             if session.is_active:
                 # Reset transaction state in case it was aborted
@@ -490,9 +511,9 @@ def minio_server():
                 "--name",
                 MINIO_CONTAINER_NAME,
                 "-p",
-                "9002:9000",
+                f"{MINIO_PORT}:9000",
                 "-p",
-                "9003:9001",
+                f"{MINIO_CONSOLE_PORT}:9001",
                 "-e",
                 f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
                 "-e",
@@ -644,10 +665,12 @@ async def test_worker_factory(
         task_queue: str | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
+
+        activities = activities or get_activities()
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=activities or get_activities(),
+            activities=activities,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
             activity_executor=threadpool,

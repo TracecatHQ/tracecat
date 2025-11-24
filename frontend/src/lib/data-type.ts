@@ -10,7 +10,6 @@ import {
   ToggleLeft,
   Type,
 } from "lucide-react"
-import type { FieldType } from "@/client"
 import type { SqlTypeEnum } from "@/lib/tables"
 
 export type SqlType = (typeof SqlTypeEnum)[number]
@@ -20,18 +19,6 @@ export interface TypeConfig {
   icon: LucideIcon
 }
 
-export const FIELD_TYPE_CONFIG: Record<FieldType, TypeConfig> = {
-  TEXT: { label: "Text", icon: Type },
-  INTEGER: { label: "Integer", icon: Hash },
-  NUMBER: { label: "Number", icon: CircleDot },
-  BOOL: { label: "Boolean", icon: ToggleLeft },
-  JSON: { label: "JSON", icon: Braces },
-  DATE: { label: "Date", icon: Calendar },
-  DATETIME: { label: "Date and time", icon: CalendarClock },
-  SELECT: { label: "Select", icon: SquareCheck },
-  MULTI_SELECT: { label: "Multi-select", icon: ListTodo },
-}
-
 export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   TEXT: { label: "Text", icon: Type },
   INTEGER: { label: "Integer", icon: Hash },
@@ -39,12 +26,10 @@ export const SQL_TYPE_CONFIG: Record<SqlType, TypeConfig> = {
   BOOLEAN: { label: "Boolean", icon: ToggleLeft },
   TIMESTAMP: { label: "Date and time", icon: CalendarClock },
   TIMESTAMPTZ: { label: "Date and time", icon: CalendarClock },
+  DATE: { label: "Date", icon: Calendar },
   JSONB: { label: "JSON", icon: Braces },
-}
-
-export function getFieldTypeConfig(type?: FieldType | null) {
-  if (!type) return undefined
-  return FIELD_TYPE_CONFIG[type]
+  SELECT: { label: "Select", icon: SquareCheck },
+  MULTI_SELECT: { label: "Multi-select", icon: ListTodo },
 }
 
 export function getSqlTypeConfig(type?: SqlType | null) {

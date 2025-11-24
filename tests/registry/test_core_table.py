@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from asyncpg import DuplicateTableError
+from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
@@ -21,11 +23,11 @@ from tracecat_registry.core.table import (
     update_row,
 )
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Workspace
+from tracecat.db.models import Workspace
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
 
 
 @pytest.fixture
@@ -34,7 +36,7 @@ def mock_table():
     table = MagicMock()
     table.id = uuid.uuid4()
     table.name = "test_table"
-    table.model_dump.return_value = {
+    table.to_dict.return_value = {
         "id": str(table.id),
         "name": table.name,
         "created_at": datetime.now(UTC),
@@ -407,8 +409,8 @@ class TestCoreCreateTable:
         assert table_create_arg.name == "test_table"
         assert table_create_arg.columns == []
 
-        # Verify the result
-        assert result == mock_table.model_dump.return_value
+        # Verify the result matches the table's dict representation
+        assert result == mock_table.to_dict.return_value
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_create_table_with_columns(self, mock_with_session, mock_table):
@@ -451,8 +453,122 @@ class TestCoreCreateTable:
         assert col2.nullable is False
         assert col2.default == 0
 
-        # Verify the result
-        assert result == mock_table.model_dump.return_value
+        # Verify the result matches the table's dict representation
+        assert result == mock_table.to_dict.return_value
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_create_table_raise_on_duplicate_true_raises_on_duplicate(
+        self, mock_with_session, mock_table
+    ):
+        """Test that create_table raises error when table exists and raise_on_duplicate=True."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+
+        # Create a chain of exceptions: ProgrammingError wrapping DuplicateTableError
+        # SQLAlchemy's ProgrammingError chains exceptions via __cause__
+        duplicate_error = DuplicateTableError("relation already exists")
+        programming_error = ProgrammingError("statement", {}, duplicate_error)
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = duplicate_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_table with raise_on_duplicate=True (default)
+        with pytest.raises(ValueError, match="Table already exists"):
+            await create_table(name="test_table", raise_on_duplicate=True)
+
+        # Assert create_table was called
+        mock_service.create_table.assert_called_once()
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_create_table_raise_on_duplicate_false_returns_existing(
+        self, mock_with_session, mock_table
+    ):
+        """Test that create_table returns existing table when raise_on_duplicate=False."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+
+        # Create a chain of exceptions: ProgrammingError wrapping DuplicateTableError
+        # SQLAlchemy's ProgrammingError chains exceptions via __cause__
+        duplicate_error = DuplicateTableError("relation already exists")
+        programming_error = ProgrammingError("statement", {}, duplicate_error)
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = duplicate_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
+
+        # Mock get_table_by_name to return the existing table
+        mock_service.get_table_by_name.return_value = mock_table
+
+        # Mock session.rollback() for the rollback call (must be async)
+        mock_service.session = MagicMock()
+        mock_service.session.rollback = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_table with raise_on_duplicate=False
+        result = await create_table(name="test_table", raise_on_duplicate=False)
+
+        # Assert create_table was called first
+        mock_service.create_table.assert_called_once()
+
+        # Assert rollback was called
+        mock_service.session.rollback.assert_called_once()
+
+        # Assert get_table_by_name was called to fetch existing table
+        mock_service.get_table_by_name.assert_called_once_with("test_table")
+
+        # Verify the result is the existing table's dict representation
+        assert result == mock_table.to_dict.return_value
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_create_table_raise_on_duplicate_propagates_other_errors(
+        self, mock_with_session
+    ):
+        """Test that create_table propagates non-duplicate errors even with raise_on_duplicate=False."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+
+        # Create a ProgrammingError with a different cause (not DuplicateTableError)
+        other_error = Exception("Some other database error")
+        programming_error = ProgrammingError("statement", {}, other_error)
+        # Manually ensure __cause__ is set for the drill-down logic
+        programming_error.__cause__ = other_error
+
+        # Ensure the exception is properly chained for the drill-down logic
+        async def raise_programming_error(*args, **kwargs):
+            raise programming_error
+
+        mock_service.create_table.side_effect = raise_programming_error
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call create_table with raise_on_duplicate=False
+        # Should still raise the ProgrammingError since it's not a DuplicateTableError
+        with pytest.raises(ProgrammingError):
+            await create_table(name="test_table", raise_on_duplicate=False)
+
+        # Assert create_table was called
+        mock_service.create_table.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -1107,3 +1223,59 @@ class TestCoreTableIntegration:
 
         # Verify the result
         assert result == 3
+
+    async def test_create_table_raise_on_duplicate_false_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test that create_table with raise_on_duplicate=False returns existing table."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Define columns for the table
+            columns = [
+                {"name": "username", "type": "TEXT", "nullable": False},
+                {"name": "email", "type": "TEXT", "nullable": True},
+            ]
+
+            # Create table first time
+            result1 = await create_table(name="duplicate_test_table", columns=columns)
+
+            # Verify first creation succeeded
+            assert result1["name"] == "duplicate_test_table"
+            first_table_id = result1["id"]
+
+            # Try to create table again with raise_on_duplicate=False
+            result2 = await create_table(
+                name="duplicate_test_table", raise_on_duplicate=False
+            )
+
+            # Verify it returned the existing table (same ID)
+            assert result2["name"] == "duplicate_test_table"
+            assert result2["id"] == first_table_id
+
+            # Verify only one table exists with that name
+            async with TablesService.with_session(role=svc_admin_role) as service:
+                tables = await service.list_tables()
+                duplicate_tables = [
+                    t for t in tables if t.name == "duplicate_test_table"
+                ]
+                assert len(duplicate_tables) == 1
+                assert duplicate_tables[0].id == first_table_id
+        finally:
+            ctx_role.reset(token)
+
+    async def test_create_table_duplicate_with_raise_on_duplicate_true_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test that create_table raises error on duplicate with raise_on_duplicate=True."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Create table first time
+            await create_table(name="duplicate_error_test")
+
+            # Try to create table again with raise_on_duplicate=True (default)
+            with pytest.raises(ValueError, match="Table already exists"):
+                await create_table(name="duplicate_error_test", raise_on_duplicate=True)
+        finally:
+            ctx_role.reset(token)

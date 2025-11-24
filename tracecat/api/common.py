@@ -13,12 +13,14 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatException
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatException
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 def generic_exception_handler(request: Request, exc: Exception):
@@ -82,13 +84,19 @@ async def add_temporal_search_attributes():
     """
     client = await get_temporal_client()
     namespace = TEMPORAL__CLUSTER_NAMESPACE
+    attrs = {
+        TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+    }
     try:
+        if is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+            attrs[TemporalSearchAttr.ALIAS.value] = (
+                IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
+            )
         await client.operator_service.add_search_attributes(
             AddSearchAttributesRequest(
-                search_attributes={
-                    "TracecatTriggerType": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                    "TracecatTriggeredByUserId": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                },
+                search_attributes=attrs,
                 namespace=namespace,
             )
         )
@@ -102,7 +110,7 @@ async def add_temporal_search_attributes():
         logger.info(
             "Temporal search attributes added",
             namespace=namespace,
-            search_attributes=["TracecatTriggerType", "TracecatTriggeredByUserId"],
+            search_attributes=list(attrs.keys()),
         )
 
 
@@ -123,8 +131,9 @@ async def remove_temporal_search_attributes():
         await client.operator_service.remove_search_attributes(
             RemoveSearchAttributesRequest(
                 search_attributes=[
-                    "TracecatTriggerType",
-                    "TracecatTriggeredByUserId",
+                    TemporalSearchAttr.TRIGGER_TYPE.value,
+                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+                    TemporalSearchAttr.WORKSPACE_ID.value,
                 ],
                 namespace=namespace,
             )
@@ -139,5 +148,9 @@ async def remove_temporal_search_attributes():
         logger.info(
             "Temporal search attributes removed",
             namespace=namespace,
-            search_attributes=["TracecatTriggerType", "TracecatTriggeredByUserId"],
+            search_attributes=[
+                TemporalSearchAttr.TRIGGER_TYPE.value,
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+                TemporalSearchAttr.WORKSPACE_ID.value,
+            ],
         )

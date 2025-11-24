@@ -28,7 +28,7 @@ export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
-  description?: string | null
+  description?: string
   inputs?: string
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean
@@ -170,13 +170,116 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentApprovalSubmission = {
+  approvals: ApprovalMap
+}
+
 export type AgentOutput = {
   output: unknown
-  message_history: Array<ModelRequest | ModelResponse>
+  message_history?: Array<ModelRequest | ModelResponse> | null
   duration: number
   usage: RunUsage
   session_id: string
   trace_id?: string | null
+}
+
+export type AgentPreset = {
+  component_id?: "agent-preset"
+}
+
+/**
+ * Payload for creating a new agent preset.
+ */
+export type AgentPresetCreate = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  name: string
+  slug?: string | null
+}
+
+/**
+ * API model for reading agent presets.
+ */
+export type AgentPresetRead = {
+  description?: string | null
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Minimal API model for reading agent presets in list endpoints.
+ */
+export type AgentPresetReadMinimal = {
+  id: string
+  owner_id: string
+  name: string
+  slug: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Payload for updating an existing agent preset.
+ */
+export type AgentPresetUpdate = {
+  name?: string | null
+  slug?: string | null
+  description?: string | null
+  instructions?: string | null
+  model_name?: string | null
+  model_provider?: string | null
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number | null
+}
+
+export type AgentSessionRead = {
+  id: string
+  created_at: string
+  parent_id?: string | null
+  parent_run_id: string | null
+  root_id?: string | null
+  root_run_id?: string | null
+  status?: WorkflowExecutionStatus | null
+  approvals?: Array<ApprovalRead>
+  parent_workflow?: WorkflowSummary | null
+  root_workflow?: WorkflowSummary | null
+  action_ref?: string | null
+  action_title?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -253,6 +356,20 @@ export type AppSettingsUpdate = {
 }
 
 /**
+ * Operator decision for a pending approval.
+ */
+export type ApprovalDecision = {
+  tool_call_id: string
+  action: "approve" | "override" | "deny"
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  reason?: string | null
+}
+
+export type action = "approve" | "override" | "deny"
+
+/**
  * Configuration for an approval interaction.
  */
 export type ApprovalInteraction = {
@@ -278,6 +395,40 @@ export type ApprovalInteraction = {
    */
   approve_if?: string | null
 }
+
+export type ApprovalMap = {
+  [key: string]: boolean | ToolApproved | ToolDenied
+}
+
+/**
+ * Serialized approval record.
+ */
+export type ApprovalRead = {
+  id: string
+  session_id: string
+  tool_call_id: string
+  tool_name: string
+  status: ApprovalStatus
+  reason: string | null
+  tool_call_args: {
+    [key: string]: unknown
+  } | null
+  decision:
+    | boolean
+    | {
+        [key: string]: unknown
+      }
+    | null
+  approved_by?: UserReadMinimal | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Possible states for a deferred tool approval.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected"
 
 /**
  * Event for when a case assignee is changed.
@@ -406,39 +557,6 @@ export type AuthSettingsUpdate = {
 }
 
 /**
- * Simple request model for starting a chat with a text message.
- */
-export type BasicChatRequest = {
-  format?: "basic"
-  /**
-   * User message to send to the agent
-   */
-  message: string
-  /**
-   * AI model to use
-   */
-  model_name?: string
-  /**
-   * AI model provider
-   */
-  model_provider?: string
-  /**
-   * Optional instructions for the agent
-   */
-  instructions?: string | null
-  /**
-   * Optional context data for the agent
-   */
-  context?: {
-    [key: string]: unknown
-  } | null
-  /**
-   * Optional base URL for the model provider
-   */
-  base_url?: string | null
-}
-
-/**
  * Binary content, e.g. an audio or image file.
  */
 export type BinaryContent = {
@@ -483,6 +601,15 @@ export type BinaryContent = {
   readonly identifier: string
 }
 
+export type Body_auth_auth_database_login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
+}
+
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -512,6 +639,11 @@ export type Body_case_attachments_create_attachment = {
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
+}
+
+export type Body_tables_import_table_from_csv = {
+  file: Blob | File
+  table_name?: string | null
 }
 
 export type Body_workflows_create_workflow = {
@@ -817,6 +949,7 @@ export type CaseEventRead =
   | CreatedEventRead
   | ClosedEventRead
   | ReopenedEventRead
+  | CaseViewedEventRead
   | UpdatedEventRead
   | StatusChangedEventRead
   | PriorityChangedEventRead
@@ -825,6 +958,8 @@ export type CaseEventRead =
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
+  | TagAddedEventRead
+  | TagRemovedEventRead
   | PayloadChangedEventRead
   | TaskCreatedEventRead
   | TaskStatusChangedEventRead
@@ -841,6 +976,7 @@ export type CaseEventType =
   | "case_updated"
   | "case_closed"
   | "case_reopened"
+  | "case_viewed"
   | "priority_changed"
   | "severity_changed"
   | "status_changed"
@@ -848,6 +984,8 @@ export type CaseEventType =
   | "assignee_changed"
   | "attachment_created"
   | "attachment_deleted"
+  | "tag_added"
+  | "tag_removed"
   | "payload_changed"
   | "task_created"
   | "task_deleted"
@@ -881,6 +1019,7 @@ export type CaseFieldCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -919,6 +1058,7 @@ export type CaseFieldUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
@@ -971,123 +1111,6 @@ export type CaseReadMinimal = {
   tags?: Array<CaseTagRead>
   num_tasks_completed?: number
   num_tasks_total?: number
-}
-
-/**
- * Model for creating a new entity record and linking it to a case.
- */
-export type CaseRecordCreate = {
-  /**
-   * Key of the entity type
-   */
-  entity_key: string
-  /**
-   * Entity record data
-   */
-  data?: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * Response model for unlinking a case record.
- */
-export type CaseRecordDeleteResponse = {
-  /**
-   * Action (unlink or delete)
-   */
-  action: "unlink" | "delete"
-  /**
-   * Case ID
-   */
-  case_id: string
-  /**
-   * Record ID
-   */
-  record_id: string
-  /**
-   * Case record ID
-   */
-  case_record_id: string
-}
-
-/**
- * Action (unlink or delete)
- */
-export type action = "unlink" | "delete"
-
-/**
- * Model for linking an existing entity record to a case.
- */
-export type CaseRecordLink = {
-  /**
-   * ID of the existing entity record to link
-   */
-  entity_record_id: string
-}
-
-/**
- * Response model for listing case records.
- */
-export type CaseRecordListResponse = {
-  /**
-   * List of case records
-   */
-  items?: Array<CaseRecordRead>
-  /**
-   * Total number of records
-   */
-  total: number
-}
-
-/**
- * Model for reading a case record with full details.
- */
-export type CaseRecordRead = {
-  /**
-   * Case record link ID
-   */
-  id: string
-  /**
-   * Case ID
-   */
-  case_id: string
-  /**
-   * Entity type ID
-   */
-  entity_id: string
-  /**
-   * Entity record ID
-   */
-  record_id: string
-  /**
-   * Entity type key
-   */
-  entity_key: string
-  /**
-   * Entity display name
-   */
-  entity_display_name: string
-  /**
-   * Entity record data
-   */
-  data: {
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Model for updating a case record's entity data.
- */
-export type CaseRecordUpdate = {
-  /**
-   * Updated entity record data
-   */
-  data: {
-    [key: string]: unknown
-  }
 }
 
 /**
@@ -1194,6 +1217,25 @@ export type CaseUpdate = {
 }
 
 /**
+ * Event for when a case is viewed.
+ */
+export type CaseViewedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_viewed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Request model for creating a new chat.
  */
 export type ChatCreate = {
@@ -1213,12 +1255,20 @@ export type ChatCreate = {
    * Tools available to the agent for this chat
    */
   tools?: Array<string> | null
+  /**
+   * Optional agent preset to use for the chat session
+   */
+  agent_preset_id?: string | null
 }
 
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity =
+  | "case"
+  | "agent_preset"
+  | "agent_preset_builder"
+  | "copilot"
 
 /**
  * Model for chat metadata with a single message.
@@ -1262,6 +1312,10 @@ export type ChatRead = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
   /**
    * When the chat was created
    */
@@ -1309,6 +1363,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1351,6 +1409,10 @@ export type ChatReadVercel = {
    */
   tools: Array<string>
   /**
+   * Agent preset associated with the chat, if any
+   */
+  agent_preset_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1380,6 +1442,10 @@ export type ChatUpdate = {
    * Chat title
    */
   title?: string | null
+  /**
+   * Agent preset to use for the chat session (set to null for default instructions)
+   */
+  agent_preset_id?: string | null
 }
 
 /**
@@ -1411,6 +1477,14 @@ export type Code = {
 export type lang = "yaml" | "python"
 
 /**
+ * Payload to continue a CE run after collecting approvals.
+ */
+export type ContinueRunRequest = {
+  kind?: "continue"
+  decisions: Array<ApprovalDecision>
+}
+
+/**
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
@@ -1431,30 +1505,6 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
   items: Array<CaseReadMinimal>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_RecordRead_ = {
-  items: Array<RecordRead>
   /**
    * Cursor for next page
    */
@@ -1523,6 +1573,39 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
    * Estimated total count from table statistics
    */
   total_estimate?: number | null
+}
+
+/**
+ * Request payload for creating a custom OAuth provider.
+ */
+export type CustomOAuthProviderCreate = {
+  name: string
+  description?: string | null
+  grant_type: OAuthGrantType
+  /**
+   * OAuth authorization endpoint URL
+   */
+  authorization_endpoint: string
+  /**
+   * OAuth token endpoint URL
+   */
+  token_endpoint: string
+  /**
+   * Default OAuth scopes to request
+   */
+  scopes?: Array<string> | null
+  /**
+   * Optional custom identifier for the provider
+   */
+  provider_id?: string | null
+  /**
+   * OAuth client identifier
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
 }
 
 /**
@@ -1750,6 +1833,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentPreset
 
 export type EditorFunctionRead = {
   name: string
@@ -1762,87 +1846,6 @@ export type EditorParamRead = {
   name: string
   type: string
   optional: boolean
-}
-
-export type EntityCreate = {
-  /**
-   * Immutable entity key (snake_case)
-   */
-  key: string
-  display_name: string
-  description?: string | null
-  icon?: string | null
-}
-
-export type EntityFieldCreate = {
-  /**
-   * Immutable field key (snake_case)
-   */
-  key: string
-  type: FieldType
-  display_name: string
-  description?: string | null
-  /**
-   * Default value for the field
-   */
-  default_value?: unknown | null
-  options?: Array<EntityFieldOptionCreate> | null
-}
-
-export type EntityFieldOptionCreate = {
-  key?: string | null
-  label: string
-}
-
-export type EntityFieldOptionRead = {
-  id: string
-  field_id: string
-  key: string
-  label: string
-  description?: string | null
-  created_at: string
-  updated_at: string
-}
-
-export type EntityFieldRead = {
-  id: string
-  entity_id: string
-  key: string
-  type: FieldType
-  display_name: string
-  description?: string | null
-  is_active: boolean
-  default_value?: unknown | null
-  created_at: string
-  updated_at: string
-  options?: Array<EntityFieldOptionRead>
-}
-
-export type EntityFieldUpdate = {
-  display_name?: string | null
-  description?: string | null
-  /**
-   * Default value for the field
-   */
-  default_value?: unknown | null
-  options?: Array<EntityFieldOptionCreate> | null
-}
-
-export type EntityRead = {
-  id: string
-  key: string
-  display_name: string
-  description?: string | null
-  icon?: string | null
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
-
-export type EntityUpdate = {
-  display_name?: string | null
-  description?: string | null
-  icon?: string | null
 }
 
 export type ErrorDetails = {
@@ -1960,6 +1963,8 @@ export type ExpressionValidationResponse = {
 export type FeatureFlag =
   | "git-sync"
   | "agent-sandbox"
+  | "agent-approvals"
+  | "agent-presets"
   | "case-durations"
   | "case-tasks"
 
@@ -1995,20 +2000,6 @@ export type FieldDiff = {
   old: unknown
   new: unknown
 }
-
-/**
- * Supported field types for entities.
- */
-export type FieldType =
-  | "INTEGER"
-  | "NUMBER"
-  | "TEXT"
-  | "BOOL"
-  | "JSON"
-  | "DATETIME"
-  | "DATE"
-  | "SELECT"
-  | "MULTI_SELECT"
 
 /**
  * A file response from a model.
@@ -2241,6 +2232,24 @@ export type ImageUrl = {
   readonly identifier: string
 }
 
+/**
+ * Inferred column mapping between CSV headers and table columns.
+ */
+export type InferredColumn = {
+  /**
+   * Original column header in the CSV file
+   */
+  csv_header: string
+  /**
+   * Column name created in Tracecat
+   */
+  field_name: string
+  /**
+   * Inferred SQL type for the column
+   */
+  field_type: SqlType
+}
+
 export type Integer = {
   component_id?: "integer"
   min_val?: number | null
@@ -2289,9 +2298,14 @@ export type IntegrationRead = {
   updated_at: string
   user_id?: string | null
   provider_id: string
-  provider_config: {
-    [key: string]: unknown
-  }
+  /**
+   * OAuth authorization endpoint configured for this integration.
+   */
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint configured for this integration.
+   */
+  token_endpoint?: string | null
   token_type: string
   expires_at: string | null
   /**
@@ -2364,11 +2378,13 @@ export type IntegrationUpdate = {
    */
   client_secret?: string | null
   /**
-   * Provider-specific configuration
+   * OAuth authorization endpoint URL. Overrides provider defaults when set.
    */
-  provider_config?: {
-    [key: string]: unknown
-  } | null
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint URL. Overrides provider defaults when set.
+   */
+  token_endpoint?: string | null
   /**
    * OAuth scopes to request for this integration
    */
@@ -2438,6 +2454,16 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
+
+/**
+ * Configuration for an MCP server.
+ */
+export type MCPServerConfig = {
+  url: string
+  headers: {
+    [key: string]: string
+  }
+}
 
 export type ModelConfig = {
   /**
@@ -2566,6 +2592,19 @@ export type OrgMemberRead = {
   is_verified: boolean
   last_login_at: string | null
 }
+
+export type OutputType =
+  | "bool"
+  | "float"
+  | "int"
+  | "str"
+  | "list[bool]"
+  | "list[float]"
+  | "list[int]"
+  | "list[str]"
+  | {
+      [key: string]: unknown
+    }
 
 export type PartDeltaEvent = {
   index: number
@@ -2730,6 +2769,10 @@ export type ProviderRead = {
   scopes: ProviderScopes
   config_schema: ProviderSchema
   integration_status: IntegrationStatus
+  default_authorization_endpoint?: string | null
+  default_token_endpoint?: string | null
+  authorization_endpoint_help?: string | Array<string> | null
+  token_endpoint_help?: string | Array<string> | null
   redirect_uri?: string | null
 }
 
@@ -2818,40 +2861,6 @@ export type ReceiveInteractionResponse = {
 }
 
 /**
- * Create payload for an entity record.
- *
- * Data is a free-form JSON object whose keys correspond to entity field keys.
- * Values are validated and coerced by the service using the entity's schema.
- */
-export type RecordCreate = {
-  data?: {
-    [key: string]: unknown
-  }
-}
-
-export type RecordRead = {
-  id: string
-  entity_id: string
-  data: {
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Partial update for a record's data map.
- *
- * Any keys provided will be merged into the existing record data after
- * validation/coercion. Keys not present remain unchanged.
- */
-export type RecordUpdate = {
-  data?: {
-    [key: string]: unknown
-  }
-}
-
-/**
  * API create model for a registered action.
  */
 export type RegistryActionCreate = {
@@ -2925,6 +2934,7 @@ export type RegistryActionInterface = {
 
 export type RegistryActionOptions = {
   include_in_schema?: boolean
+  requires_approval?: boolean
 }
 
 /**
@@ -3413,39 +3423,6 @@ export type SAMLSettingsUpdate = {
   saml_idp_metadata_url?: string | null
 }
 
-export type Schedule = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
-  id?: string
-  status?: string
-  cron?: string | null
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
-   * ISO 8601 duration string
-   */
-  every?: string | null
-  /**
-   * ISO 8601 duration string
-   */
-  offset?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  start_at?: string | null
-  /**
-   * ISO 8601 datetime string
-   */
-  end_at?: string | null
-  /**
-   * The maximum number of seconds to wait for the workflow to complete
-   */
-  timeout?: number | null
-  workflow_id: string
-}
-
 export type ScheduleCreate = {
   workflow_id: string
   inputs?: {
@@ -3476,6 +3453,24 @@ export type ScheduleCreate = {
 }
 
 export type status2 = "online" | "offline"
+
+export type ScheduleRead = {
+  id: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+  workflow_id: string
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  every?: string | null
+  offset?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  timeout?: number | null
+  status: "online" | "offline"
+}
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -3688,11 +3683,14 @@ export type SqlType =
   | "TEXT"
   | "INTEGER"
   | "NUMERIC"
+  | "DATE"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+  | "SELECT"
+  | "MULTI_SELECT"
 
 /**
  * Event for when a case status is changed.
@@ -3755,6 +3753,7 @@ export type TableColumnCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  options?: Array<string> | null
 }
 
 /**
@@ -3767,6 +3766,7 @@ export type TableColumnRead = {
   nullable?: boolean
   default?: unknown | null
   is_index?: boolean
+  options?: Array<string> | null
 }
 
 /**
@@ -3793,6 +3793,7 @@ export type TableColumnUpdate = {
    * Whether the column is an index
    */
   is_index?: boolean | null
+  options?: Array<string> | null
 }
 
 /**
@@ -3807,6 +3808,15 @@ export type TableCreate = {
    * The columns of the table
    */
   columns?: Array<TableColumnCreate>
+}
+
+/**
+ * Response model for importing a table from CSV.
+ */
+export type TableImportResponse = {
+  table: TableRead
+  rows_inserted: number
+  column_mapping: Array<InferredColumn>
 }
 
 /**
@@ -3874,6 +3884,28 @@ export type TableUpdate = {
 }
 
 /**
+ * Event for when a tag is added to a case.
+ */
+export type TagAddedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_added"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Model for creating new tags with validation.
  */
 export type TagCreate = {
@@ -3902,6 +3934,28 @@ export type TagRead = {
    * Hex color code
    */
   color?: string | null
+}
+
+/**
+ * Event for when a tag is removed from a case.
+ */
+export type TagRemovedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "tag_removed"
+  tag_id: string
+  tag_ref: string
+  tag_name: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -4260,6 +4314,13 @@ export type Toggle = {
   component_id?: "toggle"
 }
 
+export type ToolApproved = {
+  override_args?: {
+    [key: string]: unknown
+  } | null
+  kind?: "tool-approved"
+}
+
 /**
  * A tool call from a model.
  */
@@ -4286,6 +4347,34 @@ export type ToolCallPartDelta = {
     | null
   tool_call_id?: string | null
   part_delta_kind?: "tool_call"
+}
+
+/**
+ * Indicates that a tool call has been denied and that a denial message should be returned to the model.
+ */
+export type ToolDenied = {
+  message?: string
+  kind?: "tool-denied"
+}
+
+/**
+ * A structured return value for tools that need to provide both a return value and custom content to the model.
+ *
+ * This class allows tools to return complex responses that include:
+ * - A return value for actual tool return
+ * - Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
+ * - Optional metadata for application use
+ */
+export type ToolReturn = {
+  return_value: unknown
+  content?:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+    | null
+  metadata?: unknown
+  kind?: "tool-return"
 }
 
 /**
@@ -4463,6 +4552,14 @@ export type UserRead = {
   }
 }
 
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
+}
+
 export type UserRole = "basic" | "admin"
 
 export type UserUpdate = {
@@ -4552,7 +4649,7 @@ export type VariableUpdate = {
  * Vercel AI SDK format request with structured UI messages.
  */
 export type VercelChatRequest = {
-  format?: "vercel"
+  kind?: "vercel"
   /**
    * User message in Vercel UI format
    */
@@ -4603,6 +4700,20 @@ export type VideoUrl = {
 
 export type WaitStrategy = "wait" | "detach"
 
+export type WebhookApiKeyGenerateResponse = {
+  api_key: string
+  preview: string
+  created_at: string
+}
+
+export type WebhookApiKeyRead = {
+  preview: string
+  created_at: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  is_active?: boolean
+}
+
 export type WebhookCreate = {
   status?: WebhookStatus
   /**
@@ -4610,19 +4721,18 @@ export type WebhookCreate = {
    */
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string>
 }
 
 export type WebhookMethod = "GET" | "POST"
 
 export type WebhookRead = {
-  created_at?: string
-  updated_at?: string
-  owner_id: string
   id: string
   secret: string
   status: WebhookStatus
   entrypoint_ref?: string | null
-  filters: {
+  allowlisted_cidrs?: Array<string>
+  filters?: {
     [key: string]: unknown
   }
   /**
@@ -4631,6 +4741,7 @@ export type WebhookRead = {
   methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
+  api_key?: WebhookApiKeyRead | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -4639,6 +4750,7 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+  allowlisted_cidrs?: Array<string> | null
 }
 
 export type WorkflowAlias = {
@@ -4658,38 +4770,18 @@ export type WorkflowCommitResponse = {
 export type status3 = "success" | "failure"
 
 /**
- * A workflow definition.
- *
- * This is the underlying representation/snapshot of a workflow in the system, which
- * can directly execute in the runner.
- *
- * Shoulds
- * -------
- * 1. Be convertible into a Workspace Workflow + Acitons
- * 2. Be convertible into a YAML DSL
- * 3. Be able to be versioned
- *
- * Shouldn'ts
- * ----------
- * 1. Have any stateful information
- *
- * Relationships
- * -------------
- * - 1 Workflow to many WorkflowDefinitions
+ * API response model for persisted workflow definitions.
  */
-export type WorkflowDefinition = {
-  created_at?: string
-  updated_at?: string
+export type WorkflowDefinitionRead = {
+  id: string
+  workflow_id: string | null
   owner_id: string
-  id?: string
-  /**
-   * DSL spec version
-   */
   version: number
-  workflow_id: string
-  content: {
+  content?: {
     [key: string]: unknown
-  }
+  } | null
+  created_at: string
+  updated_at: string
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -4787,7 +4879,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
+export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -4874,7 +4966,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
+export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -4914,7 +5006,7 @@ export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
+  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -4959,6 +5051,13 @@ export type WorkflowExecutionReadMinimal = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
 }
+
+/**
+ * Status of a workflow execution.
+ *
+ * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
+ */
+export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -5008,7 +5107,7 @@ export type WorkflowRead = {
   owner_id: string
   version?: number | null
   webhook: WebhookRead
-  schedules: Array<Schedule>
+  schedules: Array<ScheduleRead>
   entrypoint: string | null
   expects?: {
     [key: string]: ExpectedField
@@ -5039,6 +5138,12 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+}
+
+export type WorkflowSummary = {
+  id: string
+  title: string
+  alias?: string | null
 }
 
 /**
@@ -5176,15 +5281,6 @@ export type WorkspaceUpdate = {
 
 export type Yaml = {
   component_id?: "yaml"
-}
-
-export type login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
 }
 
 export type PublicIncomingWebhookPostData = {
@@ -5397,7 +5493,8 @@ export type WorkflowsListWorkflowDefinitionsData = {
   workspaceId: string
 }
 
-export type WorkflowsListWorkflowDefinitionsResponse = Array<WorkflowDefinition>
+export type WorkflowsListWorkflowDefinitionsResponse =
+  Array<WorkflowDefinitionRead>
 
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
@@ -5405,14 +5502,14 @@ export type WorkflowsGetWorkflowDefinitionData = {
   workspaceId: string
 }
 
-export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type WorkflowsCreateWorkflowDefinitionData = {
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinitionRead
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -5436,6 +5533,28 @@ export type TriggersUpdateWebhookData = {
 }
 
 export type TriggersUpdateWebhookResponse = void
+
+export type TriggersGenerateWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersGenerateWebhookApiKeyResponse =
+  WebhookApiKeyGenerateResponse
+
+export type TriggersDeleteWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersDeleteWebhookApiKeyResponse = void
+
+export type TriggersRevokeWebhookApiKeyData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersRevokeWebhookApiKeyResponse = void
 
 export type WorkflowsMoveWorkflowToFolderData = {
   requestBody: WorkflowMoveToFolder
@@ -5478,7 +5597,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
+  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -5520,6 +5639,7 @@ export type ActionsGetActionResponse = ActionRead
 export type ActionsUpdateActionData = {
   actionId: string
   requestBody: ActionUpdate
+  workflowId: string
   workspaceId: string
 }
 
@@ -5527,6 +5647,7 @@ export type ActionsUpdateActionResponse = ActionRead
 
 export type ActionsDeleteActionData = {
   actionId: string
+  workflowId: string
   workspaceId: string
 }
 
@@ -5699,21 +5820,21 @@ export type SchedulesListSchedulesData = {
   workspaceId: string
 }
 
-export type SchedulesListSchedulesResponse = Array<Schedule>
+export type SchedulesListSchedulesResponse = Array<ScheduleRead>
 
 export type SchedulesCreateScheduleData = {
   requestBody: ScheduleCreate
   workspaceId: string
 }
 
-export type SchedulesCreateScheduleResponse = Schedule
+export type SchedulesCreateScheduleResponse = ScheduleRead
 
 export type SchedulesGetScheduleData = {
   scheduleId: string
   workspaceId: string
 }
 
-export type SchedulesGetScheduleResponse = Schedule
+export type SchedulesGetScheduleResponse = ScheduleRead
 
 export type SchedulesUpdateScheduleData = {
   requestBody: ScheduleUpdate
@@ -5721,7 +5842,7 @@ export type SchedulesUpdateScheduleData = {
   workspaceId: string
 }
 
-export type SchedulesUpdateScheduleResponse = Schedule
+export type SchedulesUpdateScheduleResponse = ScheduleRead
 
 export type SchedulesDeleteScheduleData = {
   scheduleId: string
@@ -5735,167 +5856,7 @@ export type SchedulesSearchSchedulesData = {
   workspaceId: string
 }
 
-export type SchedulesSearchSchedulesResponse = Array<Schedule>
-
-export type EntitiesListEntitiesData = {
-  includeInactive?: boolean
-  workspaceId: string
-}
-
-export type EntitiesListEntitiesResponse = Array<EntityRead>
-
-export type EntitiesCreateEntityData = {
-  requestBody: EntityCreate
-  workspaceId: string
-}
-
-export type EntitiesCreateEntityResponse = unknown
-
-export type EntitiesGetEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesGetEntityResponse = EntityRead
-
-export type EntitiesUpdateEntityData = {
-  entityId: string
-  requestBody: EntityUpdate
-  workspaceId: string
-}
-
-export type EntitiesUpdateEntityResponse = void
-
-export type EntitiesDeleteEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesDeleteEntityResponse = void
-
-export type EntitiesDeactivateEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesDeactivateEntityResponse = void
-
-export type EntitiesActivateEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesActivateEntityResponse = void
-
-export type EntitiesCreateFieldData = {
-  entityId: string
-  requestBody: EntityFieldCreate
-  workspaceId: string
-}
-
-export type EntitiesCreateFieldResponse = unknown
-
-export type EntitiesListFieldsData = {
-  entityId: string
-  includeInactive?: boolean
-  workspaceId: string
-}
-
-export type EntitiesListFieldsResponse = Array<EntityFieldRead>
-
-export type EntitiesUpdateFieldData = {
-  entityId: string
-  fieldId: string
-  requestBody: EntityFieldUpdate
-  workspaceId: string
-}
-
-export type EntitiesUpdateFieldResponse = void
-
-export type EntitiesGetFieldData = {
-  entityId: string
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesGetFieldResponse = EntityFieldRead
-
-export type EntitiesDeleteFieldData = {
-  entityId: string
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesDeleteFieldResponse = void
-
-export type EntitiesDeactivateFieldData = {
-  entityId: string
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesDeactivateFieldResponse = void
-
-export type EntitiesActivateFieldData = {
-  entityId: string
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesActivateFieldResponse = void
-
-export type EntitiesListEntityRecordsData = {
-  /**
-   * Cursor for pagination
-   */
-  cursor?: string | null
-  entityId: string
-  /**
-   * Maximum items per page
-   */
-  limit?: number
-  /**
-   * Reverse pagination direction
-   */
-  reverse?: boolean
-  workspaceId: string
-}
-
-export type EntitiesListEntityRecordsResponse =
-  CursorPaginatedResponse_RecordRead_
-
-export type EntitiesCreateEntityRecordData = {
-  entityId: string
-  requestBody: RecordCreate
-  workspaceId: string
-}
-
-export type EntitiesCreateEntityRecordResponse = unknown
-
-export type EntitiesGetEntityRecordData = {
-  entityId: string
-  recordId: string
-  workspaceId: string
-}
-
-export type EntitiesGetEntityRecordResponse = RecordRead
-
-export type EntitiesUpdateEntityRecordData = {
-  entityId: string
-  recordId: string
-  requestBody: RecordUpdate
-  workspaceId: string
-}
-
-export type EntitiesUpdateEntityRecordResponse = void
-
-export type EntitiesDeleteEntityRecordData = {
-  entityId: string
-  recordId: string
-  workspaceId: string
-}
-
-export type EntitiesDeleteEntityRecordResponse = void
+export type SchedulesSearchSchedulesResponse = Array<ScheduleRead>
 
 export type TagsListTagsData = {
   workspaceId: string
@@ -5931,32 +5892,6 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
-
-export type RecordsListRecordsData = {
-  /**
-   * Cursor for pagination
-   */
-  cursor?: string | null
-  entityId?: string | null
-  /**
-   * Maximum items per page
-   */
-  limit?: number
-  /**
-   * Reverse pagination direction
-   */
-  reverse?: boolean
-  workspaceId: string
-}
-
-export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
-
-export type RecordsGetRecordData = {
-  recordId: string
-  workspaceId: string
-}
-
-export type RecordsGetRecordResponse = RecordRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -6042,6 +5977,54 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentPresetsListAgentPresetsData = {
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetsResponse = Array<AgentPresetReadMinimal>
+
+export type AgentPresetsCreateAgentPresetData = {
+  requestBody: AgentPresetCreate
+  workspaceId: string
+}
+
+export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsGetAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsUpdateAgentPresetData = {
+  presetId: string
+  requestBody: AgentPresetUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsUpdateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsDeleteAgentPresetData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsDeleteAgentPresetResponse = void
+
+export type AgentPresetsGetAgentPresetBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
+export type AgentListAgentSessionsData = {
+  workspaceId: string
+}
+
+export type AgentListAgentSessionsResponse = Array<AgentSessionRead>
+
 export type AgentStreamAgentSessionData = {
   /**
    * Streaming format (e.g. 'vercel')
@@ -6053,6 +6036,14 @@ export type AgentStreamAgentSessionData = {
 }
 
 export type AgentStreamAgentSessionResponse = unknown
+
+export type AgentSubmitAgentApprovalsData = {
+  requestBody: AgentApprovalSubmission
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSubmitAgentApprovalsResponse = void
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -6337,6 +6328,13 @@ export type TablesBatchInsertRowsData = {
 }
 
 export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
+
+export type TablesImportTableFromCsvData = {
+  formData: Body_tables_import_table_from_csv
+  workspaceId: string
+}
+
+export type TablesImportTableFromCsvResponse = TableImportResponse
 
 export type TablesImportCsvData = {
   formData: Body_tables_import_csv
@@ -6749,62 +6747,6 @@ export type CaseDurationsDeleteCaseDurationData = {
 
 export type CaseDurationsDeleteCaseDurationResponse = void
 
-export type CaseRecordsListCaseRecordsData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CaseRecordsListCaseRecordsResponse = CaseRecordListResponse
-
-export type CaseRecordsCreateCaseRecordData = {
-  caseId: string
-  requestBody: CaseRecordCreate
-  workspaceId: string
-}
-
-export type CaseRecordsCreateCaseRecordResponse = CaseRecordRead
-
-export type CaseRecordsGetCaseRecordData = {
-  caseId: string
-  caseRecordId: string
-  workspaceId: string
-}
-
-export type CaseRecordsGetCaseRecordResponse = CaseRecordRead
-
-export type CaseRecordsUpdateCaseRecordData = {
-  caseId: string
-  caseRecordId: string
-  requestBody: CaseRecordUpdate
-  workspaceId: string
-}
-
-export type CaseRecordsUpdateCaseRecordResponse = CaseRecordRead
-
-export type CaseRecordsDeleteCaseRecordData = {
-  caseId: string
-  caseRecordId: string
-  workspaceId: string
-}
-
-export type CaseRecordsDeleteCaseRecordResponse = CaseRecordDeleteResponse
-
-export type CaseRecordsLinkEntityRecordData = {
-  caseId: string
-  requestBody: CaseRecordLink
-  workspaceId: string
-}
-
-export type CaseRecordsLinkEntityRecordResponse = CaseRecordRead
-
-export type CaseRecordsUnlinkCaseRecordData = {
-  caseId: string
-  caseRecordId: string
-  workspaceId: string
-}
-
-export type CaseRecordsUnlinkCaseRecordResponse = CaseRecordDeleteResponse
-
 export type ChatCreateChatData = {
   requestBody: ChatCreate
   workspaceId: string
@@ -6854,7 +6796,7 @@ export type ChatGetChatVercelResponse = ChatReadVercel
 
 export type ChatChatWithVercelStreamingData = {
   chatId: string
-  requestBody: BasicChatRequest | VercelChatRequest
+  requestBody: VercelChatRequest | ContinueRunRequest
   workspaceId: string
 }
 
@@ -7006,6 +6948,13 @@ export type IntegrationsTestConnectionData = {
 export type IntegrationsTestConnectionResponse =
   IntegrationTestConnectionResponse
 
+export type ProvidersCreateCustomProviderData = {
+  requestBody: CustomOAuthProviderCreate
+  workspaceId: string
+}
+
+export type ProvidersCreateCustomProviderResponse = ProviderReadMinimal
+
 export type ProvidersListProvidersData = {
   workspaceId: string
 }
@@ -7082,7 +7031,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: login
+  formData: Body_auth_auth_database_login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -7489,7 +7438,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowDefinition>
+        200: Array<WorkflowDefinitionRead>
         /**
          * Validation Error
          */
@@ -7504,7 +7453,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -7517,7 +7466,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowDefinition
+        200: WorkflowDefinitionRead
         /**
          * Validation Error
          */
@@ -7554,6 +7503,49 @@ export type $OpenApiTs = {
     }
     patch: {
       req: TriggersUpdateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key": {
+    post: {
+      req: TriggersGenerateWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebhookApiKeyGenerateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TriggersDeleteWebhookApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+    post: {
+      req: TriggersRevokeWebhookApiKeyData
       res: {
         /**
          * Successful Response
@@ -7631,7 +7623,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
+        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
         /**
          * Validation Error
          */
@@ -8005,7 +7997,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */
@@ -8018,7 +8010,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8033,7 +8025,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8046,7 +8038,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Schedule
+        200: ScheduleRead
         /**
          * Validation Error
          */
@@ -8074,274 +8066,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<Schedule>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities": {
-    get: {
-      req: EntitiesListEntitiesData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<EntityRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: EntitiesCreateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}": {
-    get: {
-      req: EntitiesGetEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EntityRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: EntitiesUpdateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: EntitiesDeleteEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/deactivate": {
-    patch: {
-      req: EntitiesDeactivateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/activate": {
-    patch: {
-      req: EntitiesActivateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/fields": {
-    post: {
-      req: EntitiesCreateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: EntitiesListFieldsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<EntityFieldRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/fields/{field_id}": {
-    patch: {
-      req: EntitiesUpdateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: EntitiesGetFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EntityFieldRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: EntitiesDeleteFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/fields/{field_id}/deactivate": {
-    patch: {
-      req: EntitiesDeactivateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/fields/{field_id}/activate": {
-    patch: {
-      req: EntitiesActivateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/records": {
-    get: {
-      req: EntitiesListEntityRecordsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_RecordRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: EntitiesCreateEntityRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/{entity_id}/records/{record_id}": {
-    get: {
-      req: EntitiesGetEntityRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: EntitiesUpdateEntityRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: EntitiesDeleteEntityRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
+        200: Array<ScheduleRead>
         /**
          * Validation Error
          */
@@ -8411,36 +8136,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/records/records": {
-    get: {
-      req: RecordsListRecordsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_RecordRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/records/records/{record_id}": {
-    get: {
-      req: RecordsGetRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RecordRead
         /**
          * Validation Error
          */
@@ -8659,6 +8354,105 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/presets": {
+    get: {
+      req: AgentPresetsListAgentPresetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsCreateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentPresetsUpdateAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsDeleteAgentPresetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/by-slug/{slug}": {
+    get: {
+      req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions": {
+    get: {
+      req: AgentListAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentSessionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/sessions/{session_id}": {
     get: {
       req: AgentStreamAgentSessionData
@@ -8667,6 +8461,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/approvals": {
+    post: {
+      req: AgentSubmitAgentApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -9297,6 +9106,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/tables/import": {
+    post: {
+      req: TablesImportTableFromCsvData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableImportResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/tables/{table_id}/import": {
     post: {
       req: TablesImportCsvData
@@ -9885,105 +9709,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/records": {
-    get: {
-      req: CaseRecordsListCaseRecordsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordListResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: CaseRecordsCreateCaseRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: CaseRecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/records/{case_record_id}": {
-    get: {
-      req: CaseRecordsGetCaseRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: CaseRecordsUpdateCaseRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: CaseRecordsDeleteCaseRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordDeleteResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/records/link": {
-    patch: {
-      req: CaseRecordsLinkEntityRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/records/{case_record_id}/unlink": {
-    patch: {
-      req: CaseRecordsUnlinkCaseRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseRecordDeleteResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/chat": {
     post: {
       req: ChatCreateChatData
@@ -10307,6 +10032,19 @@ export type $OpenApiTs = {
     }
   }
   "/providers": {
+    post: {
+      req: ProvidersCreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ProviderReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: ProvidersListProvidersData
       res: {

@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get adversary
+  description: Retrieve a Caldera adversary by ID.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#adversaries
+  namespace: tools.caldera
+  name: get_adversary
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    adversary_id:
+      type: str
+      description: Adversary ID to fetch.
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: get_adversary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/adversaries/${{ inputs.adversary_id }}
+        method: GET
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.get_adversary.result.data }}

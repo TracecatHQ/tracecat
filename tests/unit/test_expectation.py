@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 import lark
@@ -9,6 +8,7 @@ from pydantic import ValidationError
 
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.workflow.management.utils import build_trigger_inputs_schema
 
 
 def test_validate_schema():
@@ -166,6 +166,25 @@ def test_dynamic_model_with_invalid_data():
         )
 
 
+def test_dynamic_model_with_bare_dict_type():
+    schema = {
+        "payload": {
+            "type": "dict | None",
+            "description": "Optional untyped dictionary payload.",
+        },
+    }
+
+    DynamicModel = create_expectation_model(schema)
+
+    inst_ok: Any = DynamicModel(payload={"foo": "bar"})
+    assert inst_ok.payload == {"foo": "bar"}
+    inst_none: Any = DynamicModel(payload=None)
+    assert inst_none.payload is None
+
+    with pytest.raises(ValidationError):
+        DynamicModel(payload="not-a-dict")
+
+
 def test_validate_schema_success():
     schema = {
         "start_time": {
@@ -276,13 +295,13 @@ def test_validate_schema_with_enum(status, priority):
 
     # Test with provided priority
     model_instance: Any = model(status=status, priority=priority)
-    assert isinstance(model_instance.status, Enum)
-    assert model_instance.status.__class__.__name__ == "EnumStatus"
-    assert model_instance.priority.__class__.__name__ == "EnumPriority"
+    assert isinstance(model_instance.status, str)
+    assert model_instance.status == status
+    assert model_instance.priority == priority
 
     # Test default priority
     model_instance_default: Any = model(status=status)
-    assert str(model_instance_default.priority) == "low"
+    assert model_instance_default.priority == "low"
 
 
 @pytest.mark.parametrize(
@@ -335,3 +354,111 @@ def test_validate_schema_with_invalid_enum_values(invalid_value):
 
     with pytest.raises(ValidationError):
         DynamicModel(status=invalid_value)
+
+
+def test_trigger_input_schema_default_values_are_applied():
+    """Test that default values are correctly applied when validating trigger inputs."""
+    # Define a schema with multiple fields that have default values
+    expects = {
+        "case_id": {"type": "str", "description": "Case identifier"},
+        "severity": {"type": "enum['low','high']"},
+        "count": {"type": "int", "default": 1},
+        "enabled": {"type": "bool", "default": True},
+        "message": {"type": "str", "default": "Hello, World!"},
+        "threshold": {"type": "float", "default": 0.5},
+        "tags": {"type": "list[str]", "default": ["default", "tag"]},
+    }
+
+    # Build the JSON schema
+    schema = build_trigger_inputs_schema(expects)
+    assert schema is not None
+
+    # Verify that fields with defaults are not in the required list
+    assert "count" not in schema.get("required", [])
+    assert "enabled" not in schema.get("required", [])
+    assert "message" not in schema.get("required", [])
+    assert "threshold" not in schema.get("required", [])
+    assert "tags" not in schema.get("required", [])
+
+    # Verify that required fields without defaults are in the required list
+    assert "case_id" in schema.get("required", [])
+    assert "severity" in schema.get("required", [])
+
+    # Verify default values are present in the schema properties
+    properties = schema.get("properties", {})
+    assert properties["count"]["default"] == 1
+    assert properties["enabled"]["default"] is True
+    assert properties["message"]["default"] == "Hello, World!"
+    assert properties["threshold"]["default"] == 0.5
+    assert properties["tags"]["default"] == ["default", "tag"]
+
+    # Create an expectation model from the schema
+    validated_fields = {
+        field_name: ExpectedField.model_validate(field_schema)
+        for field_name, field_schema in expects.items()
+    }
+    TriggerInputModel = create_expectation_model(
+        validated_fields, model_name="TriggerInputModel"
+    )
+
+    # Test 1: Validate trigger inputs with all required fields but omitting fields with defaults
+    trigger_inputs_minimal = {
+        "case_id": "case-123",
+        "severity": "low",
+    }
+
+    # Create model instance - defaults should be applied
+    validated_instance: Any = TriggerInputModel(**trigger_inputs_minimal)
+
+    # Verify that default values were applied
+    assert validated_instance.case_id == "case-123"
+    assert validated_instance.severity == "low"
+    assert validated_instance.count == 1  # Default applied
+    assert validated_instance.enabled is True  # Default applied
+    assert validated_instance.message == "Hello, World!"  # Default applied
+    assert validated_instance.threshold == 0.5  # Default applied
+    assert validated_instance.tags == ["default", "tag"]  # Default applied
+
+    # Test 2: Validate trigger inputs where some defaults are overridden
+    trigger_inputs_partial = {
+        "case_id": "case-456",
+        "severity": "high",
+        "count": 42,  # Override default
+        "enabled": False,  # Override default
+        # message, threshold, and tags should use defaults
+    }
+
+    validated_instance_partial: Any = TriggerInputModel(**trigger_inputs_partial)
+
+    # Verify overridden values
+    assert validated_instance_partial.case_id == "case-456"
+    assert validated_instance_partial.severity == "high"
+    assert validated_instance_partial.count == 42  # Overridden
+    assert validated_instance_partial.enabled is False  # Overridden
+
+    # Verify defaults still applied for omitted fields
+    assert validated_instance_partial.message == "Hello, World!"  # Default applied
+    assert validated_instance_partial.threshold == 0.5  # Default applied
+    assert validated_instance_partial.tags == ["default", "tag"]  # Default applied
+
+    # Test 3: Validate trigger inputs with all fields provided (no defaults used)
+    trigger_inputs_complete = {
+        "case_id": "case-789",
+        "severity": "high",
+        "count": 100,
+        "enabled": True,
+        "message": "Custom message",
+        "threshold": 0.75,
+        "tags": ["custom", "tags"],
+    }
+
+    validated_instance_complete: Any = TriggerInputModel(**trigger_inputs_complete)
+
+    # Verify all values are as provided (no defaults used)
+    assert validated_instance_complete.case_id == "case-789"
+    assert validated_instance_complete.severity == "high"
+    assert validated_instance_complete.count == 100
+    assert validated_instance_complete.enabled is True
+    assert validated_instance_complete.message == "Custom message"
+    assert validated_instance_complete.threshold == 0.75
+    assert validated_instance_complete.tags == ["custom", "tags"]

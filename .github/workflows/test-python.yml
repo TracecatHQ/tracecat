@@ -1,4 +1,4 @@
-name: pytest
+name: Run Python tests
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
-      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
+      - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -22,7 +22,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
-      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
+      - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -56,7 +56,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.6"
+          version: "0.9.7"
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@v6
@@ -82,7 +82,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.6"
+          version: "0.9.7"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -155,7 +155,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
         with:
-          version: "0.8.6"
+          version: "0.9.7"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
@@ -243,6 +243,8 @@ jobs:
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -ra
+          elif [ "${{ matrix.test_group }}" = "registry" ]; then
+            uv run pytest tests/${{ matrix.test_group }} -n auto -ra
           else
             uv run pytest tests/${{ matrix.test_group }} -ra
           fi

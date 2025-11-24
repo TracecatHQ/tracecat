@@ -2,13 +2,13 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from sqlalchemy.exc import NoResultFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.schemas import Workflow, Workspace
+from tracecat.auth.types import Role
+from tracecat.db.models import Workflow, Workspace
 from tracecat.identifiers.workflow import WorkflowID
-from tracecat.tags.models import TagCreate, TagUpdate
+from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tags.service import TagsService
-from tracecat.types.auth import Role
 from tracecat.workflow.tags.service import WorkflowTagsService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -51,7 +51,7 @@ async def workflow_id(
         entrypoint=None,
         returns=None,
         object=None,
-    )  # type: ignore
+    )
     session.add(workflow)
     await session.commit()
     try:

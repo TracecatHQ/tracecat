@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Create research task
+  description: Start a research task that explores the web, gathers sources, and synthesizes findings. Returns immediately with a researchId for polling.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/research/create-a-task
+  namespace: tools.exa
+  name: research
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    instructions:
+      type: str
+      description: Instructions for what you would like research on.
+    model:
+      type: enum["exa-research-fast", "exa-research", "exa-research-pro"]
+      description: The model to use for research.
+      default: exa-research
+  steps:
+    - ref: create_research
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/research/v1
+        method: POST
+        headers:
+          Content-Type: application/json
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          model: ${{ inputs.model }}
+          instructions: ${{ inputs.instructions }}
+  returns: ${{ steps.create_research.result.data }}

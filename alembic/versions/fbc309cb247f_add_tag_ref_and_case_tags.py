@@ -9,8 +9,8 @@ Create Date: 2025-08-04 14:47:54.296745
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from slugify import slugify
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -26,17 +26,15 @@ def upgrade() -> None:
     # Create case_tag table
     op.create_table(
         "casetag",
-        sa.Column("case_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("tag_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("case_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("tag_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["tag_id"], ["tag.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("case_id", "tag_id"),
     )
 
     # Add ref column to tag table
-    op.add_column(
-        "tag", sa.Column("ref", sqlmodel.sql.sqltypes.AutoString(), nullable=True)
-    )
+    op.add_column("tag", sa.Column("ref", sa.String(), nullable=True))
     op.create_index(op.f("ix_tag_ref"), "tag", ["ref"], unique=False)
 
     # Populate ref values for existing tags

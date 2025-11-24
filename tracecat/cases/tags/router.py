@@ -5,10 +5,11 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.tags.models import CaseTagCreate, CaseTagRead
+from tracecat.auth.types import Role
+from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.auth import Role
+from tracecat.exceptions import TracecatNotFoundError
 
 WorkspaceUser = Annotated[
     Role,
@@ -51,6 +52,10 @@ async def add_tag(
     try:
         tag = await service.add_case_tag(case_id, str(params.tag_id))
         return CaseTagRead(id=tag.id, name=tag.name, ref=tag.ref, color=tag.color)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
+        ) from err
     except NoResultFound as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
@@ -74,6 +79,10 @@ async def remove_tag(
     service = CaseTagsService(session, role=role)
     try:
         await service.remove_case_tag(case_id, tag_identifier)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
+        ) from err
     except NoResultFound as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found on case"

@@ -10,6 +10,7 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Collapsible,
   CollapsibleContent,
@@ -22,7 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { CodeBlock } from "./code-block"
+import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
 export type ToolProps = ComponentProps<typeof Collapsible>
 
@@ -128,7 +129,9 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
       Parameters
     </h4>
     <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
+      <CodeBlock code={JSON.stringify(input, null, 2)} language="json">
+        <CodeBlockCopyButton />
+      </CodeBlock>
     </div>
   </div>
 )
@@ -144,36 +147,185 @@ export const ToolOutput = ({
   errorText,
   ...props
 }: ToolOutputProps) => {
-  if (!(output || errorText)) {
+  const { message, details } = extractErrorDetails(output, errorText)
+  const hasError = Boolean(message)
+
+  if (!(output || hasError)) {
     return null
   }
 
-  let Output = <div>{output as ReactNode}</div>
+  const outputRecord =
+    output && typeof output === "object" && !Array.isArray(output)
+      ? (output as Record<string, unknown>)
+      : undefined
+  const outputIsOnlyErrorText =
+    hasError &&
+    outputRecord &&
+    Object.keys(outputRecord).every((key) => key === "errorText")
 
-  if (typeof output === "object") {
-    Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
-    )
-  } else if (typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />
+  const shouldRenderRawOutput = output && !outputIsOnlyErrorText
+
+  let Output: ReactNode = null
+  if (shouldRenderRawOutput) {
+    if (
+      typeof output === "string" &&
+      hasError &&
+      message &&
+      output.trim() === message.trim()
+    ) {
+      Output = null
+    } else if (typeof output === "object") {
+      Output = (
+        <CodeBlock code={JSON.stringify(output, null, 2)} language="json">
+          <CodeBlockCopyButton />
+        </CodeBlock>
+      )
+    } else if (typeof output === "string") {
+      Output = (
+        <CodeBlock code={output} language="json">
+          <CodeBlockCopyButton />
+        </CodeBlock>
+      )
+    } else {
+      Output = <div>{output as ReactNode}</div>
+    }
   }
 
   return (
     <div className={cn("space-y-2 p-4", className)} {...props}>
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+        {hasError ? "Error" : "Result"}
       </h4>
-      <div
-        className={cn(
-          "overflow-x-auto rounded-md text-xs [&_table]:w-full",
-          errorText
-            ? "bg-destructive/10 text-destructive"
-            : "bg-muted/50 text-foreground"
-        )}
-      >
-        {errorText && <div>{errorText}</div>}
-        {Output}
-      </div>
+      {hasError && (
+        <Alert
+          variant="destructive"
+          className="border-destructive/30 bg-destructive/10 py-3"
+        >
+          <AlertTitle className="text-sm font-semibold">
+            {details?.title ?? "Validation issue"}
+          </AlertTitle>
+          <AlertDescription className="mt-1 space-y-2 text-sm">
+            <p className="whitespace-pre-wrap text-destructive">
+              {details?.summary ?? message}
+            </p>
+            {details?.items && details.items.length > 0 && (
+              <ul className="list-disc space-y-1 pl-5 text-destructive">
+                {details.items.map((item, idx) => (
+                  <li key={`${item}-${idx}`}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+      {Output && (
+        <div className="overflow-x-auto rounded-md bg-muted/50 text-foreground text-xs [&_table]:w-full">
+          {Output}
+        </div>
+      )}
     </div>
   )
+}
+
+type ErrorDetails = {
+  message?: string
+  details?: {
+    title: string
+    summary?: string
+    items?: string[]
+  }
+}
+
+function extractErrorDetails(
+  output: ToolUIPart["output"],
+  explicitErrorText: ToolUIPart["errorText"]
+): ErrorDetails {
+  const outputRecord =
+    output && typeof output === "object" && !Array.isArray(output)
+      ? (output as Record<string, unknown>)
+      : undefined
+  const derivedErrorText =
+    outputRecord && "errorText" in outputRecord
+      ? (outputRecord.errorText as string | undefined)
+      : undefined
+  const embeddedError =
+    (explicitErrorText ?? derivedErrorText)?.trim() || undefined
+
+  if (!embeddedError) {
+    return { message: undefined }
+  }
+
+  const parsed = parseValidationSummary(embeddedError)
+  if (parsed) {
+    return { message: embeddedError, details: parsed }
+  }
+
+  return {
+    message: embeddedError,
+    details: {
+      title: "Error",
+      summary: embeddedError,
+    },
+  }
+}
+
+function parseValidationSummary(message: string):
+  | {
+      title: string
+      summary?: string
+      items?: string[]
+    }
+  | undefined {
+  const trimmed = message.trim()
+  const validationMatch = trimmed.match(
+    /^(\d+)\s+validation errors:\s*(\[.*\])\s*Fix the errors and try again\.\s*$/s
+  )
+  if (validationMatch) {
+    const count = Number(validationMatch[1])
+    const title =
+      count === 1 ? "Validation error" : `${count} validation errors`
+    try {
+      const payload = JSON.parse(validationMatch[2]) as Array<{
+        loc?: string[] | string
+        msg?: string
+        input?: unknown
+      }>
+      const items = payload.map((error) => {
+        const path = Array.isArray(error.loc)
+          ? error.loc.join(" → ")
+          : (error.loc ?? "")
+        const prefix = path ? `${path}: ` : ""
+        const formattedInput =
+          error.input === undefined
+            ? ""
+            : ` (input: ${
+                typeof error.input === "string"
+                  ? error.input
+                  : JSON.stringify(error.input, null, 2)
+              })`
+        return `${prefix}${error.msg ?? "Invalid value"}${formattedInput}`
+      })
+      return {
+        title,
+        summary:
+          "The request couldn't be completed because some fields failed validation.",
+        items,
+      }
+    } catch {
+      return {
+        title,
+        summary: trimmed,
+      }
+    }
+  }
+
+  const feedbackMatch = trimmed.match(/^Validation feedback:\s*(.*)$/s)
+  if (feedbackMatch) {
+    return {
+      title: "Validation feedback",
+      summary: feedbackMatch[1].trim(),
+    }
+  }
+
+  return undefined
 }

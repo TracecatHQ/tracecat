@@ -8,10 +8,11 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.cases.durations.models import (
+from tracecat.auth.types import Role
+from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
     CaseDurationCreate,
@@ -22,15 +23,14 @@ from tracecat.cases.durations.models import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.db.schemas import Case, CaseDuration, CaseEvent
-from tracecat.db.schemas import CaseDurationDefinition as CaseDurationDefinitionDB
-from tracecat.service import BaseWorkspaceService
-from tracecat.tables.common import coerce_to_utc_datetime
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.db.models import Case, CaseDuration, CaseEvent
+from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
+from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import coerce_to_utc_datetime
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):
@@ -47,10 +47,10 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         stmt = (
             select(CaseDurationDefinitionDB)
             .where(CaseDurationDefinitionDB.owner_id == self.workspace_id)
-            .order_by(col(CaseDurationDefinitionDB.created_at).asc())
+            .order_by(CaseDurationDefinitionDB.created_at.asc())
         )
-        result = await self.session.exec(stmt)
-        return [self._to_read_model(row) for row in result.all()]
+        result = await self.session.execute(stmt)
+        return [self._to_read_model(row) for row in result.scalars().all()]
 
     async def get(self, duration_id: uuid.UUID) -> CaseDurationDefinitionRead:
         """Retrieve a single case duration definition."""
@@ -87,6 +87,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         if not updates:
             return self._to_read_model(entity)
 
+        set_fields = params.model_fields_set
+
         if (new_name := updates.get("name")) is not None:
             await self._ensure_unique_name(new_name, exclude_id=entity.id)
             entity.name = new_name
@@ -94,10 +96,20 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         if "description" in updates:
             entity.description = updates["description"]
 
-        if (start_anchor := updates.get("start_anchor")) is not None:
+        if "start_anchor" in set_fields:
+            start_anchor = params.start_anchor
+            if start_anchor is None:
+                raise TracecatValidationError(
+                    "Start anchor cannot be null when updating a duration definition."
+                )
             self._apply_anchor(entity, start_anchor, "start")
 
-        if (end_anchor := updates.get("end_anchor")) is not None:
+        if "end_anchor" in set_fields:
+            end_anchor = params.end_anchor
+            if end_anchor is None:
+                raise TracecatValidationError(
+                    "End anchor cannot be null when updating a duration definition."
+                )
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
@@ -119,8 +131,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             CaseDurationDefinitionDB.id == duration_id,
             CaseDurationDefinitionDB.owner_id == self.workspace_id,
         )
-        result = await self.session.exec(stmt)
-        entity = result.first()
+        result = await self.session.execute(stmt)
+        entity = result.scalars().first()
         if entity is None:
             raise TracecatNotFoundError(
                 f"Case duration definition {duration_id} not found in this workspace"
@@ -136,8 +148,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         )
         if exclude_id is not None:
             stmt = stmt.where(CaseDurationDefinitionDB.id != exclude_id)
-        result = await self.session.exec(stmt)
-        if result.first() is not None:
+        result = await self.session.execute(stmt)
+        if result.scalars().first() is not None:
             raise TracecatValidationError(f"A duration named '{name}' already exists")
 
     def _to_read_model(
@@ -216,10 +228,10 @@ class CaseDurationService(BaseWorkspaceService):
                 CaseDuration.owner_id == self.workspace_id,
                 CaseDuration.case_id == case_obj.id,
             )
-            .order_by(col(CaseDuration.created_at).asc())
+            .order_by(CaseDuration.created_at.asc())
         )
-        result = await self.session.exec(stmt)
-        return [self._to_read_model(row) for row in result.all()]
+        result = await self.session.execute(stmt)
+        return [self._to_read_model(row) for row in result.scalars().all()]
 
     async def get(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID
@@ -349,9 +361,9 @@ class CaseDurationService(BaseWorkspaceService):
             CaseDuration.owner_id == self.workspace_id,
             CaseDuration.case_id == case_obj.id,
         )
-        existing_result = await self.session.exec(stmt)
+        existing_result = await self.session.execute(stmt)
         existing_by_definition = {
-            entity.definition_id: entity for entity in existing_result.all()
+            entity.definition_id: entity for entity in existing_result.scalars().all()
         }
 
         seen_definitions: set[uuid.UUID] = set()
@@ -393,8 +405,8 @@ class CaseDurationService(BaseWorkspaceService):
         )
         if exclude_id is not None:
             stmt = stmt.where(CaseDuration.id != exclude_id)
-        result = await self.session.exec(stmt)
-        if result.first() is not None:
+        result = await self.session.execute(stmt)
+        if result.scalars().first() is not None:
             raise TracecatValidationError(
                 "A duration for this definition already exists on the case"
             )
@@ -407,8 +419,8 @@ class CaseDurationService(BaseWorkspaceService):
             CaseDuration.owner_id == self.workspace_id,
             CaseDuration.case_id == case_id,
         )
-        result = await self.session.exec(stmt)
-        entity = result.first()
+        result = await self.session.execute(stmt)
+        entity = result.scalars().first()
         if entity is None:
             raise TracecatNotFoundError(
                 f"Case duration {duration_id} not found for this case"
@@ -427,8 +439,8 @@ class CaseDurationService(BaseWorkspaceService):
             Case.id == case,
             Case.owner_id == self.workspace_id,
         )
-        result = await self.session.exec(stmt)
-        resolved = result.first()
+        result = await self.session.execute(stmt)
+        resolved = result.scalars().first()
         if resolved is None:
             raise TracecatNotFoundError(f"Case {case} not found in this workspace")
         return resolved
@@ -440,10 +452,10 @@ class CaseDurationService(BaseWorkspaceService):
                 CaseEvent.case_id == case.id,
                 CaseEvent.owner_id == self.workspace_id,
             )
-            .order_by(col(CaseEvent.created_at).asc())
+            .order_by(CaseEvent.created_at.asc())
         )
-        result = await self.session.exec(stmt)
-        return list(result.all())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     def _find_matching_event(
         self,
@@ -475,13 +487,28 @@ class CaseDurationService(BaseWorkspaceService):
     def _matches_filters(self, event: CaseEvent, filters: dict[str, Any]) -> bool:
         for path, expected in filters.items():
             actual = self._resolve_field(event, path)
-            if isinstance(actual, Enum):
-                actual = actual.value
-            if isinstance(expected, Enum):
-                expected = expected.value
-            if actual != expected:
+            actual_normalized = self._normalize_filter_value(actual)
+            expected_normalized = self._normalize_filter_value(expected)
+            if isinstance(expected_normalized, list):
+                if actual_normalized is None:
+                    return False
+                if isinstance(actual_normalized, list):
+                    if not any(
+                        item in expected_normalized for item in actual_normalized
+                    ):
+                        return False
+                elif actual_normalized not in expected_normalized:
+                    return False
+            elif actual_normalized != expected_normalized:
                 return False
         return True
+
+    def _normalize_filter_value(self, value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, list | tuple | set):
+            return [self._normalize_filter_value(item) for item in value]
+        return value
 
     def _extract_timestamp(
         self, event: CaseEvent, anchor: CaseDurationEventAnchor

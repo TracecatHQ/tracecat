@@ -1,12 +1,13 @@
 import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
+  Shield,
+  ShieldOff,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
 } from "lucide-react"
 import React from "react"
-import type { Schedule, WebhookRead } from "@/client"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
 import { getIcon } from "@/components/icons"
@@ -26,6 +27,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -33,19 +40,14 @@ import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 
 export type TriggerNodeData = {
-  type: "trigger"
   title: string
-  status: "online" | "offline"
-  isConfigured: boolean
-  entrypointId?: string
-  webhook: WebhookRead
-  schedules: Schedule[]
 }
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
 export default React.memo(function TriggerNode({
-  data: { title, type },
+  type,
+  data: { title },
   selected,
 }: NodeProps<TriggerNodeType>) {
   const { workflow } = useWorkflow()
@@ -85,6 +87,28 @@ export default React.memo(function TriggerNode({
                   Workflow trigger
                 </CardDescription>
               )}
+            </div>
+            <div className="flex items-start">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {workflow.webhook.api_key?.is_active ? (
+                      <Shield className="size-4 text-emerald-400" />
+                    ) : workflow.webhook.api_key ? (
+                      <Shield className="size-4 text-amber-400" />
+                    ) : (
+                      <ShieldOff className="size-4 text-muted-foreground/70" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={4}>
+                    {workflow.webhook.api_key?.is_active
+                      ? "Webhook is protected"
+                      : workflow.webhook.api_key
+                        ? "API key revoked"
+                        : "Webhook is unprotected"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </div>

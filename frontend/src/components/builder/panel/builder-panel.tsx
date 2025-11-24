@@ -74,7 +74,13 @@ BuilderPanel.displayName = "BuilderPanel"
 function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {
     case "udf":
-      return <ActionPanel actionId={node.id} workflowId={workflow.id} />
+      return (
+        <ActionPanel
+          key={node.id}
+          actionId={node.id}
+          workflowId={workflow.id}
+        />
+      )
     case "trigger":
       return <TriggerPanel workflow={workflow} />
     case "selector":

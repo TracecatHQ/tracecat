@@ -3,13 +3,15 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import orjson
+from asyncpg import DuplicateTableError
 from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import ProgrammingError
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
     TableCreate,
@@ -301,6 +303,10 @@ async def create_table(
             "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
         ),
     ] = None,
+    raise_on_duplicate: Annotated[
+        bool,
+        Doc("If true, raise an error if the table already exists."),
+    ] = True,
 ) -> dict[str, Any]:
     column_objects = []
     if columns:
@@ -316,8 +322,23 @@ async def create_table(
 
     params = TableCreate(name=name, columns=column_objects)
     async with TablesService.with_session() as service:
-        table = await service.create_table(params)
-    return table.model_dump()
+        try:
+            table = await service.create_table(params)
+        except ProgrammingError as e:
+            # Drill down to the root cause
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, DuplicateTableError):
+                if raise_on_duplicate:
+                    raise ValueError("Table already exists") from e
+                else:
+                    # Rollback the failed transaction before querying
+                    await service.session.rollback()
+                    # Return existing table instead of raising error
+                    table = await service.get_table_by_name(name)
+            else:
+                raise
+    return table.to_dict()
 
 
 @registry.register(
@@ -329,7 +350,7 @@ async def create_table(
 async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
-    return [table.model_dump() for table in tables]
+    return [table.to_dict() for table in tables]
 
 
 @registry.register(

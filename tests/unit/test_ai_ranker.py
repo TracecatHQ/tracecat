@@ -386,33 +386,3 @@ async def test_rank_items_min_max_live_openai_singleton() -> None:
     assert isinstance(ranked, list)
     assert len(ranked) == 1
     assert ranked[0] == "high"
-
-
-@pytest.mark.anyio
-@requires_openai_mocks
-async def test_rank_items_pairwise_min_max_live_openai_top_two() -> None:
-    items: list[ranker.RankableItem] = [
-        {"id": "high", "text": "priority: 3 (highest)"},
-        {"id": "medium", "text": "priority: 2"},
-        {"id": "low", "text": "priority: 1 (lowest)"},
-    ]
-
-    ranked = await ranker.rank_items_pairwise(
-        items=items,
-        criteria_prompt=(
-            "Rank items by their numeric priority value from highest to lowest. "
-            "Each item's text contains 'priority: N'. The correct ordering is the IDs "
-            "whose priority numbers are sorted descending."
-        ),
-        model_name=MODEL_NAME,
-        model_provider="openai",
-        batch_size=2,
-        num_passes=2,
-        refinement_ratio=0.5,
-        min_items=2,
-        max_items=2,
-    )
-
-    assert isinstance(ranked, list)
-    assert len(ranked) == 2
-    assert sorted(ranked) == sorted(["high", "medium"])

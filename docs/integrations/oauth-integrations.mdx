@@ -65,6 +65,8 @@ For example, to access the GitHub user token, you would use the following expres
 ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
 ```
 
+When both delegated (authorization code) and service (client credentials) grants are connected, Tracecat exposes both tokens in the same provider namespace. For example, Azure Log Analytics templates can reference `${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN }}` for delegated calls or `${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}` for service-to-service requests.
+
 ## Using OAuth secrets in UDFs
 
 This is how you would retrieve an OAuth secret in an UDF:
@@ -118,7 +120,7 @@ definition:
         url: https://api.github.com/user/repos
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.github.GITHUB_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
   returns: ${{ steps.list_repos.result.data }}
 ```
 

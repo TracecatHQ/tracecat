@@ -3,7 +3,7 @@ import textwrap
 import yaml
 from pydantic import BaseModel
 
-from tracecat.db.schemas import Case
+from tracecat.db.models import Case
 
 
 class CaseCopilotPrompts(BaseModel):
@@ -15,7 +15,7 @@ class CaseCopilotPrompts(BaseModel):
     def instructions(self) -> str:
         """Build the instructions for the case copilot."""
         updated_at = self.case.updated_at.isoformat()
-        case_data = yaml.dump(self.case.model_dump(mode="json"), indent=2)
+        case_data = yaml.dump(self.case.to_dict(), indent=2)
         return textwrap.dedent(f"""
             You are a helpful case management assistant that helps analysts in security and IT operations resolve cases / tickets efficiently and accurately. You will be given a case with a summary, description, and payload inside the <Case> tag.
 

@@ -238,7 +238,7 @@ export function WorkflowPanel({
   }, [methods, onSubmit, workflowUpdateFormSchema])
 
   return (
-    <div onBlur={onPanelBlur}>
+    <div onBlur={onPanelBlur} className="pb-16">
       <Tabs defaultValue="workflow-settings" className="w-full">
         <Form {...methods}>
           <form
@@ -265,8 +265,8 @@ export function WorkflowPanel({
                 </TabsList>
               </div>
               <Separator />
-              <div className="w-full overflow-x-auto">
-                <TabsContent value="workflow-settings">
+              <div className="w-full overflow-x-auto pb-32">
+                <TabsContent value="workflow-settings" className="pb-8">
                   <Accordion
                     type="multiple"
                     defaultValue={["workflow-settings", "workflow-config"]}
@@ -575,7 +575,7 @@ export function WorkflowPanel({
                     </AccordionItem>
                   </Accordion>
                 </TabsContent>
-                <TabsContent value="workflow-schema">
+                <TabsContent value="workflow-schema" className="pb-8">
                   <Accordion
                     type="multiple"
                     defaultValue={["workflow-expects", "workflow-returns"]}

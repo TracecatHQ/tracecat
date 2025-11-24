@@ -8,15 +8,21 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy import cast, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlmodel import cast, col, desc, func, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.cases.attachments.models import CaseAttachmentCreate
-from tracecat.cases.models import AttachmentCreatedEvent, AttachmentDeletedEvent
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.attachments.schemas import CaseAttachmentCreate
+from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
 from tracecat.contexts import ctx_run
-from tracecat.db.schemas import Case, CaseAttachment, File, Workspace
+from tracecat.db.models import Case, CaseAttachment, File, Workspace
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatException,
+    TracecatNotFoundError,
+)
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
@@ -26,12 +32,6 @@ from tracecat.storage.exceptions import (
     StorageLimitExceededError,
 )
 from tracecat.storage.validation import FileSecurityValidator
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
-    TracecatAuthorizationError,
-    TracecatException,
-    TracecatNotFoundError,
-)
 
 
 class CaseAttachmentService(BaseWorkspaceService):
@@ -83,8 +83,7 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Attach workflow execution id if available
         if hasattr(event, "wf_exec_id"):
-            # type: ignore[attr-defined]
-            event.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None  # pyright: ignore
+            event.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
         await CaseEventsService(self.session, self.role).create_event(
             case=case,
@@ -94,10 +93,10 @@ class CaseAttachmentService(BaseWorkspaceService):
     async def _get_workspace(self) -> Workspace:
         """Get the workspace for the current context, with caching."""
         if self._workspace_cache is None:
-            result = await self.session.exec(
+            result = await self.session.execute(
                 select(Workspace).where(Workspace.id == self.workspace_id)
             )
-            workspace = result.one_or_none()
+            workspace = result.scalar_one_or_none()
             if not workspace:
                 raise TracecatException(f"Workspace {self.workspace_id} not found")
             self._workspace_cache = workspace
@@ -110,10 +109,10 @@ class CaseAttachmentService(BaseWorkspaceService):
             select(func.count())
             .select_from(CaseAttachment)
             .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
-            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
+            .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
         )
-        count_result = await self.session.exec(count_stmt)
-        current_attachment_count = int(count_result.one() or 0)
+        count_result = await self.session.execute(count_stmt)
+        current_attachment_count = int(count_result.scalar_one() or 0)
         if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
             raise MaxAttachmentsExceededError(
                 f"Case already has {current_attachment_count} attachments. "
@@ -153,12 +152,12 @@ class CaseAttachmentService(BaseWorkspaceService):
         statement = (
             select(CaseAttachment)
             .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
-            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
-            .options(selectinload(CaseAttachment.file))  # type: ignore
-            .order_by(desc(col(CaseAttachment.created_at)))
+            .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
+            .options(selectinload(CaseAttachment.file))
+            .order_by(CaseAttachment.created_at.desc())
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_attachment(
         self, case: Case, attachment_id: uuid.UUID
@@ -179,12 +178,12 @@ class CaseAttachmentService(BaseWorkspaceService):
             .where(
                 CaseAttachment.case_id == case.id,
                 CaseAttachment.id == attachment_id,
-                col(File.deleted_at).is_(None),
+                File.deleted_at.is_(None),
             )
-            .options(selectinload(CaseAttachment.file))  # type: ignore[arg-type]
+            .options(selectinload(CaseAttachment.file))
         )
-        result = await self.session.exec(statement)
-        return result.first()
+        result = await self.session.execute(statement)
+        return result.scalars().first()
 
     async def _require_attachment(
         self, case: Case, attachment_id: uuid.UUID
@@ -286,13 +285,13 @@ class CaseAttachmentService(BaseWorkspaceService):
         )
 
         # Check if file already exists (deduplication)
-        existing_file = await self.session.exec(
+        existing_file = await self.session.execute(
             select(File).where(
                 File.sha256 == sha256,
                 File.owner_id == self.workspace_id,
             )
         )
-        file = existing_file.first()
+        file = existing_file.scalars().first()
 
         restored = False
         if not file:
@@ -339,15 +338,15 @@ class CaseAttachmentService(BaseWorkspaceService):
                 )
 
         # Check if attachment already exists for this case and file
-        existing_attachment = await self.session.exec(
+        existing_attachment = await self.session.execute(
             select(CaseAttachment)
             .where(
                 CaseAttachment.case_id == case.id,
                 CaseAttachment.file_id == file.id,
             )
-            .options(selectinload(CaseAttachment.file))  # type: ignore[arg-type]
+            .options(selectinload(CaseAttachment.file))
         )
-        attachment = existing_attachment.first()
+        attachment = existing_attachment.scalars().first()
 
         should_create_event = False
         if attachment:
@@ -553,8 +552,8 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             .where(
                 CaseAttachment.case_id == case.id,
-                col(File.deleted_at).is_(None),
+                File.deleted_at.is_(None),
             )
         )
-        result = await self.session.exec(statement)
-        return result.one() or 0
+        result = await self.session.execute(statement)
+        return result.scalar_one() or 0

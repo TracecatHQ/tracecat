@@ -1,5 +1,10 @@
 import * as aiSdk from "@ai-sdk/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { useMemo, useState } from "react"
 import {
@@ -10,6 +15,7 @@ import {
   type ChatReadMinimal,
   type ChatReadVercel,
   type ChatUpdate,
+  type ContinueRunRequest,
   chatCreateChat,
   chatGetChat,
   chatGetChatVercel,
@@ -98,21 +104,30 @@ export function useCreateChat(workspaceId: string) {
 }
 
 // Hook for listing chats
-export function useListChats({
-  workspaceId,
-  entityType,
-  entityId,
-  limit = 50,
-}: {
-  workspaceId: string
-  entityType?: ChatEntity
-  entityId?: string
-  limit?: number
-}) {
+export function useListChats(
+  {
+    workspaceId,
+    entityType,
+    entityId,
+    limit = 50,
+  }: {
+    workspaceId: string
+    entityType?: ChatEntity
+    entityId?: string
+    limit?: number
+  },
+  options?: { enabled?: boolean }
+): {
+  chats: ChatRead[] | undefined
+  chatsLoading: boolean
+  chatsError: Error | null
+  refetchChats: UseQueryResult<ChatRead[], Error>["refetch"]
+} {
   const {
     data: chats,
     isLoading: chatsLoading,
     error: chatsError,
+    refetch,
   } = useQuery<ChatRead[]>({
     queryKey: ["chats", workspaceId, entityType, entityId, limit],
     queryFn: () =>
@@ -122,9 +137,10 @@ export function useListChats({
         entityId: entityId || null,
         limit,
       }),
+    enabled: options?.enabled ?? true,
   })
 
-  return { chats, chatsLoading, chatsError }
+  return { chats, chatsLoading, chatsError, refetchChats: refetch }
 }
 
 // Hook for getting a single chat
@@ -167,6 +183,9 @@ export function useUpdateChat(workspaceId: string) {
       // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({
         queryKey: ["chats", workspaceId],
@@ -236,16 +255,30 @@ export function useVercelChat({
       api: apiEndpoint,
       credentials: "include",
       prepareSendMessagesRequest: ({ messages }) => {
-        // Send only the last message
-        const reqBody: VercelChatRequest = {
-          format: "vercel",
+        // Support both normal vercel chat turns and approval continuations.
+        const last = messages[messages.length - 1]
+        const dataPart = last.parts.find((p) => p.type === "data-continue") as
+          | { type: "data-continue"; data?: ContinueRunRequest }
+          | undefined
+
+        if (dataPart?.data?.decisions) {
+          const body: ContinueRunRequest = {
+            kind: "continue",
+            decisions: dataPart.data.decisions,
+          }
+          return { body }
+        }
+
+        // Default: start a vercel chat turn with the last UI message
+        const body: VercelChatRequest = {
+          kind: "vercel",
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
-          message: messages[messages.length - 1],
+          message: last,
         }
-        return {
-          body: reqBody,
-        }
+        const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
+        if (baseUrl != null) body.base_url = baseUrl
+        return { body }
       },
     }),
     onError: (error) => {
@@ -270,5 +303,32 @@ export function useVercelChat({
     ...chat,
     lastError,
     clearError: () => setLastError(null),
+  }
+}
+
+// --- Approvals helpers (CE handshake) ----------------------------------------
+
+export type ApprovalCard = {
+  tool_call_id: string
+  tool_name: string
+  args?: unknown
+}
+
+/**
+ * Build a synthetic UIMessage that encodes a continue request with approval decisions.
+ * Pass this message to your chat messages array before sending.
+ */
+export function makeContinueMessage(
+  decisions: ContinueRunRequest["decisions"]
+): UIMessage {
+  return {
+    id: `continue-${Date.now()}`,
+    role: "user",
+    parts: [
+      {
+        type: "data-continue",
+        data: { format: "continue", decisions },
+      } as UIMessage["parts"][number],
+    ],
   }
 }

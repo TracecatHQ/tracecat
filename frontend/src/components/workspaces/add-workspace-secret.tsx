@@ -242,7 +242,7 @@ export function NewCredentialsDialog({
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
                     <KeyRoundIcon className="mr-2 size-4" />
-                    Create Secret
+                    Create secret
                   </Button>
                 </DialogClose>
               </DialogFooter>

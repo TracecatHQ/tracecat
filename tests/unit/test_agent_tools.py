@@ -11,7 +11,7 @@ from tracecat.agent.tools import (
     _generate_google_style_docstring,
 )
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     BoundRegistryAction,
     TemplateAction,

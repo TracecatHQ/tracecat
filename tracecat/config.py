@@ -309,6 +309,11 @@ TRACECAT__MAX_FILE_SIZE_BYTES = int(
 )
 """The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
 
+TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES", 5 * 1024 * 1024)
+)
+"""Maximum CSV upload size for table imports in bytes. Defaults to 5MB."""
+
 TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
     os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
 )
@@ -461,7 +466,7 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
 
 
 # === Agent config === #
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 10))
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
 """The maximum number of tools that can be used in an agent."""
 
 
@@ -472,3 +477,28 @@ TRACECAT__AGENT_MAX_TOOL_CALLS = int(
 
 TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
 """The maximum number of requests that can be made per agent run."""
+
+TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES", 20))
+"""The maximum number of retries that can be made per agent run."""
+
+TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 128_000)
+)
+"""Default character limit for agent message history when truncating context."""
+
+TRACECAT__AGENT_TOOL_OUTPUT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 20_000)
+)
+"""Default character limit for individual tool outputs when truncating context."""
+
+TRACECAT__MODEL_CONTEXT_LIMITS = {
+    "gpt-4o-mini": 128_000,
+    "gpt-5-mini": 128_000,
+    "gpt-5-nano": 128_000,
+    "gpt-5": 128_000,
+    "claude-sonnet-4-5-20250929": 200_000,
+    "claude-haiku-4-5-20251001": 200_000,
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": 200_000,
+    "anthropic.claude-haiku-4-5-20251001-v1:0": 200_000,
+}
+"""Model-specific character limits for agent message history truncation."""

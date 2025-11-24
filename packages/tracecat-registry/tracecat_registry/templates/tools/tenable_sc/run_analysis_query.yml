@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: Run analysis query
+  description: Execute a Tenable Security Center analysis query (e.g. vuln details for a scan).
+  display_group: Tenable Security Center
+  doc_url: https://docs.tenable.com/security-center/api/Analysis.htm
+  namespace: tools.tenable_sc
+  name: run_analysis_query
+  secrets:
+    - name: tenable_sc
+      keys: ["TENABLE_SC_ACCESS_KEY", "TENABLE_SC_SECRET_KEY"]
+  expects:
+    scan_id:
+      type: int
+      description: ID of the scan whose results the query should evaluate.
+    analysis_type:
+      type: str
+      description: Analysis type to pass to the Analysis API.
+      default: vuln
+    query:
+      type: dict[str, Any]
+      description: Tenable Security Center analysis query block (tool, type, filters, etc.).
+      default:
+        tool: vulndetails
+        type: vuln
+    source_type:
+      type: str
+      description: Result source type (e.g. individual, cumulative, lce).
+      default: individual
+    sort_field:
+      type: str
+      description: Field to sort results by.
+      default: severity
+    sort_dir:
+      type: str
+      description: Sort direction for the results.
+      enum: ["asc", "desc"]
+      default: desc
+    start_offset:
+      type: int
+      description: Starting offset for pagination.
+      default: 0
+    end_offset:
+      type: int
+      description: Ending offset for pagination.
+      default: 100
+    view:
+      type: str
+      description: View applied to the result set (e.g. all, exploitable, accepted).
+      default: all
+    base_url:
+      type: str | None
+      description: Tenable Security Center base URL (e.g. https://security-center.example.com).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify TLS certificates when calling the API.
+      default: true
+  steps:
+    - ref: run_analysis
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.tenable_sc.base_url }}/rest/analysis
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Content-Type: application/json
+          x-apikey: "accesskey=${{ SECRETS.tenable_sc.TENABLE_SC_ACCESS_KEY }}; secretkey=${{ SECRETS.tenable_sc.TENABLE_SC_SECRET_KEY }};"
+        payload:
+          type: ${{ inputs.analysis_type }}
+          query: ${{ inputs.query }}
+          scanID: ${{ inputs.scan_id }}
+          sourceType: ${{ inputs.source_type }}
+          sortField: ${{ inputs.sort_field }}
+          sortDir: ${{ inputs.sort_dir }}
+          startOffset: ${{ inputs.start_offset }}
+          endOffset: ${{ inputs.end_offset }}
+          view: ${{ inputs.view }}
+  returns: ${{ steps.run_analysis.result.data }}

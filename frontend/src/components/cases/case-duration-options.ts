@@ -1,12 +1,14 @@
 import type { LucideIcon } from "lucide-react"
 import {
   CircleCheck,
+  Eye,
   FilePlus2,
   Flag,
   Flame,
   GitCompare,
   PenSquare,
   RotateCcw,
+  Tag,
   UserRound,
 } from "lucide-react"
 
@@ -43,6 +45,11 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
     icon: RotateCcw,
   },
   {
+    value: "case_viewed",
+    label: "Case viewed",
+    icon: Eye,
+  },
+  {
     value: "priority_changed",
     label: "Priority changed",
     icon: Flag,
@@ -61,6 +68,16 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
     value: "assignee_changed",
     label: "Assignee changed",
     icon: UserRound,
+  },
+  {
+    value: "tag_added",
+    label: "Tag added",
+    icon: Tag,
+  },
+  {
+    value: "tag_removed",
+    label: "Tag removed",
+    icon: Tag,
   },
 ]
 
@@ -120,6 +137,19 @@ export function isCaseEventFilterType(
   value: CaseEventType
 ): value is CaseEventFilterType {
   return value in CASE_EVENT_FILTER_OPTIONS
+}
+
+const CASE_TAG_EVENT_TYPES = [
+  "tag_added",
+  "tag_removed",
+] as const satisfies readonly CaseEventType[]
+
+export type CaseTagEventType = (typeof CASE_TAG_EVENT_TYPES)[number]
+
+export function isCaseTagEventType(
+  value: CaseEventType
+): value is CaseTagEventType {
+  return (CASE_TAG_EVENT_TYPES as readonly CaseEventType[]).includes(value)
 }
 
 export function getCaseEventOption(value: CaseEventType): CaseEventOption {

@@ -6,11 +6,12 @@ from typing import Any
 from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai.tools import DeferredToolRequests
 
-from tracecat.agent.models import AgentConfig, OutputType
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tools import build_agent_tools
+from tracecat.agent.types import AgentConfig, OutputType
 
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
@@ -49,13 +50,18 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
     agent_tools: list[Tool[Any | None]] = []
+    tool_prompt_tools: list[Tool[Any | None]] = []
     if config.actions:
         tools = await build_agent_tools(
-            fixed_arguments=config.fixed_arguments,
             namespaces=config.namespaces,
             actions=config.actions,
+            tool_approvals=config.tool_approvals,
         )
-        agent_tools = tools.tools
+        agent_tools.extend(tools.tools)
+        tool_prompt_tools.extend(tools.tools)
+    if config.custom_tools:
+        agent_tools.extend(config.custom_tools)
+        tool_prompt_tools.extend(config.custom_tools)
     _output_type = _parse_output_type(config.output_type) if config.output_type else str
     _model_settings = (
         ModelSettings(**config.model_settings) if config.model_settings else None
@@ -65,27 +71,35 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     verbosity_prompt = VerbosityPrompt()
     instructions = f"{config.instructions}\n{verbosity_prompt.prompt}"
 
-    if config.actions:
+    if tool_prompt_tools:
         tool_calling_prompt = ToolCallPrompt(
-            tools=tools.tools,
-            fixed_arguments=config.fixed_arguments,
+            tools=tool_prompt_tools,
         )
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n".join(part for part in instruction_parts if part)
 
     toolsets = None
-    if config.mcp_server_url:
-        mcp_server = MCPServerStreamableHTTP(
-            url=config.mcp_server_url,
-            headers=config.mcp_server_headers,
-        )
-        toolsets = [mcp_server]
+    if config.mcp_servers:
+        toolsets = [
+            MCPServerStreamableHTTP(
+                url=server["url"],
+                headers=server["headers"],
+            )
+            for server in config.mcp_servers
+        ]
+
+    output_type_for_agent: type[Any] | list[type[Any]]
+    # If any tool requires approval, include DeferredToolRequests in output types
+    if any(tool.requires_approval for tool in agent_tools):
+        output_type_for_agent = [_output_type, DeferredToolRequests]
+    else:
+        output_type_for_agent = _output_type
 
     model = get_model(config.model_name, config.model_provider, config.base_url)
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=_output_type,
+        output_type=output_type_for_agent,
         model_settings=_model_settings,
         retries=config.retries,
         instrument=True,

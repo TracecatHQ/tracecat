@@ -9,6 +9,7 @@ import {
 } from "@xyflow/react"
 import {
   AlertTriangleIcon,
+  BracesIcon,
   CircleCheckBigIcon,
   CircleHelp,
   CopyIcon,
@@ -68,12 +69,13 @@ import {
 } from "@/components/ui/tooltip"
 import { toast, useToast } from "@/components/ui/use-toast"
 import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
+import { isExpression } from "@/lib/expressions"
 import {
   useAction,
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { cn, slugify } from "@/lib/utils"
+import { cn, slugifyActionRef } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -96,6 +98,7 @@ type ChildWorkflowInfo = {
   childWorkflowId?: string
   childWorkflowAlias?: string
   childIdFromAlias?: string
+  isDynamicChildWorkflowAlias: boolean
 }
 
 export default React.memo(function ActionNode({
@@ -123,8 +126,9 @@ export default React.memo(function ActionNode({
   )
   const actionValidationErrors = useMemo(() => {
     return (
-      validationErrors?.filter((e) => e.ref === slugify(action?.title ?? "")) ??
-      []
+      validationErrors?.filter(
+        (e) => e.ref === slugifyActionRef(action?.title ?? "")
+      ) ?? []
     )
   }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
@@ -336,10 +340,17 @@ export default React.memo(function ActionNode({
   const childWorkflowAlias = actionInputsObj?.workflow_alias
     ? String(actionInputsObj?.workflow_alias)
     : undefined
+  const isDynamicChildWorkflowAlias = useMemo(
+    () => !!childWorkflowAlias && isExpression(childWorkflowAlias),
+    [childWorkflowAlias]
+  )
   const { workflows } = useWorkflowManager()
   const childIdFromAlias = useMemo(
-    () => workflows?.find((w) => w.alias === childWorkflowAlias)?.id,
-    [workflows, childWorkflowAlias]
+    () =>
+      childWorkflowAlias && !isDynamicChildWorkflowAlias
+        ? workflows?.find((w) => w.alias === childWorkflowAlias)?.id
+        : undefined,
+    [workflows, childWorkflowAlias, isDynamicChildWorkflowAlias]
   )
 
   const childWorkflowInfo: ChildWorkflowInfo = {
@@ -347,6 +358,7 @@ export default React.memo(function ActionNode({
     childIdFromAlias,
     childWorkflowAlias,
     childWorkflowId,
+    isDynamicChildWorkflowAlias,
   }
 
   return (
@@ -629,7 +641,7 @@ function ActionNodeToolbar({
           <CommandGroup>
             <CommandItem
               onSelect={() => {
-                const value = `ACTIONS.${slugify(action.title)}.result`
+                const value = `ACTIONS.${slugifyActionRef(action.title)}.result`
                 navigator.clipboard.writeText(value)
                 toast({
                   title: "Copied action reference",
@@ -659,7 +671,7 @@ function ActionNodeToolbar({
               onSelect={() => {
                 sidebarRef.current?.setOpen(true)
                 sidebarRef.current?.setActiveTab("action-input")
-                setSelectedActionEventRef(slugify(action.title))
+                setSelectedActionEventRef(slugifyActionRef(action.title))
               }}
             >
               <LayoutListIcon className="mr-2 size-3" />
@@ -669,7 +681,7 @@ function ActionNodeToolbar({
               onSelect={() => {
                 sidebarRef.current?.setOpen(true)
                 sidebarRef.current?.setActiveTab("action-result")
-                setSelectedActionEventRef(slugify(action.title))
+                setSelectedActionEventRef(slugifyActionRef(action.title))
               }}
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
@@ -680,7 +692,7 @@ function ActionNodeToolbar({
                 onSelect={() => {
                   sidebarRef.current?.setOpen(true)
                   sidebarRef.current?.setActiveTab("action-interaction")
-                  setSelectedActionEventRef(slugify(action.title))
+                  setSelectedActionEventRef(slugifyActionRef(action.title))
                 }}
               >
                 <MessagesSquare className="mr-2 size-3" />
@@ -734,8 +746,12 @@ function ChildWorkflowLink({
   workspaceId: string
   childWorkflowInfo: ChildWorkflowInfo
 }) {
-  const { childWorkflowId, childWorkflowAlias, childIdFromAlias } =
-    childWorkflowInfo
+  const {
+    childWorkflowId,
+    childWorkflowAlias,
+    childIdFromAlias,
+    isDynamicChildWorkflowAlias,
+  } = childWorkflowInfo
   const { setSelectedNodeId } = useWorkflowBuilder()
 
   const handleClearSelection = () => {
@@ -768,6 +784,26 @@ function ChildWorkflowLink({
     )
   }
   if (childWorkflowAlias) {
+    if (isDynamicChildWorkflowAlias) {
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <div className="rounded-sm border bg-blue-200/30 p-0.5">
+              <BracesIcon className="size-3 text-blue-600/80" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent
+            sideOffset={20}
+            className="max-w-[300px] whitespace-normal break-words"
+          >
+            <span>
+              This subflow is resolved dynamically at runtime using the{" "}
+              <TooltipCode value="workflow_alias" /> expression
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
     if (!childIdFromAlias) {
       // Cannot get child wf ID from alias
       return (
@@ -823,7 +859,7 @@ function ChildWorkflowLink({
 
 function TooltipCode({ value }: { value: string }) {
   return (
-    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
+    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 px-0.5 py-0.25 font-mono tracking-tighter">
       {value}
     </span>
   )

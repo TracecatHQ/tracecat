@@ -1,8 +1,10 @@
 "use client"
 
 import { Circle, CircleCheck, CircleDashed, CircleDot } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
-import type { CaseTaskRead, WorkflowReadMinimal } from "@/client"
+import { useMemo, useState } from "react"
+import type { CaseRead, CaseTaskRead, WorkflowReadMinimal } from "@/client"
+import { CaseTaskDialog } from "@/components/cases/case-task-dialog"
+import { TaskWorkflowTrigger } from "@/components/cases/task-workflow-trigger"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -14,8 +16,6 @@ import {
 } from "@/components/ui/tooltip"
 import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { CaseTaskDialog } from "./case-task-dialog"
-import { TaskWorkflowStatus } from "./task-workflow-status"
 
 interface CaseTasksTableProps {
   tasks: CaseTaskRead[]
@@ -23,6 +23,7 @@ interface CaseTasksTableProps {
   error: Error | null
   caseId: string
   workspaceId: string
+  caseData: CaseRead
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -64,27 +65,17 @@ export function CaseTasksTable({
   error,
   caseId,
   workspaceId,
+  caseData,
 }: CaseTasksTableProps) {
   const { workflows } = useWorkflowManager()
   const [selectedTask, setSelectedTask] = useState<CaseTaskRead | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [executionIds, setExecutionIds] = useState<Map<string, string>>(
-    new Map()
-  )
 
   const workflowById = useMemo(() => {
     const map = new Map<string, WorkflowReadMinimal>()
     workflows?.forEach((workflow) => map.set(workflow.id, workflow))
     return map
   }, [workflows])
-
-  const handleExecutionStart = useCallback((taskId: string, execId: string) => {
-    setExecutionIds((prev) => {
-      const newMap = new Map(prev)
-      newMap.set(taskId, execId)
-      return newMap
-    })
-  }, [])
 
   const handleEditTask = (task: CaseTaskRead) => {
     setSelectedTask(task)
@@ -121,7 +112,6 @@ export function CaseTasksTable({
     <>
       <div className="space-y-1">
         {tasks.map((task) => {
-          const taskExecutionId = executionIds.get(task.id) || null
           const workflow = task.workflow_id
             ? workflowById.get(task.workflow_id)
             : null
@@ -171,7 +161,6 @@ export function CaseTasksTable({
                       {capitalizeFirst(task.priority)}
                     </Badge>
                   )}
-
                   {task.assignee && (
                     <span className="text-xs text-muted-foreground hidden sm:inline">
                       {task.assignee.first_name ||
@@ -182,12 +171,7 @@ export function CaseTasksTable({
               </Button>
 
               {workflow && (
-                <TaskWorkflowStatus
-                  task={task}
-                  caseId={caseId}
-                  executionId={taskExecutionId}
-                  onExecutionStart={handleExecutionStart}
-                />
+                <TaskWorkflowTrigger caseData={caseData} workflow={workflow} />
               )}
             </div>
           )

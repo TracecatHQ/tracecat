@@ -33,6 +33,7 @@ from pydantic_ai.messages import (
     DocumentUrl,
     FunctionToolResultEvent,
     ImageUrl,
+    ModelMessage,
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
@@ -63,13 +64,18 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
+from tracecat.chat.constants import (
+    APPROVAL_DATA_PART_TYPE,
+    APPROVAL_REQUEST_HEADER,
+)
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
-    from tracecat.chat.models import ChatMessage
+    from tracecat.chat.schemas import ChatMessage
 
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
+AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
 
 # ==============================================================================
 # 1. Models for UI Parts with Fixed 'type' Literals
@@ -617,6 +623,17 @@ class ToolOutputAvailableEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class DataEventPayload:
+    type: str
+    data: Any
+
+    def __post_init__(self) -> None:
+        if not self.type.startswith("data-"):
+            msg = "Data event types must start with 'data-'"
+            raise ValueError(msg)
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class ErrorEventPayload:
     type: Literal["error"] = dataclasses.field(init=False, default="error")
     errorText: str
@@ -635,6 +652,7 @@ VercelSSEPayload = (
     | ToolInputDeltaEventPayload
     | ToolInputAvailableEventPayload
     | ToolOutputAvailableEventPayload
+    | DataEventPayload
     | ErrorEventPayload
 )
 
@@ -648,7 +666,7 @@ def format_sse(data: VercelSSEPayload) -> str:
 class _PartState:
     part_id: str
     part_type: Literal["text", "reasoning", "tool"]
-    tool_call: ToolCallPart | None = None
+    tool_call: AnyToolCallPart | None = None
     open: bool = True
 
 
@@ -669,12 +687,18 @@ class VercelStreamContext:
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
     tool_input_emitted: dict[str, bool] = dataclasses.field(default_factory=dict)
     tool_index: dict[str, int] = dataclasses.field(default_factory=dict)
+    pending_data_events: list[DataEventPayload] = dataclasses.field(
+        default_factory=list
+    )
+    # Cache approval data for continuation reconstruction
+    approval_tool_name: dict[str, str] = dataclasses.field(default_factory=dict)
+    approval_input: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def _create_part_state(
         self,
         index: int,
         part_type: Literal["text", "reasoning", "tool"],
-        tool_call: ToolCallPart | None = None,
+        tool_call: AnyToolCallPart | None = None,
     ) -> _PartState:
         """Register a fresh part and return its tracking record."""
         part_id = f"msg_{uuid.uuid4().hex}"
@@ -683,6 +707,18 @@ class VercelStreamContext:
         if tool_call is not None:
             self.tool_index[tool_call.tool_call_id] = index
         return state
+
+    def enqueue_data_event(self, payload: DataEventPayload) -> None:
+        """Stage a data payload (e.g. approvals) to stream before tool parts."""
+        self.pending_data_events.append(payload)
+
+    def flush_data_events(self) -> list[DataEventPayload]:
+        """Return and clear any staged data payloads."""
+        if not self.pending_data_events:
+            return []
+        events = self.pending_data_events.copy()
+        self.pending_data_events.clear()
+        return events
 
     def _finalize_part(self, index: int) -> list[VercelSSEPayload]:
         """Close a part and emit any ending SSE frames that are still pending."""
@@ -727,6 +763,9 @@ class VercelStreamContext:
         self, event: AgentStreamEvent
     ) -> AsyncIterator[VercelSSEPayload]:
         """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
+        for data_event in self.flush_data_events():
+            yield data_event
+
         # End the previous part if a new one is starting
         if isinstance(event, PartStartEvent):
             # Close any existing stream for this index so the next start begins cleanly.
@@ -820,6 +859,7 @@ class VercelStreamContext:
             if isinstance(event.result, ToolReturnPart | RetryPromptPart):
                 tool_call_id = event.result.tool_call_id
 
+            # Close any open part for this tool, or all open parts if none match
             if tool_call_id is not None and tool_call_id in self.tool_index:
                 index = self.tool_index[tool_call_id]
                 for message in self.collect_current_part_end_events(index=index):
@@ -827,6 +867,23 @@ class VercelStreamContext:
             else:
                 for message in self.collect_current_part_end_events():
                     yield message
+
+            # Ensure the UI sees an input-available before any output for this tool.
+            if tool_call_id is not None and not self.tool_input_emitted.get(
+                tool_call_id, False
+            ):
+                # Use cached approval data if available, otherwise best-effort fallback
+                tool_name = self.approval_tool_name.get(
+                    tool_call_id, getattr(event.result, "tool_name", "tool")
+                )
+                input_payload: Any = self.approval_input.get(tool_call_id, {})
+                yield ToolInputAvailableEventPayload(
+                    toolCallId=tool_call_id,
+                    toolName=str(tool_name),
+                    input=input_payload,
+                )
+                self.tool_input_emitted[tool_call_id] = True
+
             if isinstance(event.result, ToolReturnPart):
                 tool_call_id = event.result.tool_call_id
                 self.tool_finished[tool_call_id] = True
@@ -836,11 +893,28 @@ class VercelStreamContext:
                     output=event.result.model_response_str(),
                 )
             elif isinstance(event.result, RetryPromptPart):
+                # Validation or runtime error from a tool call.
+                # Do NOT emit a top-level error frame which aborts the stream.
+                # Instead, surface the failure as the tool's output so the UI
+                # can render a completed tool block and the model can continue.
                 if event.result.tool_call_id:
                     tool_call_id = event.result.tool_call_id
                     self.tool_finished[tool_call_id] = True
                     self.tool_input_emitted.pop(tool_call_id, None)
-                yield ErrorEventPayload(errorText=event.result.model_response())
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output={
+                            "errorText": event.result.model_response(),
+                        },
+                    )
+                else:
+                    # No tool_call_id to associate with — fall back to a text block
+                    text_id = f"msg_{uuid.uuid4().hex}"
+                    yield TextStartEventPayload(id=text_id)
+                    yield TextDeltaEventPayload(
+                        id=text_id, delta=event.result.model_response()
+                    )
+                    yield TextEndEventPayload(id=text_id)
 
 
 # ==============================================================================
@@ -932,6 +1006,28 @@ UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
 )
 
 
+def _extract_approval_payload_from_message(
+    message: ModelMessage,
+) -> list[ToolCallPart] | None:
+    match message:
+        case ModelResponse(parts=[TextPart(content=first), *parts]) if (
+            first == APPROVAL_REQUEST_HEADER and parts
+        ):
+            approvals: list[ToolCallPart] = []
+            for part in parts:
+                if isinstance(part, ToolCallPart | BuiltinToolCallPart):
+                    approvals.append(
+                        ToolCallPart(
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                            args=part.args_as_dict(),
+                        )
+                    )
+            return approvals
+        case _:
+            return None
+
+
 def convert_model_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
@@ -958,9 +1054,18 @@ def convert_model_messages_to_ui(
 
         mutable_message = MutableMessage(id=message_id, role=role, parts=[])
 
+        approval_payload = _extract_approval_payload_from_message(message_data)
+
         for part in message_data.parts:
+            if approval_payload and isinstance(part, TextPart):
+                # Skip approval header text from UI parts
+                if part.content == APPROVAL_REQUEST_HEADER:
+                    continue
+
             match part:
                 case ToolCallPart(tool_name=tool_name, tool_call_id=tool_call_id):
+                    if approval_payload:
+                        continue
                     tool_input = part.args_as_dict()
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
@@ -975,6 +1080,8 @@ def convert_model_messages_to_ui(
                 case BuiltinToolCallPart(
                     tool_name=tool_name, tool_call_id=tool_call_id
                 ):
+                    if approval_payload:
+                        continue
                     tool_input = part.args_as_dict()
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
@@ -1060,6 +1167,11 @@ def convert_model_messages_to_ui(
             if converted_part is not None:
                 mutable_message.parts.append(converted_part)
 
+        if approval_payload:
+            mutable_message.parts.append(
+                DataUIPart(type=APPROVAL_DATA_PART_TYPE, data=approval_payload)
+            )
+
         if mutable_message.parts:
             mutable_messages.append(mutable_message)
 
@@ -1099,9 +1211,41 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
                         yield format_sse(msg)
-                case StreamMessage():
-                    # Model messages don't need processing through handle_event
-                    # They're just stored/logged
+                case StreamMessage(message=message):
+                    if approval_payload := _extract_approval_payload_from_message(
+                        message
+                    ):
+                        # Finalize any open tool parts involved in approvals so
+                        # the UI receives tool-input-available before the approval card.
+                        try:
+                            for call in approval_payload:
+                                # Cache original data for continuation reconstruction
+                                context.approval_tool_name[call.tool_call_id] = (
+                                    call.tool_name
+                                )
+                                context.approval_input[call.tool_call_id] = (
+                                    call.args_as_dict()
+                                )
+                                # If the tool part is open in this stream, finalize it now
+                                if call.tool_call_id in context.tool_index:
+                                    index = context.tool_index[call.tool_call_id]
+                                    for (
+                                        end_evt
+                                    ) in context.collect_current_part_end_events(
+                                        index=index
+                                    ):
+                                        yield format_sse(end_evt)
+                        except Exception:
+                            # Best-effort only; do not abort streaming on cache/finalize errors
+                            pass
+                        context.enqueue_data_event(
+                            DataEventPayload(
+                                type=APPROVAL_DATA_PART_TYPE,
+                                data=approval_payload,
+                            )
+                        )
+                        for data_event in context.flush_data_events():
+                            yield format_sse(data_event)
                     continue
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()

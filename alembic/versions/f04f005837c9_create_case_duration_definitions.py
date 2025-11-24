@@ -9,7 +9,6 @@ Create Date: 2025-10-09 10:49:06.738163
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -39,10 +38,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column(
             "start_event_type",
             postgresql.ENUM(
@@ -63,9 +62,7 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column(
-            "start_timestamp_path", sqlmodel.sql.sqltypes.AutoString(), nullable=False
-        ),
+        sa.Column("start_timestamp_path", sa.String(), nullable=False),
         sa.Column(
             "start_field_filters",
             postgresql.JSONB(astext_type=sa.Text()),
@@ -98,9 +95,7 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column(
-            "end_timestamp_path", sqlmodel.sql.sqltypes.AutoString(), nullable=False
-        ),
+        sa.Column("end_timestamp_path", sa.String(), nullable=False),
         sa.Column(
             "end_field_filters", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),

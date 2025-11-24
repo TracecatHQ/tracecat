@@ -1,6 +1,9 @@
+import csv
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
+from io import StringIO
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -10,10 +13,10 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -21,31 +24,46 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.authz.controls import require_access_level
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.auth.types import Role
+from tracecat.authz.controls import require_workspace_role
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import (
+    TracecatImportError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
-from tracecat.service import BaseService
+from tracecat.logger import logger
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
+from tracecat.service import BaseService, BaseWorkspaceService
 from tracecat.tables.common import (
+    coerce_multi_select_value,
+    coerce_select_value,
+    coerce_to_date,
     coerce_to_utc_datetime,
+    convert_value,
     handle_default_value,
     is_valid_sql_type,
+    normalize_column_options,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.importer import (
+    CSVSchemaInferer,
+    InferredCSVColumn,
+    generate_table_name,
+)
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
-)
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
-from tracecat.types.pagination import (
-    BaseCursorPaginator,
-    CursorPaginatedResponse,
-    CursorPaginationParams,
 )
 
 _RETRYABLE_DB_EXCEPTIONS = (
@@ -54,10 +72,14 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 
 
-class BaseTablesService(BaseService):
+class BaseTablesService(BaseWorkspaceService):
     """Service for managing user-defined tables."""
 
     service_name = "tables"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Sanitize table/column names to prevent SQL injection."""
@@ -65,7 +87,7 @@ class BaseTablesService(BaseService):
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
-        ws_id = workspace_id or self._workspace_id()
+        ws_id = workspace_id or self.ws_uuid
         # Using double quotes to allow dots in schema name
         return f"tables_{ws_id.short()}"
 
@@ -77,12 +99,47 @@ class BaseTablesService(BaseService):
         sanitized_table_name = self._sanitize_identifier(table_name)
         return f'"{schema_name}".{sanitized_table_name}'
 
-    def _workspace_id(self) -> WorkspaceUUID:
-        """Get the workspace ID for the current role."""
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
-        return WorkspaceUUID.new(workspace_id)
+    async def _find_unique_table_name(self, base_name: str) -> str:
+        """Find a unique table name by appending numeric suffixes if required."""
+        candidate = base_name
+        suffix = 1
+        while True:
+            try:
+                await self.get_table_by_name(candidate)
+            except TracecatNotFoundError:
+                return candidate
+            candidate = f"{base_name}_{suffix}"
+            suffix += 1
+
+    def _normalize_options_for_type(
+        self, sql_type: SqlType, options: list[str] | None
+    ) -> list[str] | None:
+        # Only SELECT and MULTI_SELECT types support options
+        if sql_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
+            if options:
+                raise ValueError(
+                    "Options are only supported for SELECT or MULTI_SELECT"
+                )
+            return None
+
+        # For SELECT/MULTI_SELECT, normalize and validate options
+        normalized = normalize_column_options(options)
+        if not normalized:
+            raise ValueError(
+                "SELECT and MULTI_SELECT columns must define at least one option"
+            )
+        return normalized
+
+    def _coerce_value_for_column(
+        self, sql_type: SqlType, value: Any, options: list[str] | None
+    ) -> Any:
+        if value is None:
+            return None
+        if sql_type is SqlType.SELECT:
+            return coerce_select_value(value, options=options)
+        if sql_type is SqlType.MULTI_SELECT:
+            return coerce_multi_select_value(value, options=options)
+        return value
 
     def _normalize_row_inputs(
         self, table: Table, data: dict[str, Any]
@@ -101,11 +158,20 @@ class BaseTablesService(BaseService):
                 )
 
             sql_type = SqlType(column.type)
-            if (
-                sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}
-                and value is not None
-            ):
+            if value is None:
+                normalised[column_name] = None
+                continue
+
+            if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                normalised[column_name] = self._coerce_value_for_column(
+                    sql_type, value, column.options
+                )
+                continue
+
+            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
                 normalised[column_name] = coerce_to_utc_datetime(value)
+            elif sql_type is SqlType.DATE and value is not None:
+                normalised[column_name] = coerce_to_date(value)
             else:
                 normalised[column_name] = value
 
@@ -123,20 +189,18 @@ class BaseTablesService(BaseService):
         Raises:
             ValueError: If the workspace ID is invalid
         """
-        ws_id = self._workspace_id()
-        statement = select(Table).where(Table.owner_id == ws_id)
-        result = await self.session.exec(statement)
-        return result.all()
+        statement = select(Table).where(Table.owner_id == self.ws_uuid)
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_table(self, table_id: TableID) -> Table:
         """Get a lookup table by ID."""
-        ws_id = self._workspace_id()
         statement = select(Table).where(
-            Table.owner_id == ws_id,
+            Table.owner_id == self.ws_uuid,
             Table.id == table_id,
         )
-        result = await self.session.exec(statement)
-        table = result.first()
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
         if table is None:
             raise TracecatNotFoundError("Table not found")
 
@@ -177,19 +241,18 @@ class BaseTablesService(BaseService):
         Raises:
             TracecatNotFoundError: If the table does not exist
         """
-        ws_id = self._workspace_id()
         sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
-            Table.owner_id == ws_id,
+            Table.owner_id == self.ws_uuid,
             Table.name == sanitized_name,
         )
-        result = await self.session.exec(statement)
-        table = result.first()
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
         if table is None:
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
 
@@ -203,8 +266,7 @@ class BaseTablesService(BaseService):
             TracecatAuthorizationError: If user lacks required permissions
             ValueError: If table name is invalid
         """
-        ws_id = self._workspace_id()
-        schema_name = self._get_schema_name(ws_id)
+        schema_name = self._get_schema_name(self.ws_uuid)
         table_name = self._sanitize_identifier(params.name)
 
         # Create schema if it doesn't exist
@@ -244,7 +306,7 @@ class BaseTablesService(BaseService):
         await conn.run_sync(new_table.create)
 
         # Create metadata entry
-        table = Table(owner_id=ws_id, name=table_name)
+        table = Table(owner_id=self.ws_uuid, name=table_name)
         self.session.add(table)
         await self.session.flush()
 
@@ -255,7 +317,7 @@ class BaseTablesService(BaseService):
 
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
         # We need to update the table name in the physical table
@@ -286,7 +348,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return table
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
         # Delete the metadata first
@@ -308,13 +370,13 @@ class BaseTablesService(BaseService):
             TableColumn.table_id == table_id,
             TableColumn.id == column_id,
         )
-        result = await self.session.exec(statement)
-        column = result.first()
+        result = await self.session.execute(statement)
+        column = result.scalars().first()
         if column is None:
             raise TracecatNotFoundError("Column not found")
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(
         self, table: Table, params: TableColumnCreate
     ) -> TableColumn:
@@ -337,6 +399,7 @@ class BaseTablesService(BaseService):
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
+        normalized_options = self._normalize_options_for_type(sql_type, params.options)
 
         # Handle default value based on type
         default_value = params.default
@@ -349,11 +412,22 @@ class BaseTablesService(BaseService):
             type=sql_type.value,
             nullable=params.nullable,
             default=default_value,  # Store original default in metadata
+            options=normalized_options,
         )
         self.session.add(column)
 
         # Build the column definition string
-        column_def = [f"{column_name} {sql_type.value}"]
+        # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+        if sql_type is SqlType.SELECT:
+            column_type_sql = SqlType.TEXT.value
+        elif sql_type is SqlType.MULTI_SELECT:
+            column_type_sql = SqlType.JSONB.value
+        else:
+            # Map INTEGER to BIGINT for larger integer support
+            column_type_sql = (
+                "BIGINT" if sql_type == SqlType.INTEGER else sql_type.value
+            )
+        column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if default_value is not None:
@@ -373,7 +447,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(
         self,
         column: TableColumn,
@@ -396,10 +470,33 @@ class BaseTablesService(BaseService):
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
+        requested_options = set_fields.pop("options", None)
 
         # Create index if requested
         if is_index:
             await self.create_unique_index(column.table, column.name)
+
+        # Handle options for SELECT/MULTI_SELECT columns
+        target_type = (
+            SqlType(set_fields["type"])
+            if "type" in set_fields
+            else SqlType(column.type)
+        )
+        if requested_options is not None:
+            normalized_options = self._normalize_options_for_type(
+                target_type, requested_options
+            )
+            set_fields["options"] = normalized_options
+        elif "type" in set_fields:
+            if (
+                target_type in (SqlType.SELECT, SqlType.MULTI_SELECT)
+                and not column.options
+            ):
+                raise ValueError(
+                    "SELECT and MULTI_SELECT columns must define at least one option"
+                )
+            elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                set_fields["options"] = None
 
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
@@ -419,10 +516,19 @@ class BaseTablesService(BaseService):
                     )
                 )
             if "type" in set_fields:
+                # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+                if target_type is SqlType.SELECT:
+                    physical_type = SqlType.TEXT.value
+                elif target_type is SqlType.MULTI_SELECT:
+                    physical_type = SqlType.JSONB.value
+                else:
+                    physical_type = (
+                        "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
+                    )
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, new_type),
+                        (full_table_name, new_name, physical_type),
                     )
                 )
             if "nullable" in set_fields:
@@ -473,7 +579,7 @@ class BaseTablesService(BaseService):
         await self.session.flush()
         return column
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
 
@@ -510,7 +616,7 @@ class BaseTablesService(BaseService):
         # Commit the transaction
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         full_table_name = self._full_table_name(column.table.name)
@@ -745,7 +851,7 @@ class BaseTablesService(BaseService):
 
         return dict(row)
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
         schema_name = self._get_schema_name()
@@ -955,7 +1061,13 @@ class BaseTablesService(BaseService):
             searchable_columns = [
                 col.name
                 for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+                if col.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
             ]
 
             if searchable_columns:
@@ -965,7 +1077,9 @@ class BaseTablesService(BaseService):
                 for col_name in searchable_columns:
                     sanitized_col = self._sanitize_identifier(col_name)
                     if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                        c.name
+                        for c in table.columns
+                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
                     ]:
                         # For JSONB columns, convert to text for searching
                         search_conditions.append(
@@ -1083,7 +1197,13 @@ class BaseTablesService(BaseService):
             searchable_columns = [
                 col.name
                 for col in table.columns
-                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+                if col.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
             ]
 
             if searchable_columns:
@@ -1093,7 +1213,9 @@ class BaseTablesService(BaseService):
                 for col_name in searchable_columns:
                     sanitized_col = self._sanitize_identifier(col_name)
                     if col_name in [
-                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                        c.name
+                        for c in table.columns
+                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
                     ]:
                         # For JSONB columns, convert to text for searching
                         search_conditions.append(
@@ -1367,6 +1489,131 @@ class TablesService(BaseTablesService):
         await self.session.refresh(result)
         return result
 
+    async def import_table_from_csv(
+        self,
+        *,
+        contents: bytes,
+        filename: str | None = None,
+        table_name: str | None = None,
+        chunk_size: int = 1000,
+    ) -> tuple[Table, int, list[InferredCSVColumn]]:
+        """Create a new table by inferring schema and rows from a CSV file."""
+        try:
+            csv_text = contents.decode()
+        except UnicodeDecodeError as exc:
+            raise TracecatImportError(
+                "CSV import requires UTF-8 encoded files"
+            ) from exc
+
+        first_pass = StringIO(csv_text)
+        reader = csv.DictReader(first_pass)
+        headers = reader.fieldnames
+
+        inferer = CSVSchemaInferer.initialise(headers or [])
+        for row in reader:
+            inferer.observe(row)
+        first_pass.close()
+
+        inferred_columns = inferer.result()
+
+        if not inferred_columns:
+            raise TracecatImportError("CSV file does not contain any columns")
+
+        raw_table_name = table_name
+        if not raw_table_name and filename:
+            raw_table_name = Path(filename).stem
+        base_table_name = generate_table_name(raw_table_name)
+        unique_table_name = await self._find_unique_table_name(base_table_name)
+
+        column_defs = [
+            TableColumnCreate(name=column.name, type=column.type)
+            for column in inferred_columns
+        ]
+        table = await self.create_table(
+            TableCreate(name=unique_table_name, columns=column_defs)
+        )
+
+        second_pass = StringIO(csv_text)
+        reader = csv.DictReader(second_pass)
+
+        chunk: list[dict[str, Any]] = []
+        rows_inserted = 0
+        try:
+            for row in reader:
+                mapped_row: dict[str, Any] = {}
+                for column in inferred_columns:
+                    raw_value = row.get(column.original_name)
+                    if raw_value is None:
+                        mapped_row[column.name] = None
+                        continue
+                    if isinstance(raw_value, str) and raw_value.strip() == "":
+                        if column.type is SqlType.TEXT:
+                            mapped_row[column.name] = ""
+                        else:
+                            mapped_row[column.name] = None
+                        continue
+                    value_to_convert = raw_value
+                    if isinstance(raw_value, str) and column.type is not SqlType.TEXT:
+                        value_to_convert = raw_value.strip()
+                    try:
+                        mapped_row[column.name] = convert_value(
+                            value_to_convert, column.type
+                        )
+                    except TypeError as exc:
+                        raise TracecatImportError(
+                            f"Cannot convert value {raw_value!r} in column "
+                            f"{column.original_name!r} to type {column.type}"
+                        ) from exc
+                if mapped_row:
+                    chunk.append(mapped_row)
+                if len(chunk) >= chunk_size:
+                    rows_inserted += await self._insert_import_chunk(
+                        table, chunk, chunk_size=chunk_size
+                    )
+                    chunk = []
+
+            if chunk:
+                rows_inserted += await self._insert_import_chunk(
+                    table, chunk, chunk_size=chunk_size
+                )
+        except Exception:
+            await self._cleanup_failed_import(table)
+            raise
+        finally:
+            second_pass.close()
+
+        await self.session.refresh(table)
+        return table, rows_inserted, inferred_columns
+
+    async def _insert_import_chunk(
+        self, table: Table, chunk: list[dict[str, Any]], *, chunk_size: int
+    ) -> int:
+        if not chunk:
+            return 0
+        try:
+            return await self.batch_insert_rows(table, chunk, chunk_size=chunk_size)
+        except DBAPIError as exc:
+            # Get error message, removing SQL queries that may contain sensitive data
+            cause = exc.__cause__ or exc
+            message = str(cause).strip()
+            if "[SQL:" in message:
+                message = message.split("[SQL:", 1)[0].strip()
+            if not message:
+                message = cause.__class__.__name__
+            raise TracecatImportError(
+                f"Failed to insert rows into table '{table.name}': {message}"
+            ) from exc
+
+    async def _cleanup_failed_import(self, table: Table) -> None:
+        try:
+            await self.delete_table(table)
+        except Exception as cleanup_error:
+            logger.error(
+                "Failed to clean up table after import failure",
+                table_id=str(table.id),
+                error=cleanup_error,
+            )
+
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         result = await super().update_table(table, params)
         await self.session.commit()
@@ -1463,7 +1710,7 @@ class TableEditorService(BaseService):
         columns = await conn.run_sync(inspect_columns)
         return columns
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
 
@@ -1487,7 +1734,14 @@ class TableEditorService(BaseService):
             default_value = handle_default_value(params.type, default_value)
 
         # Build the column definition string
-        column_def = [f"{params.name} {params.type.value}"]
+        # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+        if params.type is SqlType.SELECT:
+            column_type_sql = SqlType.TEXT.value
+        elif params.type is SqlType.MULTI_SELECT:
+            column_type_sql = SqlType.JSONB.value
+        else:
+            column_type_sql = params.type.value
+        column_def = [f"{params.name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if default_value is not None:
@@ -1506,7 +1760,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
 
@@ -1536,11 +1790,20 @@ class TableEditorService(BaseService):
                 )
             )
         if "type" in set_fields:
-            new_type = set_fields["type"]
+            new_type = SqlType(set_fields["type"])
+            # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
+            if new_type is SqlType.SELECT:
+                column_type_sql = SqlType.TEXT.value
+            elif new_type is SqlType.MULTI_SELECT:
+                column_type_sql = SqlType.JSONB.value
+            else:
+                column_type_sql = (
+                    "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
+                )
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, new_name, new_type),
+                    (full_table_name, new_name, column_type_sql),
                 )
             )
         if "nullable" in set_fields:
@@ -1583,7 +1846,7 @@ class TableEditorService(BaseService):
 
         await self.session.flush()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
         sanitized_column = sanitize_identifier(column_name)
@@ -1725,7 +1988,7 @@ class TableEditorService(BaseService):
 
         return dict(row)
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
         conn = await self.session.connection()

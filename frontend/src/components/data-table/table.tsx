@@ -190,7 +190,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div>
-      <div className="space-y-4">
+      <div className="space-y-4 w-full">
         {toolbarProps && (
           <DataTableToolbar
             table={table}
@@ -198,7 +198,7 @@ export function DataTable<TData, TValue>({
             onDeleteRows={onDeleteRows}
           />
         )}
-        <div className="rounded-md border">
+        <div className="rounded-md border w-full overflow-hidden">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (

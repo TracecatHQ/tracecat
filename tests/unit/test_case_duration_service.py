@@ -1,18 +1,21 @@
 import pytest
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
     CaseDurationDefinitionCreate,
+    CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
     CaseDurationService,
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseCreate, CaseUpdate
+from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
-from tracecat.db.schemas import CaseDuration
+from tracecat.cases.tags.service import CaseTagsService
+from tracecat.db.models import CaseDuration
+from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -49,6 +52,7 @@ async def test_compute_case_durations_from_events(
         )
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     value = values[0]
@@ -59,8 +63,8 @@ async def test_compute_case_durations_from_events(
     assert value.duration is None
 
     initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
-    initial_duration = await session.exec(initial_stmt)
-    initial_record = initial_duration.one()
+    initial_duration = await session.execute(initial_stmt)
+    initial_record = initial_duration.scalar_one()
     assert initial_record.definition_id == metric.id
     assert initial_record.start_event_id == value.start_event_id
     assert initial_record.end_event_id is None
@@ -80,8 +84,8 @@ async def test_compute_case_durations_from_events(
     assert value.duration.total_seconds() >= 0
 
     duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
-    stored_duration = await session.exec(duration_stmt)
-    record = stored_duration.one()
+    stored_duration = await session.execute(duration_stmt)
+    record = stored_duration.scalar_one()
     assert record.definition_id == metric.id
     assert record.start_event_id is not None
     assert record.end_event_id == value.end_event_id
@@ -122,6 +126,7 @@ async def test_duration_filters_match_event_payload(
     # Transition to resolved (should not match the CLOSED filter)
     await cases_service.update_case(case, CaseUpdate(status=CaseStatus.RESOLVED))
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     value = values[0]
@@ -135,6 +140,158 @@ async def test_duration_filters_match_event_payload(
     value = values[0]
     assert value.end_event_id is not None
     assert value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_support_multiple_values(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Time to resolved or closed",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": [CaseStatus.RESOLVED, CaseStatus.CLOSED]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Investigate suspicious login",
+            description="Track the suspicious user activity.",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    initial_value = values[0]
+    assert initial_value.end_event_id is None
+
+    case = await cases_service.update_case(
+        case,
+        CaseUpdate(status=CaseStatus.RESOLVED),
+    )
+
+    values = await duration_service.compute_for_case(case)
+    assert len(values) == 1
+    updated_value = values[0]
+    assert updated_value.end_event_id is not None
+    assert updated_value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_supports_tag_events(session: AsyncSession, svc_role) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    tags_service = CaseTagsService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    tag = await tags_service.create_tag(TagCreate(name="Urgent", color="#ff0000"))
+
+    metric = await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Tag window",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.TAG_ADDED,
+                field_filters={"data.tag_ref": [tag.ref]},
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.TAG_REMOVED,
+                field_filters={"data.tag_ref": [tag.ref]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Investigate missing data",
+            description="Ensure data completeness",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
+    values = await duration_service.compute_for_case(case.id)
+    assert len(values) == 1
+    assert values[0].start_event_id is None
+    assert values[0].end_event_id is None
+
+    await tags_service.add_case_tag(case.id, str(tag.id))
+
+    values = await duration_service.compute_for_case(case.id)
+    tag_duration = values[0]
+    assert tag_duration.duration_id == metric.id
+    assert tag_duration.start_event_id is not None
+    assert tag_duration.end_event_id is None
+
+    await tags_service.remove_case_tag(case.id, str(tag.id))
+
+    values = await duration_service.compute_for_case(case.id)
+    tag_duration = values[0]
+    assert tag_duration.start_event_id is not None
+    assert tag_duration.end_event_id is not None
+    assert tag_duration.duration is not None
+    assert tag_duration.duration.total_seconds() >= 0
+
+
+@pytest.mark.anyio
+async def test_duration_definition_update_accepts_nested_anchor_models(
+    session: AsyncSession, svc_role
+) -> None:
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+
+    definition = await definition_service.create(
+        CaseDurationDefinitionCreate(
+            name="Time to review",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": CaseStatus.RESOLVED},
+            ),
+        )
+    )
+
+    update_payload = CaseDurationDefinitionUpdate(
+        start_anchor=CaseDurationEventAnchor(
+            event_type=CaseEventType.STATUS_CHANGED,
+            selection=CaseDurationAnchorSelection.LAST,
+            field_filters={"data.new": CaseStatus.IN_PROGRESS},
+        ),
+        end_anchor=CaseDurationEventAnchor(
+            event_type=CaseEventType.STATUS_CHANGED,
+            selection=CaseDurationAnchorSelection.FIRST,
+            field_filters={"data.new": CaseStatus.RESOLVED},
+        ),
+    )
+
+    updated = await definition_service.update(definition.id, update_payload)
+
+    assert updated.start_anchor.event_type == CaseEventType.STATUS_CHANGED
+    assert updated.start_anchor.selection == CaseDurationAnchorSelection.LAST
+    assert updated.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
+    assert updated.end_anchor.selection == CaseDurationAnchorSelection.FIRST
+    assert updated.end_anchor.field_filters == {"data.new": CaseStatus.RESOLVED}
+
+    persisted = await definition_service.get(definition.id)
+    assert persisted.start_anchor.event_type == CaseEventType.STATUS_CHANGED
+    assert persisted.start_anchor.selection == CaseDurationAnchorSelection.LAST
+    assert persisted.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
 
 
 @pytest.mark.anyio
@@ -199,6 +356,7 @@ async def test_duration_anchor_selection_first_vs_last(
         CaseUpdate(status=CaseStatus.RESOLVED),
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 2
 
@@ -262,6 +420,7 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
         CaseUpdate(status=CaseStatus.IN_PROGRESS),
     )
 
+    assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_for_case(case)
     assert len(values) == 1
     metric = values[0]

@@ -7,10 +7,11 @@ from enum import StrEnum, auto
 from typing import Any, TypeVar
 
 import jsonpath_ng.ext
+import jsonpath_ng.jsonpath as jsonpath_nodes
 from jsonpath_ng.exceptions import JsonPathParserError
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
 
 # Maximum number of key segments allowed after the variable name in VARS expressions.
 # This is currently limited to support `VARS.<name>.<key>` paths, and can be increased
@@ -562,7 +563,41 @@ def eval_jsonpath(
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
     matches = [found.value for found in jsonpath_expr.find(operand)]
-    if len(matches) > 1 or "[*]" in expr:
+
+    def _contains_filter(path: jsonpath_nodes.JSONPath) -> bool:
+        stack: list[jsonpath_nodes.JSONPath] = [path]
+        while stack:
+            current = stack.pop()
+            if hasattr(current, "filter_expr"):
+                return True
+
+            for child in (
+                getattr(current, "left", None),
+                getattr(current, "right", None),
+                getattr(current, "child", None),
+                getattr(current, "expression", None),
+            ):
+                if isinstance(child, jsonpath_nodes.JSONPath):
+                    stack.append(child)
+
+            for children in (
+                getattr(current, "fields", None),
+                getattr(current, "fields_list", None),
+                getattr(current, "components", None),
+            ):
+                if isinstance(children, list | tuple):
+                    stack.extend(
+                        child
+                        for child in children
+                        if isinstance(child, jsonpath_nodes.JSONPath)
+                    )
+
+        return False
+
+    has_wildcard = "[*]" in expr
+    has_filter = "[?(" in expr or "[?@" in expr or _contains_filter(jsonpath_expr)
+
+    if len(matches) > 1 or has_wildcard or has_filter:
         # If there are multiple matches or array wildcard, return the list
         return matches
     elif len(matches) == 1:

@@ -4,8 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { TableColumnCreate } from "@/client"
 import { ApiError } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
+import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,6 +20,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -36,11 +39,43 @@ import { useGetTable, useInsertColumn } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const isSelectableColumnType = (type?: string) =>
+  type === "SELECT" || type === "MULTI_SELECT"
+
+const sanitizeColumnOptions = (options?: string[]) => {
+  if (!options) return []
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  for (const option of options) {
+    const trimmed = option.trim()
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue
+    }
+    seen.add(trimmed)
+    cleaned.push(trimmed)
+  }
+  return cleaned
+}
+
 // Update schema for column creation
-const createInsertTableColumnSchema = z.object({
-  name: z.string().min(1, "Column name is required"),
-  type: z.enum(SqlTypeCreatableEnum),
-})
+const createInsertTableColumnSchema = z
+  .object({
+    name: z.string().min(1, "Column name is required"),
+    type: z.enum(SqlTypeCreatableEnum),
+    options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
+  })
+  .superRefine((column, ctx) => {
+    if (isSelectableColumnType(column.type)) {
+      const hasValidOptions = column.options && column.options.length > 0
+      if (!hasValidOptions) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please add at least one option",
+          path: ["options"],
+        })
+      }
+    }
+  })
 
 type ColumnFormData = z.infer<typeof createInsertTableColumnSchema>
 
@@ -61,8 +96,11 @@ export function TableInsertColumnDialog({
     resolver: zodResolver(createInsertTableColumnSchema),
     defaultValues: {
       name: "",
+      options: [],
     },
   })
+  const selectedType = form.watch("type")
+  const requiresOptions = isSelectableColumnType(selectedType)
 
   const onSubmit = async (data: ColumnFormData) => {
     try {
@@ -70,8 +108,17 @@ export function TableInsertColumnDialog({
         console.error("Table ID is missing")
         return
       }
+      const payload: TableColumnCreate = {
+        name: data.name,
+        type: data.type,
+      }
+
+      if (isSelectableColumnType(data.type)) {
+        payload.options = sanitizeColumnOptions(data.options)
+      }
+
       await insertColumn({
-        requestBody: data,
+        requestBody: payload,
         tableId,
         workspaceId,
       })
@@ -156,6 +203,33 @@ export function TableInsertColumnDialog({
                 </FormItem>
               )}
             />
+            {requiresOptions && (
+              <FormField
+                control={form.control}
+                name="options"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Options</FormLabel>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value || []}
+                        onChange={field.onChange}
+                        placeholder="Add allowed values..."
+                        allowCustomTags
+                        disableSuggestions
+                        className="w-full"
+                        searchKeys={["label"]}
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Define the values users can choose from when inserting
+                      rows.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <DialogFooter>
               <Button type="submit" disabled={insertColumnIsPending}>
                 Add column

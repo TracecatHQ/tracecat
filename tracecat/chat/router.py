@@ -14,7 +14,8 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
-from tracecat.chat.models import (
+from tracecat.auth.types import Role
+from tracecat.chat.schemas import (
     ChatCreate,
     ChatMessage,
     ChatRead,
@@ -25,9 +26,8 @@ from tracecat.chat.models import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -54,6 +54,7 @@ async def create_chat(
         entity_type=request.entity_type,
         entity_id=request.entity_id,
         tools=request.tools,
+        agent_preset_id=request.agent_preset_id,
     )
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
@@ -113,6 +114,7 @@ async def get_chat(
         entity_type=chat.entity_type,
         entity_id=chat.entity_id,
         tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         last_stream_id=chat.last_stream_id,
@@ -152,6 +154,7 @@ async def get_chat_vercel(
         entity_type=chat.entity_type,
         entity_id=chat.entity_id,
         tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         last_stream_id=chat.last_stream_id,
@@ -162,7 +165,7 @@ async def get_chat_vercel(
 @router.patch("/{chat_id}")
 async def update_chat(
     chat_id: uuid.UUID,
-    request: ChatUpdate,
+    params: ChatUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> ChatReadMinimal:
@@ -175,11 +178,7 @@ async def update_chat(
             detail="Chat not found",
         )
 
-    chat = await svc.update_chat(
-        chat,
-        tools=request.tools,
-        title=request.title,
-    )
+    chat = await svc.update_chat(chat, params=params)
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
@@ -202,7 +201,6 @@ async def chat_with_vercel_streaming(
 
     try:
         svc = ChatService(session, role)
-        # Start the chat turn (this will spawn the agent execution)
         workspace_id = role.workspace_id
         if workspace_id is None:
             raise HTTPException(
@@ -214,7 +212,9 @@ async def chat_with_vercel_streaming(
             chat_id, workspace_id, persistent=True, namespace="chat"
         )
         executor = AioStreamingAgentExecutor(deps=deps)
-        await svc.start_chat_turn(
+
+        # Run chat turn (handles both start and continue cases)
+        await svc.run_chat_turn(
             chat_id=chat_id,
             request=request,
             executor=executor,

@@ -9,7 +9,6 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.models import ModelMessageTA
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -21,7 +20,7 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
-from tracecat.agent.types import StreamKey
+from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
@@ -76,8 +75,7 @@ class AgentStream:
     async def _set_last_stream_id(self, last_stream_id: str) -> None:
         async with ChatService.with_session() as chat_svc:
             if chat := await chat_svc.get_chat(self.session_id):
-                chat.last_stream_id = last_stream_id
-                await chat_svc.update_chat(chat)
+                await chat_svc.update_chat_last_stream_id(chat, last_stream_id)
                 logger.debug(
                     "Updated chat with last stream id",
                     chat_id=chat.id,

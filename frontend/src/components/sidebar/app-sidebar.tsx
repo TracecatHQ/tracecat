@@ -1,13 +1,14 @@
 "use client"
 
 import {
-  BoxIcon,
-  DatabaseIcon,
+  BotIcon,
+  BracketsIcon,
   KeyRoundIcon,
   type LucideIcon,
-  ShapesIcon,
+  MessageSquareIcon,
   SquareStackIcon,
   Table2Icon,
+  UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
   ZapIcon,
@@ -72,6 +73,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const navMain: NavItem[] = [
     {
+      title: "Chat",
+      url: `${basePath}/copilot`,
+      icon: MessageSquareIcon,
+      isActive: pathname?.startsWith(`${basePath}/copilot`),
+    },
+    {
       title: "Workflows",
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
@@ -83,6 +90,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
+    {
+      title: "Agents",
+      url: `${basePath}/agents`,
+      icon: BotIcon,
+      isActive: pathname?.startsWith(`${basePath}/agents`),
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/approvals`,
+      icon: UserCheckIcon,
+      isActive: pathname?.startsWith(`${basePath}/approvals`),
+    },
   ]
 
   const navWorkspace = [
@@ -93,28 +112,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
-      title: "Records",
-      url: `${basePath}/records`,
-      icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/records`),
-    },
-    {
-      title: "Entities",
-      url: `${basePath}/entities`,
-      icon: ShapesIcon,
-      isActive: pathname?.startsWith(`${basePath}/entities`),
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: BracketsIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
     },
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
-    },
-    {
-      title: "Variables",
-      url: `${basePath}/variables`,
-      icon: DatabaseIcon,
-      isActive: pathname?.startsWith(`${basePath}/variables`),
     },
     {
       title: "Integrations",

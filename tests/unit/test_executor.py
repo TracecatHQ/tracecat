@@ -8,9 +8,11 @@ import pytest
 from pydantic import SecretStr
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.models import ExecutorActionErrorInfo
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.service import (
     _dispatch_action,
     flatten_wrapped_exc_error_group,
@@ -21,10 +23,10 @@ from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
     TemplateAction,
@@ -32,10 +34,8 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import ExecutionError, LoopExecutionError
 
 
 @pytest.fixture

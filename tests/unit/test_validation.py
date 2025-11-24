@@ -1,19 +1,57 @@
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
 import pytest
-from pydantic import BaseModel, ValidationError
-from tracecat_registry import registry
+from pydantic import BaseModel, SecretStr, ValidationError
+from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
+
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    create_default_execution_context,
+)
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import RegistryValidationError, TracecatCredentialsError
+from tracecat.executor.service import run_action_from_input
+from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.registry.actions.models import TemplateAction
-from tracecat.registry.actions.service import validate_action_template
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.service import IntegrationService
+from tracecat.registry.actions.schemas import (
+    ActionStep,
+    RegistryActionCreate,
+    TemplateAction,
+    TemplateActionDefinition,
+)
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+    validate_action_template,
+)
 from tracecat.registry.repository import Repository
-from tracecat.types.exceptions import RegistryValidationError
+from tracecat.validation.schemas import ValidationResultType
+from tracecat.validation.service import validate_dsl
+
+
+@pytest.fixture
+def mock_run_context():
+    wf_id = "wf-" + "0" * 32
+    exec_id = "exec-" + "0" * 32
+    wf_exec_id = f"{wf_id}:{exec_id}"
+    run_id = uuid.uuid4()
+    return RunContext(
+        wf_id=WorkflowUUID.from_legacy(wf_id),
+        wf_exec_id=wf_exec_id,
+        wf_run_id=run_id,
+        environment="default",
+    )
 
 
 def test_template_validator():
@@ -495,3 +533,323 @@ def test_validate_args_type_preservation_modes():
     udf_uuid.validate_args(args={"uid": "${{ INPUTS.id }}"}, mode="json")
 
     # Should not raise any validation errors
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_template_action_with_optional_oauth_both_ac_and_cc(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that Template Action correctly handles optional AC and CC OAuth secrets.
+
+    This test validates that:
+    1. Actions work when both optional credentials are present
+    2. Actions work when neither optional credential is present (graceful degradation)
+    3. Required credentials still raise errors when missing
+    """
+    session, db_repo_id = db_session_with_repo
+
+    # Disable secrets masking for this test
+    monkeysession.setattr("tracecat.config.TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    # Test OAuth token values
+    ac_token_value = "__TEST_AC_TOKEN__"
+    cc_token_value = "__TEST_CC_TOKEN__"
+
+    # Create a test template action with both AC and CC OAuth secrets as optional
+    test_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Optional OAuth",
+            description="Test optional AC and CC OAuth credentials",
+            name="optional_oauth_test",
+            namespace="testing.oauth",
+            display_group="Testing",
+            expects={
+                "message": ExpectedField(
+                    type="str",
+                    description="A test message",
+                )
+            },
+            secrets=[
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="authorization_code",
+                    optional=True,
+                ),
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="client_credentials",
+                    optional=True,
+                ),
+            ],
+            steps=[
+                ActionStep(
+                    ref="get_tokens",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "ac_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN || 'NOT_SET' }}",
+                            "cc_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_SERVICE_TOKEN || 'NOT_SET' }}",
+                            "message": "${{ inputs.message }}",
+                        }
+                    },
+                )
+            ],
+            returns="${{ steps.get_tokens.result }}",
+        ),
+    )
+
+    # Register the test template action
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(test_action)
+
+    # Validate the template action
+    bound_action = repo.get("testing.oauth.optional_oauth_test")
+    validation_errors = await validate_action_template(bound_action, repo)
+    assert len(validation_errors) == 0, (
+        f"Template validation failed: {validation_errors}"
+    )
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(bound_action, db_repo_id)
+    )
+
+    # Helper function to run the action
+    async def run_test_action():
+        input = RunActionInput(
+            task=ActionStatement(
+                ref="test",
+                action="testing.oauth.optional_oauth_test",
+                run_if=None,
+                for_each=None,
+                args={"message": "test message"},
+            ),
+            exec_context=create_default_execution_context(),
+            run_context=mock_run_context,
+        )
+        return await run_action_from_input(input, test_role)
+
+    # Test 1: Both credentials present - should work
+    svc = IntegrationService(session, role=test_role)
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        ),
+        access_token=SecretStr(ac_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        ),
+        access_token=SecretStr(cc_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+
+    result = await run_test_action()
+    assert isinstance(result, dict)
+    assert result["ac_token"] == ac_token_value
+    assert result["cc_token"] == cc_token_value
+    assert result["message"] == "test message"
+
+    # Test 2: Neither credential present (both optional) - should still work
+    ac_integration = await svc.get_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+    )
+    if ac_integration:
+        await svc.remove_integration(integration=ac_integration)
+
+    cc_integration = await svc.get_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+    )
+    if cc_integration:
+        await svc.remove_integration(integration=cc_integration)
+
+    result = await run_test_action()
+    assert isinstance(result, dict)
+    assert result["ac_token"] == "NOT_SET"
+    assert result["cc_token"] == "NOT_SET"
+    assert result["message"] == "test message"
+
+    # Test 3: Required credential missing should fail
+    test_action_required = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Required OAuth",
+            description="Test required AC OAuth credential",
+            name="required_oauth_test",
+            namespace="testing.oauth",
+            display_group="Testing",
+            expects={
+                "message": ExpectedField(
+                    type="str",
+                    description="A test message",
+                )
+            },
+            secrets=[
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="authorization_code",
+                    optional=False,  # Required
+                ),
+            ],
+            steps=[
+                ActionStep(
+                    ref="get_token",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "ac_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}",
+                        }
+                    },
+                )
+            ],
+            returns="${{ steps.get_token.result }}",
+        ),
+    )
+
+    repo.register_template_action(test_action_required)
+
+    # Validate the required template action
+    bound_action_required = repo.get("testing.oauth.required_oauth_test")
+    validation_errors_required = await validate_action_template(
+        bound_action_required, repo, check_db=False
+    )
+    assert len(validation_errors_required) == 0, (
+        f"Template validation failed: {validation_errors_required}"
+    )
+
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(bound_action_required, db_repo_id)
+    )
+
+    input_required = RunActionInput(
+        task=ActionStatement(
+            ref="test_required",
+            action="testing.oauth.required_oauth_test",
+            run_if=None,
+            for_each=None,
+            args={"message": "test message"},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Should raise error when required credential is missing
+    with pytest.raises(TracecatCredentialsError) as exc_info:
+        await run_action_from_input(input_required, test_role)
+
+    assert "Missing required OAuth integrations" in str(exc_info.value)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_validate_dsl_with_optional_oauth_credentials(
+    test_role, db_session_with_repo
+):
+    """Test that validate_dsl() correctly handles optional OAuth credentials.
+
+    This test reproduces the bug where validate_dsl() treats all OAuth credentials
+    as required, even when marked as optional=True.
+    """
+
+    session, db_repo_id = db_session_with_repo
+
+    # Create a template action with optional OAuth credentials (both AC and CC)
+    test_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Optional OAuth DSL",
+            description="Test DSL validation with optional OAuth",
+            name="optional_oauth_dsl_test",
+            namespace="testing.oauth",
+            display_group="Testing",
+            expects={
+                "message": ExpectedField(
+                    type="str",
+                    description="A test message",
+                )
+            },
+            secrets=[
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="authorization_code",
+                    optional=True,  # Optional!
+                ),
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="client_credentials",
+                    optional=True,  # Optional!
+                ),
+            ],
+            steps=[
+                ActionStep(
+                    ref="get_tokens",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "ac_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN || 'NOT_SET' }}",
+                            "cc_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_SERVICE_TOKEN || 'NOT_SET' }}",
+                            "message": "${{ inputs.message }}",
+                        }
+                    },
+                )
+            ],
+            returns="${{ steps.get_tokens.result }}",
+        ),
+    )
+
+    # Register the template action
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(test_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.oauth.optional_oauth_dsl_test"), db_repo_id
+        )
+    )
+
+    # Create a DSL that uses this action
+    dsl = DSLInput(
+        title="Test Workflow",
+        description="Test workflow with optional OAuth",
+        entrypoint=DSLEntrypoint(expects={}),
+        actions=[
+            ActionStatement(
+                ref="test_action",
+                action="testing.oauth.optional_oauth_dsl_test",
+                args={"message": "test"},
+            )
+        ],
+    )
+
+    # Validate the DSL - this should NOT fail for optional OAuth credentials
+    # BUG: Currently this will fail because validate_workspace_integration doesn't check optional field
+    validation_results = await validate_dsl(session, dsl)
+
+    # Filter for secret validation errors
+    secret_errors = [
+        r for r in validation_results if r.root.type == ValidationResultType.SECRET
+    ]
+
+    # This assertion will FAIL with the current bug, demonstrating the issue
+    # Optional OAuth credentials should not cause validation errors
+    assert len(secret_errors) == 0, (
+        f"Expected no secret validation errors for optional OAuth credentials, "
+        f"but got {len(secret_errors)}: {secret_errors}"
+    )

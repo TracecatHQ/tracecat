@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from functools import cached_property
 
 from temporalio.common import SearchAttributeKey, SearchAttributePair
 
@@ -99,10 +100,7 @@ class TriggerType(StrEnum):
     WEBHOOK = "webhook"
 
     def to_temporal_search_attr_pair(self) -> SearchAttributePair[str]:
-        return SearchAttributePair(
-            key=SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value),
-            value=self.value,
-        )
+        return TemporalSearchAttr.TRIGGER_TYPE.create_pair(self.value)
 
 
 class TemporalSearchAttr(StrEnum):
@@ -113,3 +111,19 @@ class TemporalSearchAttr(StrEnum):
 
     TRIGGERED_BY_USER_ID = "TracecatTriggeredByUserId"
     """The `Keyword` Search Attribute for the user ID that triggered the workflow execution."""
+
+    WORKSPACE_ID = "TracecatWorkspaceId"
+    """The `Keyword` Search Attribute for the workspace that owns the workflow execution."""
+
+    ALIAS = "TracecatAlias"
+    """The `Keyword` Search Attribute for a human-friendly workflow alias (e.g., workflow or agent slugs)."""
+
+    @cached_property
+    def key(self) -> SearchAttributeKey[str]:
+        return SearchAttributeKey.for_keyword(self.value)
+
+    def create_pair(self, value: str) -> SearchAttributePair[str]:
+        return SearchAttributePair(
+            key=self.key,
+            value=value,
+        )

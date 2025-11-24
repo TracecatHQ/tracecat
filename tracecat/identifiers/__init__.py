@@ -41,7 +41,7 @@ e.g. wf-77932a0b140a4465a1a25a5c95edcfb8:run-b140a425a577932a0c95edcfb8465a1a
 import uuid
 from typing import Annotated, Literal
 
-from pydantic import UUID4, StringConstraints
+from pydantic import StringConstraints
 
 from tracecat.identifiers import action, resource, schedules, workflow
 from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
@@ -55,8 +55,8 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 
-UserID = UUID4
-WorkspaceID = UUID4
+UserID = uuid.UUID
+WorkspaceID = uuid.UUID
 OwnerID = uuid.UUID
 """Owner identifier type. This is UUID because we use UUID(0) for the organization.
 
@@ -64,14 +64,14 @@ Owners can be Workspaces or the Organization.
 """
 
 SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
-VariableID = UUID4
-SessionID = UUID4
-WorkflowTagID = UUID4
+VariableID = uuid.UUID
+SessionID = uuid.UUID
+WorkflowTagID = uuid.UUID
 TagID = WorkflowTagID
-CaseTagID = UUID4
-TableID = UUID4
-TableColumnID = UUID4
-TableRowID = UUID4
+CaseTagID = uuid.UUID
+TableID = uuid.UUID
+TableColumnID = uuid.UUID
+TableRowID = uuid.UUID
 
 InternalServiceID = Literal[
     "tracecat-api",

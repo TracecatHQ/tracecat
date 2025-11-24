@@ -337,7 +337,7 @@ export const WorkflowCanvas = React.forwardRef<
     try {
       await Promise.all(
         pendingDeleteNodes.map((node) =>
-          deleteAction({ actionId: node.id, workspaceId })
+          deleteAction({ actionId: node.id, workspaceId, workflowId })
         )
       )
 

@@ -17,17 +17,24 @@ from fastapi import (
 )
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
+    InferredColumn,
     TableColumnCreate,
     TableColumnRead,
     TableColumnUpdate,
     TableCreate,
+    TableImportResponse,
     TableRead,
     TableReadMinimal,
     TableRowInsert,
@@ -37,9 +44,6 @@ from tracecat.tables.models import (
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatImportError, TracecatNotFoundError
-from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -51,15 +55,52 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
-WorkspaceAdminUser = Annotated[
+WorkspaceEditorUser = Annotated[
     Role,
     RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace_roles=[WorkspaceRole.ADMIN, WorkspaceRole.EDITOR],
     ),
 ]
+
+
+async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> bytes:
+    """Read an uploaded CSV file enforcing a maximum size limit."""
+    chunk_size = 1024 * 1024  # 1MB chunks to balance throughput and memory
+    total_read = 0
+    buffer = bytearray()
+
+    await file.seek(0)
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_size:
+            max_size_mb = max_size / (1024 * 1024)
+            logger.warning(
+                "CSV import exceeds size limit",
+                filename=file.filename,
+                declared_content_type=file.content_type,
+                max_size_bytes=max_size,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"CSV file exceeds maximum allowed size of {max_size_mb:.2f}MB"
+                ),
+            )
+        buffer.extend(chunk)
+
+    if total_read == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CSV file appears to be empty",
+        )
+
+    return bytes(buffer)
 
 
 @router.get("")
@@ -77,7 +118,7 @@ async def list_tables(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     params: TableCreate,
 ) -> None:
@@ -139,6 +180,7 @@ async def get_table(
                 nullable=column.nullable,
                 default=column.default,
                 is_index=column.name in index_columns,
+                options=column.options,
             )
             for column in table.columns
         ],
@@ -147,7 +189,7 @@ async def get_table(
 
 @router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableUpdate,
@@ -180,7 +222,7 @@ async def update_table(
 
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_table(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
 ) -> None:
@@ -198,7 +240,7 @@ async def delete_table(
 
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
 async def create_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableColumnCreate,
@@ -235,7 +277,7 @@ async def create_column(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def update_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -277,7 +319,7 @@ async def update_column(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_column(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -384,7 +426,7 @@ async def insert_row(
 
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_row(
-    role: WorkspaceAdminUser,
+    role: WorkspaceEditorUser,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -451,6 +493,69 @@ async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
         ) from e
 
 
+@router.post("/import", status_code=status.HTTP_201_CREATED)
+async def import_table_from_csv(
+    role: WorkspaceEditorUser,
+    session: AsyncDBSession,
+    file: UploadFile = File(...),
+    table_name: str | None = Form(default=None),
+) -> TableImportResponse:
+    """Create a new table by importing a CSV file."""
+    service = TablesService(session, role=role)
+
+    try:
+        contents = await _read_csv_upload_with_limit(
+            file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
+        )
+        table, rows_inserted, inferred_columns = await service.import_table_from_csv(
+            contents=contents,
+            filename=file.filename,
+            table_name=table_name,
+        )
+        table_with_columns = await service.get_table(table.id)
+        index_columns = await service.get_index(table_with_columns)
+        table_read = TableRead(
+            id=table_with_columns.id,
+            name=table_with_columns.name,
+            columns=[
+                TableColumnRead(
+                    id=column.id,
+                    name=column.name,
+                    type=SqlType(column.type),
+                    nullable=column.nullable,
+                    default=column.default,
+                    is_index=column.name in index_columns,
+                    options=column.options,
+                )
+                for column in table_with_columns.columns
+            ],
+        )
+        return TableImportResponse(
+            table=table_read,
+            rows_inserted=rows_inserted,
+            column_mapping=[
+                InferredColumn(
+                    csv_header=column.original_name,
+                    field_name=column.name,
+                    field_type=column.type,
+                )
+                for column in inferred_columns
+            ],
+        )
+    except HTTPException:
+        raise
+    except TracecatImportError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
+    except Exception as e:
+        logger.warning(f"Unexpected error during table import: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error processing CSV: {str(e)}",
+        ) from e
+
+
 @router.post("/{table_id}/import", status_code=status.HTTP_201_CREATED)
 async def import_csv(
     role: WorkspaceUser,
@@ -475,8 +580,11 @@ async def import_csv(
     importer = CSVImporter(table.columns)
 
     # Process CSV file
+    csv_file: StringIO | None = None
     try:
-        contents = await file.read()
+        contents = await _read_csv_upload_with_limit(
+            file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
+        )
         csv_file = StringIO(contents.decode())
         csv_reader = csv.DictReader(csv_file)
 
@@ -493,6 +601,8 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
+    except HTTPException:
+        raise
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")
         raise HTTPException(
@@ -506,6 +616,7 @@ async def import_csv(
             detail=f"Error processing CSV: {str(e)}",
         ) from e
     finally:
-        csv_file.close()
+        if csv_file is not None:
+            csv_file.close()
 
     return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)

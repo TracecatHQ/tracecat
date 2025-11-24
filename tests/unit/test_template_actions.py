@@ -12,15 +12,16 @@ from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
-from tracecat.dsl.models import (
+from tracecat.dsl.schemas import (
     ActionStatement,
     RunActionInput,
     RunContext,
 )
+from tracecat.exceptions import RegistryValidationError, TracecatValidationError
 from tracecat.executor import service
 from tracecat.executor.service import run_action_from_input
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     BoundRegistryAction,
     RegistryActionCreate,
@@ -29,10 +30,9 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import RegistryValidationError, TracecatValidationError
-from tracecat.variables.models import VariableCreate
+from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 
 

@@ -23,21 +23,22 @@ from pydantic import (
     create_model,
 )
 from pydantic_core import to_jsonable_python
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import RegistryError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
+from tracecat.registry.actions.schemas import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
@@ -51,12 +52,10 @@ from tracecat.registry.fields import (
     get_components_for_union_type,
     type_drop_null,
 )
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import SshEnv, ssh_context
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
@@ -159,7 +158,9 @@ class RegisterKwargs(BaseModel):
     author: str | None = None
     deprecated: str | None = None
     secrets: list[RegistrySecretType] | None = None
+    # Options
     include_in_schema: bool = True
+    requires_approval: bool = False
 
 
 class Repository:
@@ -250,6 +251,7 @@ class Repository:
         author: str | None,
         deprecated: str | None,
         include_in_schema: bool,
+        requires_approval: bool = False,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
@@ -272,6 +274,7 @@ class Repository:
             origin=origin,
             template_action=template_action,
             include_in_schema=include_in_schema,
+            requires_approval=requires_approval,
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -333,8 +336,6 @@ class Repository:
             self._load_base_template_actions()
             return None
 
-        elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
-            raise RegistryError("This repository cannot be synced.")
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
             # The local repo doesn't have to be a git repo, but it should be a directory
@@ -584,6 +585,7 @@ class Repository:
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,
             include_in_schema=validated_kwargs.include_in_schema,
+            requires_approval=validated_kwargs.requires_approval,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype=rtype,

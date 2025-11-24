@@ -1,22 +1,21 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, Lock, Timer } from "lucide-react"
+import { ArrowUpRight, Timer } from "lucide-react"
+import { useState } from "react"
+import type { CaseDurationDefinitionUpdate } from "@/client"
 import { CaseDurationsTable } from "@/components/cases/case-durations-table"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
-import { deleteCaseDurationDefinition } from "@/lib/case-durations"
+import {
+  deleteCaseDurationDefinition,
+  updateCaseDurationDefinition,
+} from "@/lib/case-durations"
 import { useCaseDurationDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -67,6 +66,63 @@ export function CaseDurationsView() {
     }
   )
 
+  const [updatingDurationId, setUpdatingDurationId] = useState<string | null>(
+    null
+  )
+
+  const { mutateAsync: handleUpdate, isPending: updateIsPending } = useMutation(
+    {
+      mutationFn: async ({
+        durationId,
+        payload,
+      }: {
+        durationId: string
+        payload: CaseDurationDefinitionUpdate
+      }) => {
+        if (!workspaceId) {
+          throw new Error("Workspace ID is required")
+        }
+
+        return await updateCaseDurationDefinition(
+          workspaceId,
+          durationId,
+          payload
+        )
+      },
+      onMutate: async ({ durationId }) => {
+        setUpdatingDurationId(durationId)
+      },
+      onSuccess: async () => {
+        if (!workspaceId) {
+          return
+        }
+
+        await queryClient.invalidateQueries({
+          queryKey: ["case-duration-definitions", workspaceId],
+        })
+
+        toast({
+          title: "Duration updated",
+          description: "The case duration definition was updated successfully.",
+        })
+      },
+      onError: (error: unknown) => {
+        console.error("Failed to update case duration definition", error)
+        toast({
+          title: "Error updating duration",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Failed to update the case duration definition. Please try again.",
+          variant: "destructive",
+        })
+      },
+      onSettled: () => {
+        setUpdatingDurationId(null)
+      },
+    }
+  )
+
   // Check feature flag loading first - fastest check
   if (featureFlagLoading) {
     return <CenteredSpinner />
@@ -78,16 +134,10 @@ export function CaseDurationsView() {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Lock />
-              </EmptyMedia>
-              <EmptyTitle>Enterprise only</EmptyTitle>
-              <EmptyDescription>
-                Case durations are only available on enterprise plans.
-              </EmptyDescription>
-            </EmptyHeader>
+          <FeatureFlagEmptyState
+            title="Enterprise only"
+            description="Case durations are only available on enterprise plans."
+          >
             <Button
               variant="link"
               asChild
@@ -99,10 +149,10 @@ export function CaseDurationsView() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Learn more <ArrowUpRight />
+                Learn more <ArrowUpRight className="size-4" />
               </a>
             </Button>
-          </Empty>
+          </FeatureFlagEmptyState>
         </div>
       </div>
     )
@@ -155,11 +205,16 @@ export function CaseDurationsView() {
 
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
+      <div className="flex h-full w-full flex-col space-y-8 p-8">
         <CaseDurationsTable
           durations={caseDurationDefinitions}
           onDeleteDuration={handleDelete}
           isDeleting={deleteIsPending}
+          onUpdateDuration={async (durationId, payload) => {
+            await handleUpdate({ durationId, payload })
+          }}
+          isUpdating={updateIsPending}
+          updatingDurationId={updatingDurationId}
         />
       </div>
     </div>

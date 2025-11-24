@@ -29,10 +29,11 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Workflow
+from tracecat.db.models import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
     RETRY_POLICIES,
@@ -46,8 +47,7 @@ from tracecat.dsl.enums import (
     StreamErrorHandlingStrategy,
     WaitStrategy,
 )
-from tracecat.dsl.models import (
-    ActionErrorInfoAdapter,
+from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
@@ -55,8 +55,10 @@ from tracecat.dsl.models import (
     RunActionInput,
     ScatterArgs,
 )
+from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
     WorkflowExecutionID,
@@ -64,23 +66,22 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
-from tracecat.variables.models import VariableCreate
+from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import WorkflowEventType
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventGroup,
     WorkflowExecutionEvent,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.models import WorkflowUpdate
+from tracecat.workflow.management.schemas import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
@@ -258,8 +259,7 @@ async def test_workflow_completes_and_correct(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2185,8 +2185,7 @@ async def test_workflow_error_path(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError"
-                    "TracecatValidationError"
+                    "tracecat.exceptions.TracecatExpressionErrorTracecatValidationError"
                 ],
             ),
         )
@@ -2262,7 +2261,7 @@ async def test_workflow_join_unreachable(
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "tracecat.exceptions.TracecatExpressionError",
                         "TracecatValidationError",
                     ],
                 ),
@@ -2341,7 +2340,7 @@ async def test_workflow_multiple_entrypoints(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -2373,7 +2372,7 @@ async def test_workflow_runs_template_for_each(
     """
 
     from tracecat.expressions.expectations import ExpectedField
-    from tracecat.registry.actions.models import (
+    from tracecat.registry.actions.schemas import (
         ActionStep,
         RegistryActionCreate,
         TemplateAction,
@@ -2459,7 +2458,7 @@ async def test_workflow_runs_template_for_each(
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
-                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "tracecat.exceptions.TracecatExpressionError",
                     "TracecatValidationError",
                 ],
             ),
@@ -4757,6 +4756,56 @@ async def test_workflow_detached_child_workflow(
             },
             id="scope-shadowing-stream-lookup",
         ),
+        pytest.param(
+            DSLInput(
+                title="run_if can access parent stream context inside scatter",
+                description=(
+                    "Verify that run_if evaluation inside a scatter branch can read action results "
+                    "from an ancestor (parent) stream via stream-aware context resolution."
+                ),
+                entrypoint=DSLEntrypoint(ref="outside"),
+                actions=[
+                    # Parent action produces a constant
+                    ActionStatement(
+                        ref="outside",
+                        action="core.transform.reshape",
+                        args={"value": "__OUTSIDE__"},
+                    ),
+                    # Scatter over a simple collection
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outside"],
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # Inside scatter: run_if should consult parent action "a"
+                    ActionStatement(
+                        ref="inside",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        run_if="${{ ACTIONS.outside.result == '__OUTSIDE__' }}",
+                        args={"value": "${{ ACTIONS.scatter.result * 10 }}"},
+                    ),
+                    # Gather the results from inside
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["inside"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inside.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outside": {"result": "__OUTSIDE__", "result_typename": "str"},
+                    "gather": {"result": [10, 20], "result_typename": "list"},
+                },
+                "TRIGGER": {},
+            },
+            id="run-if-stream-aware-context",
+        ),
     ],
 )
 async def test_workflow_scatter_gather(
@@ -5114,3 +5163,128 @@ async def test_workflow_environment_override(
                 },
                 "TRIGGER": {},
             }
+
+
+@pytest.mark.anyio
+async def test_workflow_trigger_defaults(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """
+    Test that TRIGGER defaults are applied when not provided in DSLRunArgs.
+    """
+    # Prepare test TRIGGER data and expected execution_id
+    trigger_data = {}
+    test_name = f"{test_workflow_trigger_defaults.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Workflow trigger defaults",
+        description="Test that TRIGGER defaults are applied when not provided",
+        entrypoint=DSLEntrypoint(
+            ref="a",
+            expects={
+                "default_field": ExpectedField(type="str", default="default_value"),
+                "default_number": ExpectedField(type="int", default=42),
+            },
+        ),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            ),
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    # Prepare expected result with defaults applied
+    expected = {
+        "default_field": "default_value",
+        "default_number": 42,
+    }
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Run the workflow and check the result
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_data,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_trigger_validation_error_details(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """Ensure trigger validation errors surface field-level details to callers."""
+
+    invalid_trigger_data = {"default_number": "not-an-int"}
+    test_name = f"{test_workflow_trigger_validation_error_details.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Workflow trigger validation",
+        description="Test that trigger validation errors propagate details",
+        entrypoint=DSLEntrypoint(
+            ref="a",
+            expects={
+                "default_field": ExpectedField(type="str", default="default_value"),
+                "default_number": ExpectedField(type="int", default=42),
+            },
+        ),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            ),
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=invalid_trigger_data,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "Failed to validate trigger inputs" in str(cause)
+
+    details = cause.details
+    if isinstance(details, list | tuple):
+        detail_messages = [str(d) for d in details]
+    elif details is None:
+        detail_messages = []
+    else:
+        detail_messages = [str(details)]
+
+    assert detail_messages, "Trigger validation error should include details"
+    combined_details = "\n".join(detail_messages)
+    assert "default_number" in combined_details
+    assert "valid integer" in combined_details or '"type": "int' in combined_details

@@ -4,7 +4,7 @@ import inspect
 import keyword
 import textwrap
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import orjson
 from pydantic_ai import ModelRetry
@@ -18,23 +18,22 @@ from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
 
-from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
-from tracecat.db.schemas import RegistryAction
+from tracecat.agent.context import truncate_tool_content
+from tracecat.config import TRACECAT__AGENT_MAX_TOOLS, TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
+from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
-    flatten_secrets,
-    get_action_secrets,
     get_workspace_variables,
     run_template_action,
 )
 from tracecat.expressions.common import ExprContext
-from tracecat.expressions.eval import collect_expressions
+from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
-from tracecat.registry.actions.models import BoundRegistryAction
+from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.secrets import secrets_manager
 
 
 def create_tool_call_message(
@@ -101,7 +100,7 @@ async def call_tracecat_action(
     bound_action = service.get_bound(reg_action, mode="execution")
 
     collected = collect_expressions(args)
-    secrets = await get_action_secrets(
+    secrets = await secrets_manager.get_action_secrets(
         secret_exprs=collected.secrets, action_secrets=action_secrets
     )
     ws_vars = await get_workspace_variables(variable_exprs=collected.variables)
@@ -111,9 +110,10 @@ async def call_tracecat_action(
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = ws_vars
 
-    flattened_secrets = flatten_secrets(secrets)
+    flattened_secrets = secrets_manager.flatten_secrets(secrets)
     try:
-        with env_sandbox(flattened_secrets):
+        args = eval_templated_object(args, operand=context)
+        with secrets_manager.env_sandbox(flattened_secrets):
             # Call directly based on action type
             if bound_action.is_template:
                 # For templates, pass the context with secrets
@@ -135,9 +135,11 @@ async def call_tracecat_action(
 
 async def create_tool_from_registry(
     action_name: str,
+    ra: RegistryAction | None = None,
     fixed_args: dict[str, Any] | None = None,
     *,
     service: RegistryActionsService | None = None,
+    tool_approvals: dict[str, bool] | None = None,
 ) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
@@ -155,10 +157,15 @@ async def create_tool_from_registry(
     if service is None:
         async with RegistryActionsService.with_session() as _service:
             return await create_tool_from_registry(
-                action_name, fixed_args, service=_service
+                action_name,
+                ra,
+                fixed_args,
+                service=_service,
+                tool_approvals=tool_approvals,
             )
 
-    reg_action = await service.get_action(action_name)
+    reg_action = ra or await service.get_action(action_name)
+    options = RegistryActionOptions.model_validate(reg_action.options)
     bound_action = service.get_bound(reg_action, mode="execution")
 
     fixed_args = fixed_args or {}
@@ -184,7 +191,12 @@ async def create_tool_from_registry(
         # Each tool invocation should create its own short-lived DB session to
         # avoid concurrent operations on a shared AsyncSession when multiple
         # tools are called in parallel by the agent.
-        return await call_tracecat_action(action_name, merged_args)
+        result = await call_tracecat_action(action_name, merged_args)
+        # Truncate large tool outputs before they enter the agent context
+        truncated_result, _ = truncate_tool_content(
+            result, TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
+        )
+        return truncated_result
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
@@ -205,8 +217,17 @@ async def create_tool_from_registry(
     )
 
     # Create tool with enforced documentation standards
+    override = (tool_approvals or {}).get(action_name)
+    if override is not None:
+        requires_approval = override
+    else:
+        requires_approval = options.requires_approval
+
     return Tool(
-        tool_func, docstring_format="google", require_parameter_descriptions=False
+        tool_func,
+        docstring_format="google",
+        require_parameter_descriptions=False,
+        requires_approval=requires_approval,
     )
 
 
@@ -226,7 +247,7 @@ async def create_single_tool(
     service: RegistryActionsService,
     ra: RegistryAction,
     action_name: str,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
 ) -> CreateToolResult | None:
     """Create a single tool from a registry action.
 
@@ -234,23 +255,24 @@ async def create_single_tool(
         service: The registry actions service instance
         ra: The registry action to create a tool from
         action_name: The formatted action name (namespace.name)
-        fixed_arguments: Fixed arguments for actions
+        tool_approvals: Tool approval requirements by tool name
 
     Returns:
         CreateToolResult containing the tool and metadata, or None if creation failed
     """
     collected_secrets: set[RegistrySecretType] = set()
-    fixed_arguments = fixed_arguments or {}
 
     try:
         # Fetch all secrets for this action
         action_secrets = await service.fetch_all_action_secrets(ra)
         collected_secrets.update(action_secrets)
 
-        # Get fixed arguments for this specific action
-        action_fixed_args = fixed_arguments.get(action_name)
         tool = await create_tool_from_registry(
-            action_name, action_fixed_args, service=service
+            action_name,
+            ra,
+            None,
+            service=service,
+            tool_approvals=tool_approvals,
         )
 
         return CreateToolResult(
@@ -276,19 +298,21 @@ class BuildToolsResult[DepsT]:
 async def build_agent_tools(
     namespaces: list[str] | None = None,
     actions: list[str] | None = None,
-    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
     """Build tools from a list of actions."""
+    if not actions:
+        return BuildToolsResult(
+            tools=[],
+            collected_secrets=set(),
+        )
     tools: list[Tool] = []
     collected_secrets: set[RegistrySecretType] = set()
 
     # Get actions from registry
     async with RegistryActionsService.with_session() as service:
-        if actions:
-            selected_actions = await service.get_actions(actions)
-        else:
-            selected_actions = await service.list_actions(include_marked=True)
+        selected_actions = await service.get_actions(actions)
 
         # Collect action build issues
         failed_actions: set[str] = set()
@@ -302,23 +326,31 @@ async def build_agent_tools(
                 if action_name not in found_actions
             }
 
-        # Create tools from registry actions
-        async def create_tool(ra: RegistryAction):
+        # NOTE: avoid running `create_tool` concurrently with the same
+        # `RegistryActionsService` instance. AsyncSession does not support
+        # concurrent usage, so we iterate sequentially instead of
+        # `asyncio.gather`.
+        for ra in selected_actions:
             action_name = f"{ra.namespace}.{ra.name}"
             logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
             if namespaces:
                 if not any(action_name.startswith(ns) for ns in namespaces):
-                    return
+                    continue
 
             # Create the tool using the extracted function
-            result = await create_single_tool(service, ra, action_name, fixed_arguments)
+            result = await create_single_tool(
+                service,
+                ra,
+                action_name,
+                tool_approvals=tool_approvals,
+            )
 
             # Check if result is None and handle accordingly
             if result is None:
                 failed_actions.add(action_name)
-                return
+                continue
 
             # Update collected secrets
             collected_secrets.update(result.collected_secrets)
@@ -327,13 +359,6 @@ async def build_agent_tools(
                 tools.append(result.tool)
             else:
                 failed_actions.add(result.action_name)
-
-        # NOTE: avoid running `create_tool` concurrently with the same
-        # `RegistryActionsService` instance. AsyncSession does not support
-        # concurrent usage, so we iterate sequentially instead of
-        # `asyncio.gather`.
-        for ra in selected_actions:
-            await create_tool(ra)
 
     # If there were failures, raise simple error
     if missing_actions or failed_actions:
@@ -543,3 +568,53 @@ def _generate_google_style_docstring(
         return f"{description}\n\nArgs:\n{indented_params}"
     else:
         return f"{description}\n\nArgs:\n    None"
+
+
+def denormalize_tool_name(tool_name: str) -> str:
+    """Convert a tool ID to a format that can be used to execute the tool."""
+    return tool_name.replace("__", ".")
+
+
+class ToolExecutor(Protocol):
+    """Client for tool calls."""
+
+    async def run(self, tool_name: str, args: dict[str, Any]) -> Any: ...
+
+
+class SimpleToolExecutor(ToolExecutor):
+    """Simple implementation of ToolExecutor that uses the registry to execute tools."""
+
+    async def run(self, tool_name: str, args: dict[str, Any]) -> Any:
+        """Execute a tool by ID with the given arguments.
+
+        Args:
+            tool_id: The tool identifier (e.g., "core.http.request" or "core__http__request")
+            args: Dictionary of arguments to pass to the tool
+
+        Returns:
+            The result of the tool execution
+
+        Raises:
+            ModelRetry: If the tool requests a retry
+            Exception: For any other tool execution errors
+        """
+        # Convert double underscores to dots for action name format
+        logger.info("Executing tool call", tool_id=tool_name)
+
+        # Create tool from registry
+        async with RegistryActionsService.with_session() as svc:
+            tool = await create_tool_from_registry(
+                tool_name, fixed_args=args, service=svc
+            )
+
+        # Execute the tool function
+        result = await tool.function(**args)  # type: ignore
+        return result
+
+
+class RemoteToolExecutor(ToolExecutor):
+    """Executor for tools that are not in the registry."""
+
+    async def run(self, tool_name: str, args: dict[str, Any]) -> Any:
+        """Execute a tool by ID with the given arguments."""
+        raise NotImplementedError("Remote tool execution is not implemented")

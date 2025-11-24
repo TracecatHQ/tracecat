@@ -1,18 +1,18 @@
 """Tests for WorkflowImportService functionality."""
 
 import pytest
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.schemas import Schedule, Tag, Workflow, WorkflowDefinition, WorkflowTag
+from tracecat.auth.types import Role
+from tracecat.db.models import Schedule, Tag, Workflow, WorkflowDefinition, WorkflowTag
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
-from tracecat.workflow.store.models import (
+from tracecat.workflow.store.schemas import (
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -116,8 +116,8 @@ class TestWorkflowImportService:
         # Verify the workflow was created
         wf_id = WorkflowUUID.new("wf_testworkflow001")
         stmt = select(Workflow).where(Workflow.id == wf_id)
-        result = await session.exec(stmt)
-        workflow = result.first()
+        result = await session.execute(stmt)
+        workflow = result.scalars().first()
         assert workflow is not None
         assert workflow.title == "Test Import Workflow"
         assert workflow.description == "A workflow for testing import functionality"
@@ -148,15 +148,15 @@ class TestWorkflowImportService:
 
         # Verify workflow definition was created
         stmt = select(WorkflowDefinition).where(WorkflowDefinition.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        definition = result.first()
+        result = await session.execute(stmt)
+        definition = result.scalars().first()
         assert definition is not None
         assert definition.version == 1
 
         # Verify schedule was created
         stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        schedule = result.first()
+        result = await session.execute(stmt)
+        schedule = result.scalars().first()
         assert schedule is not None
         assert schedule.cron == "0 */6 * * *"
         assert schedule.every is None
@@ -165,15 +165,15 @@ class TestWorkflowImportService:
 
         # Verify tags were created
         stmt = select(WorkflowTag).where(WorkflowTag.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        workflow_tags = result.all()
+        result = await session.execute(stmt)
+        workflow_tags = result.scalars().all()
         assert len(workflow_tags) == 2
 
         # Get the actual tag names
         tag_ids = [wt.tag_id for wt in workflow_tags]
-        stmt = select(Tag).where(col(Tag.id).in_(tag_ids))
-        result = await session.exec(stmt)
-        tags = result.all()
+        stmt = select(Tag).where(Tag.id.in_(tag_ids))
+        result = await session.execute(stmt)
+        tags = result.scalars().all()
         tag_names = {tag.name for tag in tags}
         assert tag_names == {"test", "import"}
 
@@ -204,8 +204,8 @@ class TestWorkflowImportService:
         # Verify workflow still exists and wasn't duplicated
         wf_id = WorkflowUUID.new("wf_testworkflow001")
         stmt = select(Workflow).where(Workflow.id == wf_id)
-        result = await session.exec(stmt)
-        workflow = result.first()
+        result = await session.execute(stmt)
+        workflow = result.scalars().first()
         assert workflow is not None
 
     @pytest.mark.anyio
@@ -253,8 +253,8 @@ class TestWorkflowImportService:
         # Verify the workflow was updated
         wf_id = WorkflowUUID.new("wf_testworkflow001")
         stmt = select(Workflow).where(Workflow.id == wf_id)
-        result = await session.exec(stmt)
-        workflow = result.first()
+        result = await session.execute(stmt)
+        workflow = result.scalars().first()
         assert workflow is not None
         assert workflow.title == "Updated Import Workflow"
         assert workflow.description == "Updated description"
@@ -278,10 +278,10 @@ class TestWorkflowImportService:
         stmt = (
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(col(WorkflowDefinition.version).desc())
+            .order_by(WorkflowDefinition.version.desc())
         )
-        result = await session.exec(stmt)
-        definitions = result.all()
+        result = await session.execute(stmt)
+        definitions = result.scalars().all()
         assert len(definitions) == 2  # Original + updated
         assert definitions[0].version == 2  # Latest version
 
@@ -373,8 +373,8 @@ class TestWorkflowImportService:
         wf_id = WorkflowUUID.new("wf_testworkflow001")
 
         stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        schedules = result.all()
+        result = await session.execute(stmt)
+        schedules = result.scalars().all()
         assert len(schedules) == 1
         original_schedule = schedules[0]
         assert original_schedule.cron == "0 */6 * * *"
@@ -403,8 +403,8 @@ class TestWorkflowImportService:
 
         # Verify old schedule was replaced with new ones
         stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        new_schedules = result.all()
+        result = await session.execute(stmt)
+        new_schedules = result.scalars().all()
         assert len(new_schedules) == 2
 
         # Verify schedule details
@@ -437,8 +437,8 @@ class TestWorkflowImportService:
         wf_id = WorkflowUUID.new("wf_testworkflow001")
 
         stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
-        result = await session.exec(stmt)
-        schedules = result.all()
+        result = await session.execute(stmt)
+        schedules = result.scalars().all()
         assert len(schedules) == 0
 
     @pytest.mark.anyio
@@ -526,8 +526,8 @@ class TestWorkflowImportService:
 
         # Verify NO workflows were imported (atomic rollback)
         stmt = select(Workflow).where(Workflow.owner_id == import_service.workspace_id)
-        result = await session.exec(stmt)
-        workflows = result.all()
+        result = await session.execute(stmt)
+        workflows = result.scalars().all()
         assert len(workflows) == 0  # Nothing should be imported
 
     @pytest.mark.anyio
@@ -573,11 +573,11 @@ class TestWorkflowImportService:
         wf2_id = WorkflowUUID.new("wf_testworkflow002")
 
         stmt1 = select(Workflow).where(Workflow.id == wf1_id)
-        result1 = await session.exec(stmt1)
-        workflow1 = result1.first()
+        result1 = await session.execute(stmt1)
+        workflow1 = result1.scalars().first()
         stmt2 = select(Workflow).where(Workflow.id == wf2_id)
-        result2 = await session.exec(stmt2)
-        workflow2 = result2.first()
+        result2 = await session.execute(stmt2)
+        workflow2 = result2.scalars().first()
 
         assert workflow1 is not None
         assert workflow2 is not None
@@ -618,8 +618,8 @@ class TestWorkflowImportService:
 
         # Verify tags in database
         stmt = select(Tag).where(Tag.owner_id == import_service.workspace_id)
-        result = await session.exec(stmt)
-        tags = result.all()
+        result = await session.execute(stmt)
+        tags = result.scalars().all()
 
         tag_names = {tag.name for tag in tags}
         assert tag_names == {"test", "import", "second"}  # 3 unique tags total
@@ -630,8 +630,8 @@ class TestWorkflowImportService:
 
         # Verify both workflows use the same "test" tag
         stmt = select(WorkflowTag).where(WorkflowTag.tag_id == test_tags[0].id)
-        result = await session.exec(stmt)
-        workflow_tags = result.all()
+        result = await session.execute(stmt)
+        workflow_tags = result.scalars().all()
         assert len(workflow_tags) == 2  # Both workflows should use this tag
 
     @pytest.mark.anyio

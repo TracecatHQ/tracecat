@@ -5,7 +5,7 @@ from tracecat_registry import registry
 from typing_extensions import Doc
 
 from tracecat.cases.enums import CasePriority, CaseTaskStatus
-from tracecat.cases.models import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
+from tracecat.cases.schemas import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
 from tracecat.cases.service import CaseTasksService
 
 
@@ -15,7 +15,7 @@ from tracecat.cases.service import CaseTasksService
     description="Create a new task for a case.",
     namespace="core.cases",
 )
-async def create_case_task(
+async def create_task(
     case_id: Annotated[
         str,
         Doc("The ID of the case to create a task for."),
@@ -60,7 +60,7 @@ async def create_case_task(
                 priority=priority_enum,
                 status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
-                workflow_id=workflow_id,
+                workflow_id=workflow_id or None,
             ),
         )
 
@@ -75,7 +75,7 @@ async def create_case_task(
     description="Get details of a specific case task by ID.",
     namespace="core.cases",
 )
-async def get_case_task(
+async def get_task(
     task_id: Annotated[
         str,
         Doc("The ID of the task to retrieve."),
@@ -96,7 +96,7 @@ async def get_case_task(
     description="List all tasks for a specific case.",
     namespace="core.cases",
 )
-async def list_case_tasks(
+async def list_tasks(
     case_id: Annotated[
         str,
         Doc("The ID of the case to list tasks for."),
@@ -118,7 +118,7 @@ async def list_case_tasks(
     description="Update an existing case task.",
     namespace="core.cases",
 )
-async def update_case_task(
+async def update_task(
     task_id: Annotated[
         str,
         Doc("The ID of the task to update."),
@@ -181,7 +181,7 @@ async def update_case_task(
     description="Delete a case task.",
     namespace="core.cases",
 )
-async def delete_case_task(
+async def delete_task(
     task_id: Annotated[
         str,
         Doc("The ID of the task to delete."),

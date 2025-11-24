@@ -3,12 +3,12 @@ from datetime import datetime
 
 import pytest
 import yaml
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.schemas import Workflow, Workspace
+from tracecat.auth.types import Role
+from tracecat.db.models import Workflow, Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 pytestmark = pytest.mark.usefixtures("db")

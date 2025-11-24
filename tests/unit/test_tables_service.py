@@ -4,13 +4,16 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.schemas import Table
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.db.models import Table
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -18,8 +21,6 @@ from tracecat.tables.models import (
     TableUpdate,
 )
 from tracecat.tables.service import TablesService
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -28,6 +29,33 @@ pytestmark = pytest.mark.usefixtures("db")
 async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesService:
     """Fixture to create a TablesService instance using an admin role."""
     return TablesService(session=session, role=svc_admin_role)
+
+
+@pytest.fixture(scope="function")
+async def svc_editor_role(svc_workspace) -> Role:  # type: ignore[override]
+    """Workspace editor role for tables tests."""
+    return Role(
+        type="user",
+        access_level=AccessLevel.BASIC,
+        workspace_id=svc_workspace.id,
+        workspace_role=WorkspaceRole.EDITOR,
+        user_id=uuid4(),
+        service_id="tracecat-api",
+    )
+
+
+@pytest.fixture(scope="function")
+async def tables_service_editor(
+    session: AsyncSession, svc_editor_role: Role
+) -> TablesService:
+    """TablesService bound to a workspace editor role."""
+    return TablesService(session=session, role=svc_editor_role)
+
+
+@pytest.fixture(scope="function")
+async def tables_service_basic(session: AsyncSession, svc_role: Role) -> TablesService:
+    """TablesService bound to a basic member without workspace role."""
+    return TablesService(session=session, role=svc_role)
 
 
 # New fixture to create a table with 'name' and 'age' columns for row tests
@@ -67,6 +95,29 @@ class TestTablesService:
         # Retrieve by id
         retrieved_by_id = await tables_service.get_table(created_table.id)
         assert retrieved_by_id.id == created_table.id
+
+    async def test_editor_can_create_and_delete_table(
+        self, tables_service_editor: TablesService
+    ) -> None:
+        """Workspace editors should be allowed to mutate tables."""
+
+        table = await tables_service_editor.create_table(
+            TableCreate(name="editor_table")
+        )
+        fetched = await tables_service_editor.get_table(table.id)
+        assert fetched.name == "editor_table"
+
+        await tables_service_editor.delete_table(table)
+        with pytest.raises(TracecatNotFoundError):
+            await tables_service_editor.get_table(table.id)
+
+    async def test_basic_member_cannot_create_table(
+        self, tables_service_basic: TablesService
+    ) -> None:
+        """Members lacking a workspace role should be rejected for DDL."""
+
+        with pytest.raises(TracecatAuthorizationError):
+            await tables_service_basic.create_table(TableCreate(name="blocked_table"))
 
     async def test_list_tables(self, tables_service: TablesService) -> None:
         """Test listing tables after creating multiple tables."""
@@ -136,6 +187,94 @@ class TestTablesService:
                 assert col.type == SqlType.INTEGER.value
                 assert col.nullable is True
                 assert col.default == "0"  # Default values are stored as strings
+
+    async def test_import_table_from_csv(self, tables_service: TablesService) -> None:
+        """Importing a CSV should create table, columns, and rows."""
+        csv_content = "\n".join(
+            [
+                "Full Name,Age,Active,Joined",
+                "Alice,30,true,2024-01-01T12:00:00Z",
+                "Bob,25,false,2024-01-02",
+            ]
+        )
+
+        (
+            table,
+            rows_inserted,
+            inferred_columns,
+        ) = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="People.csv",
+        )
+
+        assert table.name == "people"
+        assert rows_inserted == 2
+        mapping = {col.original_name: col.name for col in inferred_columns}
+        assert mapping["Full Name"] == "fullname"
+        assert mapping["Age"] == "age"
+        assert mapping["Active"] == "active"
+
+        retrieved_table = await tables_service.get_table(table.id)
+        rows = await tables_service.list_rows(retrieved_table)
+        assert len(rows) == 2
+        rows_by_name = {row["fullname"]: row for row in rows}
+        assert rows_by_name.keys() == {"Alice", "Bob"}
+        assert isinstance(rows_by_name["Alice"]["age"], int)
+        assert isinstance(rows_by_name["Alice"]["active"], bool)
+        assert isinstance(rows_by_name["Bob"]["age"], int)
+        assert isinstance(rows_by_name["Bob"]["active"], bool)
+
+        second_table, _, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="People.csv",
+        )
+        assert second_table.name == "people_1"
+
+    async def test_import_table_handles_empty_numeric_values(
+        self, tables_service: TablesService
+    ) -> None:
+        """Empty cells in numeric columns should be treated as NULL."""
+        csv_content = "\n".join(
+            [
+                "Name,Age",
+                "Alice,",
+                "Bob,42",
+            ]
+        )
+
+        table, _, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="Ages.csv",
+        )
+
+        retrieved_table = await tables_service.get_table(table.id)
+        rows = await tables_service.list_rows(retrieved_table)
+        assert len(rows) == 2
+        rows_by_name = {row["name"]: row for row in rows}
+        assert rows_by_name["Alice"]["age"] is None
+        assert rows_by_name["Bob"]["age"] == 42
+
+    async def test_import_table_from_csv_honors_chunk_size(
+        self, tables_service: TablesService
+    ) -> None:
+        """Imports should allow larger chunk sizes without hitting the default cap."""
+
+        header = "name"
+        total_rows = 1500
+        rows = [f"row_{i}" for i in range(total_rows)]
+        csv_content = "\n".join([header, *rows])
+
+        table, inserted, _ = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="Large.csv",
+            chunk_size=total_rows,
+        )
+
+        assert inserted == total_rows
+
+        retrieved_table = await tables_service.get_table(table.id)
+        actual_rows = await tables_service.list_rows(retrieved_table, limit=total_rows)
+        assert len(actual_rows) == total_rows
 
     async def test_update_table(self, tables_service: TablesService) -> None:
         """Test updating table metadata."""

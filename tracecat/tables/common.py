@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
@@ -53,6 +54,36 @@ def coerce_optional_to_utc_datetime(
     return coerce_to_utc_datetime(value)
 
 
+def coerce_to_date(value: str | int | float | datetime | date) -> date:
+    """Convert supported inputs into a date."""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value, tz=UTC).date()
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed_dt = datetime.fromisoformat(text)
+            return parsed_dt.date()
+        except ValueError:
+            try:
+                return date.fromisoformat(text)
+            except ValueError as exc:
+                raise TypeError(f"Invalid ISO date string: {value!r}") from exc
+    raise TypeError(f"Unable to coerce {value!r} to date")
+
+
+def coerce_optional_to_date(
+    value: str | int | float | datetime | date | None,
+) -> date | None:
+    """Coerce a value to a date."""
+    if value is None:
+        return None
+    return coerce_to_date(value)
+
+
 def handle_default_value(type: SqlType, default: Any) -> str:
     """Handle converting default values to SQL-compatible strings based on type.
 
@@ -69,12 +100,20 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         TypeError: If the SQL type is not supported
     """
     match type:
+        case SqlType.MULTI_SELECT:
+            coerced_default = coerce_multi_select_value(default)
+            json_literal = orjson.dumps(coerced_default).decode()
+            return f"'{json_literal.replace("'", "''")}'::jsonb"
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast
-            default_value = f"'{default}'::jsonb"
-        case SqlType.TEXT:
+            json_literal = orjson.dumps(default).decode()
+            default_value = f"'{json_literal.replace("'", "''")}'::jsonb"
+        case SqlType.TEXT | SqlType.SELECT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
+        case SqlType.DATE:
+            d = coerce_to_date(default)
+            default_value = f"'{d.isoformat()}'::date"
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             # For timestamp with timezone, ensure proper format and quoting
             dt = coerce_to_utc_datetime(default)
@@ -107,10 +146,19 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         TypeError: If the SQL type is not supported
     """
     match sql_type:
+        case SqlType.SELECT:
+            coerced = None if value is None else str(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.String)
+        case SqlType.MULTI_SELECT:
+            coerced_list = None if value is None else coerce_multi_select_value(value)
+            return sa.bindparam(key=name, value=coerced_list, type_=JSONB)
         case SqlType.JSONB:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
+        case SqlType.DATE:
+            coerced = coerce_optional_to_date(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.Date)
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
             coerced = coerce_optional_to_utc_datetime(value)
             return sa.bindparam(
@@ -129,7 +177,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                     )
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
-            return sa.bindparam(key=name, value=value, type_=sa.Integer)
+            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.NUMERIC:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
@@ -190,8 +238,13 @@ def convert_value(value: str | None, type: SqlType) -> Any:
                         raise TypeError(f"Invalid boolean value: {value}")
             case SqlType.JSONB:
                 return orjson.loads(value)
-            case SqlType.TEXT:
+            case SqlType.TEXT | SqlType.SELECT:
                 return str(value)
+            case SqlType.MULTI_SELECT:
+                parsed = orjson.loads(value)
+                return coerce_multi_select_value(parsed)
+            case SqlType.DATE:
+                return coerce_to_date(value)
             case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return coerce_to_utc_datetime(value)
             case SqlType.UUID:
@@ -202,3 +255,48 @@ def convert_value(value: str | None, type: SqlType) -> Any:
         raise TypeError(
             f"Cannot convert value {value!r} to {type.__class__.__name__} {type.value}"
         ) from e
+
+
+def normalize_column_options(
+    options: Sequence[str] | None,
+) -> list[str] | None:
+    """Trim, deduplicate, and validate option labels."""
+    if options is None:
+        return None
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in options:
+        candidate = raw.strip()
+        if not candidate:
+            raise ValueError("Option labels cannot be empty")
+        if candidate in seen:
+            raise ValueError("Duplicate option labels are not allowed")
+        seen.add(candidate)
+        cleaned.append(candidate)
+    return cleaned
+
+
+def coerce_select_value(value: Any, *, options: Sequence[str] | None = None) -> str:
+    """Normalize a SELECT value ensuring membership in options if provided."""
+    coerced = str(value)
+    if options and coerced not in options:
+        raise ValueError(f"Value '{coerced}' is not in the available options")
+    return coerced
+
+
+def coerce_multi_select_value(
+    value: Any, *, options: Sequence[str] | None = None
+) -> list[str]:
+    """Normalize a MULTI_SELECT payload as a list of strings."""
+    if value is None:
+        raise ValueError("Value cannot be None for MULTI_SELECT fields")
+    if not isinstance(value, list | tuple | set):
+        raise ValueError("MULTI_SELECT values must be provided as a list of strings")
+    coerced: list[str] = [str(item) for item in value]
+    if options:
+        invalid = [item for item in coerced if item not in options]
+        if invalid:
+            raise ValueError(
+                f"Value(s) {', '.join(invalid)} are not in the available options"
+            )
+    return coerced

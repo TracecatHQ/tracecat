@@ -62,7 +62,7 @@
   &.tiptap-toolbar[data-variant="floating"] {
     padding: 0.1875rem 0 0;
     border: none;
-    border-radius: 0;
+    border-radius: var(--radius) !important;
     box-shadow: none;
     background-color: var(--tt-toolbar-bg-color);
     overflow-x: auto;

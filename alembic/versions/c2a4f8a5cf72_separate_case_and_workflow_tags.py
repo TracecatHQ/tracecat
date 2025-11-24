@@ -8,7 +8,7 @@ Create Date: 2025-10-01 12:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -23,7 +23,7 @@ def upgrade() -> None:
     # Drop existing foreign key from casetag to tag before renaming
     op.drop_constraint("casetag_tag_id_fkey", "casetag", type_="foreignkey")
 
-    # Rename junction table to match new SQLModel definition
+    # Rename junction table to match new SQLAlchemy definition
     op.rename_table("casetag", "case_tag_link")
 
     # Create dedicated case_tag table for case-specific tags
@@ -42,11 +42,11 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("ref", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("color", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("ref", sa.String(), nullable=False),
+        sa.Column("color", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),
         sa.UniqueConstraint("name", "owner_id", name="uq_case_tag_name_owner"),

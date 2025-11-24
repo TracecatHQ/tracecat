@@ -45,7 +45,7 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
-from tracecat.interactions.models import InteractionContext
+from tracecat.interactions.schemas import InteractionContext
 from tracecat.parse import unescape_string
 
 
@@ -131,6 +131,11 @@ def lowercase(x: str) -> str:
 def slice_str(x: str, start_index: int, length: int) -> str:
     """Extract a substring from start_index with given length."""
     return x[start_index : start_index + length]
+
+
+def at(sequence: Sequence[Any], index: int) -> Any:
+    """Return the element at the given index."""
+    return sequence[index]
 
 
 def endswith(x: str, suffix: str) -> bool:
@@ -1021,6 +1026,7 @@ _FUNCTION_MAPPING = {
     "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
+    "at": at,
     # Math
     "add": add,
     "sub": sub,

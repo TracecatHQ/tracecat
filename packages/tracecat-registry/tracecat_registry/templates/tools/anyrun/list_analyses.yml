@@ -12,9 +12,9 @@ definition:
         - ANYRUN_API_KEY
   expects:
     status:
-      type: str
+      type: str | None
       description: Optional analysis status to filter by (e.g. finished, running).
-      required: false
+      default: null
     limit:
       type: int
       description: Maximum number of analyses to return.

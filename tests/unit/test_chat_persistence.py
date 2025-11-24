@@ -9,13 +9,13 @@ from pydantic_ai.messages import (
     TextPart,
     UserPromptPart,
 )
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.models import ChatMessage
+from tracecat.chat.schemas import ChatMessage
 from tracecat.chat.service import ChatService
-from tracecat.db.schemas import Chat, User, Workspace
-from tracecat.types.auth import Role
+from tracecat.db.models import Chat, User, Workspace
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -381,3 +381,41 @@ async def test_mixed_message_types(
     assert isinstance(messages[1], ModelResponse)
     assert "User question" in str(messages[0])
     assert "Assistant answer" in str(messages[1])
+
+
+@pytest.mark.anyio
+async def test_list_messages_filtered_by_kind(
+    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
+):
+    """Ensure list_messages can filter by MessageKind."""
+    chat = Chat(
+        title="Test Chat",
+        user_id=test_user.id,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        owner_id=svc_workspace.id,
+        tools=[],
+    )
+    session.add(chat)
+    await session.commit()
+    await session.refresh(chat)
+
+    chat_service = ChatService(session, svc_role)
+
+    await chat_service.append_message(
+        chat_id=chat.id,
+        message=ModelRequest(parts=[UserPromptPart(content="Run tool")]),
+        kind=MessageKind.CHAT_MESSAGE,
+    )
+    await chat_service.append_message(
+        chat_id=chat.id,
+        message=ModelResponse(parts=[TextPart(content="Needs approval")]),
+        kind=MessageKind.APPROVAL_REQUEST,
+    )
+
+    filtered = await chat_service.list_messages(
+        chat.id, kinds=[MessageKind.CHAT_MESSAGE]
+    )
+
+    assert len(filtered) == 1
+    assert isinstance(filtered[0], ModelRequest)
