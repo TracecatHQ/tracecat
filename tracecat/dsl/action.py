@@ -14,21 +14,22 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
-from tracecat.executor.client import ExecutorClient
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.core import TemplateExpression
-from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import (
+from tracecat.dsl.schemas import ActionStatement, RunActionInput
+from tracecat.dsl.types import ActionErrorInfo
+from tracecat.exceptions import (
     ExecutorClientError,
     RateLimitExceeded,
     RegistryError,
     TracecatExpressionError,
 )
+from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import TemplateExpression
+from tracecat.logger import logger
+from tracecat.registry.actions.schemas import RegistryActionValidateResponse
 from tracecat.validation.service import validate_registry_action_args
 
 
@@ -145,6 +146,7 @@ class DSLActivities:
                 message=msg,
                 type=kind,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(err_msg, err_info, type=kind) from e
@@ -156,6 +158,7 @@ class DSLActivities:
                 message=str(e),
                 type=e.type or e.__class__.__name__,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(
@@ -172,6 +175,7 @@ class DSLActivities:
                 message=raw_msg,
                 type=kind,
                 attempt=act_attempt,
+                stream_id=input.stream_id,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(

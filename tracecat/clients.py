@@ -6,9 +6,9 @@ from typing import Any
 import httpx
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatCredentialsError
+from tracecat.exceptions import TracecatCredentialsError
 
 
 class AuthenticatedServiceClient(httpx.AsyncClient):

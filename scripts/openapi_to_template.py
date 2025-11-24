@@ -51,7 +51,7 @@ from openapi_pydantic.v3.v3_0 import (
 from pydantic import BaseModel, Field
 
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistrySecret,
     TemplateAction,

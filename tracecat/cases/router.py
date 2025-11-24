@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.exc import DBAPIError, NoResultFound
+from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -13,11 +14,12 @@ from starlette.status import (
 )
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.models import UserRead
+from tracecat.auth.schemas import UserRead
+from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
-from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
@@ -31,19 +33,25 @@ from tracecat.cases.models import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
+    CaseTaskCreate,
+    CaseTaskRead,
+    CaseTaskUpdate,
     CaseUpdate,
+    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
     CasesService,
+    CaseTasksService,
 )
+from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.tags.models import TagRead
-from tracecat.tags.service import TagsService
-from tracecat.types.auth import Role
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
@@ -85,10 +93,14 @@ async def list_cases(
     search_term: str | None = Query(
         None, description="Text to search for in case summary and description"
     ),
-    status: CaseStatus | None = Query(None, description="Filter by case status"),
-    priority: CasePriority | None = Query(None, description="Filter by case priority"),
-    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
-    assignee_id: str | None = Query(
+    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
+    priority: list[CasePriority] | None = Query(
+        None, description="Filter by case priority"
+    ),
+    severity: list[CaseSeverity] | None = Query(
+        None, description="Filter by case severity"
+    ),
+    assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
     tags: list[str] | None = Query(
@@ -101,7 +113,7 @@ async def list_cases(
     # Convert tag identifiers to IDs
     tag_ids = []
     if tags:
-        tags_service = TagsService(session, role)
+        tags_service = CaseTagsService(session, role)
         for tag_identifier in tags:
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
@@ -117,17 +129,20 @@ async def list_cases(
     )
 
     # Parse assignee_id - handle special "unassigned" value
-    parsed_assignee_id = None
-    if assignee_id == "unassigned":
-        parsed_assignee_id = "unassigned"  # Special marker for null assignees
-    elif assignee_id:
-        try:
-            parsed_assignee_id = uuid.UUID(assignee_id)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail=f"Invalid assignee_id: {assignee_id}",
-            ) from e
+    parsed_assignee_ids: list[uuid.UUID] = []
+    include_unassigned = False
+    if assignee_id:
+        for identifier in assignee_id:
+            if identifier == "unassigned":
+                include_unassigned = True
+                continue
+            try:
+                parsed_assignee_ids.append(uuid.UUID(identifier))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid assignee_id: {identifier}",
+                ) from e
 
     try:
         cases = await service.list_cases_paginated(
@@ -136,7 +151,8 @@ async def list_cases(
             status=status,
             priority=priority,
             severity=severity,
-            assignee_id=parsed_assignee_id,
+            assignee_ids=parsed_assignee_ids or None,
+            include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
         )
     except Exception as e:
@@ -156,9 +172,13 @@ async def search_cases(
     search_term: str | None = Query(
         None, description="Text to search for in case summary and description"
     ),
-    status: CaseStatus | None = Query(None, description="Filter by case status"),
-    priority: CasePriority | None = Query(None, description="Filter by case priority"),
-    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
+    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
+    priority: list[CasePriority] | None = Query(
+        None, description="Filter by case priority"
+    ),
+    severity: list[CaseSeverity] | None = Query(
+        None, description="Filter by case severity"
+    ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
@@ -168,6 +188,18 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
+    ),
 ) -> list[CaseReadMinimal]:
     """Search cases based on various criteria."""
     service = CasesService(session, role)
@@ -175,7 +207,7 @@ async def search_cases(
     # Convert tag identifiers to IDs
     tag_ids = []
     if tags:
-        tags_service = TagsService(session, role)
+        tags_service = CaseTagsService(session, role)
         for tag_identifier in tags:
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
@@ -184,22 +216,39 @@ async def search_cases(
                 # Skip tags that do not exist in the workspace
                 continue
 
-    cases = await service.search_cases(
-        search_term=search_term,
-        status=status,
-        priority=priority,
-        severity=severity,
-        tag_ids=tag_ids,
-        limit=limit,
-        order_by=order_by,
-        sort=sort,
-    )
+    try:
+        cases = await service.search_cases(
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            tag_ids=tag_ids,
+            limit=limit,
+            order_by=order_by,
+            sort=sort,
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+    except ProgrammingError as exc:
+        logger.exception(
+            "Failed to search cases due to invalid filter parameters", exc_info=exc
+        )
+        await session.rollback()
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Invalid filter parameters supplied for case search",
+        ) from exc
+
+    # Fetch task counts for all cases
+    task_counts = await service.get_task_counts([case.id for case in cases])
 
     # Build case responses with tags (tags are already loaded via selectinload)
     case_responses = []
     for case in cases:
         tag_reads = [
-            TagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+            CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
         ]
 
         case_responses.append(
@@ -207,7 +256,7 @@ async def search_cases(
                 id=case.id,
                 created_at=case.created_at,
                 updated_at=case.updated_at,
-                short_id=f"CASE-{case.case_number:04d}",
+                short_id=case.short_id,
                 summary=case.summary,
                 status=case.status,
                 priority=case.priority,
@@ -216,6 +265,8 @@ async def search_cases(
                 if case.assignee
                 else None,
                 tags=tag_reads,
+                num_tasks_completed=task_counts[case.id]["completed"],
+                num_tasks_total=task_counts[case.id]["total"],
             )
         )
 
@@ -231,7 +282,7 @@ async def get_case(
 ) -> CaseRead:
     """Get a specific case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, track_view=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -255,12 +306,14 @@ async def get_case(
         )
 
     # Tags are already loaded via selectinload
-    tag_reads = [TagRead.model_validate(tag, from_attributes=True) for tag in case.tags]
+    tag_reads = [
+        CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+    ]
 
     # Match up the fields with the case field definitions
     return CaseRead(
         id=case.id,
-        short_id=f"CASE-{case.case_number:04d}",
+        short_id=case.short_id,
         created_at=case.created_at,
         updated_at=case.updated_at,
         summary=case.summary,
@@ -286,7 +339,13 @@ async def create_case(
 ) -> None:
     """Create a new case."""
     service = CasesService(session, role)
-    await service.create_case(params)
+    try:
+        await service.create_case(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
@@ -307,6 +366,11 @@ async def update_case(
         )
     try:
         await service.update_case(case, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except DBAPIError as e:
         while (cause := e.__cause__) is not None:
             e = cause
@@ -536,6 +600,11 @@ async def list_events_with_users(
                 user_ids.add(root_evt.old)
             if root_evt.new is not None:
                 user_ids.add(root_evt.new)
+        if isinstance(root_evt, TaskAssigneeChangedEventRead):
+            if root_evt.old is not None:
+                user_ids.add(root_evt.old)
+            if root_evt.new is not None:
+                user_ids.add(root_evt.new)
         if root_evt.user_id is not None:
             user_ids.add(root_evt.user_id)
         events.append(evt)
@@ -551,3 +620,151 @@ async def list_events_with_users(
     )
 
     return CaseEventsWithUsers(events=events, users=users)
+
+
+# Case Tasks
+
+
+@cases_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
+async def list_tasks(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseTaskRead]:
+    """List all tasks for a case."""
+    service = CaseTasksService(session, role)
+    tasks = await service.list_tasks(case_id)
+    return [
+        CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+            if task.assignee
+            else None,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
+        for task in tasks
+    ]
+
+
+@cases_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
+async def create_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    params: CaseTaskCreate,
+) -> CaseTaskRead:
+    """Create a new task for a case."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.create_task(case_id, params)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+            if task.assignee
+            else None,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Case not found",
+        ) from e
+    except Exception as e:
+        logger.exception("Failed to create task")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Failed to create task",
+        ) from e
+
+
+@cases_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
+async def update_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    task_id: uuid.UUID,
+    params: CaseTaskUpdate,
+) -> CaseTaskRead:
+    """Update a task."""
+    service = CaseTasksService(session, role)
+    try:
+        existing = await service.get_task(task_id)
+        if existing.case_id != case_id:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
+        task = await service.update_task(task_id, params)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+            if task.assignee
+            else None,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
+    except Exception as e:
+        logger.exception(f"Failed to update task: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Failed to update task",
+        ) from e
+
+
+@cases_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+async def delete_task(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    task_id: uuid.UUID,
+) -> None:
+    """Delete a task."""
+    service = CaseTasksService(session, role)
+    try:
+        existing = await service.get_task(task_id)
+        if existing.case_id != case_id:
+            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
+        await service.delete_task(task_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
+    except Exception as e:
+        logger.exception(f"Failed to delete task: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task",
+        ) from e

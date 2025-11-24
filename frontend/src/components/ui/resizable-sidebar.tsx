@@ -43,10 +43,14 @@ export function ResizableSidebar({
 }: ResizableSidebarProps) {
   const [width, setWidth] = useState<number>(initial)
 
-  const insetClasses = cn("flex-none", insetClassName, {
-    "ml-px": side === "right",
-    "mr-px": side === "left",
-  })
+  const insetClasses = cn(
+    "flex-none md:peer-data-[variant=inset]:!ml-0 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:!ml-0",
+    insetClassName,
+    {
+      "ml-px": side === "right",
+      "mr-px": side === "left",
+    }
+  )
 
   const divider = (
     <DragDivider
@@ -63,6 +67,7 @@ export function ResizableSidebar({
       {side === "right" ? divider : null}
       <SidebarInset
         className={insetClasses}
+        // Force the inset to honor the drag width even when surrounding flex utilities re-run.
         style={{ width, minWidth: min, maxWidth: max }}
       >
         {children}

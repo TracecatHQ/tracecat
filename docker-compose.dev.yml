@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.8.4-alpine
+    image: caddy:2.10.2-alpine
     restart: unless-stopped
     ports:
       - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
@@ -40,6 +40,8 @@ services:
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       # Temporal
@@ -66,7 +68,7 @@ services:
 
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -92,6 +94,8 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -109,9 +113,9 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["python", "tracecat/dsl/worker.py"]
+    command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
       - api
       - temporal
@@ -158,7 +162,7 @@ services:
       MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./packages/tracecat-registry:/app/packages/tracecat-registry
+      - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [

@@ -6,19 +6,20 @@ import orjson
 from async_lru import alru_cache
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
-from tracecat.db.schemas import OrganizationSetting
+from tracecat.db.models import OrganizationSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
 from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.models import (
+from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuthSettingsUpdate,
@@ -29,7 +30,6 @@ from tracecat.settings.models import (
     SettingCreate,
     SettingUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
 
 
 class SettingsService(BaseService):
@@ -113,7 +113,7 @@ class SettingsService(BaseService):
         statement = select(OrganizationSetting)
 
         if keys is not None:
-            statement = statement.where(col(OrganizationSetting.key).in_(keys))
+            statement = statement.where(OrganizationSetting.key.in_(keys))
         if value_type is not None:
             statement = statement.where(OrganizationSetting.value_type == value_type)
         if is_encrypted is not None:
@@ -126,8 +126,8 @@ class SettingsService(BaseService):
         if limit is not None:
             statement = statement.limit(limit)
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_org_setting(self, key: str) -> OrganizationSetting | None:
         """Get the current organization settings.
@@ -141,8 +141,8 @@ class SettingsService(BaseService):
             return None
 
         statement = select(OrganizationSetting).where(OrganizationSetting.key == key)
-        result = await self.session.exec(statement)
-        return result.one_or_none()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""

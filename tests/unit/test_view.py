@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.view import RFGraph, TriggerNode, TriggerNodeData
 
 

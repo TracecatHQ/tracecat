@@ -5,9 +5,9 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Tag
+from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
-from tracecat.tags.models import TagCreate, TagRead, TagUpdate
+from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
 
 # Initialize router

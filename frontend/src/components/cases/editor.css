@@ -1,84 +1,60 @@
-/* BlockNote Editor font size customization */
-:root {
-  /* Set base font size */
-  --bn-font-size-base: 0.875rem; /* Base size - 14px to match text-sm */
-  --bn-font-size-h1: 1.375rem; /* h1 size */
-  --bn-font-size-h2: 1.25rem; /* h2 size */
-  --bn-font-size-h3: 1.125rem; /* h3 size */
-  --bn-font-size-sm: 0.75rem; /* Small text size for labels and descriptions */
+.case-description-editor,
+.case-comment-viewer {
+  width: 100%;
+  height: auto;
 }
 
-/* Custom alignment for editor - allow side buttons to extend into margin */
-.bn-editor {
-  position: relative;
-  margin-left: 0;
-  padding-inline: 0 !important;
+.case-description-editor .simple-editor-content,
+.case-comment-viewer .simple-editor-content {
+  max-width: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+
+.case-description-editor .simple-editor-content .simple-editor {
+  padding: 0.75rem 0;
+  min-height: 220px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: hsl(var(--foreground));
+}
+
+.case-description-editor {
+  width: 100%;
+  padding: 0;
+  border-radius: var(--radius);
+  background-color: transparent;
+}
+
+.case-description-editor .simple-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  --simple-editor-toolbar-gap: 1rem;
+  background: transparent;
+}
+
+.case-description-editor .simple-editor-content .simple-editor:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 
-/* Apply custom font sizes to BlockNote elements */
-.bn-container,
-.bn-block-content,
-.bn-inline-content {
-  font-size: var(--bn-font-size-base);
+.case-comment-viewer .simple-editor-toolbar {
+  display: none;
 }
 
-/* Directly override the background-color property from BlockNote styles */
-.bn-shadcn .bn-editor {
-  background-color: transparent !important;
+.case-comment-viewer .simple-editor-content .tiptap.ProseMirror.simple-editor {
+  padding: 0;
+  min-height: unset;
+  background: transparent;
+  border: none;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  height: auto;
 }
 
-/* Target headings based on actual DOM structure */
-.bn-block-content[data-content-type="heading"] h1 {
-  font-size: var(--bn-font-size-h1);
-}
-
-.bn-block-content[data-content-type="heading"] h2 {
-  font-size: var(--bn-font-size-h2);
-}
-
-.bn-block-content[data-content-type="heading"] h3 {
-  font-size: var(--bn-font-size-h3);
-}
-
-.bn-block-content[data-content-type="codeBlock"] {
-  background-color: hsl(var(--foreground) / 0.85);
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  font-size: var(--bn-font-size-sm);
-}
-
-/* Ensure all other elements use the base font size */
-.bn-editor,
-.bn-block-content,
-.bn-inline-content,
-.bn-container [data-content-type="paragraph"],
-.bn-container [data-content-type="bulletListItem"],
-.bn-container [data-content-type="numberedListItem"] {
-  font-size: var(--bn-font-size-sm);
-}
-
-/* Suggestion menu font size customization */
-.bn-suggestion-menu-label {
-  font-size: var(--bn-font-size-sm) !important;
-}
-
-.bn-suggestion-menu-item .bn-text-base {
-  font-size: var(--bn-font-size-base) !important;
-}
-
-.bn-suggestion-menu-item .bn-text-xs {
-  font-size: var(--bn-font-size-sm) !important;
-}
-
-/* Customize suggestion menu hover/focus styles */
-.bn-suggestion-menu-item:hover,
-.bn-suggestion-menu-item:focus,
-.bn-suggestion-menu-item[aria-selected="true"] {
-  background-color: hsl(var(--muted-foreground) / 0.1) !important;
-}
-
-/* Override all bn-text-gray-* classes with text-muted-foreground */
-[class*="bn-text-gray"]:hover {
-  background-color: hsl(var(--muted-foreground) / 0.1) !important;
+.text-part-editor .simple-editor-content .simple-editor {
+  white-space: inherit;
 }

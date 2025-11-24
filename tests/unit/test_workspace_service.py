@@ -4,12 +4,12 @@ import uuid
 
 import pytest
 from pydantic import TypeAdapter
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import Workspace
-from tracecat.types.auth import Role
-from tracecat.workspaces.models import WorkspaceSettings, WorkspaceSettingsUpdate
+from tracecat.auth.types import Role
+from tracecat.db.models import Workspace
+from tracecat.workspaces.schemas import WorkspaceSettings, WorkspaceSettingsUpdate
 from tracecat.workspaces.service import WorkspaceService
 
 pytestmark = pytest.mark.usefixtures("db")

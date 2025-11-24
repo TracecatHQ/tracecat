@@ -12,8 +12,9 @@ definition:
         - SPLUNK_API_KEY
   expects:
     base_url:
-      type: str
+      type: str | None
       description: Splunk base URL (e.g. https://localhost:8089).
+      default: null
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.
@@ -26,7 +27,7 @@ definition:
     - ref: search_job
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/services/search/jobs
+        url: ${{ inputs.base_url || VARS.splunk.base_url }}/services/search/jobs
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:

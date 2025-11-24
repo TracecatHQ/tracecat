@@ -1,6 +1,6 @@
 # For development only
 
-FROM node:21-slim AS base
+FROM node:22-slim AS base
 
 EXPOSE 3000
 

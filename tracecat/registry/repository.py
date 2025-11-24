@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 from pydantic import (
     BaseModel,
@@ -23,21 +23,22 @@ from pydantic import (
     create_model,
 )
 from pydantic_core import to_jsonable_python
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import RegistryError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
+from tracecat.registry.actions.schemas import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
@@ -51,12 +52,10 @@ from tracecat.registry.fields import (
     get_components_for_union_type,
     type_drop_null,
 )
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import SshEnv, ssh_context
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
@@ -159,7 +158,9 @@ class RegisterKwargs(BaseModel):
     author: str | None = None
     deprecated: str | None = None
     secrets: list[RegistrySecretType] | None = None
+    # Options
     include_in_schema: bool = True
+    requires_approval: bool = False
 
 
 class Repository:
@@ -250,6 +251,7 @@ class Repository:
         author: str | None,
         deprecated: str | None,
         include_in_schema: bool,
+        requires_approval: bool = False,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
@@ -272,6 +274,7 @@ class Repository:
             origin=origin,
             template_action=template_action,
             include_in_schema=include_in_schema,
+            requires_approval=requires_approval,
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -333,8 +336,6 @@ class Repository:
             self._load_base_template_actions()
             return None
 
-        elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
-            raise RegistryError("This repository cannot be synced.")
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
             # The local repo doesn't have to be a git repo, but it should be a directory
@@ -584,6 +585,7 @@ class Repository:
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,
             include_in_schema=validated_kwargs.include_in_schema,
+            requires_approval=validated_kwargs.requires_approval,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype=rtype,
@@ -760,22 +762,60 @@ def import_and_reload(module_name: str) -> ModuleType:
             # Skip reload on first import
             loaded_module = importlib.import_module(module_name)
         else:
-            # Reload in-place to refresh definitions without dropping parent package
-            loaded_module = importlib.reload(module)
+            spec = getattr(module, "__spec__", None)
+            loader = getattr(spec, "loader", None) if spec is not None else None
+            if loader is None:
+                # Without a loader importlib.reload will raise ModuleNotFoundError;
+                # fall back to a best-effort fresh import and keep the existing module.
+                loaded_module = importlib.import_module(module_name)
+            else:
+                # Reload in-place to refresh definitions without dropping parent package
+                loaded_module = importlib.reload(module)
         sys.modules[module_name] = loaded_module
         return loaded_module
 
 
-def attach_validators(func: F, *validators: Any):
-    sig = inspect.signature(func)
+def _annotated_with_validators(annotation: Any, validators: tuple[Any, ...]) -> Any:
+    """Return an Annotated type that includes the provided validators once each."""
 
-    new_annotations = {
-        name: Annotated[param.annotation, *validators]
-        for name, param in sig.parameters.items()
-    }
+    if annotation is inspect._empty:
+        base = Any
+        metadata: list[Any] = []
+    else:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            args = get_args(annotation)
+            base = args[0]
+            metadata = list(args[1:])
+        else:
+            base = annotation
+            metadata = []
+
+    for validator in validators:
+        if any(isinstance(meta, validator.__class__) for meta in metadata):
+            continue
+        metadata.append(validator)
+
+    if metadata:
+        return Annotated[base, *metadata]
+    return base
+
+
+def attach_validators(func: F, *validators: Any):
+    if not validators:
+        return
+
+    sig = inspect.signature(func)
+    annotations = dict(func.__annotations__)
+
+    for name, param in sig.parameters.items():
+        current = annotations.get(name, param.annotation)
+        annotations[name] = _annotated_with_validators(current, validators)
+
     if sig.return_annotation is not sig.empty:
-        new_annotations["return"] = sig.return_annotation
-    func.__annotations__ = new_annotations
+        annotations.setdefault("return", sig.return_annotation)
+
+    func.__annotations__ = annotations
 
 
 def generate_model_from_function(

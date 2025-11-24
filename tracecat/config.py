@@ -1,9 +1,13 @@
+import logging
 import os
 import uuid
 from typing import Literal
 
 from tracecat.auth.enums import AuthType
 from tracecat.feature_flags.enums import FeatureFlag
+
+# === Logger === #
+logger = logging.getLogger(__name__)
 
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
@@ -23,11 +27,13 @@ TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 120.0
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0
 )
-"""Timeout for the executor client in seconds (default 120s).
+"""Timeout for the executor client in seconds (default 900s).
 
 The `httpx.Client` default is 5s, which doesn't work for long-running actions.
+This value is also used when waiting for Ray task execution so the outbound
+client timeout and Ray task await timeout remain aligned.
 """
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
@@ -180,11 +186,11 @@ TEMPORAL__CLUSTER_QUEUE = os.environ.get(
 )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
-TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
-"""RPC timeout for Temporal workflows in seconds."""
+TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT") or "900"
+"""RPC timeout for Temporal workflows in seconds (default 900 seconds)."""
 
-TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
-"""Temporal workflow task timeout in seconds (default 10 seconds)."""
+TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT") or "900"
+"""Temporal workflow task timeout in seconds (default 900 seconds)."""
 
 TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
@@ -303,6 +309,11 @@ TRACECAT__MAX_FILE_SIZE_BYTES = int(
 )
 """The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
 
+TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES", 5 * 1024 * 1024)
+)
+"""Maximum CSV upload size for table imports in bytes. Defaults to 5MB."""
+
 TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
     os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
 )
@@ -353,9 +364,9 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
 
 # === Redis config === #
 REDIS_CHAT_TTL_SECONDS = int(
-    os.environ.get("REDIS_CHAT_TTL_SECONDS", 30 * 24 * 60 * 60)  # 30 days
+    os.environ.get("REDIS_CHAT_TTL_SECONDS", 3 * 24 * 60 * 60)  # 3 days
 )
-"""TTL for Redis chat history streams in seconds. Defaults to 30 days."""
+"""TTL for Redis chat history streams in seconds. Defaults to 3 days."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
@@ -440,16 +451,22 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
 """Whether the enterprise edition is enabled."""
 
 # === Feature Flags === #
-TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = {
-    FeatureFlag(f)
-    for flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(",")
-    if (f := flag.strip())
-}
+TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
+for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
+    if not (_flag_value := _flag.strip()):
+        continue
+    try:
+        TRACECAT__FEATURE_FLAGS.add(FeatureFlag(_flag_value))
+    except ValueError:
+        logger.warning(
+            "Ignoring unknown feature flag '%s' from TRACECAT__FEATURE_FLAGS",
+            _flag_value,
+        )
 """Set of enabled feature flags."""
 
 
 # === Agent config === #
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 10))
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
 """The maximum number of tools that can be used in an agent."""
 
 
@@ -460,3 +477,28 @@ TRACECAT__AGENT_MAX_TOOL_CALLS = int(
 
 TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
 """The maximum number of requests that can be made per agent run."""
+
+TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES", 20))
+"""The maximum number of retries that can be made per agent run."""
+
+TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 128_000)
+)
+"""Default character limit for agent message history when truncating context."""
+
+TRACECAT__AGENT_TOOL_OUTPUT_LIMIT = int(
+    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 20_000)
+)
+"""Default character limit for individual tool outputs when truncating context."""
+
+TRACECAT__MODEL_CONTEXT_LIMITS = {
+    "gpt-4o-mini": 128_000,
+    "gpt-5-mini": 128_000,
+    "gpt-5-nano": 128_000,
+    "gpt-5": 128_000,
+    "claude-sonnet-4-5-20250929": 200_000,
+    "claude-haiku-4-5-20251001": 200_000,
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": 200_000,
+    "anthropic.claude-haiku-4-5-20251001-v1:0": 200_000,
+}
+"""Model-specific character limits for agent message history truncation."""

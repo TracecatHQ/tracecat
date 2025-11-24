@@ -6,9 +6,9 @@ from github import Github
 from github.GithubException import GithubException
 from pydantic import SecretStr
 
+from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.types.auth import Role
 from tracecat.vcs.github.app import GitHubAppService
 
 

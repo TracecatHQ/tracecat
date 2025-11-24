@@ -11,7 +11,7 @@ from tracecat.expressions import functions
 from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.validation.models import ExprValidationResult, ValidationDetail
+from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
 
 
 class BaseExprValidator(Visitor):
@@ -178,6 +178,27 @@ class BaseExprValidator(Visitor):
             )
         name, key = parts
         return name, key
+
+    def vars(self, node: Tree[Token]) -> tuple[str, str | None] | None:
+        self.logger.trace("Visit vars expression", expr=node)
+
+        expr = node.children[0]
+        if not isinstance(expr, Token):
+            raise ValueError("Expected a string token")
+
+        var_path = expr.lstrip(".")
+        if not var_path:
+            self.add(
+                status="error",
+                msg="Invalid variable usage: Expected `VARS.my_variable.KEY`",
+                type=ExprType.VARIABLE,
+            )
+            return None
+        if "." in var_path:
+            name, remainder = var_path.split(".", 1)
+        else:
+            name, remainder = var_path, None
+        return name, remainder
 
     def function(self, node: Tree[Token]):
         fn_name = node.children[0]

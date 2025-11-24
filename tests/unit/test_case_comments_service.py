@@ -1,13 +1,13 @@
 import uuid
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.cases.models import CaseCommentCreate, CaseCommentUpdate
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
 from tracecat.cases.service import CaseCommentsService, CasesService
-from tracecat.db.schemas import Case
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.db.models import Case
+from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -55,7 +55,7 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
     cases_service = CasesService(session=session, role=svc_role)
 
     from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.models import CaseCreate
+    from tracecat.cases.schemas import CaseCreate
 
     case = await cases_service.create_case(
         CaseCreate(

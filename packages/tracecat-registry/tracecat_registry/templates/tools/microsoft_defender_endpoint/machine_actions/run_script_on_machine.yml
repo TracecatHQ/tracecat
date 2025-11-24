@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Run script on machine
+  description: Execute a script from the Live Response library on a device.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/run-live-response
+  namespace: tools.microsoft_defender_endpoint
+  name: run_script_on_machine
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to target with the script.
+    script_name:
+      type: str
+      description: Name of the uploaded Live Response script to run.
+    script_arguments:
+      type: str | None
+      description: Optional arguments passed to the script (quoted as a single string).
+      default: null
+    comment:
+      type: str | None
+      description: Comment describing the Live Response action.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          script_name: ${{ inputs.script_name }}
+          script_arguments: ${{ inputs.script_arguments }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(script_name, script_arguments, comment):
+              command = {
+                  "type": "RunScript",
+                  "params": [
+                      {"key": "ScriptName", "value": script_name},
+                  ],
+              }
+              if script_arguments:
+                  command["params"].append({"key": "Args", "value": script_arguments})
+              payload = {"Commands": [command]}
+              if comment:
+                  payload["Comment"] = comment
+              return payload
+    - ref: run_script
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.run_script.result.data }}

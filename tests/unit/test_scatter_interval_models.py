@@ -4,7 +4,8 @@ Tests the Task.delay and ScatterArgs.interval fields added for the scatter
 interval feature.
 """
 
-from tracecat.dsl.models import ScatterArgs, StreamID, Task
+from tracecat.dsl.schemas import ScatterArgs, StreamID
+from tracecat.dsl.types import Task
 
 
 class TestTaskModel:

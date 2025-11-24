@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Get file from machine
+  description: Request a file from a device using Microsoft Defender Live Response.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/run-live-response
+  namespace: tools.microsoft_defender_endpoint
+  name: get_file_from_machine
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    machine_id:
+      type: str
+      description: Machine ID to collect the file from.
+    file_path:
+      type: str
+      description: Absolute file path on the device (escape backslashes, for example C:\\\\Windows\\\\Temp\\\\sample.txt).
+    comment:
+      type: str | None
+      description: Comment describing the Live Response action.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          file_path: ${{ inputs.file_path }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(file_path, comment):
+              command = {
+                  "type": "GetFile",
+                  "params": [
+                      {"key": "Path", "value": file_path},
+                  ],
+              }
+              payload = {"Commands": [command]}
+              if comment:
+                  payload["Comment"] = comment
+              return payload
+    - ref: get_file
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.get_file.result.data }}

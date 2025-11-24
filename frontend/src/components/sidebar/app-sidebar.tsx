@@ -1,20 +1,22 @@
 "use client"
 
 import {
-  BoxIcon,
+  BotIcon,
+  BracketsIcon,
   KeyRoundIcon,
-  ListTodoIcon,
   type LucideIcon,
-  ShapesIcon,
+  MessageSquareIcon,
   SquareStackIcon,
   Table2Icon,
+  UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
@@ -29,8 +31,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -40,8 +42,26 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
-  const { isFeatureEnabled } = useFeatureFlag()
+  const params = useParams<{ caseId?: string }>()
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
+  const caseId = params?.caseId
+  const casesListPath = `${basePath}/cases`
+  const isCasesList = pathname === casesListPath
+
+  useEffect(() => {
+    setSidebarOpenRef.current = setSidebarOpen
+  }, [setSidebarOpen])
+
+  useEffect(() => {
+    const updateSidebarOpen = setSidebarOpenRef.current
+    if (caseId) {
+      updateSidebarOpen(false)
+    } else if (isCasesList) {
+      updateSidebarOpen(true)
+    }
+  }, [caseId, isCasesList])
 
   type NavItem = {
     title: string
@@ -52,6 +72,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   const navMain: NavItem[] = [
+    {
+      title: "Chat",
+      url: `${basePath}/copilot`,
+      icon: MessageSquareIcon,
+      isActive: pathname?.startsWith(`${basePath}/copilot`),
+    },
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
@@ -65,11 +91,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
-      title: "Runbooks",
-      url: `${basePath}/runbooks`,
-      icon: ListTodoIcon,
-      isActive: pathname?.startsWith(`${basePath}/runbooks`),
-      visible: isFeatureEnabled("runbooks"),
+      title: "Agents",
+      url: `${basePath}/agents`,
+      icon: BotIcon,
+      isActive: pathname?.startsWith(`${basePath}/agents`),
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/approvals`,
+      icon: UserCheckIcon,
+      isActive: pathname?.startsWith(`${basePath}/approvals`),
     },
   ]
 
@@ -81,16 +112,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
-      title: "Records",
-      url: `${basePath}/records`,
-      icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/records`),
-    },
-    {
-      title: "Entities",
-      url: `${basePath}/entities`,
-      icon: ShapesIcon,
-      isActive: pathname?.startsWith(`${basePath}/entities`),
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: BracketsIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
     },
     {
       title: "Credentials",

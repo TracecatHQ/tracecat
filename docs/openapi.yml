@@ -75,6 +75,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/webhook/api-key:
+    post:
+      tags:
+      - triggers
+      summary: Generate Webhook Api Key
+      description: Create or rotate the API key for a webhook.
+      operationId: triggers-generate_webhook_api_key
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf_[0-9a-zA-Z]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookApiKeyResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - triggers
+      summary: Delete Webhook Api Key
+      description: Permanently delete the current API key for a webhook.
+      operationId: triggers-delete_webhook_api_key
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf_[0-9a-zA-Z]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/webhook/api-key/revoke:
+    post:
+      tags:
+      - triggers
+      summary: Revoke Webhook Api Key
+      description: Revoke the current API key for a webhook without deleting it.
+      operationId: triggers-revoke_webhook_api_key
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf_[0-9a-zA-Z]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /webhooks/{workflow_id}/{secret}/wait:
     post:
       tags:
@@ -5785,7 +5899,7 @@ components:
       - fatal
       - other
       title: CaseSeverity
-      description: "Case severity values aligned with OCSF severity values.\n\nValues:\n\
+      description: "Case severity values used across Tracecat workflows.\n\nValues:\n\
         \    UNKNOWN (0): The event/finding severity is unknown\n    INFORMATIONAL\
         \ (1): Informational message. No action required\n    LOW (2): The user decides\
         \ if action is needed\n    MEDIUM (3): Action is required but the situation\
@@ -5804,7 +5918,7 @@ components:
       - closed
       - other
       title: CaseStatus
-      description: Case status values aligned with OCSF Incident Finding status.
+      description: Case status values used across Tracecat incident workflows.
     CaseUpdate:
       properties:
         summary:
@@ -8414,14 +8528,23 @@ components:
         status:
           $ref: '#/components/schemas/WebhookStatus'
           default: offline
-        method:
-          $ref: '#/components/schemas/WebhookMethod'
-          default: POST
+        methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookMethod'
+          default:
+          - POST
         entrypoint_ref:
           anyOf:
           - type: string
           - type: 'null'
           title: Entrypoint Ref
+        allowlisted_cidrs:
+          type: array
+          items:
+            type: string
+          title: Allowlisted Cidrs
+          default: []
       type: object
       title: WebhookCreate
     WebhookMethod:
@@ -8456,17 +8579,51 @@ components:
           - type: string
           - type: 'null'
           title: Entrypoint Ref
+        allowlisted_cidrs:
+          type: array
+          items:
+            type: string
+          title: Allowlisted Cidrs
         filters:
           type: object
           title: Filters
-        method:
-          $ref: '#/components/schemas/WebhookMethod'
+        methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookMethod'
+          title: Methods
         workflow_id:
           type: string
           title: Workflow Id
         url:
           type: string
           title: Url
+        api_key_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Api Key Preview
+        api_key_created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Api Key Created At
+        api_key_last_used_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Api Key Last Used At
+        api_key_revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Api Key Revoked At
+        has_active_api_key:
+          type: boolean
+          title: Has Active Api Key
       type: object
       required:
       - owner_id
@@ -8474,9 +8631,11 @@ components:
       - secret
       - status
       - filters
-      - method
+      - methods
+      - allowlisted_cidrs
       - workflow_id
       - url
+      - has_active_api_key
       title: WebhookRead
     WebhookStatus:
       type: string
@@ -8489,17 +8648,45 @@ components:
           anyOf:
           - $ref: '#/components/schemas/WebhookStatus'
           - type: 'null'
-        method:
+        methods:
           anyOf:
-          - $ref: '#/components/schemas/WebhookMethod'
+          - type: array
+            items:
+              $ref: '#/components/schemas/WebhookMethod'
           - type: 'null'
+          title: Methods
         entrypoint_ref:
           anyOf:
           - type: string
           - type: 'null'
           title: Entrypoint Ref
+        allowlisted_cidrs:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          title: Allowlisted Cidrs
       type: object
       title: WebhookUpdate
+    WebhookApiKeyResponse:
+      properties:
+        api_key:
+          type: string
+          title: Api Key
+        preview:
+          type: string
+          title: Preview
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - api_key
+      - preview
+      - created_at
+      title: WebhookApiKeyResponse
     WorkflowCommitResponse:
       properties:
         workflow_id:

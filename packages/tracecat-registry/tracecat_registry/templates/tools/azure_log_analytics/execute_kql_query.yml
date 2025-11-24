@@ -10,6 +10,11 @@ definition:
     - type: oauth
       provider_id: azure_log_analytics
       grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_log_analytics
+      grant_type: client_credentials
+      optional: true
   expects:
     workspace_id:
       type: str
@@ -21,6 +26,10 @@ definition:
       type: str | None
       description: ISO8601 time period to limit query results (e.g., "P7D" for 7 days, "PT1H" for 1 hour).
       default: null
+    base_url:
+      type: enum["https://api.loganalytics.io", "https://api.loganalytics.us"]
+      description: Base URL for the Azure Log Analytics API.
+      default: https://api.loganalytics.io
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -37,10 +46,10 @@ definition:
     - ref: execute_query
       action: core.http_request
       args:
-        url: https://api.loganalytics.io/v1/workspaces/${{ FN.url_encode(inputs.workspace_id) }}/query
+        url: ${{ inputs.base_url }}/v1/workspaces/${{ FN.url_encode(inputs.workspace_id) }}/query
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.execute_query.result.data }}

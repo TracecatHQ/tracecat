@@ -51,9 +51,9 @@ Have questions? Feedback? New integration ideas? Come hang out with us in the [T
 
 ![Tracecat Action template](img/action-template.svg)
 
-Tracecat Registry is a collection of integration and response-as-code templates.
-Response actions are organized into Tracecat's own ontology of common capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
-Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
+Tracecat Registry is a collection of ready-to-use integration templates for common security and IT workflows.
+Templates are organized around the real-world capabilities they automate (e.g. `list_alerts`, `list_cases`, `list_users`) so you can plug them straight into your playbooks.
+Template inputs (e.g. `start_time`, `end_time`) use consistent naming across integrations to simplify reuse.
 
 **Examples**
 

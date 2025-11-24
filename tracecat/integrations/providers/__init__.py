@@ -1,45 +1,57 @@
 from typing import Final
 
-from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
+from tracecat.integrations.providers.google import GoogleServiceAccountOAuthProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
-from tracecat.integrations.providers.microsoft.azure import (
+from tracecat.integrations.providers.microsoft import (
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
-)
-from tracecat.integrations.providers.microsoft.graph import (
+    AzureManagementCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+    MicrosoftDefenderXDRACProvider,
+    MicrosoftDefenderXDRCCProvider,
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
-)
-from tracecat.integrations.providers.microsoft.loganalytics import (
-    AzureLogAnalyticsACProvider,
-)
-from tracecat.integrations.providers.microsoft.sentinel import (
     MicrosoftSentinelACProvider,
-)
-from tracecat.integrations.providers.microsoft.teams import (
+    MicrosoftSentinelCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
 )
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
+from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
-    AzureLogAnalyticsACProvider,
-    AzureManagementACProvider,
-    MicrosoftGraphACProvider,
-    MicrosoftGraphCCProvider,
-    MicrosoftSentinelACProvider,
-    MicrosoftTeamsACProvider,
-    MicrosoftTeamsCCProvider,
     GitHubOAuthProvider,
     GitHubMCPProvider,
+    GoogleServiceAccountOAuthProvider,
     LinearMCPProvider,
     NotionMCPProvider,
     RunRevealMCPProvider,
     SentryMCPProvider,
+    AzureManagementACProvider,
+    AzureManagementCCProvider,
+    MicrosoftSentinelACProvider,
+    MicrosoftSentinelCCProvider,
+    AzureLogAnalyticsACProvider,
+    AzureLogAnalyticsCCProvider,
+    MicrosoftDefenderEndpointACProvider,
+    MicrosoftDefenderEndpointCCProvider,
+    MicrosoftDefenderXDRACProvider,
+    MicrosoftDefenderXDRCCProvider,
+    MicrosoftEntraACProvider,
+    MicrosoftEntraCCProvider,
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
+    MicrosoftTeamsACProvider,
+    MicrosoftTeamsCCProvider,
 ]
 
 

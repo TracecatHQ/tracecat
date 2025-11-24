@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: Update alert
+  description: Update status, ownership, or classification details for a Microsoft Defender for Endpoint alert.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/update-alert
+  namespace: tools.microsoft_defender_endpoint
+  name: update_alert
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    alert_id:
+      type: str
+      description: Alert ID to update.
+    status:
+      type: enum["New", "InProgress", "Resolved"] | None
+      description: Updated alert status.
+      default: null
+    assigned_to:
+      type: str | None
+      description: User principal name (UPN) or email address to assign the alert to.
+      default: null
+    classification:
+      type: enum["Unknown", "TruePositive", "FalsePositive", "InformationalExpectedActivity"] | None
+      description: Updated alert classification.
+      default: null
+    determination:
+      type: str | None
+      description: Determination that provides additional context for the classification (for example, Malware, SecurityTesting, NotMalicious).
+      default: null
+    comment:
+      type: str | None
+      description: Comment to append to the alert.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          status: ${{ inputs.status }}
+          assigned_to: ${{ inputs.assigned_to }}
+          classification: ${{ inputs.classification }}
+          determination: ${{ inputs.determination }}
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(status, assigned_to, classification, determination, comment):
+              payload = {}
+              if status:
+                  payload["status"] = status
+              if assigned_to:
+                  payload["assignedTo"] = assigned_to
+              if classification:
+                  payload["classification"] = classification
+              if determination:
+                  payload["determination"] = determination
+              if comment:
+                  payload["comment"] = comment
+              if not payload:
+                  raise ValueError("At least one field must be provided to update the alert.")
+              return payload
+    - ref: update_alert
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/alerts/${{ FN.url_encode(inputs.alert_id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_alert.result.data }}

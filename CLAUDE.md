@@ -103,15 +103,33 @@ just gen-functions
 - **Registry** (`registry/`): Independent package for integrations and templates
 
 ### Key Technologies
-- **Backend**: FastAPI, SQLModel, Pydantic, Temporal, Ray, PostgreSQL, Alembic
+- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic
 - **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
 - **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
 - **Package Management**: `uv` for Python, `pnpm` for JavaScript
 
 ### Database and Migrations
-- **Schema**: `tracecat/db/schemas.py` - Never add methods here, keep imports minimal
+- **Database Models**: `tracecat/db/models.py` - SQLAlchemy database tables. Never add methods here, keep imports minimal
 - **Migrations**: `alembic/` directory with comprehensive schema evolution
 - **Database Engine**: `tracecat/db/engine.py` for connection management
+
+### Type System Architecture
+The codebase follows a three-tier type system to separate concerns and reduce circular imports:
+
+1. **`models.py`**: Database models (SQLAlchemy tables)
+   - Location: `tracecat/db/models.py`
+   - Purpose: Database table definitions
+   - Rules: Never add methods, keep imports minimal
+
+2. **`schemas.py`**: API request/response schemas (Pydantic models)
+   - Location: Throughout codebase (e.g., `tracecat/agent/schemas.py`, `tracecat/workflow/management/schemas.py`)
+   - Purpose: API contracts, DTOs, request/response models
+   - Naming: Previously called `models.py`, renamed for clarity
+
+3. **`types.py`**: Domain types, protocols, and type aliases
+   - Location: Throughout codebase (e.g., `tracecat/agent/types.py`, `tracecat/workflow/management/types.py`)
+   - Purpose: Service-level types, protocols, dataclasses, type aliases
+   - Use: Domain logic types that don't fit in schemas or models
 
 ### Enterprise Edition
 - **Package**: `packages/tracecat-ee/` contains paid enterprise features
@@ -132,6 +150,23 @@ just gen-functions
 - Always avoid use of `type: ignore` when writing python code
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+
+### Type Organization Guidelines
+When adding new types, follow this pattern:
+- **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
+- **API schemas**: Add to module-specific `schemas.py` files (Pydantic models for request/response)
+- **Domain types**: Add to module-specific `types.py` files (protocols, dataclasses, type aliases)
+- **Avoiding circular imports**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
+- **Import order**: `models` → `types` → `schemas` → `service` → `router` (to minimize circular dependencies)
+
+Example structure for a module like `tracecat/agent/`:
+```
+tracecat/agent/
+├── schemas.py       # API request/response models (RunAgentArgs, AgentStreamChunk)
+├── types.py         # Domain types (AgentConfig, StreamingAgentDeps protocol)
+├── service.py       # Business logic
+└── router.py        # FastAPI routes
+```
 
 ### Frontend Standards
 - Use kebab-case for file names
@@ -166,7 +201,6 @@ just gen-functions
 
 ### Action Templates and Registry
 - **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
 - **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
@@ -185,7 +219,7 @@ just gen-functions
 - **Temporal**: Workflow orchestration with `tracecat/dsl/worker.py`
 
 ## Important Rules
-- Never add methods in `tracecat/db/schemas.py`. Keep imports minimal.
+- Never add methods in `tracecat/db/models.py`. Keep imports minimal.
 - Always use `pnpm` over `npm` and `rg` instead of `grep`
 - Always ask clarifying questions when lacking full context
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object

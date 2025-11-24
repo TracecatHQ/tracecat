@@ -27,13 +27,12 @@ repos:
         exclude: ^alembic/versions/
       - id: ruff-format
         verbose: true
-        exclude: ^alembic/versions/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:
       - id: gitleaks
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.8.6
+    rev: 0.9.7
     hooks:
       # Keep uv.lock in sync with changes to pyproject.toml
       - id: uv-lock

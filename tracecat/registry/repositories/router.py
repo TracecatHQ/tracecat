@@ -5,19 +5,22 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    TracecatCredentialsNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
-from tracecat.registry.constants import (
-    CUSTOM_REPOSITORY_ORIGIN,
-    DEFAULT_REGISTRY_ORIGIN,
-    REGISTRY_REPOS_PATH,
-)
-from tracecat.registry.repositories.models import (
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
+from tracecat.registry.repositories.schemas import (
     GitCommitInfo,
     RegistryRepositoryCreate,
     RegistryRepositoryErrorDetail,
@@ -29,13 +32,6 @@ from tracecat.registry.repositories.models import (
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import (
-    RegistryActionValidationError,
-    RegistryError,
-    TracecatCredentialsNotFoundError,
-    TracecatValidationError,
-)
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -407,7 +403,7 @@ async def delete_registry_repository(
             detail="Registry repository not found",
         ) from e
     logger.info("Deleting registry repository", repository_id=repository_id)
-    if repository.origin in (DEFAULT_REGISTRY_ORIGIN, CUSTOM_REPOSITORY_ORIGIN):
+    if repository.origin == DEFAULT_REGISTRY_ORIGIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The {repository.origin!r} repository cannot be deleted.",

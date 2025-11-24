@@ -8,11 +8,11 @@ from pydantic import BaseModel, TypeAdapter
 from tracecat_registry import RegistrySecretTypeValidator
 
 from tracecat import config
-from tracecat.db.schemas import RegistryAction
+from tracecat.db.models import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionImplValidator,
     RegistryActionUDFImpl,

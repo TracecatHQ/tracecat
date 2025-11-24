@@ -3,21 +3,21 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from sqlmodel import select
 
-from tracecat.auth.models import SessionRead, UserUpdate
+from tracecat.auth.schemas import SessionRead, UserUpdate
+from tracecat.auth.types import AccessLevel
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
-from tracecat.db.schemas import AccessToken, User
+from tracecat.db.models import AccessToken, User
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import SessionID, UserID
 from tracecat.service import BaseService
-from tracecat.types.auth import AccessLevel
-from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class OrgService(BaseService):
@@ -47,8 +47,8 @@ class OrgService(BaseService):
             members in the organization.
         """
         statement = select(User)
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     @require_access_level(AccessLevel.ADMIN)
     async def get_member(self, user_id: UserID) -> User:
@@ -63,9 +63,9 @@ class OrgService(BaseService):
         Raises:
             NoResultFound: If no user with the given ID exists.
         """
-        statement = select(User).where(User.id == user_id)
-        result = await self.session.exec(statement)
-        return result.one()
+        statement = select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        result = await self.session.execute(statement)
+        return result.scalar_one()
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
@@ -127,8 +127,8 @@ class OrgService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
         """List all sessions."""
-        statement = select(AccessToken).options(selectinload(AccessToken.user))  # pyright: ignore[reportArgumentType]
-        result = await self.session.exec(statement)
+        statement = select(AccessToken).options(selectinload(AccessToken.user))
+        result = await self.session.execute(statement)
         return [
             SessionRead(
                 id=s.id,
@@ -136,14 +136,14 @@ class OrgService(BaseService):
                 user_id=s.user.id,
                 user_email=s.user.email,
             )
-            for s in result.all()
+            for s in result.scalars().all()
         ]
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID."""
         statement = select(AccessToken).where(AccessToken.id == session_id)
-        result = await self.session.exec(statement)
-        db_token = result.one()
+        result = await self.session.execute(statement)
+        db_token = result.scalar_one()
         await self.session.delete(db_token)
         await self.session.commit()

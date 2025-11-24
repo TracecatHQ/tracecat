@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type React from "react"
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 
 import "@radix-ui/react-dialog"
 
@@ -22,6 +22,7 @@ import {
   type ExpectedField,
   type WorkflowRead,
   type WorkflowUpdate,
+  workflowsValidateWorkflowEntrypoint,
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
@@ -54,61 +55,111 @@ import {
 } from "@/lib/errors"
 import { useWorkflow } from "@/providers/workflow"
 
-const workflowUpdateFormSchema = z.object({
-  title: z
-    .string()
-    .min(1, { message: "Name is required" })
-    .max(100, { message: "Name cannot exceed 100 characters" }),
-  description: z
-    .string()
-    .max(1000, { message: "Description cannot exceed 1000 characters" })
-    .optional(),
-  alias: z
-    .string()
-    .max(100, { message: "Alias cannot exceed 100 characters" })
-    .nullish(),
-  // Config fields
-  environment: z
-    .string()
-    .max(100, { message: "Environment cannot exceed 100 characters" })
-    .optional(),
-  timeout: z
-    .number()
-    .min(0, { message: "Timeout must be at least 0 seconds" })
-    .max(1209600, {
-      message: "Timeout cannot exceed 14 days (1209600 seconds)",
-    })
-    .optional(),
-  /* Input Schema */
-  expects: z
-    .record(
-      z.string(),
-      z
-        .object({
-          type: z.string(),
-          description: z.string().nullable().optional(),
-          default: z.unknown().nullable().optional(),
+const createWorkflowUpdateFormSchema = (workspaceId: string) =>
+  z
+    .object({
+      title: z
+        .string()
+        .min(1, { message: "Name is required" })
+        .max(100, { message: "Name cannot exceed 100 characters" }),
+      description: z
+        .string()
+        .max(1000, { message: "Description cannot exceed 1000 characters" })
+        .optional(),
+      alias: z
+        .string()
+        .max(100, { message: "Alias cannot exceed 100 characters" })
+        .nullish(),
+      // Config fields
+      environment: z
+        .string()
+        .max(100, { message: "Environment cannot exceed 100 characters" })
+        .optional(),
+      timeout: z
+        .number()
+        .min(0, { message: "Timeout must be at least 0 seconds" })
+        .max(1209600, {
+          message: "Timeout cannot exceed 14 days (1209600 seconds)",
         })
-        .refine((val): val is ExpectedField => true)
-    )
-    .nullish(),
-  returns: z.unknown().nullish(),
-  /* Error Handler */
-  error_handler: z
-    .string()
-    .max(100, { message: "Error handler cannot exceed 100 characters" })
-    .nullish(),
-})
+        .optional(),
+      /* Input Schema */
+      expects: z
+        .record(
+          z.string(),
+          z
+            .object({
+              type: z.string().min(1, { message: "Type is required" }),
+              description: z.string().nullable().optional(),
+              default: z.unknown().nullable().optional(),
+            })
+            .refine((val): val is ExpectedField => true)
+        )
+        .nullish(),
+      returns: z.unknown().nullish(),
+      /* Error Handler */
+      error_handler: z
+        .string()
+        .max(100, { message: "Error handler cannot exceed 100 characters" })
+        .nullish(),
+    })
+    .superRefine(async (values, ctx) => {
+      if (!values.expects || Object.keys(values.expects).length === 0) {
+        return
+      }
 
-type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
+      try {
+        const { valid, errors } = await workflowsValidateWorkflowEntrypoint({
+          workspaceId,
+          requestBody: {
+            expects: values.expects,
+          },
+        })
+
+        if (!valid) {
+          const messages = errors?.flatMap((error) => {
+            if (!error?.detail || !Array.isArray(error.detail)) {
+              return []
+            }
+            return error.detail.map((detail) => detail.msg).filter(Boolean)
+          })
+
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["expects"],
+            message:
+              messages && messages.length > 0
+                ? messages.join("\n")
+                : "Invalid trigger input definition.",
+          })
+        }
+      } catch (error) {
+        console.error("Failed to validate trigger inputs", error)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["expects"],
+          message: "Failed to validate trigger inputs. Please try again.",
+        })
+      }
+    })
+
+type WorkflowUpdateFormSchema = ReturnType<
+  typeof createWorkflowUpdateFormSchema
+>
+type WorkflowUpdateForm = z.infer<WorkflowUpdateFormSchema>
 export function WorkflowPanel({
   workflow,
 }: {
   workflow: WorkflowRead
 }): React.JSX.Element {
-  const { updateWorkflow } = useWorkflow()
+  const { updateWorkflow, workspaceId } = useWorkflow()
+  const workflowUpdateFormSchema = useMemo(
+    () => createWorkflowUpdateFormSchema(workspaceId),
+    [workspaceId]
+  )
   const methods = useForm<WorkflowUpdateForm>({
-    resolver: zodResolver(workflowUpdateFormSchema),
+    resolver: zodResolver(workflowUpdateFormSchema, undefined, {
+      mode: "async",
+    }),
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
@@ -169,8 +220,11 @@ export function WorkflowPanel({
 
     // Parse values through zod schema first
     const result = await workflowUpdateFormSchema.safeParseAsync(values)
-    if (!result.success) {
-      console.error("Validation failed:", result.error)
+    if (result.success) {
+      methods.clearErrors()
+      await onSubmit(result.data)
+    } else {
+      console.warn("Validation failed:", result.error)
       // Set form errors with field name and message
       Object.entries(result.error.formErrors.fieldErrors).forEach(
         ([fieldName, error]) => {
@@ -180,13 +234,11 @@ export function WorkflowPanel({
           })
         }
       )
-      return
     }
-    await onSubmit(result.data)
-  }, [methods, onSubmit])
+  }, [methods, onSubmit, workflowUpdateFormSchema])
 
   return (
-    <div onBlur={onPanelBlur}>
+    <div onBlur={onPanelBlur} className="pb-16">
       <Tabs defaultValue="workflow-settings" className="w-full">
         <Form {...methods}>
           <form
@@ -197,14 +249,14 @@ export function WorkflowPanel({
               <div className="mt-0.5 flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-28 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-settings"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>General</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-28 rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-schema"
                   >
                     <ShapesIcon className="mr-2 size-4" />
@@ -213,8 +265,8 @@ export function WorkflowPanel({
                 </TabsList>
               </div>
               <Separator />
-              <div className="w-full overflow-x-auto">
-                <TabsContent value="workflow-settings">
+              <div className="w-full overflow-x-auto pb-32">
+                <TabsContent value="workflow-settings" className="pb-8">
                   <Accordion
                     type="multiple"
                     defaultValue={["workflow-settings", "workflow-config"]}
@@ -523,7 +575,7 @@ export function WorkflowPanel({
                     </AccordionItem>
                   </Accordion>
                 </TabsContent>
-                <TabsContent value="workflow-schema">
+                <TabsContent value="workflow-schema" className="pb-8">
                   <Accordion
                     type="multiple"
                     defaultValue={["workflow-expects", "workflow-returns"]}

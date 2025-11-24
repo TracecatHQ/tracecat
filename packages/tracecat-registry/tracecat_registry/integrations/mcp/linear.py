@@ -3,6 +3,7 @@ from typing import Any, Annotated
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
+from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 
 
 linear_mcp_oauth_secret = RegistryOAuthSecret(
@@ -23,7 +24,7 @@ linear_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="Linear MCP",
     doc_url="https://linear.app/docs/mcp",
     namespace="tools.linear",
-    secrets=[linear_mcp_oauth_secret],
+    secrets=[linear_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
@@ -35,7 +36,7 @@ async def mcp(
     token = secrets.get(linear_mcp_oauth_secret.token_name)
     mcp_server_url = "https://mcp.linear.app/mcp"
     mcp_server_headers = {"Authorization": f"Bearer {token}"}
-    return await run_agent(
+    output = await run_agent(
         user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
@@ -43,3 +44,4 @@ async def mcp(
         mcp_server_url=mcp_server_url,
         mcp_server_headers=mcp_server_headers,
     )
+    return output.model_dump(mode="json")

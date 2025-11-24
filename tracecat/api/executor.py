@@ -10,11 +10,11 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.exceptions import TracecatException
 from tracecat.executor.engine import setup_ray
 from tracecat.executor.router import router as executor_router
 from tracecat.logger import logger
 from tracecat.middleware import RateLimitMiddleware, RequestLoggingMiddleware
-from tracecat.types.exceptions import TracecatException
 
 
 @asynccontextmanager

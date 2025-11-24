@@ -1,0 +1,105 @@
+type: action
+definition:
+  title: Create Windows ability
+  description: Create a Caldera stockpile ability that runs on Windows agents.
+  display_group: MITRE Caldera
+  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#abilities
+  namespace: tools.caldera
+  name: create_windows_ability
+  secrets:
+    - name: caldera
+      keys:
+        - CALDERA_API_KEY
+  expects:
+    name:
+      type: str
+      description: Ability name.
+    description:
+      type: str
+      description: Ability description.
+    command:
+      type: str
+      description: Exact PowerShell command to execute.
+    tactic:
+      type: str
+      description: MITRE ATT&CK tactic (e.g. discovery, execution).
+    technique_name:
+      type: str
+      description: MITRE ATT&CK technique name.
+    technique_id:
+      type: str | None
+      description: Optional MITRE ATT&CK technique ID (e.g. T1059.001).
+      default: null
+    payloads:
+      type: list[str]
+      description: Optional payload files required by the ability.
+      default: []
+    privilege:
+      type: str
+      description: Privilege level required to run the ability (blank for default).
+      default: ""
+    timeout:
+      type: int
+      description: Command timeout in seconds.
+      default: 60
+    repeatable:
+      type: bool
+      description: Whether the ability can run repeatedly on the same agent.
+      default: false
+    delete_payload:
+      type: bool
+      description: Delete payloads from the agent after execution.
+      default: true
+    base_url:
+      type: str | None
+      description: Caldera API base URL (e.g. http://localhost:8888/api/v2).
+      default: null
+  steps:
+    - ref: generate_ability_id
+      action: core.script.run_python
+      args:
+        script: |
+          import uuid
+
+          def main():
+              return str(uuid.uuid4())
+    - ref: create_windows_ability
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.caldera.base_url }}/abilities
+        method: POST
+        headers:
+          KEY: ${{ SECRETS.caldera.CALDERA_API_KEY }}
+          Content-Type: application/json
+        payload:
+          ability_id: ${{ steps.generate_ability_id.result }}
+          tactic: ${{ inputs.tactic }}
+          technique_name: ${{ inputs.technique_name }}
+          technique_id: ${{ inputs.technique_id }}
+          name: ${{ inputs.name }}
+          description: ${{ inputs.description }}
+          executors:
+            - name: windows
+              platform: psh
+              command: ${{ inputs.command }}
+              code: null
+              language: null
+              build_target: null
+              payloads: ${{ inputs.payloads }}
+              uploads: []
+              timeout: ${{ inputs.timeout }}
+              parsers: []
+              cleanup: []
+              variations: []
+              additional_info: {}
+          requirements: []
+          privilege: ${{ inputs.privilege }}
+          repeatable: ${{ inputs.repeatable }}
+          buckets:
+            - ${{ inputs.tactic }}
+          additional_info: {}
+          access: {}
+          singleton: false
+          plugin: stockpile
+          delete_payload: ${{ inputs.delete_payload }}
+  returns: ${{ steps.create_windows_ability.result.data }}

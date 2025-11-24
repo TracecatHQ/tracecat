@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Get research task
+  description: Retrieve the status and results of a research task by its research_id. Automatically polls until the task is completed and returns the final results.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/research/get-a-task
+  namespace: tools.exa
+  name: get_research
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    research_id:
+      type: str
+      description: Unique identifier for the research task to retrieve.
+  steps:
+    - ref: get_research
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/research/v1/${{ inputs.research_id }}
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+  returns: ${{ steps.get_research.result.data }}

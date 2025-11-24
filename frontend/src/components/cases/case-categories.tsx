@@ -23,15 +23,11 @@ const palette = {
   fuchsia: "bg-fuchsia-500/10 text-fuchsia-700",
   emerald: "bg-green-500/10 text-green-700",
   sky: "bg-blue-500/10 text-blue-700",
+  violet: "bg-violet-500/10 text-violet-700",
+  slate: "bg-slate-500/10 text-slate-700",
 }
 
 export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
-  unknown: {
-    value: "unknown",
-    label: "Unknown",
-    icon: CircleHelpIcon,
-    color: palette.gray,
-  },
   new: {
     value: "new",
     label: "New",
@@ -44,6 +40,12 @@ export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
     icon: TrafficConeIcon,
     color: palette.sky,
   },
+  on_hold: {
+    value: "on_hold",
+    label: "On Hold",
+    icon: CirclePauseIcon,
+    color: palette.orange,
+  },
   resolved: {
     value: "resolved",
     label: "Resolved",
@@ -54,19 +56,19 @@ export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
     value: "closed",
     label: "Closed",
     icon: CheckCircleIcon,
-    color: palette.fuchsia,
+    color: palette.violet,
   },
   other: {
     value: "other",
     label: "Other",
     icon: CircleIcon,
-    color: palette.yellow,
+    color: palette.gray,
   },
-  on_hold: {
-    value: "on_hold",
-    label: "On Hold",
-    icon: CirclePauseIcon,
-    color: palette.orange,
+  unknown: {
+    value: "unknown",
+    label: "Unknown",
+    icon: CircleHelpIcon,
+    color: palette.slate,
   },
 } as const
 
@@ -105,7 +107,7 @@ export const PRIORITIES: Record<CasePriority, CaseBadgeProps<CasePriority>> = {
     label: "Other",
     value: "other",
     icon: CircleIcon,
-    color: palette.red,
+    color: palette.gray,
   },
 } as const
 
@@ -156,6 +158,6 @@ export const SEVERITIES: Record<CaseSeverity, CaseBadgeProps<CaseSeverity>> = {
     label: "Other",
     value: "other",
     icon: CircleIcon,
-    color: palette.sky,
+    color: palette.gray,
   },
 }

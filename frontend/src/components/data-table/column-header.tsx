@@ -20,6 +20,7 @@ interface DataTableColumnHeaderProps<TData, TValue>
   column: Column<TData, TValue>
   title: string
   icon?: React.ReactNode
+  buttonClassName?: string
 }
 
 export function DataTableColumnHeader<TData, TValue>({
@@ -27,19 +28,28 @@ export function DataTableColumnHeader<TData, TValue>({
   title,
   className,
   icon,
+  buttonClassName,
+  ...props
 }: DataTableColumnHeaderProps<TData, TValue>) {
   if (!column.getCanSort()) {
-    return <div className={cn(className)}>{title}</div>
+    return (
+      <div className={cn(className)} {...props}>
+        {title}
+      </div>
+    )
   }
 
+  const resolvedButtonClassName =
+    buttonClassName ?? "-ml-3 h-8 data-[state=open]:bg-accent"
+
   return (
-    <div className={cn("flex items-center space-x-2", className)}>
+    <div className={cn("flex items-center space-x-2", className)} {...props}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className="-ml-3 h-8 data-[state=open]:bg-accent"
+            className={cn(resolvedButtonClassName)}
           >
             {icon}
             <span>{title}</span>

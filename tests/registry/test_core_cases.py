@@ -2,9 +2,10 @@
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -17,12 +18,13 @@ from tracecat_registry.core.cases import (
     search_cases,
     update_case,
     update_comment,
+    upload_attachment_from_url,
 )
 
 # Import UserRead and UserRole for realistic user objects
-from tracecat.auth.models import UserRead, UserRole
+from tracecat.auth.schemas import UserRead, UserRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentUpdate,
     CaseCreate,
@@ -46,6 +48,7 @@ def mock_case():
     case.created_at = datetime.now()
     case.updated_at = datetime.now()
     case.case_number = 1234
+    case.short_id = "CASE-1234"
     case.payload = {"alert_type": "security", "severity": "high"}
     case.tags = []  # Empty list of tags by default
 
@@ -62,6 +65,7 @@ def mock_case():
         "fields": {"field1": "value1", "field2": "value2"},
         "payload": case.payload,
     }
+    case.to_dict.return_value = case.model_dump.return_value
 
     return case
 
@@ -73,14 +77,11 @@ def mock_comment():
     comment.id = uuid.uuid4()
     comment.content = "Test Comment"
     comment.parent_id = None
-
-    # Set up model_dump to return a dict representation
-    comment.model_dump.return_value = {
+    comment.to_dict.return_value = {
         "id": str(comment.id),
         "content": comment.content,
-        "parent_id": comment.parent_id,
+        "parent_id": None,
     }
-
     return comment
 
 
@@ -188,14 +189,18 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "description": "Updated Description",
             "priority": CasePriority.HIGH.value,
             "severity": CaseSeverity.HIGH.value,
             "status": CaseStatus.IN_PROGRESS.value,
-            "fields": {"field1": "new_value", "field2": "value2", "field3": "value3"},
+            "fields": {
+                "field1": "new_value",
+                "field2": "value2",
+                "field3": "value3",
+            },
         }
         mock_service.update_case.return_value = updated_case
 
@@ -228,7 +233,45 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": "new_value", "field3": "value3"}
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_append_description(self, mock_with_session, mock_case):
+        """Test appending to the existing case description when requested."""
+        # Set up the mock service context manager
+        original_description = "Existing description. "
+        mock_case.description = original_description
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.to_dict.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "description": f"{original_description}\nNew details.",
+            "priority": mock_case.priority.value,
+            "severity": mock_case.severity.value,
+            "status": mock_case.status.value,
+            "fields": {"field1": "value1", "field2": "value2"},
+        }
+        mock_service.update_case.return_value = updated_case
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await update_case(
+            case_id=str(mock_case.id),
+            description="New details.",
+            append=True,
+        )
+
+        mock_service.update_case.assert_called_once()
+        _, update_arg = mock_service.update_case.call_args[0]
+        assert isinstance(update_arg, CaseUpdate)
+        assert update_arg.description == f"{original_description}\nNew details."
+
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_partial_base_data(self, mock_with_session, mock_case):
@@ -238,7 +281,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "description": mock_case.description,  # Unchanged
@@ -284,7 +327,7 @@ class TestCoreUpdate:
         assert all(actual_params[k] == v for k, v in expected_params.items())
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_with_partial_field_data(self, mock_with_session, mock_case):
@@ -298,7 +341,7 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -340,7 +383,7 @@ class TestCoreUpdate:
         assert list(params.keys()) == ["fields"]
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_zeroing_out_field(self, mock_with_session, mock_case):
@@ -354,7 +397,7 @@ class TestCoreUpdate:
         }
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -384,7 +427,7 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": None}  # field1 set to None
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_with_empty_field_data(self, mock_with_session, mock_case):
@@ -394,7 +437,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": mock_case.description,  # Unchanged
@@ -424,7 +467,7 @@ class TestCoreUpdate:
         assert update_arg.fields == {}  # Action passes empty dict to service
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_base_attribute_to_none(self, mock_with_session, mock_case):
@@ -434,7 +477,7 @@ class TestCoreUpdate:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,  # Unchanged
             "description": None,  # Set to None
@@ -469,7 +512,7 @@ class TestCoreUpdate:
         assert full_params["description"] is None
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
 
 @pytest.mark.anyio
@@ -520,7 +563,7 @@ class TestCoreCreateComment:
         assert comment_arg.parent_id is None
 
         # Verify the result
-        assert result == mock_comment.model_dump.return_value
+        assert result == mock_comment.to_dict()
 
 
 @pytest.mark.anyio
@@ -535,7 +578,7 @@ class TestCoreUpdateComment:
         mock_service.get_comment.return_value = mock_comment
 
         updated_comment = MagicMock()
-        updated_comment.model_dump.return_value = {
+        updated_comment.to_dict.return_value = {
             "id": str(mock_comment.id),
             "content": "Updated Comment",
             "parent_id": mock_comment.parent_id,
@@ -561,7 +604,7 @@ class TestCoreUpdateComment:
         assert update_arg.content == "Updated Comment"
 
         # Verify the result
-        assert result == updated_comment.model_dump.return_value
+        assert result == updated_comment.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CaseCommentsService.with_session")
     async def test_update_comment_zeroing_content(
@@ -573,7 +616,7 @@ class TestCoreUpdateComment:
         mock_service.get_comment.return_value = mock_comment
 
         updated_comment = MagicMock()
-        updated_comment.model_dump.return_value = {
+        updated_comment.to_dict.return_value = {
             "id": str(mock_comment.id),
             "content": None,  # Set to None
             "parent_id": mock_comment.parent_id,
@@ -599,7 +642,7 @@ class TestCoreUpdateComment:
         assert update_arg.content is None
 
         # Verify the result
-        assert result == updated_comment.model_dump.return_value
+        assert result == updated_comment.to_dict.return_value
 
 
 @pytest.mark.anyio
@@ -726,7 +769,7 @@ class TestCoreListCases:
         # Check that the required fields are present
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
         assert "created_at" in case_result
         assert "updated_at" in case_result
         assert case_result["status"] == mock_case.status.value
@@ -840,6 +883,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -856,7 +900,7 @@ class TestCoreSearchCases:
         # Check that the required fields are present
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
         assert "created_at" in case_result
         assert "updated_at" in case_result
         assert case_result["status"] == mock_case.status.value
@@ -884,6 +928,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -900,7 +945,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_status(self, mock_with_session, mock_case):
@@ -924,6 +969,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.IN_PROGRESS
         assert call_args["priority"] is None
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -940,7 +986,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_priority(self, mock_with_session, mock_case):
@@ -964,6 +1010,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] is None
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -980,7 +1027,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_severity(self, mock_with_session, mock_case):
@@ -1004,6 +1051,7 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] is None
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
@@ -1020,7 +1068,61 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_tags(self, mock_with_session, mock_case):
+        """Test searching cases using tag identifiers."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        tag_one = MagicMock()
+        tag_one.id = uuid.uuid4()
+        tag_two = MagicMock()
+        tag_two.id = uuid.uuid4()
+
+        tags_service = AsyncMock()
+        tags_service.get_tag_by_ref_or_id = AsyncMock(
+            side_effect=[tag_one, NoResultFound(), tag_two]
+        )
+        mock_service.tags = tags_service
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await search_cases(tags=["tag-one", "missing-tag", str(tag_two.id)])
+
+        assert len(result) == 1
+        tags_service.get_tag_by_ref_or_id.assert_has_calls(
+            [
+                call("tag-one"),
+                call("missing-tag"),
+                call(str(tag_two.id)),
+            ]
+        )
+
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["tag_ids"] == [tag_one.id, tag_two.id]
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_programming_error(self, mock_with_session):
+        """Test that SQL programming errors are surfaced as user-friendly errors."""
+        mock_service = AsyncMock()
+        mock_service.search_cases.side_effect = ProgrammingError(
+            "SELECT", {}, Exception("boom")
+        )
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        with pytest.raises(
+            ValueError, match="Invalid filter parameters supplied for case search"
+        ):
+            await search_cases(search_term="bad")
+
+        mock_service.search_cases.assert_called_once()
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_limit(self, mock_with_session, mock_case):
@@ -1043,6 +1145,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=5,
             order_by=None,
             sort=None,
@@ -1059,7 +1162,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_with_ordering(self, mock_with_session, mock_case):
@@ -1082,6 +1185,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by="created_at",
             sort="desc",
@@ -1132,6 +1236,7 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
@@ -1148,7 +1253,7 @@ class TestCoreSearchCases:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_empty_result(self, mock_with_session):
@@ -1171,6 +1276,7 @@ class TestCoreSearchCases:
             status=None,
             priority=None,
             severity=None,
+            tag_ids=None,
             limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
@@ -1383,6 +1489,7 @@ class TestCoreSearchCasesWithDateFilters:
         assert call_args["status"] == CaseStatus.NEW
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["tag_ids"] is None
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
@@ -1398,7 +1505,7 @@ class TestCoreSearchCasesWithDateFilters:
         # Check key values
         assert case_result["id"] == str(mock_case.id)
         assert case_result["summary"] == mock_case.summary
-        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert case_result["short_id"] == mock_case.short_id
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_search_cases_limit_validation(self, mock_with_session):
@@ -1427,7 +1534,7 @@ class TestCoreAssignUser:
         # Create an updated case with assignee
         updated_case = MagicMock()
         assignee_id = uuid.uuid4()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,
             "description": mock_case.description,
@@ -1461,7 +1568,7 @@ class TestCoreAssignUser:
         assert update_arg.assignee_id == assignee_id
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
         assert result["assignee_id"] == str(assignee_id)
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -1702,8 +1809,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.id = mock_case.id
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
             "tags": ["new-tag1", "new-tag2"],
@@ -1755,7 +1861,7 @@ class TestCoreCaseTags:
         mock_service.session.refresh.assert_called_once_with(updated_case)
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_case_without_tags(self, mock_with_session, mock_case):
@@ -1765,7 +1871,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": "Updated Summary",
         }
@@ -1794,7 +1900,7 @@ class TestCoreCaseTags:
         mock_service.tags.add_case_tag.assert_not_called()
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_case_with_empty_tags(self, mock_with_session, mock_case):
@@ -1812,8 +1918,7 @@ class TestCoreCaseTags:
         mock_service.get_case.return_value = mock_case
 
         updated_case = MagicMock()
-        updated_case.id = mock_case.id
-        updated_case.model_dump.return_value = {
+        updated_case.to_dict.return_value = {
             "id": str(mock_case.id),
             "summary": mock_case.summary,
             "tags": [],
@@ -1861,7 +1966,7 @@ class TestCoreCaseTags:
         mock_service.session.refresh.assert_called_once_with(updated_case)
 
         # Verify the result
-        assert result == updated_case.model_dump.return_value
+        assert result == updated_case.to_dict.return_value
 
 
 @pytest.mark.anyio
@@ -1873,7 +1978,7 @@ class TestCoreCreateCaseErrorHandling:
         self, mock_with_session
     ):
         """Test that creating a case with an invalid field shows a clear error message."""
-        from tracecat.types.exceptions import TracecatException
+        from tracecat.exceptions import TracecatException
 
         # Set up the mock service context manager
         mock_service = AsyncMock()
@@ -1906,7 +2011,7 @@ class TestCoreCreateCaseErrorHandling:
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_create_case_atomicity_verified(self, mock_with_session):
         """Test that case creation failure doesn't leave partial data."""
-        from tracecat.types.exceptions import TracecatException
+        from tracecat.exceptions import TracecatException
 
         # Set up mock to simulate field creation failure AFTER case creation
         mock_service = AsyncMock()
@@ -1938,3 +2043,47 @@ class TestCoreCreateCaseErrorHandling:
 
         # In production, the transaction should rollback, leaving no partial data
         # This is verified by the service-level tests
+
+
+@pytest.mark.anyio
+class TestCoreUploadAttachmentFromURL:
+    """Tests for upload_attachment_from_url registry action."""
+
+    @patch("tracecat_registry.core.cases._upload_attachment", new_callable=AsyncMock)
+    @patch("tracecat_registry.core.cases.httpx.AsyncClient")
+    async def test_upload_attachment_from_url_success(
+        self,
+        mock_httpx_client,
+        mock_upload_attachment,
+    ):
+        """Ensure files downloaded via HTTP are passed to the uploader."""
+        mock_response = MagicMock()
+        mock_response.content = b"file-bytes"
+        mock_response.headers = {"Content-Type": "application/pdf"}
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client
+
+        mock_upload_attachment.return_value = {"id": "attachment-id"}
+
+        case_id = str(uuid.uuid4())
+        result = await upload_attachment_from_url(
+            case_id=case_id,
+            url="https://example.com/docs/report.pdf",
+            headers={"Authorization": "Bearer token"},
+            file_name="incident-report.pdf",
+        )
+
+        mock_client.get.assert_awaited_once_with(
+            "https://example.com/docs/report.pdf",
+            headers={"Authorization": "Bearer token"},
+        )
+        mock_upload_attachment.assert_awaited_once_with(
+            case_id,
+            "incident-report.pdf",
+            b"file-bytes",
+            "application/pdf",
+        )
+
+        assert result == {"id": "attachment-id"}

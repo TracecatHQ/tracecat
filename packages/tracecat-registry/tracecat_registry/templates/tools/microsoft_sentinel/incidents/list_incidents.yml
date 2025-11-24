@@ -10,6 +10,11 @@ definition:
     - type: oauth
       provider_id: microsoft_sentinel
       grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_sentinel
+      grant_type: client_credentials
+      optional: true
   expects:
     subscription_id:
       type: str
@@ -40,6 +45,10 @@ definition:
       type: str
       description: API version.
       default: "2025-09-01"
+    base_url:
+      type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
+      description: Base URL for the Azure Management API.
+      default: https://management.azure.com
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -65,9 +74,9 @@ definition:
     - ref: list_incidents
       action: core.http_request
       args:
-        url: https://management.azure.com/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_incidents.result.data }}

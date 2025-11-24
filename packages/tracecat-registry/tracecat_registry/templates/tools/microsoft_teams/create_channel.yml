@@ -29,6 +29,10 @@ definition:
       type: list[str] | None
       description: List of user IDs to add as owners (required for private channels).
       default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -38,8 +42,10 @@ definition:
           description: ${{ inputs.description }}
           is_private: ${{ inputs.is_private }}
           owner_user_ids: ${{ inputs.owner_user_ids }}
+          base_url: ${{ inputs.base_url }}
         script: |
-          def main(display_name, description, is_private, owner_user_ids):
+          def main(display_name, description, is_private, owner_user_ids, base_url):
+              base_url = base_url.rstrip("/")
               if is_private:
                   if not owner_user_ids:
                       raise ValueError("Private channels require at least one owner in owner_user_ids")
@@ -49,7 +55,7 @@ definition:
                       members.append({
                           "@odata.type": "#microsoft.graph.aadUserConversationMember",
                           "roles": ["owner"],
-                          "user@odata.bind": f"https://graph.microsoft.com/beta/users('{user_id}')"
+                          "user@odata.bind": f"{base_url}/beta/users('{user_id}')"
                       })
 
                   return {
@@ -68,7 +74,7 @@ definition:
     - ref: create_channel
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/beta/teams/${{ inputs.team_id }}/channels
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}

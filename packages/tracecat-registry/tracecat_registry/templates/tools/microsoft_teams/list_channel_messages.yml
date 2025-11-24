@@ -25,6 +25,10 @@ definition:
       type: bool
       description: Whether to expand replies for each message.
       default: false
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -46,7 +50,7 @@ definition:
     - ref: list_messages
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
+        url: ${{ inputs.base_url }}/beta/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}

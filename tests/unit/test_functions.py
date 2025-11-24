@@ -11,6 +11,7 @@ from tracecat.expressions.functions import (
     add_prefix,
     add_suffix,
     and_,
+    at,
     b64_to_str,
     b64url_to_str,
     capitalize,
@@ -51,7 +52,6 @@ from tracecat.expressions.functions import (
     hash_sha256,
     hash_sha512,
     hours_between,
-    index_by_key,
     intersection,
     ipv4_in_subnet,
     ipv4_is_public,
@@ -475,6 +475,62 @@ def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
 
 
 @pytest.mark.parametrize(
+    "sequence,idx,expected",
+    [
+        # List indexing
+        ([1, 2, 3, 4, 5], 0, 1),
+        ([1, 2, 3, 4, 5], 2, 3),
+        ([1, 2, 3, 4, 5], 4, 5),
+        ([1, 2, 3, 4, 5], -1, 5),
+        ([1, 2, 3, 4, 5], -2, 4),
+        (["a", "b", "c"], 0, "a"),
+        (["a", "b", "c"], 1, "b"),
+        (["a", "b", "c"], -1, "c"),
+        # String indexing
+        ("hello", 0, "h"),
+        ("hello", 1, "e"),
+        ("hello", 4, "o"),
+        ("hello", -1, "o"),
+        ("hello", -5, "h"),
+        # Tuple indexing
+        ((10, 20, 30), 0, 10),
+        ((10, 20, 30), 1, 20),
+        ((10, 20, 30), -1, 30),
+        # Mixed types in list
+        ([1, "two", 3.0, None], 0, 1),
+        ([1, "two", 3.0, None], 1, "two"),
+        ([1, "two", 3.0, None], 2, 3.0),
+        ([1, "two", 3.0, None], 3, None),
+        # Nested structures
+        ([[1, 2], [3, 4]], 0, [1, 2]),
+        ([[1, 2], [3, 4]], 1, [3, 4]),
+        ([{"a": 1}, {"b": 2}], 0, {"a": 1}),
+        ([{"a": 1}, {"b": 2}], -1, {"b": 2}),
+    ],
+)
+def test_at(sequence: Any, idx: int, expected: Any) -> None:
+    """Test at function with various sequence types and indices."""
+    assert at(sequence, idx) == expected
+
+
+@pytest.mark.parametrize(
+    "sequence,idx",
+    [
+        ([1, 2, 3], 5),  # Index too large
+        ([1, 2, 3], -10),  # Negative index too large
+        ("hello", 10),  # String index out of range
+        ([], 0),  # Empty list
+        ("", 0),  # Empty string
+        ((), 0),  # Empty tuple
+    ],
+)
+def test_at_out_of_range(sequence: Any, idx: int) -> None:
+    """Test that at raises IndexError for out-of-range indices."""
+    with pytest.raises(IndexError):
+        at(sequence, idx)
+
+
+@pytest.mark.parametrize(
     "func,input_str,expected",
     [
         (slice_str, ("hello", 1, 3), "ell"),
@@ -832,48 +888,6 @@ def test_str_to_b64(input_str: str, expected: str) -> None:
 )
 def test_dict_lookup(input_dict: dict, key: Any, expected: Any) -> None:
     assert dict_lookup(input_dict, key) == expected
-
-
-@pytest.mark.parametrize(
-    "input_list,field_key,value_key,expected",
-    [
-        # Basic case with value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            "name",
-            {1: "Alice", 2: "Bob"},
-        ),
-        # Basic case without value_key
-        (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            None,
-            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
-        ),
-        # Empty list
-        ([], "id", "name", {}),
-        # Different key types
-        (
-            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
-            "num",
-            "val",
-            {1.5: "a", 2.5: "b"},
-        ),
-        # Nested dictionaries
-        (
-            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
-            "key",
-            "data",
-            {"a": {"x": 1}, "b": {"x": 2}},
-        ),
-    ],
-)
-def test_index_by_key(
-    input_list: list[dict], field_key: str, value_key: str | None, expected: dict
-) -> None:
-    """Test indexing a list of dictionaries by a specified key."""
-    assert index_by_key(input_list, field_key, value_key) == expected
 
 
 @pytest.mark.parametrize(

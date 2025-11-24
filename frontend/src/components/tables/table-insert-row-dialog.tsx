@@ -1,13 +1,14 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusCircle } from "lucide-react"
 import { useParams } from "next/navigation"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead, TableRead } from "@/client"
-import { Spinner } from "@/components/loading/spinner"
+import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
+import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -25,16 +26,38 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const getColumnOptions = (column: TableColumnRead) => {
+  const rawOptions = column.options
+  if (!Array.isArray(rawOptions)) {
+    return undefined
+  }
+  const normalized = rawOptions
+    .map((option) => (typeof option === "string" ? option.trim() : ""))
+    .filter((option): option is string => option.length > 0)
+  return normalized.length > 0 ? normalized : undefined
+}
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
   const columnValidations: Record<string, z.ZodType> = {}
 
   table.columns.forEach((column) => {
-    // Add validation based on SQL type - only handle the 5 supported types
-    switch (column.type.toUpperCase()) {
+    const normalizedType = column.type.toUpperCase()
+    const options = getColumnOptions(column)
+
+    // Add validation based on SQL type - handle select/multi-select as well
+    switch (normalizedType) {
       case "TEXT":
         columnValidations[column.name] = z
           .string()
@@ -78,6 +101,57 @@ const createInsertTableRowSchema = (table: TableRead) => {
           )
           .transform((val) => JSON.parse(val))
         break
+      case "TIMESTAMPTZ":
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => !Number.isNaN(new Date(val).getTime()),
+            `${column.name} must be a valid date and time`
+          )
+        break
+      case "SELECT": {
+        if (options && options.length > 0) {
+          columnValidations[column.name] = z
+            .string()
+            .refine(
+              (val) => options.includes(val),
+              `${column.name} must be one of the defined options`
+            )
+        } else {
+          columnValidations[column.name] = z
+            .string()
+            .min(1, `${column.name} is required`)
+        }
+        break
+      }
+      case "MULTI_SELECT": {
+        const optionSchema =
+          options && options.length > 0
+            ? z
+                .string()
+                .refine(
+                  (val) => options.includes(val),
+                  "Invalid option selected"
+                )
+            : z.string().min(1, `${column.name} is required`)
+        columnValidations[column.name] = z
+          .array(optionSchema)
+          .min(1, `Select at least one value for ${column.name}`)
+        break
+      }
+      case "DATE":
+        columnValidations[column.name] = z
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine((val) => {
+            try {
+              return !Number.isNaN(new Date(val).getTime())
+            } catch {
+              return false
+            }
+          }, `${column.name} must be a valid date`)
+        break
       default:
         // Default to text for any unknown types
         columnValidations[column.name] = z
@@ -89,7 +163,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
   return z.object(columnValidations)
 }
 
-type DynamicFormData = Record<string, string | number | boolean>
+type DynamicFormData = Record<string, unknown>
 
 export function TableInsertRowDialog({
   open,
@@ -142,7 +216,7 @@ export function TableInsertRowDialog({
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
-            Add a new row to the {table.name} table.
+            Add a new row to the "{table.name}" table.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -154,11 +228,9 @@ export function TableInsertRowDialog({
                 name={column.name}
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-xs lowercase">
-                      <span className="font-semibold">{column.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {column.type}
-                      </span>
+                    <FormLabel className="flex items-center gap-2">
+                      <span>{column.name}</span>
+                      <SqlTypeBadge type={column.type as SqlType} />
                     </FormLabel>
                     <FormControl>
                       <DynamicInput column={column} field={field} />
@@ -170,12 +242,7 @@ export function TableInsertRowDialog({
             ))}
             <DialogFooter>
               <Button type="submit" disabled={insertRowIsPending}>
-                {insertRowIsPending ? (
-                  <Spinner className="mr-2 size-4" />
-                ) : (
-                  <PlusCircle className="mr-2 size-4" />
-                )}
-                Insert Row
+                Add row
               </Button>
             </DialogFooter>
           </form>
@@ -192,7 +259,10 @@ function DynamicInput({
   column: TableColumnRead
   field: ControllerRenderProps<DynamicFormData, string>
 }) {
-  switch (column.type.toUpperCase()) {
+  const normalizedType = column.type.toUpperCase()
+  const options = getColumnOptions(column)
+
+  switch (normalizedType) {
     case "BOOLEAN":
       return (
         <Input
@@ -230,6 +300,94 @@ function DynamicInput({
           onChange={(e) => field.onChange(e.target.value)}
         />
       )
+    case "TIMESTAMPTZ": {
+      const stringValue =
+        typeof field.value === "string" && field.value.length > 0
+          ? field.value
+          : undefined
+      const parsedDate =
+        stringValue !== undefined ? new Date(stringValue) : null
+      const dateValue =
+        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
+
+      return (
+        <DateTimePicker
+          value={dateValue}
+          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
+          onBlur={field.onBlur}
+          buttonProps={{ className: "w-full" }}
+        />
+      )
+    }
+    case "SELECT": {
+      if (options && options.length > 0) {
+        const stringValue =
+          typeof field.value === "string" ? field.value : undefined
+        return (
+          <Select
+            value={stringValue}
+            onValueChange={(value) => field.onChange(value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Choose a value" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )
+      }
+      return (
+        <Input
+          type="text"
+          placeholder="Enter a value"
+          value={field.value as string}
+          onChange={(e) => field.onChange(e.target.value)}
+        />
+      )
+    }
+    case "MULTI_SELECT": {
+      const suggestions =
+        options?.map((option) => ({
+          id: option,
+          label: option,
+          value: option,
+        })) ?? []
+      const currentValue = Array.isArray(field.value)
+        ? (field.value as string[])
+        : typeof field.value === "string" && field.value
+          ? [field.value]
+          : []
+
+      return (
+        <MultiTagCommandInput
+          value={currentValue}
+          onChange={(values) => field.onChange(values)}
+          suggestions={suggestions}
+          placeholder="Select values..."
+          allowCustomTags={!options || options.length === 0}
+          searchKeys={["label", "value"]}
+          className="w-full"
+        />
+      )
+    }
+    case "DATE": {
+      const stringValue =
+        typeof field.value === "string" && field.value.length > 0
+          ? field.value
+          : ""
+      return (
+        <Input
+          type="date"
+          value={stringValue}
+          onChange={(e) => field.onChange(e.target.value)}
+        />
+      )
+    }
     case "TEXT":
     default:
       return (

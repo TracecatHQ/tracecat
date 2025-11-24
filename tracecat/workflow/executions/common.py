@@ -56,6 +56,7 @@ HISTORY_TO_WF_EVENT_TYPE = {
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_TIMED_OUT,
+    EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED: WorkflowEventType.CHILD_WORKFLOW_EXECUTION_CANCELED,
     # Workflow
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED: WorkflowEventType.WORKFLOW_EXECUTION_STARTED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED: WorkflowEventType.WORKFLOW_EXECUTION_COMPLETED,
@@ -77,6 +78,8 @@ UTILITY_ACTIONS = {
     "validate_action_activity",
     "parse_wait_until_activity",
     "evaluate_single_expression_activity",
+    "resolve_agent_preset_config_activity",
+    "normalize_trigger_inputs_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
     InteractionService.create_interaction_activity.__name__,
@@ -155,7 +158,18 @@ async def extract_payload(
     # This enables backwards compatibility of newer payloads with older clients.
     codec = get_compression_payload_codec()
     decompressed_payload = await codec.decode(payload.payloads)
-    raw_data = decompressed_payload[index].data
+    payload_obj = decompressed_payload[index]
+    encoding = payload_obj.metadata.get("encoding", b"").decode()
+    # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.
+    if encoding == "binary/null":
+        logger.debug("Decoded binary/null payload; returning None")
+        return None
+
+    raw_data = payload_obj.data
+    # Empty payload bytes should round-trip to Python None, not an empty string
+    if not raw_data:
+        logger.debug("Decoded payload is empty; returning None")
+        return None
     try:
         return orjson.loads(raw_data)
     except orjson.JSONDecodeError as e:
@@ -166,7 +180,10 @@ async def extract_payload(
         )
 
     try:
-        return raw_data.decode()
+        text = raw_data.decode()
+        if text.strip() == "" or text.strip().lower() == "null":
+            return None
+        return text
     except UnicodeDecodeError:
         logger.debug("Failed to decode data as string, returning raw bytes")
         return raw_data

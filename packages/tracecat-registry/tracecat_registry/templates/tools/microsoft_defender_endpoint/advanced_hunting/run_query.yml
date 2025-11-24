@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Run advanced hunting query
+  description: Execute a Microsoft Defender advanced hunting query across Defender for Endpoint data.
+  display_group: Microsoft Defender for Endpoint
+  doc_url: https://learn.microsoft.com/en-us/defender-endpoint/api/run-advanced-query-api
+  namespace: tools.microsoft_defender_endpoint
+  name: run_advanced_hunting_query
+  secrets:
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_defender_endpoint
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: enum["https://api.securitycenter.microsoft.com", "https://api-gcc.securitycenter.microsoft.us", "https://api-gov.securitycenter.microsoft.us"]
+      description: Base URL for the Microsoft Defender for Endpoint API.
+      default: https://api.securitycenter.microsoft.com
+    query:
+      type: str
+      description: Kusto Query Language (KQL) query to run (for example, "DeviceNetworkEvents | take 25").
+    advanced_query_run_settings:
+      type: dict | None
+      description: 'Optional AdvancedQueryRunSettings object (for example, {"TimeoutInSeconds": 120}).'
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          advanced_query_run_settings: ${{ inputs.advanced_query_run_settings }}
+        script: |
+          def main(query, advanced_query_run_settings):
+              payload = {"Query": query}
+              if advanced_query_run_settings:
+                  payload["AdvancedQueryRunSettings"] = advanced_query_run_settings
+              return payload
+    - ref: run_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/advancedqueries/run
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.run_query.result.data }}

@@ -15,14 +15,14 @@ definition:
       type: str
       description: Base64-encoded EML file.
     base_url:
-      type: str
+      type: str | None
       description: Base URL of the Sublime API.
-      default: https://platform.sublime.security
+      default: null
   steps:
     - ref: analyze_eml
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/v0/messages/analyze
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/analyze
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}

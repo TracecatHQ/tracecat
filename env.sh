@@ -109,6 +109,32 @@ while true; do
     echo -e "${RED}Cannot use 0.0.0.0 as address.\nSee https://docs.tracecat.com/self-hosting/deployment-options/docker-compose#download-configuration-files ${NC}"
 done
 
+# Extract hostname and port from the input
+# Handle formats like: localhost, localhost:8080, 127.0.0.1:8080
+if [[ "$new_ip" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
+    hostname="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[3]}"
+
+    # If port is specified, update PUBLIC_APP_PORT
+    if [ -n "$port" ]; then
+        app_port="$port"
+        # Include port in URLs
+        public_app_url="http://${hostname}:${port}"
+        public_api_url="http://${hostname}:${port}/api/"
+    else
+        # No port specified, use default port 80 (or keep existing PUBLIC_APP_PORT)
+        app_port=""
+        public_app_url="http://${hostname}"
+        public_api_url="http://${hostname}/api/"
+    fi
+else
+    # Fallback if regex doesn't match
+    hostname="$new_ip"
+    app_port=""
+    public_app_url="http://${hostname}"
+    public_api_url="http://${hostname}/api/"
+fi
+
 
 # Prompt user for PostgreSQL SSL mode
 while true; do
@@ -147,8 +173,12 @@ done
 dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
 dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
-dotenv_replace "PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
-dotenv_replace "PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
+dotenv_replace "PUBLIC_API_URL" "$public_api_url" "$env_file"
+dotenv_replace "PUBLIC_APP_URL" "$public_app_url" "$env_file"
+# Update PUBLIC_APP_PORT if port was specified
+if [ -n "$app_port" ]; then
+    dotenv_replace "PUBLIC_APP_PORT" "$app_port" "$env_file"
+fi
 dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
 dotenv_replace "TRACECAT__AUTH_SUPERADMIN_EMAIL" "$superadmin_email" "$env_file"
 

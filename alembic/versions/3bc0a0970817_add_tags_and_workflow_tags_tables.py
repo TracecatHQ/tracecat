@@ -9,7 +9,7 @@ Create Date: 2024-12-23 00:34:49.841129
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -37,10 +37,10 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("color", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("color", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),
         sa.UniqueConstraint("name", "owner_id"),
@@ -49,8 +49,8 @@ def upgrade() -> None:
     op.create_index(op.f("ix_tag_name"), "tag", ["name"], unique=False)
     op.create_table(
         "workflowtag",
-        sa.Column("tag_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("workflow_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("tag_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("workflow_id", sa.String(), nullable=False),
         sa.ForeignKeyConstraint(
             ["tag_id"],
             ["tag.id"],

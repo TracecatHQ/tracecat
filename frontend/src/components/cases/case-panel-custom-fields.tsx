@@ -1,7 +1,9 @@
+import { format, isValid as isValidDate } from "date-fns"
+import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
-import { Checkbox } from "@/components/ui/checkbox"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   FormControl,
   FormField,
@@ -9,7 +11,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { linearStyles } from "@/lib/utils"
+import { Switch } from "@/components/ui/switch"
+import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
   id: z.string(),
@@ -18,12 +21,43 @@ const customFieldFormSchema = z.object({
 
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
+const DATE_TIME_DISPLAY_FORMAT = "MMM d yyyy '·' p"
+
+const formatDateFieldValue = (
+  date: Date,
+  fieldType: "TIMESTAMP" | "TIMESTAMPTZ"
+) =>
+  fieldType === "TIMESTAMPTZ"
+    ? date.toISOString()
+    : format(date, "yyyy-MM-dd'T'HH:mm:ss")
+
+const toDateValue = (value: unknown): Date | null => {
+  if (value instanceof Date) {
+    return isValidDate(value) ? value : null
+  }
+
+  if (typeof value === "string" && value.length > 0) {
+    const parsed = new Date(value)
+    return isValidDate(parsed) ? parsed : null
+  }
+
+  return null
+}
+
 export function CustomField({
   customField,
   updateCase,
+  inputClassName,
+  inputStyle,
+  onValueChange,
+  formClassName,
 }: {
   customField: CaseCustomFieldRead
   updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  inputClassName?: string
+  inputStyle?: CSSProperties
+  onValueChange?: (id: string, value: unknown) => void
+  formClassName?: string
 }) {
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
@@ -37,7 +71,6 @@ export function CustomField({
         [customField.id]: data.value,
       },
     }
-    console.log("caseUpdate", caseUpdate)
     try {
       await updateCase(caseUpdate)
     } catch (error) {
@@ -45,14 +78,19 @@ export function CustomField({
     }
   }
   const onBlur = (id: string, value: unknown) => {
-    console.log("onblur", { id, value })
+    onValueChange?.(id, value)
     form.setValue("value", value)
     form.handleSubmit(onSubmit)()
   }
   return (
     <FormProvider {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
-        <CustomFieldInner customField={customField} onBlur={onBlur} />
+      <form onSubmit={form.handleSubmit(onSubmit)} className={formClassName}>
+        <CustomFieldInner
+          customField={customField}
+          onBlur={onBlur}
+          inputClassName={inputClassName}
+          inputStyle={inputStyle}
+        />
       </form>
     </FormProvider>
   )
@@ -60,6 +98,8 @@ export function CustomField({
 interface CustomFieldProps {
   customField: CaseCustomFieldRead
   onBlur?: (id: string, value: unknown) => void
+  inputClassName?: string
+  inputStyle?: CSSProperties
 }
 
 /**
@@ -67,7 +107,12 @@ interface CustomFieldProps {
  * @param param0
  * @returns
  */
-export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
+export function CustomFieldInner({
+  customField,
+  onBlur,
+  inputClassName,
+  inputStyle,
+}: CustomFieldProps) {
   const form = useFormContext<CustomFieldFormSchema>()
   switch (customField.type) {
     case "TEXT":
@@ -83,7 +128,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   placeholder="Empty"
                   value={String(field.value || "")}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "inline-block w-fit min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>
@@ -106,7 +156,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   value={Number(field.value || 0)}
                   onChange={(e) => field.onChange(Number(e.target.value))}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "inline-block w-fit min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() =>
                     onBlur && onBlur(customField.id, Number(field.value))
                   }
@@ -125,7 +180,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
           render={({ field }) => (
             <FormItem>
               <FormControl>
-                <Checkbox
+                <Switch
                   checked={Boolean(field.value)}
                   onCheckedChange={(checked) => {
                     field.onChange(checked)
@@ -150,7 +205,12 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   type="text"
                   {...field}
                   value={String(field.value || "")}
-                  className={linearStyles.input.full}
+                  className={cn(
+                    linearStyles.input.full,
+                    "inline-block w-fit min-w-[8ch]",
+                    inputClassName
+                  )}
+                  style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>
@@ -159,5 +219,55 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
           )}
         />
       )
+    case "TIMESTAMP":
+    case "TIMESTAMPTZ": {
+      const fieldType =
+        customField.type === "TIMESTAMPTZ" ? "TIMESTAMPTZ" : "TIMESTAMP"
+      return (
+        <FormField
+          control={form.control}
+          name="value"
+          render={({ field }) => {
+            const dateValue = toDateValue(field.value)
+
+            return (
+              <FormItem>
+                <FormControl>
+                  <DateTimePicker
+                    value={dateValue}
+                    onChange={(next) => {
+                      const formatted = next
+                        ? formatDateFieldValue(next, fieldType)
+                        : null
+                      field.onChange(formatted)
+                      onBlur?.(customField.id, formatted)
+                    }}
+                    onBlur={() => field.onBlur()}
+                    formatDisplay={(date) =>
+                      format(date, DATE_TIME_DISPLAY_FORMAT)
+                    }
+                    buttonProps={{
+                      variant: "ghost",
+                      className: cn(
+                        linearStyles.input.full,
+                        "inline-flex min-w-[8ch] justify-start whitespace-nowrap rounded-sm text-left text-xs font-normal border-none shadow-none",
+                        !dateValue && "text-muted-foreground",
+                        inputClassName
+                      ),
+                      style: inputStyle,
+                    }}
+                    popoverContentProps={{
+                      className: "w-auto border-none shadow-none p-0",
+                      align: "start",
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
+        />
+      )
+    }
   }
 }

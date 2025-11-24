@@ -3,9 +3,14 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 
+import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.agent.actions import (
+    ApprovalsAgentActionArgs,
+    PresetApprovalsAgentActionArgs,
+)
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -14,29 +19,31 @@ from tracecat_registry import (
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import RegistryAction
+from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.schemas import ActionStatement
+from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
+from tracecat.expressions.expectations import ExpectedField, parse_type
 from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
 )
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.interactions.models import ResponseInteraction
+from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionInterface
+from tracecat.registry.actions.schemas import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.validation.common import json_schema_to_pydantic
-from tracecat.validation.models import (
+from tracecat.validation.schemas import (
     ActionValidationResult,
+    DSLValidationResult,
     ExprValidationResult,
     SecretValidationDetail,
     SecretValidationResult,
@@ -187,11 +194,20 @@ async def validate_workspace_integration(
     """
     results: list[SecretValidationResult] = []
 
-    # Skip if we've already checked this key
-    if registry_secret.provider_id in checked_keys:
+    # We de-duplicate checks per provider+grant type combo
+    key_identifier = (
+        f"oauth::{registry_secret.provider_id}::{registry_secret.grant_type}"
+    )
+
+    # Skip validation if this optional integration isn't configured
+    if registry_secret.optional:
         return results
 
-    checked_keys.add(registry_secret.provider_id)
+    # Skip if we've already checked this key
+    if key_identifier in checked_keys:
+        return results
+
+    checked_keys.add(key_identifier)
 
     # Get the integration from the workspace
     key = ProviderKey(
@@ -205,7 +221,7 @@ async def validate_workspace_integration(
         results.append(
             SecretValidationResult(
                 status="error",
-                msg=f"Required OAuth integration {registry_secret.provider_id!r} is not configured",
+                msg=f"Required OAuth integration {registry_secret.provider_id!r} (grant_type: {registry_secret.grant_type}) is not configured",
             )
         )
 
@@ -275,6 +291,10 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
+            elif action_name == PlatformAction.AI_APPROVALS_AGENT:
+                validated = ApprovalsAgentActionArgs.model_validate(args)
+            elif action_name == PlatformAction.AI_PRESET_APPROVALS_AGENT:
+                validated = PresetApprovalsAgentActionArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)
@@ -365,6 +385,15 @@ async def validate_dsl_actions(
                     type="action",
                     msg=f"`run_if` must only contain an expression. Got {act_stmt.run_if!r}.",
                     loc=(act_stmt.ref, "run_if"),
+                )
+            )
+        # Validate that ai.approvals_agent doesn't use loops
+        if act_stmt.action == PlatformAction.AI_APPROVALS_AGENT and act_stmt.for_each:
+            details.append(
+                ValidationDetail(
+                    type="action",
+                    msg=f"The `{PlatformAction.AI_APPROVALS_AGENT.value}` action cannot be used with for_each. Use `core.transform.scatter` instead to iterate over multiple items.",
+                    loc=(act_stmt.ref, "for_each"),
                 )
             )
         # Validate `for_each`
@@ -519,10 +548,83 @@ async def validate_dsl_expressions(
     return results
 
 
+def validate_entrypoint_expects(
+    expects: Mapping[str, Any] | None,
+) -> list[DSLValidationResult]:
+    """Validate a workflow entrypoint expects mapping."""
+
+    if not expects:
+        return []
+
+    results: list[DSLValidationResult] = []
+    for field_name, raw_field in expects.items():
+        details: list[ValidationDetail] = []
+        try:
+            validated_field = ExpectedField.model_validate(raw_field)
+        except ValidationError as e:
+            for detail in ValidationDetail.list_from_pydantic(e):
+                loc = ("entrypoint", "expects", field_name)
+                if detail.loc:
+                    loc = (*loc, *detail.loc)
+                details.append(
+                    ValidationDetail(
+                        type=f"entrypoint.{detail.type}",
+                        msg=detail.msg,
+                        loc=loc,
+                    )
+                )
+        else:
+            try:
+                parse_type(validated_field.type, field_name)
+            except lark.UnexpectedInput as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=f"Failed to parse type {validated_field.type!r}: {e}",
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+            except ValueError as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=str(e),
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+            except Exception as e:
+                details.append(
+                    ValidationDetail(
+                        type="entrypoint.expects.type",
+                        msg=f"Unexpected error validating type: {e}",
+                        loc=("entrypoint", "expects", field_name, "type"),
+                    )
+                )
+
+        if details:
+            results.append(
+                DSLValidationResult(
+                    status="error",
+                    msg=f"Invalid entrypoint expected field '{field_name}'.",
+                    detail=details,
+                    ref=field_name,
+                )
+            )
+
+    return results
+
+
+def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
+    """Validate the DSL entrypoint schema."""
+
+    return validate_entrypoint_expects(dsl.entrypoint.expects)
+
+
 async def validate_dsl(
     session: AsyncSession,
     dsl: DSLInput,
     *,
+    validate_entrypoint: bool = True,
     validate_args: bool = True,
     validate_expressions: bool = True,
     validate_secrets: bool = True,
@@ -532,10 +634,21 @@ async def validate_dsl(
 
     This function calls and combines all results from each validation tier.
     """
-    if not any((validate_args, validate_expressions, validate_secrets)):
+    if not any(
+        (validate_entrypoint, validate_args, validate_expressions, validate_secrets)
+    ):
         return set()
 
     iterables: list[ValidationResult] = []
+
+    # Tier 1: Entrypoint schema validation
+    if validate_entrypoint:
+        entrypoint_errs = validate_dsl_entrypoint(dsl)
+        logger.debug(
+            f"{len(entrypoint_errs)} DSL entrypoint validation errors",
+            errs=entrypoint_errs,
+        )
+        iterables.extend(ValidationResult.new(err) for err in entrypoint_errs)
 
     # Tier 2: Action Args validation
     if validate_args:

@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 ${imports if imports else ""}
 
 # revision identifiers, used by Alembic.

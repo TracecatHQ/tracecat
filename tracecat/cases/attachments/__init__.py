@@ -1,6 +1,6 @@
 """Case attachments module."""
 
-from tracecat.cases.attachments.models import (
+from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
     CaseAttachmentDownloadResponse,

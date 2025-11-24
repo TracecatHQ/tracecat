@@ -86,10 +86,18 @@ async def call_paginated_method(
     client = AsyncWebClient(token=bot_token)
     members = []
     params = params or {}
-    key = None
+    key = key or None
     async for page in await getattr(client, sdk_method)(**params, limit=limit):
         data = page.data
-        members.extend(data[key] if key else data)
+        if key:
+            try:
+                members.extend(data[key])
+            except KeyError:
+                raise ValueError(
+                    f"Key {key} not found in data with fields {data.keys()}"
+                )
+        else:
+            members.append(data)
     return members
 
 

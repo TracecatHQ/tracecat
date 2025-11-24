@@ -1,14 +1,35 @@
 "use client"
 
 import { formatDistanceToNow } from "date-fns"
-import { ChevronDown, ListTodo, MessageSquare, Plus } from "lucide-react"
+import {
+  BoxIcon,
+  ChevronDown,
+  Loader2,
+  MessageSquare,
+  Plus,
+} from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import type { ChatEntity, ChatRead } from "@/client"
-import { RunbookDropdown } from "@/components/cases/runbook-dropdown"
-import { ChatInput } from "@/components/chat/chat-input"
-import { Messages } from "@/components/chat/messages"
+import type {
+  AgentPresetRead,
+  ChatEntity,
+  ChatRead,
+  ChatReadVercel,
+} from "@/client"
+import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,9 +44,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
-import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
+import { toast } from "@/components/ui/use-toast"
+import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
+import {
+  parseChatError,
+  useCreateChat,
+  useGetChatVercel,
+  useListChats,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -35,6 +62,7 @@ interface ChatInterfaceProps {
   entityType: ChatEntity
   entityId: string
   onChatSelect?: (chatId: string) => void
+  bodyClassName?: string
 }
 
 export function ChatInterface({
@@ -42,11 +70,13 @@ export function ChatInterface({
   entityType,
   entityId,
   onChatSelect,
+  bodyClassName,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -57,30 +87,52 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  // Create prompt mutation
-  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
-  const { isFeatureEnabled } = useFeatureFlag()
-  const runbooksEnabled = isFeatureEnabled("runbooks")
-
-  // Fetch runbook data if entityType is "runbook"
-  const { data: runbookData } = useGetRunbook({
-    runbookId: entityType === "runbook" ? entityId : "",
+  const presetsEnabled = entityType === "case" || entityType === "copilot"
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    enabled: runbooksEnabled && entityType === "runbook",
-  })
+    { enabled: presetsEnabled }
+  )
 
-  const { sendMessage, isResponding, messages } = useChat({
+  const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: selectedChatId,
     workspaceId,
   })
+  const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
-  /* chat readiness -------------------- */
-  const {
-    ready: chatReady,
-    loading: chatReadyLoading,
-    reason: chatReason,
-    provider,
-  } = useChatReadiness()
+  const presetOptions = presetsEnabled ? (presets ?? []) : []
+  const effectivePresetId = chat?.agent_preset_id ?? null
+
+  // Fetch full preset data when a preset is selected
+  const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
+    useAgentPreset(workspaceId, effectivePresetId, {
+      enabled: presetsEnabled && Boolean(effectivePresetId),
+    })
+
+  const handlePresetChange = async (nextPresetId: string | null) => {
+    if (!selectedChatId) {
+      return
+    }
+    const currentPresetId = chat?.agent_preset_id ?? null
+    if (nextPresetId === currentPresetId) {
+      return
+    }
+
+    try {
+      await updateChat({
+        chatId: selectedChatId,
+        update: {
+          agent_preset_id: nextPresetId,
+        },
+      })
+    } catch (error) {
+      console.error("Failed to update chat preset:", error)
+      toast({
+        title: "Failed to update preset",
+        description: parseChatError(error),
+        variant: "destructive",
+      })
+    }
+  }
 
   // Set the first chat as selected when chats are loaded and no chat is selected
   useEffect(() => {
@@ -91,14 +143,8 @@ export function ChatInterface({
     }
   }, [chats, selectedChatId, onChatSelect])
 
-  // Update selected chat when chatId prop changes
-  useEffect(() => {
-    if (chatId && chatId !== selectedChatId) {
-      setSelectedChatId(chatId)
-    }
-  }, [chatId, selectedChatId])
-
   const handleCreateChat = async () => {
+    setNewChatDialogOpen(false)
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
@@ -117,63 +163,12 @@ export function ChatInterface({
     onChatSelect?.(chatId)
   }
 
-  const handleSaveAsPrompt = async () => {
-    if (!runbooksEnabled) {
-      return
-    }
-    if (!selectedChatId) {
-      console.warn("No chat selected")
-      return
-    }
-
-    // Check if chat has messages
-    if (!messages || messages.length === 0) {
-      console.warn("Cannot save empty chat as prompt")
-      return
-    }
-
-    try {
-      const runbook = await createRunbook({
-        chat_id: selectedChatId,
-      })
-
-      console.log(`Chat saved as prompt: "${runbook.title}"`)
-    } catch (error) {
-      console.error("Failed to save chat as prompt:", error)
-    }
-  }
-
-  const handleSendMessage = async (message: string) => {
-    if (!selectedChatId) return
-
-    try {
-      await sendMessage({
-        message,
-        // TODO: Make this dynamic
-        model_provider: "openai",
-        instructions:
-          entityType === "runbook"
-            ? `You are a helpful AI assistant helping with runbook editing.
-        The current runbook ID is: ${entityId}
-        ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
-        You can use the update_prompt tool to edit the runbook's title or instructions.
-        Be concise but thorough in your responses.`
-            : `You are a helpful AI assistant helping with ${entityType} management.
-        The current ${entityType} ID is: ${entityId}
-        If you need to use the ${entityType} ID in a tool call you should use the above ID.
-        Be concise but thorough in your responses.`,
-        context: {
-          chatId: selectedChatId,
-          workspaceId,
-          entityType,
-          entityId,
-        },
-      })
-    } catch (error) {
-      console.error("Failed to send message:", error)
-      // TODO: Add error handling state
-    }
-  }
+  const presetMenuLabel = selectedPreset?.name ?? "No preset"
+  const presetMenuDisabled =
+    !presetsEnabled || !selectedChatId || chatLoading || isUpdating
+  const showPresetSpinner =
+    presetsIsLoading || isUpdating || chatLoading || selectedPresetLoading
+  const hasPresetOptions = presetOptions.length > 0
 
   // Show empty state if no chats exist
   if (chats && chats.length === 0) {
@@ -201,7 +196,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between">
@@ -209,7 +204,7 @@ export function ChatInterface({
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="px-0">
+                <Button size="sm" variant="ghost" className="px-2">
                   Conversations
                   <ChevronDown className="size-3 ml-1" />
                 </Button>
@@ -257,111 +252,250 @@ export function ChatInterface({
             {/* (left-side plus removed) */}
           </div>
 
-          {/* Right-side controls: new chat + actions */}
+          {/* Right-side controls: preset selector + actions */}
           <div className="flex items-center gap-1">
-            {/* New chat icon button with tooltip */}
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            {presetsEnabled && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="size-6 p-0"
-                    onClick={handleCreateChat}
-                    disabled={createChatPending}
+                    className="px-2"
+                    disabled={presetMenuDisabled}
                   >
-                    <Plus className="h-4 w-4" />
+                    <div className="flex items-center gap-1.5">
+                      <BoxIcon className="size-3 text-muted-foreground" />
+                      <span
+                        className="max-w-[11rem] truncate"
+                        title={presetMenuLabel}
+                      >
+                        {presetMenuLabel}
+                      </span>
+                    </div>
+                    {showPresetSpinner ? (
+                      <Loader2 className="ml-1 size-3 animate-spin text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="ml-1 size-3" />
+                    )}
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">New chat</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            {/* Generate runbook icon button with tooltip - only show for non-runbook entities */}
-            {runbooksEnabled && entityType !== "runbook" && (
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {presetsIsLoading ? (
+                    <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading presets…
+                    </div>
+                  ) : presetsError ? (
+                    <DropdownMenuItem disabled>
+                      <span className="text-red-600">
+                        Failed to load presets
+                      </span>
+                    </DropdownMenuItem>
+                  ) : (
+                    <ScrollArea className="max-h-64">
+                      <div className="py-1">
+                        <DropdownMenuItem
+                          onClick={() => handlePresetChange(null)}
+                          className={cn(
+                            "flex cursor-pointer flex-col items-start gap-1 py-2",
+                            effectivePresetId === null && "bg-accent"
+                          )}
+                        >
+                          <span className="text-sm font-medium">No preset</span>
+                          <span className="text-xs text-muted-foreground">
+                            Use workspace default case agent instructions.
+                          </span>
+                        </DropdownMenuItem>
+                        {hasPresetOptions ? (
+                          presetOptions.map((preset) => (
+                            <DropdownMenuItem
+                              key={preset.id}
+                              onClick={() => handlePresetChange(preset.id)}
+                              className={cn(
+                                "flex cursor-pointer flex-col items-start gap-1 py-2",
+                                effectivePresetId === preset.id && "bg-accent"
+                              )}
+                            >
+                              <span className="text-sm font-medium">
+                                {preset.name}
+                              </span>
+                              {preset.description && (
+                                <span className="text-xs text-muted-foreground">
+                                  {preset.description}
+                                </span>
+                              )}
+                            </DropdownMenuItem>
+                          ))
+                        ) : (
+                          <DropdownMenuItem disabled className="py-2">
+                            <span className="text-xs text-muted-foreground">
+                              No presets available
+                            </span>
+                          </DropdownMenuItem>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {/* New chat icon button with tooltip */}
+            <AlertDialog
+              open={newChatDialogOpen}
+              onOpenChange={setNewChatDialogOpen}
+            >
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="size-6 p-0"
-                      onClick={handleSaveAsPrompt}
-                      disabled={createRunbookPending || !messages?.length}
-                    >
-                      <ListTodo className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Generate runbook
-                  </TooltipContent>
+                  <AlertDialogTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="size-6 p-0"
+                        disabled={createChatPending}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                  </AlertDialogTrigger>
+                  <TooltipContent side="bottom">New chat</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            )}
-            {runbooksEnabled && entityType === "case" && (
-              <RunbookDropdown
-                workspaceId={workspaceId}
-                entityType={entityType}
-                entityId={entityId}
-              />
-            )}
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will create a new conversation. Your current chat will
+                    remain accessible from the conversations menu.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void handleCreateChat()}>
+                    Start new chat
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <Messages
-        messages={messages}
-        isResponding={isResponding}
-        entityType={entityType}
-        entityId={entityId}
-        workspaceId={workspaceId}
-      />
-
-      {/* Chat Input */}
-      {selectedChatId && (
-        <>
-          {chatReady ? (
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              disabled={isResponding}
-              placeholder={
-                entityType === "runbook"
-                  ? "Ask about or edit this runbook..."
-                  : `Ask about this ${entityType}...`
-              }
-              chatId={selectedChatId}
-              entityType={entityType}
-            />
-          ) : chatReadyLoading ? (
-            <CenteredSpinner />
-          ) : (
-            /* Disabled notice with quick-fix button */
-            <Link
-              href="/organization/settings/agent"
-              className="pb-2 block border-t border-border bg-gradient-to-r from-muted/30 to-muted/50 backdrop-blur-sm hover:from-muted/40 hover:to-muted/60 transition-all duration-200"
-            >
-              <div className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-foreground mb-1">
-                      {chatReason === "no_model" && "No default model"}
-                      {chatReason === "no_credentials" && "Missing credentials"}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      {chatReason === "no_model" &&
-                        "Select a default model in agent settings to enable chat."}
-                      {chatReason === "no_credentials" &&
-                        `Configure ${provider} credentials in agent settings to enable chat.`}
-                    </p>
-                  </div>
-                  <ChevronDown className="size-4 text-muted-foreground rotate-[-90deg]" />
-                </div>
-              </div>
-            </Link>
-          )}
-        </>
-      )}
+      {/* Chat Body */}
+      <div className={cn("flex flex-1 min-h-0 flex-col", bodyClassName)}>
+        <ChatBody
+          chatId={selectedChatId}
+          workspaceId={workspaceId}
+          entityType={entityType}
+          entityId={entityId}
+          chat={chat}
+          chatLoading={chatLoading}
+          chatError={chatError}
+          selectedPreset={selectedPreset}
+          toolsEnabled={!selectedPreset}
+        />
+      </div>
     </div>
+  )
+}
+
+interface ChatBodyProps {
+  chatId?: string
+  workspaceId: string
+  entityType: ChatEntity
+  entityId: string
+  chat?: ChatReadVercel
+  chatLoading: boolean
+  chatError: unknown
+  selectedPreset?: AgentPresetRead
+  toolsEnabled: boolean
+}
+
+function ChatBody({
+  chatId,
+  workspaceId,
+  entityType,
+  entityId,
+  chat,
+  chatLoading,
+  chatError,
+  selectedPreset,
+  toolsEnabled,
+}: ChatBodyProps) {
+  const {
+    ready: chatReady,
+    loading: chatReadyLoading,
+    reason: chatReason,
+    modelInfo,
+  } = useChatReadiness(
+    selectedPreset
+      ? {
+          modelOverride: {
+            name: selectedPreset.model_name,
+            provider: selectedPreset.model_provider,
+            baseUrl: selectedPreset.base_url ?? null,
+          },
+        }
+      : undefined
+  )
+
+  if (!chatId || chatLoading || chatReadyLoading || !chat) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+  if (chatError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-red-500">Failed to load chat</span>
+      </div>
+    )
+  }
+
+  // Render active chat session when ready
+  if (!chatReady || !modelInfo) {
+    // Render configuration required state
+    return (
+      <>
+        <NoMessages />
+        <Link
+          href="/organization/settings/agent"
+          className="block rounded-md border border-border bg-gradient-to-r from-muted/30 to-muted/50 p-4 backdrop-blur-sm transition-all duration-200 hover:from-muted/40 hover:to-muted/60"
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <h4 className="mb-1 text-sm font-medium text-foreground">
+                  {chatReason === "no_model" && "No default model"}
+                  {chatReason === "no_credentials" && "Missing credentials"}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {chatReason === "no_model" &&
+                    "Select a default model in agent settings to enable chat."}
+                  {chatReason === "no_credentials" &&
+                    `Configure ${modelInfo?.provider || "model provider"} credentials in agent settings to enable chat.`}
+                </p>
+              </div>
+              <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
+            </div>
+          </div>
+        </Link>
+      </>
+    )
+  }
+
+  return (
+    <ChatSessionPane
+      chat={chat}
+      workspaceId={workspaceId}
+      entityType={entityType}
+      entityId={entityId}
+      placeholder={`Ask about this ${entityType}...`}
+      className="flex-1 min-h-0"
+      modelInfo={modelInfo}
+      toolsEnabled={toolsEnabled}
+    />
   )
 }

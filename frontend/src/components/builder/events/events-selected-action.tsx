@@ -1,44 +1,37 @@
 "use client"
 
-import "@blocknote/core/fonts/inter.css"
-import "@blocknote/shadcn/style.css"
-import "@/components/cases/editor.css"
-
-import { codeBlock } from "@blocknote/code-block"
-import type { BlockNoteEditor } from "@blocknote/core"
-import { useCreateBlockNote } from "@blocknote/react"
-import { BlockNoteView } from "@blocknote/shadcn"
+import { useChat } from "@ai-sdk/react"
+import { DefaultChatTransport } from "ai"
 import {
+  ChevronLeftIcon,
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
   MessageCircle,
-  RefreshCw,
-  Undo2Icon,
 } from "lucide-react"
-import React, { useEffect } from "react"
-import type {
-  AgentOutput,
-  EventFailure,
-  InteractionRead,
-  ModelRequest,
-  ModelResponse,
-  RetryPromptPart,
-  SystemPromptPart,
-  TextPart,
-  ToolCallPart,
-  ToolReturnPart,
-  UserPromptPart,
-} from "@/client"
+import type { ReactNode } from "react"
+import { useEffect, useMemo, useState } from "react"
+import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation"
 import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
-import { CaseUserAvatar } from "@/components/cases/case-panel-common"
+import { MessagePart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
-import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
+import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import {
+  Carousel,
+  type CarouselApi,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel"
 import {
   Select,
   SelectContent,
@@ -47,31 +40,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { useAuth } from "@/hooks/use-auth"
-import { SYSTEM_USER } from "@/lib/auth"
-import type { ModelMessage } from "@/lib/chat"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { toast } from "@/components/ui/use-toast"
+import { parseChatError } from "@/hooks/use-chat"
+import { isUIMessageArray } from "@/lib/agents"
+import { getBaseUrl } from "@/lib/api"
 import {
   groupEventsByActionRef,
-  isAgentOutput,
   parseStreamId,
   refToLabel,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
-import { useGetRegistryAction } from "@/lib/hooks"
-import { getSpacedBlocks } from "@/lib/rich-text-editor"
-import { cn, reconstructActionType } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
 
-export function ActionEvent({
+export function ActionEventPane({
   execution,
   type,
 }: {
@@ -88,9 +73,11 @@ export function ActionEvent({
   if (type === "interaction") {
     // Filter events to only include interaction events
     const interactionEvents = new Set(
-      execution.interactions?.map((s) => s.action_ref) ?? []
+      execution.interactions?.map((s: InteractionRead) => s.action_ref) ?? []
     )
-    events = events.filter((e) => interactionEvents.has(e.action_ref))
+    events = events.filter((e: WorkflowExecutionEventCompact) =>
+      interactionEvents.has(e.action_ref)
+    )
   }
   const groupedEvents = groupEventsByActionRef(events)
   return (
@@ -104,7 +91,12 @@ export function ActionEvent({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {Object.entries(groupedEvents).map(([actionRef, relatedEvents]) => (
+            {(
+              Object.entries(groupedEvents) as [
+                string,
+                WorkflowExecutionEventCompact[],
+              ][]
+            ).map(([actionRef, relatedEvents]) => (
               <SelectItem
                 key={actionRef}
                 value={actionRef}
@@ -147,7 +139,7 @@ function ActionEventView({
   }
   if (type === "interaction") {
     const interaction = execution.interactions?.find(
-      (s) => s.action_ref === selectedRef
+      (s: InteractionRead) => s.action_ref === selectedRef
     )
     if (!interaction) {
       // We reach this if we switch tabs or select an event that has no interaction state
@@ -200,497 +192,220 @@ export function SuccessEvent({
   event,
   type,
   eventRef,
+  defaultExpanded = true,
+  defaultTab = "nested",
 }: {
   event: WorkflowExecutionEventCompact
   type: Omit<TabType, "interaction">
   eventRef: string
+  defaultExpanded?: boolean
+  defaultTab?: "nested" | "flat"
 }) {
-  if (type === "result" && isAgentOutput(event.action_result)) {
-    return <AgentOutputEvent agentOutput={event.action_result} />
+  switch (type) {
+    case "input":
+      return (
+        <JsonViewWithControls
+          src={event.action_input}
+          defaultExpanded={defaultExpanded}
+          defaultTab={defaultTab}
+        />
+      )
+    case "result":
+      return (
+        <ActionResultViewer
+          result={event.action_result}
+          eventRef={eventRef}
+          defaultExpanded={defaultExpanded}
+          defaultTab={defaultTab}
+        />
+      )
   }
+  return null
+}
+
+function ActionResultViewer({
+  result,
+  eventRef,
+  defaultExpanded = true,
+  defaultTab = "nested",
+}: {
+  result: unknown
+  eventRef: string
+  defaultExpanded?: boolean
+  defaultTab?: "nested" | "flat"
+}) {
+  if (result === null || result === undefined) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <CircleDot className="size-3 text-muted-foreground" />
+        <span>This action returned no result (null).</span>
+      </div>
+    )
+  }
+
   return (
     <JsonViewWithControls
-      src={type === "input" ? event.action_input : event.action_result}
-      defaultExpanded={true}
+      src={result}
+      defaultExpanded={defaultExpanded}
+      defaultTab={defaultTab}
       copyPrefix={`ACTIONS.${eventRef}.result`}
     />
   )
 }
 
-export function AgentOutputEvent({
-  agentOutput,
+function StreamDetails({
+  streamId,
+  placeholder,
 }: {
-  agentOutput: AgentOutput
+  streamId?: string
+  placeholder?: string
 }) {
+  if (!streamId) {
+    return (
+      <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
+        <span>{placeholder}</span>
+      </div>
+    )
+  }
   return (
-    <div className="mb-16 mt-4 space-y-4">
-      <div className="space-y-4">
-        {agentOutput.message_history.map((m, index) => (
-          <div key={index}>
-            <ModelMessagePart part={m} />
+    <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground/80">
+      {parseStreamId(streamId)
+        .filter((part) => part.scope !== "<root>")
+        // Only sort if scope matches, otherwise preserve original order
+        .sort((a, b) => {
+          if (a.scope === b.scope) {
+            return Number(a.index) - Number(b.index)
+          }
+          // If scopes do not match, preserve original order (no sorting)
+          return 0
+        })
+        // Insert a ">" separator between mapped elements, but not after the last one
+        .map((part, idx, arr) => (
+          <div key={part.scope} className="flex items-center gap-1">
+            <span className="flex items-center gap-1">
+              <span>{part.scope}</span>
+              <InlineDotSeparator />
+              <span>{part.index}</span>
+            </span>
+            {idx < arr.length - 1 && <ChevronRightIcon className="size-3" />}
           </div>
         ))}
-      </div>
     </div>
   )
 }
 
-export function ModelMessagePart({ part }: { part: ModelMessage }) {
-  if (part.kind === "response") {
-    return <AgentResponsePart parts={part.parts} />
-  }
-  if (part.kind === "request") {
-    return <AgentRequestPart parts={part.parts} />
-  }
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Unknown model message kind: {part.kind}</span>
-      <JsonViewWithControls src={part} defaultExpanded={true} />
-    </div>
-  )
-}
-
-export function SystemPromptPartComponent({
-  part,
-  defaultExpanded = false,
+function ActionEventContent({
+  actionEvent,
+  type,
+  eventRef,
+  streamIdPlaceholder,
 }: {
-  part: SystemPromptPart
-  defaultExpanded?: boolean
+  actionEvent: WorkflowExecutionEventCompact
+  type: Omit<TabType, "interaction">
+  eventRef: string
+  streamIdPlaceholder?: string
 }) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : JSON.stringify(part.content, null, 2)
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? content
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-start gap-2">
-        <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div
-          className={cn(
-            "flex-1 overflow-x-auto break-words",
-            isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"
-          )}
-        >
-          {displayContent}
+  const { status, session, stream_id, action_error } = actionEvent
+  switch (status) {
+    case "SCHEDULED": {
+      return (
+        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+          <span>Action is scheduled...</span>
         </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={`ml-2 size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        )}
-      </div>
-    </Card>
-  )
-}
-
-export function UserPromptPartComponent({
-  part,
-  defaultExpanded = false,
-}: {
-  part: UserPromptPart
-  defaultExpanded?: boolean
-}) {
-  const { user } = useAuth()
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : JSON.stringify(part.content, null, 2)
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? content
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {user && <CaseUserAvatar user={user} size="sm" />}
-            {user && (
-              <span className="text-xs font-semibold text-foreground/80">
-                {user.firstName || user.email}
-              </span>
-            )}
-          </div>
-          {shouldTruncate && (
-            <ChevronRightIcon
-              className={`size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            />
-          )}
+      )
+    }
+    case "STARTED": {
+      // If a session exists, always use ActionSessionStream
+      // Works for both live streaming and completed states
+      // (backend converts completed AgentOutput to UIMessages automatically)
+      if (session) {
+        return <ActionSessionStream session={session} />
+      }
+      return (
+        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+          <span>Action is running...</span>
         </div>
-        <div
-          className={`overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
-        >
-          {displayContent}
-        </div>
-      </div>
-    </Card>
-  )
-}
+      )
+    }
+    default: {
+      const showSessionTabs =
+        type === "result" && !!session && !action_error && !streamIdPlaceholder
 
-export function RetryPromptPartComponent({
-  part,
-  defaultExpanded = false,
-}: {
-  part: RetryPromptPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content =
-    typeof part.content === "string"
-      ? part.content
-      : part.content.map((c) => c.msg).join(" ")
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = content.length > TRUNCATE_LIMIT
-
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, " ").trim()
-  const displayContent = isExpanded
-    ? typeof part.content === "string"
-      ? part.content
-      : part.content.map((c) => {
-          return <span key={c.msg}>{c.msg}</span>
-        })
-    : shouldTruncate
-      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-      : normalizedContent
-
-  return (
-    <Card
-      className="flex cursor-pointer flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <RefreshCw className="size-3 text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground/80">
-            Retry prompt
-          </span>
-        </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        )}
-      </div>
-      <div className={`${isExpanded ? "whitespace-pre-wrap" : "truncate"}`}>
-        {displayContent}
-      </div>
-    </Card>
-  )
-}
-
-export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
-  const [isExpanded, setIsExpanded] = React.useState(false)
-
-  const toolName = part.tool_name
-
-  // Always resolve action type so hooks are called consistently
-  const actionType = reconstructActionType(toolName)
-  // Call hook unconditionally; it will be disabled internally when actionType is undefined
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
-  // Case 1 – registry action
-  if (registryActionIsLoading) {
-    return <Skeleton className="h-16 w-full" />
-  }
-  if (registryAction && !registryActionError) {
-    return (
-      <div className="flex flex-col gap-2">
-        <Card
-          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
-          <div
-            className={cn(
-              "flex items-center gap-2 p-2",
-              isExpanded && "border-b-[0.5px]"
-            )}
-          >
-            <Tooltip>
-              <TooltipTrigger>
-                <div>
-                  {getIcon(actionType, {
-                    className: "size-4 p-[3px]",
-                  })}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="p-1">
-                <p>{registryAction.namespace}</p>
-              </TooltipContent>
-            </Tooltip>
-            <span className="text-xs font-semibold text-foreground/80">
-              {registryAction.default_title}
-            </span>
-            <Undo2Icon className="size-3" />
-            <ChevronRightIcon
-              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-            />
-          </div>
-        </Card>
-        {isExpanded && (
-          <JsonViewWithControls
-            src={part.content}
-            defaultExpanded={true}
-            defaultTab="nested"
-            className="shadow-sm"
-          />
-        )}
-      </div>
-    )
-  }
-
-  // Case 2 – not found
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Action not found</span>
-    </div>
-  )
-}
-
-export function AgentRequestPart({ parts }: { parts: ModelRequest["parts"] }) {
-  return (
-    <div className="space-y-2">
-      {parts.map((p, index) => (
-        <div key={index} className="space-y-2 text-xs">
-          {p.part_kind === "system-prompt" && (
-            <SystemPromptPartComponent part={p} />
-          )}
-          {p.part_kind === "user-prompt" && (
-            <UserPromptPartComponent part={p} />
-          )}
-          {p.part_kind === "tool-return" && (
-            <ToolReturnPartComponent part={p} />
-          )}
-          {p.part_kind === "retry-prompt" && (
-            <RetryPromptPartComponent part={p} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export function AgentResponsePart({
-  parts,
-}: {
-  parts: ModelResponse["parts"]
-}) {
-  return (
-    <div className="space-y-2">
-      {parts.map((p, index) => (
-        <div key={index} className="space-y-2 text-xs">
-          {p.part_kind === "text" && <TextPartComponent text={p} />}
-          {p.part_kind === "tool-call" && (
-            <ToolCallPartComponent toolCall={p} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export function TextPartComponent({
-  text,
-  defaultExpanded = false,
-}: {
-  text: TextPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const editor = useCreateBlockNote({
-    animations: false,
-    codeBlock,
-  })
-
-  const TRUNCATE_LIMIT = 200
-  const shouldTruncate = text.content.length > TRUNCATE_LIMIT
-  useEffect(() => {
-    if (text.content) {
-      let contentToLoad
-      if (isExpanded) {
-        contentToLoad = text.content
-      } else {
-        // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.trim()
-        contentToLoad = shouldTruncate
-          ? `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
-          : normalizedContent
+      if (showSessionTabs && session) {
+        return (
+          <Tabs defaultValue="session" className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="items-center gap-2">
+                {getWorkflowEventIcon(actionEvent.status, "size-4")}
+                <span className="text-xs font-semibold text-foreground/70">
+                  Action {status.toLowerCase()}
+                </span>
+              </Badge>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <StreamDetails
+                  streamId={stream_id}
+                  placeholder={streamIdPlaceholder}
+                />
+                <TabsList className="h-8">
+                  <TabsTrigger
+                    value="session"
+                    disableUnderline
+                    className="h-6 text-xs"
+                  >
+                    Session
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="result"
+                    disableUnderline
+                    className="h-6 text-xs"
+                  >
+                    Result
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+            </div>
+            <TabsContent value="session" className="mt-1">
+              <ActionSessionStream session={session} />
+            </TabsContent>
+            <TabsContent value="result" className="mt-1">
+              <ActionResultViewer
+                result={actionEvent.action_result}
+                eventRef={eventRef}
+                defaultExpanded={true}
+                defaultTab="nested"
+              />
+            </TabsContent>
+          </Tabs>
+        )
       }
 
-      loadInitialContent(editor, contentToLoad)
-    }
-  }, [text.content, editor, isExpanded, shouldTruncate])
-
-  return (
-    <div
-      className="flex cursor-pointer flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          <MessageCircle className="size-3" />
-          <span className="text-xs font-semibold text-foreground/80">
-            Agent
-          </span>
-        </div>
-        {shouldTruncate && (
-          <ChevronRightIcon
-            className={cn(
-              "size-4 transition-transform",
-              isExpanded && "rotate-90"
-            )}
-          />
-        )}
-      </div>
-
-      <BlockNoteView
-        editor={editor}
-        theme="light"
-        editable={false}
-        slashMenu={false}
-        style={{
-          height: "100%",
-          width: "100%",
-          whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          lineHeight: "1.5",
-        }}
-      />
-    </div>
-  )
-}
-
-export function ToolCallPartComponent({
-  toolCall,
-  defaultExpanded = true,
-}: {
-  toolCall: ToolCallPart
-  defaultExpanded?: boolean
-}) {
-  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-
-  const toolName = toolCall.tool_name
-
-  // Always resolve action type so hooks are called consistently
-  const actionType = reconstructActionType(toolName)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
-  let args
-  try {
-    args =
-      typeof toolCall.args === "string"
-        ? JSON.parse(toolCall.args)
-        : toolCall.args
-  } catch {
-    args = toolCall.args
-  }
-
-  // Case 1 – registry action
-  if (registryActionIsLoading) {
-    return (
-      <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
-        <div className="flex items-center gap-2">
-          <Skeleton className="size-4 border-[0.5px] p-[3px]" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="ml-auto size-4 animate-pulse" />
-        </div>
-        {isExpanded && (
-          <div className="mt-2">
-            <Skeleton className="h-16 w-full" />
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Badge variant="secondary" className="items-center gap-2">
+              {getWorkflowEventIcon(actionEvent.status, "size-4")}
+              <span className="text-xs font-semibold text-foreground/70">
+                Action {status.toLowerCase()}
+              </span>
+            </Badge>
+            <StreamDetails
+              streamId={stream_id}
+              placeholder={streamIdPlaceholder}
+            />
           </div>
-        )}
-      </Card>
-    )
-  }
-  if (registryAction && !registryActionError) {
-    return (
-      <Card
-        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger>
-              <div>
-                {getIcon(actionType, {
-                  className: "size-4 p-[3px]",
-                })}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="p-1">
-              <p>{registryAction.namespace}</p>
-            </TooltipContent>
-          </Tooltip>
-          <span className="text-xs font-semibold text-foreground/80">
-            {registryAction.default_title}
-          </span>
-          <ChevronRightIcon
-            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          />
-        </div>
-        {isExpanded && (
-          <table className="mt-2 min-w-full text-xs">
-            <tbody>
-              {Object.entries(args).map(([key, value]) => (
-                <tr key={key}>
-                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
-                    {key}
-                  </td>
-                  <td className="break-all px-2 py-1 text-left align-top text-foreground/90">
-                    {typeof value === "string"
-                      ? value
-                      : JSON.stringify(value, null, 2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    )
-  }
 
-  // Case 2 – action not found
-  return (
-    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <CircleDot className="size-3 text-muted-foreground" />
-      <span>Action not found</span>
-    </div>
-  )
+          {/* Present result or error */}
+          {type === "result" && action_error ? (
+            <ErrorEvent failure={action_error} />
+          ) : (
+            <SuccessEvent event={actionEvent} type={type} eventRef={eventRef} />
+          )}
+        </div>
+      )
+    }
+  }
 }
 
 export function ActionEventDetails({
@@ -723,79 +438,282 @@ export function ActionEventDetails({
       </div>
     )
   }
-  const renderEvent = (
-    actionEvent: WorkflowExecutionEventCompact,
-    streamIdPlaceholder?: string
-  ) => {
-    if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
-      return (
-        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-          <span>Action is {actionEvent.status.toLowerCase()}...</span>
-        </div>
-      )
-    }
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <Badge variant="secondary" className="items-center gap-2">
-            {getWorkflowEventIcon(actionEvent.status, "size-4")}
-            <span className="text-xs font-semibold text-foreground/70">
-              Action {actionEvent.status.toLowerCase()}
-            </span>
-          </Badge>
-          {actionEvent.stream_id && !streamIdPlaceholder && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
-              {parseStreamId(actionEvent.stream_id)
-                .filter((part) => part.scope !== "<root>")
-                // Only sort if scope matches, otherwise preserve original order
-                .sort((a, b) => {
-                  if (a.scope === b.scope) {
-                    return Number(a.index) - Number(b.index)
-                  }
-                  // If scopes do not match, preserve original order (no sorting)
-                  return 0
-                })
-                // Insert a ">" separator between mapped elements, but not after the last one
-                .map((part, idx, arr) => (
-                  <div key={part.scope} className="flex items-center gap-1">
-                    <span className="flex items-center gap-1">
-                      <span>{part.scope}</span>
-                      <InlineDotSeparator />
-                      <span>{part.index}</span>
-                    </span>
-                    {idx < arr.length - 1 && (
-                      <ChevronRightIcon className="size-3" />
-                    )}
-                  </div>
-                ))}
-            </div>
-          )}
-          {streamIdPlaceholder && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
-              <span>{streamIdPlaceholder}</span>
-            </div>
-          )}
-        </div>
-
-        {type === "result" && actionEvent.action_error ? (
-          <ErrorEvent failure={actionEvent.action_error} />
-        ) : (
-          <SuccessEvent event={actionEvent} type={type} eventRef={eventRef} />
-        )}
-      </div>
-    )
-  }
   if (type === "input") {
     // Inputs are identical for all events, so we can just render the first one
-    return renderEvent(
-      actionEventsForRef[0],
-      "Input is the same for all events"
+    return (
+      <ActionEventContent
+        actionEvent={actionEventsForRef[0]}
+        type={type}
+        eventRef={eventRef}
+        streamIdPlaceholder="Input is the same for all events"
+      />
     )
   }
+  const eventsWithSessions =
+    type === "result" ? actionEventsForRef.filter((event) => event.session) : []
+
+  if (type === "result" && eventsWithSessions.length > 1) {
+    const firstSessionIndex = actionEventsForRef.findIndex(
+      (event) => event.session
+    )
+    const nodes: ReactNode[] = []
+
+    actionEventsForRef.forEach((actionEvent, index) => {
+      const key = actionEvent.stream_id ?? actionEvent.source_event_id
+      if (actionEvent.session) {
+        if (index === firstSessionIndex) {
+          nodes.push(
+            <div key="session-streams">
+              <ActionSessionCarousel
+                events={eventsWithSessions}
+                type={type}
+                eventRef={eventRef}
+              />
+            </div>
+          )
+        }
+        return
+      }
+
+      nodes.push(
+        <div key={key}>
+          <ActionEventContent
+            actionEvent={actionEvent}
+            type={type}
+            eventRef={eventRef}
+          />
+        </div>
+      )
+    })
+
+    return nodes
+  }
+
   return actionEventsForRef.map((actionEvent) => (
-    <div key={actionEvent.stream_id}>{renderEvent(actionEvent)}</div>
+    <div key={actionEvent.stream_id ?? actionEvent.source_event_id}>
+      <ActionEventContent
+        actionEvent={actionEvent}
+        type={type}
+        eventRef={eventRef}
+      />
+    </div>
   ))
+}
+
+function ActionSessionCarousel({
+  events,
+  type,
+  eventRef,
+}: {
+  events: WorkflowExecutionEventCompact[]
+  type: Omit<TabType, "interaction">
+  eventRef: string
+}) {
+  const [api, setApi] = useState<CarouselApi>()
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [canScrollPrev, setCanScrollPrev] = useState(false)
+  const [canScrollNext, setCanScrollNext] = useState(events.length > 1)
+
+  useEffect(() => {
+    if (!api) {
+      return
+    }
+
+    const update = () => {
+      setCurrentIndex(api.selectedScrollSnap())
+      setCanScrollPrev(api.canScrollPrev())
+      setCanScrollNext(api.canScrollNext())
+    }
+
+    update()
+    api.on("select", update)
+    api.on("reInit", update)
+
+    return () => {
+      api.off("select", update)
+      api.off("reInit", update)
+    }
+  }, [api])
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground">
+          Stream {currentIndex + 1} of {events.length}
+        </span>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollPrev()}
+          disabled={!canScrollPrev}
+        >
+          <ChevronLeftIcon className="size-4" />
+          <span className="sr-only">Previous stream</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => api?.scrollNext()}
+          disabled={!canScrollNext}
+        >
+          <ChevronRightIcon className="size-4" />
+          <span className="sr-only">Next stream</span>
+        </Button>
+      </div>
+      <Carousel
+        setApi={setApi}
+        opts={{
+          align: "start",
+          duration: 0, // Set to 0 to disable animation
+          dragFree: false,
+          containScroll: false,
+          watchDrag: false, // This is the correct way to disable dragging in Embla Carousel
+          loop: true, // Enable looping
+        }}
+      >
+        <CarouselContent>
+          {events.map((actionEvent, index) => (
+            <CarouselItem
+              key={`session-${actionEvent.stream_id ?? actionEvent.source_event_id ?? index}`}
+            >
+              <ActionEventContent
+                actionEvent={actionEvent}
+                type={type}
+                eventRef={eventRef}
+              />
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </Carousel>
+    </div>
+  )
+}
+
+function ActionSessionStream({ session }: { session: Session_Any_ }) {
+  const messages = isUIMessageArray(session.events) ? session.events : undefined
+
+  if (messages && messages.length > 0) {
+    return (
+      <ActionSessionShell>
+        <Conversation className="flex-1">
+          <ConversationContent>
+            {messages.map(({ id, role, parts }) => (
+              <div key={id}>
+                {parts?.map((part, partIdx) => (
+                  <MessagePart
+                    key={`${id}-${partIdx}`}
+                    part={part}
+                    partIdx={partIdx}
+                    id={id}
+                    role={role}
+                    isLastMessage={id === messages[messages.length - 1].id}
+                  />
+                ))}
+              </div>
+            ))}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+      </ActionSessionShell>
+    )
+  }
+
+  return <ActionSessionLiveStream sessionId={session.id} />
+}
+
+function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
+  const { workspaceId } = useWorkflowBuilder()
+  // TODO: Surface error in UI
+  const [_lastError, setLastError] = useState<string | null>(null)
+
+  const transport = useMemo(() => {
+    return new DefaultChatTransport({
+      credentials: "include",
+      prepareReconnectToStreamRequest: ({ id }) => {
+        const url = new URL(`/api/agent/sessions/${id}`, getBaseUrl())
+        url.searchParams.set("workspace_id", workspaceId)
+        return {
+          api: url.toString(),
+          credentials: "include", // Include cookies/auth
+        }
+      },
+    })
+  }, [workspaceId])
+
+  const { messages, status } = useChat({
+    id: sessionId,
+    resume: true, // Force resume a stream on mount
+    transport,
+    onError: (error) => {
+      const friendlyMessage = parseChatError(error)
+      setLastError(friendlyMessage)
+      console.error("Error in Vercel chat:", error)
+      toast({
+        title: "Chat error",
+        description: friendlyMessage,
+      })
+    },
+  })
+
+  const headerStatus = status === "streaming" ? "streaming" : undefined
+
+  return (
+    <ActionSessionShell status={headerStatus}>
+      {status === "submitted" ? (
+        <div className="flex flex-1 items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          <span>Connecting to agent…</span>
+        </div>
+      ) : (
+        <Conversation className="flex-1">
+          <ConversationContent>
+            {messages.map(({ id, role, parts }) => (
+              <div key={id}>
+                {parts?.map((part, partIdx) => (
+                  <MessagePart
+                    key={`${id}-${partIdx}`}
+                    part={part}
+                    partIdx={partIdx}
+                    id={id}
+                    role={role}
+                    status={status}
+                    isLastMessage={id === messages[messages.length - 1].id}
+                  />
+                ))}
+              </div>
+            ))}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+      )}
+    </ActionSessionShell>
+  )
+}
+
+function ActionSessionShell({
+  status,
+  children,
+}: {
+  status?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <MessageCircle className="size-3" />
+        <span>Session</span>
+        {status === "streaming" && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] font-medium normal-case text-muted-foreground">
+            <Spinner className="size-3" />
+            <span>Streaming…</span>
+          </span>
+        )}
+      </div>
+      <div className="mb-8 flex min-h-[160px] flex-1 flex-col">{children}</div>
+    </div>
+  )
 }
 
 function ErrorEvent({ failure }: { failure: EventFailure }) {
@@ -804,10 +722,4 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
       <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
-}
-
-async function loadInitialContent(editor: BlockNoteEditor, content: string) {
-  const blocks = await editor.tryParseMarkdownToBlocks(content)
-  const spacedBlocks = getSpacedBlocks(blocks)
-  editor.replaceBlocks(editor.document, spacedBlocks)
 }

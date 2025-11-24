@@ -10,7 +10,6 @@ import json
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 import yaml
 from sqlalchemy import text
 from sqlalchemy.dialects import postgresql
@@ -31,7 +30,7 @@ def upgrade() -> None:
         "action",
         "inputs",
         existing_type=postgresql.JSONB(astext_type=sa.Text()),
-        type_=sqlmodel.sql.sqltypes.AutoString(),
+        type_=sa.String(),
         nullable=False,
     )
 

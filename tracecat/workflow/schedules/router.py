@@ -1,40 +1,42 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlmodel import select
+from sqlalchemy import select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Schedule
+from tracecat.db.models import Schedule
+from tracecat.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.schedules.models import (
+from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
+    ScheduleRead,
     ScheduleSearch,
     ScheduleUpdate,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
-router = APIRouter(prefix="/schedules")
+router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 
-@router.get("", tags=["schedules"])
+@router.get("", response_model=list[ScheduleRead])
 async def list_schedules(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: OptionalAnyWorkflowIDQuery,
-) -> list[Schedule]:
+) -> list[ScheduleRead]:
     service = WorkflowSchedulesService(session, role=role)
-    return await service.list_schedules(workflow_id=workflow_id)
+    schedules = await service.list_schedules(workflow_id=workflow_id)
+    return ScheduleRead.list_adapter().validate_python(schedules)
 
 
-@router.post("", tags=["schedules"])
+@router.post("", response_model=ScheduleRead)
 async def create_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     params: ScheduleCreate,
-) -> Schedule:
+) -> ScheduleRead:
     """Create a schedule for a workflow."""
     service = WorkflowSchedulesService(session, role=role)
     workflow_svc = WorkflowsManagementService(session, role=role)
@@ -50,7 +52,8 @@ async def create_schedule(
             detail="Workflow must be saved before creating a schedule.",
         )
     try:
-        return await service.create_schedule(params)
+        schedule = await service.create_schedule(params)
+        return ScheduleRead.model_validate(schedule)
     except TracecatServiceError as e:
         logger.error("Error creating schedule", error=e)
         raise HTTPException(
@@ -59,14 +62,15 @@ async def create_schedule(
         ) from e
 
 
-@router.get("/{schedule_id}", tags=["schedules"])
+@router.get("/{schedule_id}", response_model=ScheduleRead)
 async def get_schedule(
     role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
-) -> Schedule:
+) -> ScheduleRead:
     """Get a schedule from a workflow."""
     service = WorkflowSchedulesService(session, role=role)
     try:
-        return await service.get_schedule(schedule_id)
+        schedule = await service.get_schedule(schedule_id)
+        return ScheduleRead.model_validate(schedule)
     except TracecatNotFoundError as e:
         logger.error("Error getting schedule", error=e)
         raise HTTPException(
@@ -75,17 +79,18 @@ async def get_schedule(
         ) from e
 
 
-@router.post("/{schedule_id}", tags=["schedules"])
+@router.post("/{schedule_id}", response_model=ScheduleRead)
 async def update_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     schedule_id: ScheduleID,
     params: ScheduleUpdate,
-) -> Schedule:
+) -> ScheduleRead:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     service = WorkflowSchedulesService(session, role=role)
     try:
-        return await service.update_schedule(schedule_id, params)
+        schedule = await service.update_schedule(schedule_id, params)
+        return ScheduleRead.model_validate(schedule)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -99,11 +104,7 @@ async def update_schedule(
         ) from e
 
 
-@router.delete(
-    "/{schedule_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["schedules"],
-)
+@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
     role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
 ) -> None:
@@ -119,12 +120,12 @@ async def delete_schedule(
         ) from e
 
 
-@router.get("/search", tags=["schedules"])
+@router.get("/search", response_model=list[ScheduleRead])
 async def search_schedules(
     role: WorkspaceUserRole, session: AsyncDBSession, params: ScheduleSearch
-) -> list[Schedule]:
+) -> list[ScheduleRead]:
     """**[WORK IN PROGRESS]** Search for schedules."""
     statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
-    results = await session.exec(statement)
-    schedules = results.all()
-    return list(schedules)
+    results = await session.execute(statement)
+    schedules = results.scalars().all()
+    return ScheduleRead.list_adapter().validate_python(schedules)

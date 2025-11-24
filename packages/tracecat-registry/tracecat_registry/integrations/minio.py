@@ -7,7 +7,7 @@ from typing_extensions import Doc
 from tracecat_registry import RegistrySecret, registry, secrets
 from minio import Minio
 from minio.commonconfig import CopySource
-from pydantic_core import to_jsonable_python
+from tracecat.utils import to_jsonable_python
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
 
 minio_secret = RegistrySecret(

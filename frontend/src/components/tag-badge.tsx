@@ -2,7 +2,12 @@ import type { TagRead } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
-export function TagBadge({ tag }: { tag: TagRead }) {
+interface TagBadgeProps {
+  tag: TagRead
+  className?: string
+}
+
+export function TagBadge({ tag, className }: TagBadgeProps) {
   // Use Tailwind's contrast utilities via CSS custom properties
   const badgeStyle = tag.color
     ? {
@@ -17,7 +22,11 @@ export function TagBadge({ tag }: { tag: TagRead }) {
     <Badge
       key={tag.id}
       variant="secondary"
-      className={cn("text-xs", tag.color && "font-medium")}
+      className={cn(
+        "border-0 text-xs leading-tight",
+        tag.color && "font-medium",
+        className
+      )}
       style={badgeStyle}
     >
       {tag.name}

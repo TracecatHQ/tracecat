@@ -3,12 +3,15 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import orjson
+from asyncpg import DuplicateTableError
 from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import ProgrammingError
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import (
+from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
     TableCreate,
@@ -21,8 +24,8 @@ from tracecat.expressions.functions import tabulate
 
 
 @registry.register(
-    default_title="Lookup record",
-    description="Get a single record from a table corresponding to the given column and value.",
+    default_title="Lookup row",
+    description="Get a single row from a table corresponding to the given column and value.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -52,8 +55,36 @@ async def lookup(
 
 
 @registry.register(
-    default_title="Lookup many records",
-    description="Get multiple records from a table corresponding to the given column and values.",
+    default_title="Is in table",
+    description="Check if a value exists in a table column.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def is_in(
+    table: Annotated[
+        str,
+        Doc("The table to check."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The column to check in."),
+    ],
+    value: Annotated[
+        Any,
+        Doc("The value to check for."),
+    ],
+) -> bool:
+    async with TablesService.with_session() as service:
+        return await service.exists_rows(
+            table_name=table,
+            columns=[column],
+            values=[value],
+        )
+
+
+@registry.register(
+    default_title="Lookup many rows",
+    description="Get multiple rows from a table corresponding to the given column and values.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -91,12 +122,12 @@ async def lookup_many(
 
 
 @registry.register(
-    default_title="Search records",
-    description="Search for records in a table with optional filtering.",
+    default_title="Search rows",
+    description="Search for rows in a table with optional filtering.",
     display_group="Tables",
     namespace="core.table",
 )
-async def search_records(
+async def search_rows(
     table: Annotated[
         str,
         Doc("The table to search in."),
@@ -107,19 +138,19 @@ async def search_records(
     ] = None,
     start_time: Annotated[
         datetime | None,
-        Doc("Filter records created after this time."),
+        Doc("Filter rows created after this time."),
     ] = None,
     end_time: Annotated[
         datetime | None,
-        Doc("Filter records created before this time."),
+        Doc("Filter rows created before this time."),
     ] = None,
     updated_before: Annotated[
         datetime | None,
-        Doc("Filter records updated before this time."),
+        Doc("Filter rows updated before this time."),
     ] = None,
     updated_after: Annotated[
         datetime | None,
-        Doc("Filter records updated after this time."),
+        Doc("Filter rows updated after this time."),
     ] = None,
     offset: Annotated[
         int,
@@ -141,10 +172,10 @@ async def search_records(
         rows = await service.search_rows(
             table=db_table,
             search_term=search_term,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+            start_time=coerce_optional_to_utc_datetime(start_time),
+            end_time=coerce_optional_to_utc_datetime(end_time),
+            updated_before=coerce_optional_to_utc_datetime(updated_before),
+            updated_after=coerce_optional_to_utc_datetime(updated_after),
             limit=limit,
             offset=offset,
         )
@@ -152,8 +183,8 @@ async def search_records(
 
 
 @registry.register(
-    default_title="Insert record",
-    description="Insert a record into a table.",
+    default_title="Insert row",
+    description="Insert a row into a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -179,8 +210,8 @@ async def insert_row(
 
 
 @registry.register(
-    default_title="Insert multiple records",
-    description="Insert multiple records into a table.",
+    default_title="Insert multiple rows",
+    description="Insert multiple rows into a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -207,8 +238,8 @@ async def insert_rows(
 
 
 @registry.register(
-    default_title="Update record",
-    description="Update a record in a table.",
+    default_title="Update row",
+    description="Update a row in a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -235,8 +266,8 @@ async def update_row(
 
 
 @registry.register(
-    default_title="Delete record",
-    description="Delete a record from a table.",
+    default_title="Delete row",
+    description="Delete a row from a table.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -272,6 +303,10 @@ async def create_table(
             "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
         ),
     ] = None,
+    raise_on_duplicate: Annotated[
+        bool,
+        Doc("If true, raise an error if the table already exists."),
+    ] = True,
 ) -> dict[str, Any]:
     column_objects = []
     if columns:
@@ -287,8 +322,23 @@ async def create_table(
 
     params = TableCreate(name=name, columns=column_objects)
     async with TablesService.with_session() as service:
-        table = await service.create_table(params)
-    return table.model_dump()
+        try:
+            table = await service.create_table(params)
+        except ProgrammingError as e:
+            # Drill down to the root cause
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, DuplicateTableError):
+                if raise_on_duplicate:
+                    raise ValueError("Table already exists") from e
+                else:
+                    # Rollback the failed transaction before querying
+                    await service.session.rollback()
+                    # Return existing table instead of raising error
+                    table = await service.get_table_by_name(name)
+            else:
+                raise
+    return table.to_dict()
 
 
 @registry.register(
@@ -300,7 +350,7 @@ async def create_table(
 async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
-    return [table.model_dump() for table in tables]
+    return [table.to_dict() for table in tables]
 
 
 @registry.register(

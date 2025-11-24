@@ -3,9 +3,9 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.types.pagination import (
+from tracecat.pagination import (
     BaseCursorPaginator,
     CursorData,
     CursorPaginationParams,

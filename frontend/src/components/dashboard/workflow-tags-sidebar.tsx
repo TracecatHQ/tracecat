@@ -45,7 +45,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { useTags } from "@/lib/hooks"
+import { useWorkflowTags } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -66,7 +66,7 @@ const createTagSchema = z.object({
 
 export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
-  const { tags, createTag, tagsIsLoading } = useTags(workspaceId)
+  const { tags, createTag, tagsIsLoading } = useWorkflowTags(workspaceId)
   const [showTagDialog, setShowTagDialog] = useState(false)
 
   const methods = useForm<TagCreate>({
@@ -243,7 +243,7 @@ function TagItemActionDialogContent({
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
-  const { updateTag, deleteTag } = useTags(workspaceId)
+  const { updateTag, deleteTag } = useWorkflowTags(workspaceId)
   const methods = useForm<TagUpdate>({
     resolver: zodResolver(updateTagSchema),
     defaultValues: {

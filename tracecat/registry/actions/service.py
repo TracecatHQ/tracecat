@@ -5,12 +5,16 @@ from collections.abc import Sequence
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
-from sqlalchemy import Boolean
-from sqlmodel import cast, func, or_, select
+from sqlalchemy import Boolean, cast, func, or_, select
 from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
-from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
@@ -20,7 +24,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
-from tracecat.registry.actions.models import (
+from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionCreate,
     RegistryActionImplValidator,
@@ -33,11 +37,6 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
-from tracecat.types.exceptions import (
-    RegistryActionValidationError,
-    RegistryError,
-    RegistryValidationError,
-)
 
 
 class RegistryActionsService(BaseService):
@@ -74,8 +73,8 @@ class RegistryActionsService(BaseService):
                 )
             )
 
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""
@@ -92,8 +91,8 @@ class RegistryActionsService(BaseService):
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
         )
-        result = await self.session.exec(statement)
-        action = result.one_or_none()
+        result = await self.session.execute(statement)
+        action = result.scalars().one_or_none()
         if not action:
             raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
@@ -106,13 +105,15 @@ class RegistryActionsService(BaseService):
                 action_names
             ),
         )
-        result = await self.session.exec(statement)
-        return result.all()
+        result = await self.session.execute(statement)
+        return result.scalars().all()
 
     async def create_action(
         self,
         params: RegistryActionCreate,
         owner_id: UUID4 = config.TRACECAT__DEFAULT_ORG_ID,
+        *,
+        commit: bool = True,
     ) -> RegistryAction:
         """
         Create a new registry action.
@@ -139,13 +140,18 @@ class RegistryActionsService(BaseService):
         )
 
         self.session.add(action)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         return action
 
     async def update_action(
         self,
         action: RegistryAction,
         params: RegistryActionUpdate,
+        *,
+        commit: bool = True,
     ) -> RegistryAction:
         """
         Update an existing registry action.
@@ -161,10 +167,15 @@ class RegistryActionsService(BaseService):
         for key, value in set_fields.items():
             setattr(action, key, value)
         self.session.add(action)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         return action
 
-    async def delete_action(self, action: RegistryAction) -> RegistryAction:
+    async def delete_action(
+        self, action: RegistryAction, *, commit: bool = True
+    ) -> RegistryAction:
         """
         Delete a registry action.
 
@@ -175,7 +186,10 @@ class RegistryActionsService(BaseService):
             DBRegistryAction: The deleted registry action.
         """
         await self.session.delete(action)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         return action
 
     async def sync_actions_from_repository(
@@ -183,6 +197,8 @@ class RegistryActionsService(BaseService):
         db_repo: RegistryRepository,
         pull_remote: bool = True,
         target_commit_sha: str | None = None,
+        *,
+        allow_delete_all: bool = False,
     ) -> str | None:
         """Sync actions from a repository.
 
@@ -234,8 +250,17 @@ class RegistryActionsService(BaseService):
                     detail=val_errs,
                 )
 
-        # NOTE: We should start a transaction here and commit it after the sync is complete
-        await self.upsert_actions_from_repo(repo, db_repo)
+        # Perform DB mutations in a single transaction to avoid partial writes
+        if self.session.in_transaction():
+            async with self.session.begin_nested():
+                await self.upsert_actions_from_repo(
+                    repo, db_repo, commit=False, allow_delete_all=allow_delete_all
+                )
+        else:
+            async with self.session.begin():
+                await self.upsert_actions_from_repo(
+                    repo, db_repo, commit=False, allow_delete_all=allow_delete_all
+                )
 
         return commit_sha
 
@@ -256,7 +281,12 @@ class RegistryActionsService(BaseService):
 
     # We need to call this first for UDFs
     async def upsert_actions_from_repo(
-        self, repo: Repository, db_repo: RegistryRepository
+        self,
+        repo: Repository,
+        db_repo: RegistryRepository,
+        *,
+        commit: bool = True,
+        allow_delete_all: bool = False,
     ) -> None:
         """Upsert a list of actions."""
         # (2) Handle DB bookkeeping for the API's view of the repository
@@ -264,6 +294,7 @@ class RegistryActionsService(BaseService):
         # the repository with the remote repository -- meaning any creation/updates/deletions to
         # actions should be propogated to the db.
         # Safety: We're in a db session so we can call this
+        await self.session.refresh(db_repo)
         db_actions = db_repo.actions
         db_actions_map = {db_action.action: db_action for db_action in db_actions}
         self.logger.info(
@@ -272,6 +303,25 @@ class RegistryActionsService(BaseService):
             incoming_actions=len(repo.store.keys()),
             existing_actions=len(db_actions_map.keys()),
         )
+
+        if not repo.store:
+            if db_actions_map and not allow_delete_all:
+                self.logger.error(
+                    "Empty registry snapshot; refusing to delete existing actions",
+                    repository=db_repo.origin,
+                    existing_actions=len(db_actions_map),
+                )
+                raise RegistryError(
+                    "Sync aborted: repository produced no actions; existing actions were preserved."
+                )
+
+            if not db_actions_map:
+                self.logger.info(
+                    "No actions found in repository and none in database; nothing to sync",
+                    repository=db_repo.origin,
+                )
+                return
+
         n_created = 0
         n_updated = 0
         n_deleted = 0
@@ -288,7 +338,7 @@ class RegistryActionsService(BaseService):
                 create_params = RegistryActionCreate.from_bound(
                     new_bound_action, db_repo.id
                 )
-                await self.create_action(create_params)
+                await self.create_action(create_params, commit=commit)
                 n_created += 1
             else:
                 self.logger.debug(
@@ -298,7 +348,7 @@ class RegistryActionsService(BaseService):
                     repository_id=db_repo.id,
                 )
                 update_params = RegistryActionUpdate.from_bound(new_bound_action)
-                await self.update_action(registry_action, update_params)
+                await self.update_action(registry_action, update_params, commit=commit)
                 n_updated += 1
             finally:
                 # Mark action as not to delete
@@ -311,7 +361,7 @@ class RegistryActionsService(BaseService):
                 actions=db_actions_map.keys(),
             )
             for action_to_remove in db_actions_map.values():
-                await self.delete_action(action_to_remove)
+                await self.delete_action(action_to_remove, commit=commit)
                 n_deleted += 1
 
         self.logger.info(
@@ -445,7 +495,7 @@ async def validate_action_template(
 
         # (B) Validate that the step is correctly formatted
         try:
-            bound_action.validate_args(**step.args)
+            bound_action.validate_args(args=step.args)
         except RegistryValidationError as e:
             if isinstance(e.err, ValidationError):
                 details = []

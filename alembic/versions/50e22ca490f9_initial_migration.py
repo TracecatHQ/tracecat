@@ -11,8 +11,6 @@ from collections.abc import Sequence
 import fastapi_users_db_sqlalchemy
 import fastapi_users_db_sqlalchemy.generics
 import sqlalchemy as sa
-import sqlmodel
-import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
@@ -30,7 +28,7 @@ def upgrade() -> None:
     op.create_table(
         "case",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -43,14 +41,14 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("workflow_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("case_title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("workflow_id", sa.String(), nullable=False),
+        sa.Column("case_title", sa.String(), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("malice", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("priority", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("action", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("malice", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("priority", sa.String(), nullable=False),
+        sa.Column("action", sa.String(), nullable=True),
         sa.Column("context", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
@@ -59,7 +57,7 @@ def upgrade() -> None:
     op.create_table(
         "caseevent",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -72,27 +70,27 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("workflow_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("case_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("initiator_role", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("workflow_id", sa.String(), nullable=False),
+        sa.Column("case_id", sa.String(), nullable=False),
+        sa.Column("initiator_role", sa.String(), nullable=False),
         sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
     )
     op.create_index(op.f("ix_caseevent_id"), "caseevent", ["id"], unique=True)
     op.create_table(
         "ownership",
-        sa.Column("resource_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("resource_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("owner_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("resource_id", sa.String(), nullable=False),
+        sa.Column("resource_type", sa.String(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("owner_type", sa.String(), nullable=False),
         sa.PrimaryKeyConstraint("resource_id"),
     )
     op.create_table(
         "udfspec",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -105,11 +103,11 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("namespace", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("key", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("namespace", sa.String(), nullable=False),
+        sa.Column("key", sa.String(), nullable=False),
+        sa.Column("version", sa.String(), nullable=True),
         sa.Column(
             "json_schema", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
@@ -119,16 +117,14 @@ def upgrade() -> None:
     op.create_index(op.f("ix_udfspec_id"), "udfspec", ["id"], unique=True)
     op.create_table(
         "user",
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column(
-            "hashed_password", sqlmodel.sql.sqltypes.AutoString(), nullable=False
-        ),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("email", sa.String(), nullable=False),
+        sa.Column("hashed_password", sa.String(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("is_superuser", sa.Boolean(), nullable=False),
         sa.Column("is_verified", sa.Boolean(), nullable=False),
-        sa.Column("first_name", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("last_name", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("first_name", sa.String(), nullable=True),
+        sa.Column("last_name", sa.String(), nullable=True),
         sa.Column(
             "role",
             postgresql.ENUM("BASIC", "ADMIN", name="userrole", create_type=False),
@@ -141,7 +137,7 @@ def upgrade() -> None:
     op.create_table(
         "workspace",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -154,8 +150,8 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
         sa.Column("settings", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.PrimaryKeyConstraint("surrogate_id"),
         sa.UniqueConstraint("id"),
@@ -169,7 +165,7 @@ def upgrade() -> None:
             fastapi_users_db_sqlalchemy.generics.TIMESTAMPAware(timezone=True),
             nullable=False,
         ),
-        sa.Column("user_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
@@ -182,7 +178,7 @@ def upgrade() -> None:
     op.create_table(
         "caseaction",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -195,9 +191,9 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("tag", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("value", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("tag", sa.String(), nullable=False),
+        sa.Column("value", sa.String(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
@@ -209,7 +205,7 @@ def upgrade() -> None:
     op.create_table(
         "casecontext",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -222,9 +218,9 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("tag", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("value", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("tag", sa.String(), nullable=False),
+        sa.Column("value", sa.String(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
@@ -235,8 +231,8 @@ def upgrade() -> None:
     op.create_index(op.f("ix_casecontext_id"), "casecontext", ["id"], unique=True)
     op.create_table(
         "membership",
-        sa.Column("user_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("workspace_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
@@ -249,14 +245,14 @@ def upgrade() -> None:
     )
     op.create_table(
         "oauthaccount",
-        sa.Column("id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
-        sa.Column("oauth_name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("access_token", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("oauth_name", sa.String(), nullable=False),
+        sa.Column("access_token", sa.String(), nullable=False),
         sa.Column("expires_at", sa.Integer(), nullable=True),
-        sa.Column("refresh_token", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("account_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("account_email", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("user_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("refresh_token", sa.String(), nullable=True),
+        sa.Column("account_id", sa.String(), nullable=False),
+        sa.Column("account_email", sa.String(), nullable=False),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
@@ -284,10 +280,10 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("encrypted_keys", sa.LargeBinary(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=True),
@@ -311,19 +307,19 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("title", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
         sa.Column("version", sa.Integer(), nullable=True),
-        sa.Column("entrypoint", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("entrypoint", sa.String(), nullable=True),
         sa.Column(
             "static_inputs", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
         sa.Column("returns", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("object", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("icon_url", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("icon_url", sa.String(), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=True),
         sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),
@@ -332,7 +328,7 @@ def upgrade() -> None:
     op.create_table(
         "action",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -345,11 +341,11 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("title", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
         sa.Column("inputs", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "control_flow", postgresql.JSONB(astext_type=sa.Text()), nullable=True
@@ -362,7 +358,7 @@ def upgrade() -> None:
     op.create_table(
         "schedule",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -375,9 +371,9 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("cron", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("cron", sa.String(), nullable=True),
         sa.Column("inputs", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("every", sa.Interval(), nullable=False),
         sa.Column("offset", sa.Interval(), nullable=True),
@@ -391,7 +387,7 @@ def upgrade() -> None:
     op.create_table(
         "webhook",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -404,9 +400,9 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("status", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("method", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("method", sa.String(), nullable=False),
         sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("workflow_id", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="CASCADE"),
@@ -416,7 +412,7 @@ def upgrade() -> None:
     op.create_table(
         "workflowdefinition",
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
-        sa.Column("owner_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -429,7 +425,7 @@ def upgrade() -> None:
             server_default=sa.text("(now() AT TIME ZONE 'utc'::text)"),
             nullable=False,
         ),
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("workflow_id", sa.String(), nullable=True),
         sa.Column("content", postgresql.JSONB(astext_type=sa.Text()), nullable=True),

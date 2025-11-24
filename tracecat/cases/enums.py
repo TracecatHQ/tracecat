@@ -64,6 +64,7 @@ class CaseEventType(StrEnum):
     CASE_UPDATED = "case_updated"
     CASE_CLOSED = "case_closed"
     CASE_REOPENED = "case_reopened"
+    CASE_VIEWED = "case_viewed"
     PRIORITY_CHANGED = "priority_changed"
     SEVERITY_CHANGED = "severity_changed"
     STATUS_CHANGED = "status_changed"
@@ -71,4 +72,21 @@ class CaseEventType(StrEnum):
     ASSIGNEE_CHANGED = "assignee_changed"
     ATTACHMENT_CREATED = "attachment_created"
     ATTACHMENT_DELETED = "attachment_deleted"
+    TAG_ADDED = "tag_added"
+    TAG_REMOVED = "tag_removed"
     PAYLOAD_CHANGED = "payload_changed"
+    TASK_CREATED = "task_created"
+    TASK_DELETED = "task_deleted"
+    TASK_STATUS_CHANGED = "task_status_changed"
+    TASK_PRIORITY_CHANGED = "task_priority_changed"
+    TASK_WORKFLOW_CHANGED = "task_workflow_changed"
+    TASK_ASSIGNEE_CHANGED = "task_assignee_changed"
+
+
+class CaseTaskStatus(StrEnum):
+    """Case task status values."""
+
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"

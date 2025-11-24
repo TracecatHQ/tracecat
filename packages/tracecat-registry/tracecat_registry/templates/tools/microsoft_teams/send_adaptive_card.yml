@@ -24,6 +24,10 @@ definition:
       type: str | None
       description: Title for the card (appears as subject).
       default: null
+    base_url:
+      type: enum["https://graph.microsoft.com", "https://graph.microsoft.us"]
+      description: Base URL for the Microsoft Graph API.
+      default: https://graph.microsoft.com
   steps:
     - ref: build_message
       action: core.script.run_python
@@ -69,7 +73,7 @@ definition:
     - ref: send_adaptive_card
       action: core.http_request
       args:
-        url: https://graph.microsoft.com/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
+        url: ${{ inputs.base_url }}/v1.0/teams/${{ inputs.team_id }}/channels/${{ inputs.channel_id }}/messages
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}

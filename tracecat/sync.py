@@ -10,7 +10,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
-from tracecat.git.models import GitUrl
+from tracecat.git.types import GitUrl
 
 
 @dataclass(frozen=True)
@@ -144,8 +144,8 @@ class PullResult:
 class SyncService[T: BaseModel](Protocol):
     """Provider-agnostic Git/VCS sync interface.
 
-    This abstracts transport (Git over SSH/HTTPS). Domain layers (Workflows,
-    Runbooks) translate to/from TModel and call these methods.
+    This abstracts transport (Git over SSH/HTTPS). Domain layers (e.g. Workflows)
+    translate to/from TModel and call these methods.
     """
 
     async def pull(

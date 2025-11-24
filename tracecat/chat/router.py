@@ -1,45 +1,52 @@
 """Chat API router for real-time AI agent interactions."""
 
-import asyncio
 import uuid
 from typing import Annotated
 
-import orjson
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic_ai.messages import AgentStreamEvent
 
-from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.executor.deps import WorkspaceUser, get_executor
-from tracecat.agent.runtime import ModelMessageTA
-from tracecat.agent.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-)
-from tracecat.chat.models import (
+from tracecat.agent.adapter import vercel
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.stream.common import PersistableStreamingAgentDeps
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.types import StreamKey
+from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
+from tracecat.chat.schemas import (
     ChatCreate,
     ChatMessage,
     ChatRead,
+    ChatReadMinimal,
+    ChatReadVercel,
     ChatRequest,
-    ChatResponse,
     ChatUpdate,
-    ChatWithMessages,
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
-from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
 
-@router.post("/")
+
+@router.post("")
 async def create_chat(
     request: ChatCreate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatRead:
+) -> ChatReadMinimal:
     """Create a new chat associated with an entity."""
     chat_service = ChatService(session, role)
     chat = await chat_service.create_chat(
@@ -47,11 +54,12 @@ async def create_chat(
         entity_type=request.entity_type,
         entity_id=request.entity_id,
         tools=request.tools,
+        agent_preset_id=request.agent_preset_id,
     )
-    return ChatRead.model_validate(chat, from_attributes=True)
+    return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
-@router.get("/")
+@router.get("")
 async def list_chats(
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -60,7 +68,7 @@ async def list_chats(
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of chats to return"
     ),
-) -> list[ChatRead]:
+) -> list[ChatReadMinimal]:
     """List chats for the current workspace with optional filtering."""
     if role.user_id is None:
         raise HTTPException(
@@ -76,7 +84,9 @@ async def list_chats(
         limit=limit,
     )
 
-    chats = [ChatRead.model_validate(chat, from_attributes=True) for chat in chats]
+    chats = [
+        ChatReadMinimal.model_validate(chat, from_attributes=True) for chat in chats
+    ]
     return chats
 
 
@@ -85,35 +95,80 @@ async def get_chat(
     chat_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatWithMessages:
+) -> ChatRead:
     """Get a chat with its message history."""
     svc = ChatService(session, role)
 
     # Get chat metadata
-    chat = await svc.get_chat(chat_id)
+    chat = await svc.get_chat(chat_id, with_messages=True)
     if not chat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
 
-    # Get messages from Redis
-    messages = await svc.get_chat_messages(chat)
+    res = ChatRead(
+        id=chat.id,
+        title=chat.title,
+        user_id=chat.user_id,
+        entity_type=chat.entity_type,
+        entity_id=chat.entity_id,
+        tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_stream_id=chat.last_stream_id,
+        messages=[ChatMessage.from_db(message) for message in chat.messages],
+    )
+    logger.info("Chat read", chat_id=chat.id, messages=len(chat.messages))
+    return res
 
-    chat_data = ChatRead.model_validate(chat, from_attributes=True)
-    return ChatWithMessages(
-        **chat_data.model_dump(),
-        messages=[ChatMessage(id=msg.id, message=msg.message) for msg in messages],
+
+@router.get("/{chat_id}/vercel")
+async def get_chat_vercel(
+    chat_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> ChatReadVercel:
+    """Get a chat with its message history in Vercel format."""
+
+    # Get chat with ModelMessage format
+
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id, with_messages=True)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Convert messages to UIMessage format
+    messages = [ChatMessage.from_db(message) for message in chat.messages]
+    ui_messages = vercel.convert_model_messages_to_ui(messages)
+
+    # Return ChatReadVercel with converted messages
+    return ChatReadVercel(
+        id=chat.id,
+        title=chat.title,
+        user_id=chat.user_id,
+        entity_type=chat.entity_type,
+        entity_id=chat.entity_id,
+        tools=chat.tools,
+        agent_preset_id=chat.agent_preset_id,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        last_stream_id=chat.last_stream_id,
+        messages=ui_messages,
     )
 
 
 @router.patch("/{chat_id}")
 async def update_chat(
     chat_id: uuid.UUID,
-    request: ChatUpdate,
+    params: ChatUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatRead:
+) -> ChatReadMinimal:
     """Update chat properties."""
     svc = ChatService(session, role)
     chat = await svc.get_chat(chat_id)
@@ -123,34 +178,86 @@ async def update_chat(
             detail="Chat not found",
         )
 
-    chat = await svc.update_chat(
-        chat,
-        tools=request.tools,
-        title=request.title,
-    )
-    return ChatRead.model_validate(chat, from_attributes=True)
+    chat = await svc.update_chat(chat, params=params)
+    return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
-@router.post("/{chat_id}")
-async def start_chat_turn(
+@router.post("/{chat_id}/vercel")
+async def chat_with_vercel_streaming(
     chat_id: uuid.UUID,
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
-) -> ChatResponse:
-    """Start a new chat turn with an AI agent.
+    http_request: Request,
+) -> StreamingResponse:
+    """Vercel AI SDK compatible chat endpoint with streaming.
 
-    This endpoint initiates an AI agent execution and returns a stream URL
-    for real-time streaming of the agent's processing steps.
+    This endpoint combines chat turn initiation with streaming response,
+    compatible with Vercel's AI SDK useChat hook. It:
+    1. Accepts Vercel UI message format
+    2. Starts the agent execution
+    3. Streams the response back in Vercel's data protocol format
     """
-    chat_service = ChatService(session, role)
 
     try:
-        return await chat_service.start_chat_turn(
+        svc = ChatService(session, role)
+        workspace_id = role.workspace_id
+        if workspace_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Workspace access required",
+            )
+
+        deps = await PersistableStreamingAgentDeps.new(
+            chat_id, workspace_id, persistent=True, namespace="chat"
+        )
+        executor = AioStreamingAgentExecutor(deps=deps)
+
+        # Run chat turn (handles both start and continue cases)
+        await svc.run_chat_turn(
             chat_id=chat_id,
             request=request,
             executor=executor,
+        )
+
+        # Get the chat to retrieve last stream ID
+        chat = await svc.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
+            )
+
+        # Set up streaming with Vercel format
+        start_id = chat.last_stream_id or http_request.headers.get(
+            "Last-Event-ID", "0-0"
+        )
+
+        logger.info(
+            "Starting Vercel streaming chat",
+            chat_id=chat_id,
+            start_id=start_id,
+        )
+
+        # Create stream and return with Vercel format
+        # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-deployed
+        # https://ai-sdk.dev/docs/troubleshooting/streaming-not-working-when-proxied
+        # stream = AgentStream(await get_redis_client(), chat_id)
+        return StreamingResponse(
+            deps.stream_writer.stream.sse(
+                http_request.is_disconnected, last_id=start_id, format="vercel"
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none",
+                "Connection": "keep-alive",
+                "Keep-Alive": "timeout=120",
+                "Pragma": "no-cache",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+                "x-vercel-ai-ui-message-stream": "v1",
+            },
         )
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -163,22 +270,25 @@ async def start_chat_turn(
             detail=str(e),
         ) from e
     except Exception as e:
-        logger.error(
-            "Failed to start chat turn",
+        logger.exception(
+            "Failed to start Vercel streaming chat",
             chat_id=chat_id,
             error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start chat turn: {str(e)}",
+            detail=f"Failed to start streaming chat: {str(e)}",
         ) from e
 
 
-@router.get("/{chat_id}/stream")
+@router.get("/{chat_id}/stream", response_model=list[AgentStreamEvent])
 async def stream_chat_events(
     role: WorkspaceUser,
     request: Request,
     chat_id: uuid.UUID,
+    format: StreamFormat = Query(
+        default="basic", description="Streaming format (e.g. 'vercel')"
+    ),
 ):
     """Stream chat events via Server-Sent Events (SSE).
 
@@ -186,84 +296,45 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = f"agent-stream:{chat_id}"
-    last_id = request.headers.get("Last-Event-ID", "0-0")
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    stream_key = StreamKey(workspace_id, chat_id, namespace="chat")
+
+    async with ChatService.with_session(role=role) as chat_svc:
+        chat = await chat_svc.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
+            )
+        last_stream_id = chat.last_stream_id
+
+    start_id = last_stream_id or request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(
         "Starting chat stream",
         stream_key=stream_key,
-        last_id=last_id,
+        last_id=start_id,
         chat_id=chat_id,
     )
 
-    async def event_generator():
-        try:
-            redis_client = await get_redis_client()
-
-            # Send initial connection event
-            yield f"id: {last_id}\nevent: connected\ndata: {{}}\n\n"
-
-            current_id = last_id
-
-            while not await request.is_disconnected():
-                try:
-                    # Read from Redis stream with blocking
-                    result = await redis_client.xread(
-                        streams={stream_key: current_id},
-                        count=10,
-                        block=1000,  # Block for 1 second
-                    )
-
-                    if result:
-                        for _stream_name, messages in result:
-                            for message_id, fields in messages:
-                                try:
-                                    data = orjson.loads(fields[DATA_KEY])
-
-                                    # Check for end-of-stream marker
-                                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
-                                        yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
-                                    else:
-                                        # Send the message
-                                        # Validate the message is a valid ModelMessage
-                                        # perf: delete this
-                                        validated_msg = ModelMessageTA.validate_python(
-                                            data
-                                        )
-                                        data_json = orjson.dumps(validated_msg).decode()
-                                        yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
-
-                                    # Ensure in all cases we advance the current ID
-                                    current_id = message_id
-
-                                except Exception as e:
-                                    logger.warning(
-                                        "Failed to process stream message",
-                                        error=str(e),
-                                        message_id=message_id,
-                                    )
-                                    continue
-
-                    # Send heartbeat to keep connection alive
-                    await asyncio.sleep(0.1)
-
-                except Exception as e:
-                    logger.error("Error reading from Redis stream", error=str(e))
-                    yield 'event: error\ndata: {"error": "Stream read error"}\n\n'
-                    await asyncio.sleep(1)
-
-        except Exception as e:
-            logger.error("Fatal error in stream generator", error=str(e))
-            yield 'event: error\ndata: {"error": "Fatal stream error"}\n\n'
-        finally:
-            logger.info("Chat stream ended", stream_key=stream_key)
-
+    stream = await AgentStream.new(chat_id, workspace_id, namespace="chat")
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "Keep-Alive": "timeout=120",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+    }
+    if format == "vercel":
+        headers["x-vercel-ai-ui-message-stream"] = "v1"
     return StreamingResponse(
-        event_generator(),
+        stream.sse(request.is_disconnected, last_id=start_id, format=format),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        },
+        headers=headers,
     )

@@ -31,7 +31,7 @@ from tracecat.config import (
     TRACECAT__MAX_UPLOAD_FILES_COUNT,
 )
 
-from tracecat.types.exceptions import TracecatException
+from tracecat.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -213,13 +213,22 @@ class TemporaryClientCertificate:
                 )
 
 
-def httpx_to_response(response: httpx.Response) -> HTTPResponse:
+def httpx_to_response(
+    response: httpx.Response, *, base64_encode_data: bool = False
+) -> HTTPResponse:
     # Handle 204 No Content responses
     if response.status_code == 204:
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
             data=None,  # RFC 7231: 204 responses MUST NOT contain a body
+        )
+
+    if base64_encode_data:
+        return HTTPResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers.items()),
+            data=base64.b64encode(response.content).decode(),
         )
 
     # Parse response based on content type
@@ -548,10 +557,23 @@ async def http_request(
     timeout: Timeout = 10.0,
     follow_redirects: FollowRedirects = False,
     max_redirects: MaxRedirects = 20,
+    ignore_status_codes: Annotated[
+        list[int] | None,
+        Doc(
+            "If specified, these status codes will not be treated as errors. Defaults to None."
+        ),
+    ] = None,
+    base64_encode_data: Annotated[
+        bool,
+        Doc(
+            "Base64 encode the raw response body before returning. Use this for binary downloads to prevent corruption from text decoding."
+        ),
+    ] = False,
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
 
+    ignore_status_codes = ignore_status_codes or []
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
     try:
@@ -589,7 +611,10 @@ async def http_request(
                     data=form_data,
                     files=httpx_files_param,
                 )
-            if response.status_code >= 400:
+            if (
+                response.status_code >= 400
+                and response.status_code not in ignore_status_codes
+            ):
                 response.raise_for_status()
         except httpx.HTTPStatusError as e:
             error_message = _http_status_error_to_message(e)
@@ -602,7 +627,10 @@ async def http_request(
         except httpx.ReadTimeout as e:
             logger.error(f"HTTP request timed out after {timeout} seconds.")
             raise e
-        return httpx_to_response(response)
+        return httpx_to_response(
+            response,
+            base64_encode_data=base64_encode_data,
+        )
 
 
 class PredicateArgs(TypedDict):

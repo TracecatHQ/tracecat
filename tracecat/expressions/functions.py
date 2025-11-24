@@ -23,7 +23,12 @@ from slugify import slugify
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
-from tracecat.expressions.formatters import tabulate
+from tracecat.expressions.formatters import (
+    tabulate,
+    to_markdown_list,
+    to_markdown_table,
+    to_markdown_tasks,
+)
 from tracecat.expressions.ioc_extractors import (
     extract_asns,
     extract_cves,
@@ -40,7 +45,7 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
-from tracecat.interactions.models import InteractionContext
+from tracecat.interactions.schemas import InteractionContext
 from tracecat.parse import unescape_string
 
 
@@ -126,6 +131,11 @@ def lowercase(x: str) -> str:
 def slice_str(x: str, start_index: int, length: int) -> str:
     """Extract a substring from start_index with given length."""
     return x[start_index : start_index + length]
+
+
+def at(sequence: Sequence[Any], index: int) -> Any:
+    """Return the element at the given index."""
+    return sequence[index]
 
 
 def endswith(x: str, suffix: str) -> bool:
@@ -454,17 +464,6 @@ def is_json(x: str) -> bool:
         return True
     except orjson.JSONDecodeError:
         return False
-
-
-def index_by_key(
-    x: list[dict[str, Any]],
-    field_key: str,
-    value_key: str | None = None,
-) -> dict[str, Any]:
-    """Convert a list of objects into an object indexed by the specified key."""
-    if value_key:
-        return {item[field_key]: item[value_key] for item in x}
-    return {item[field_key]: item for item in x}
 
 
 def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
@@ -1027,6 +1026,7 @@ _FUNCTION_MAPPING = {
     "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
+    "at": at,
     # Math
     "add": add,
     "sub": sub,
@@ -1044,13 +1044,16 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
-    "index_by_key": index_by_key,
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,
+    # Formatters
+    "to_markdown_list": to_markdown_list,
+    "to_markdown_table": to_markdown_table,
+    "to_markdown_tasks": to_markdown_tasks,
     # Logical
     "and": and_,
     "or": or_,

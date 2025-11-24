@@ -6,6 +6,8 @@ interface CaseValueDisplayProps {
   label: string
   color?: string
   className?: string
+  iconClassName?: string
+  labelClassName?: string
 }
 
 export function CaseValueDisplay({
@@ -13,11 +15,20 @@ export function CaseValueDisplay({
   label,
   color,
   className,
+  iconClassName,
+  labelClassName,
 }: CaseValueDisplayProps) {
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      {Icon && <Icon className={cn("h-3 w-3", color)} strokeWidth={2.5} />}
-      <span className={cn("text-xs font-medium", color)}>{label}</span>
+      {Icon && (
+        <Icon
+          className={cn("h-3 w-3", color, iconClassName)}
+          strokeWidth={2.5}
+        />
+      )}
+      <span className={cn("text-xs font-medium", color, labelClassName)}>
+        {label}
+      </span>
     </div>
   )
 }

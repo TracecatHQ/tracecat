@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.8.4-alpine
+    image: caddy:2.10.2-alpine
     container_name: caddy
     restart: unless-stopped
     networks:
@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.45.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.51.1}
     container_name: api
     restart: unless-stopped
     networks:
@@ -84,7 +84,7 @@ services:
         condition: service_healthy
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.45.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.51.1}
     restart: unless-stopped
     networks:
       - core
@@ -114,13 +114,13 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["python", "tracecat/dsl/worker.py"]
+    command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
       - api
       - temporal
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.45.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.51.1}
     restart: unless-stopped
     networks:
       - core-db
@@ -165,7 +165,7 @@ services:
       - redis
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.45.3}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.51.1}
     container_name: ui
     restart: unless-stopped
     networks:

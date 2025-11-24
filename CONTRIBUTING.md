@@ -5,8 +5,8 @@ Tracecat is currently accepting contributions for:
 - **Action Templates** and **Python integrations** in [Tracecat Registry](https://docs.tracecat.com/integrations/overview)
 - **Inline functions** for Tracecat's [expressions](https://docs.tracecat.com/quickstart/expressions) engine
 
-**Tracecat Registry** is a collection of integration and response-as-code templates. Response actions, called **Action Templates**, are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (detect, isolate, evict, restore, harden, model) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
-Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
+**Tracecat Registry** is a collection of ready-to-use integration templates. Response actions, called **Action Templates**, are grouped by the capabilities they automate (e.g. `list_alerts`, `list_cases`, `list_users`) so teams can drop them straight into workflows.
+Template inputs (e.g. `start_time`, `end_time`) use consistent naming across integrations to make sharing and reuse simple.
 
 We have a growing open source community contributing normalized HTTP and Python client (e.g. `boto3`, `falconpy`) based integrations.
 We hope you contribute to Tracecat, join our community of security / IT engineers :heart:, gain experience with a production code-base, and improve your work portfolio through open source!
@@ -105,26 +105,10 @@ We currently support contributions for new integrations and inline functions.
 Every **Action Template** must be a YAML file that:
 
 - Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates).
-- Has `expects` with arguments that match a supported [**Response Schema**](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/schemas) (e.g. `list_alerts`, `list_cases`, `list_users`).
-- All required arguments in the API call in `steps` are mapped to an argument in a Response Schema.
-- No optional arguments in the API call in `steps` are specified, unless required by a Response Schema or satisfies one of the conditions below.
-
-We support `expects` arguments that are not in the **Response Schema** as long as they satisfy one of the following conditions:
-
-> [!IMPORTANT]
-> If the following conditions are insufficient for your use-case, please check out the [Response Schemas](#response-schemas) contribution guide below.
-
-- Is an argument relevant to the integration's core functionality (e.g. `channel` and `thread_ts` in Slack messaging APIs).
-- Requires an API URL specific to the tenant (`base_url`).
-
-These additional arguments can be added to the end of the `expects` section.
-`base_url` must be the last argument in the `expects` section:
-
-```yaml
-base_url:
-  type: str
-  description: Base URL for the {integration_name} API
-```
+- Has `expects` with arguments that are normalized into lower snake_case.
+- `expect` arguments must be relevant to the integration's core functionality (e.g. `channel` and `thread_ts` in Slack messaging APIs).
+- All required arguments in the API call in `steps` are mapped to an argument in the `expects` section.
+- No optional arguments in the API call in `steps` are specified, unless required by the integration's core functionality.
 
 #### Naming conventions
 
@@ -206,18 +190,6 @@ steps:
 returns: ${{ steps.post_mdm_command.result }}
 ```
 
-### Response Schemas
-
-> [!TIP]
-> You can find existing YAML schemas in the [`packages/tracecat-registry/tracecat_registry/schemas/`](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/schemas) directory.
-
-If you can't find a schema that matches your integration or want to suggest a change to an existing schema, please [open an issue](https://github.com/TracecatHQ/tracecat/issues). Provide the following information:
-
-- Link to the closest [MITRE D3FEND](https://d3fend.mitre.org/) category (e.g. `detect`, `isolate`, `evict`, `restore`, `harden`, `model`).
-- Links to the relevant [OCSF](https://schema.ocsf.io/) classes and objects.
-- Links to any similar or related schemas in Tracecat Registry.
-- (If applicable) Suggested name of the new capability (e.g. `list_alerts`, `list_cases`, `list_users`)
-
 ### Inline Functions
 
 > [!TIP]
@@ -251,7 +223,7 @@ If you have an idea or feature request, please [open an issue](https://github.co
 If you encounter an invalid Action Template, Python integration, or inline function, please [open an issue](https://github.com/TracecatHQ/tracecat/issues).
 Make sure to provide the following information:
 
-- Tracecat version (e.g. `0.45.3`)
+- Tracecat version (e.g. `0.51.1`)
 
 ## Frontend / Backend Contributions
 

@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  CalendarClockIcon,
   Copy,
   ExternalLink,
   FileJson2,
@@ -9,6 +10,7 @@ import {
   Pencil,
   TagsIcon,
   Trash2,
+  WebhookIcon,
 } from "lucide-react"
 import Link from "next/link"
 import type {
@@ -30,7 +32,12 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
+import { useAuth } from "@/hooks/use-auth"
+import {
+  useOrgAppSettings,
+  useWorkflowManager,
+  useWorkflowTags,
+} from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
@@ -46,7 +53,11 @@ export function WorkflowActions({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const { tags } = useTags(workspaceId)
+  const { tags } = useWorkflowTags(workspaceId)
+  const { user } = useAuth()
+  const isAdmin = user?.isOrgAdmin() ?? false
+  const webhookLabel = isAdmin ? "Manage webhook" : "View webhook"
+  const scheduleLabel = isAdmin ? "Manage schedules" : "View schedules"
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false
@@ -65,6 +76,34 @@ export function WorkflowActions({
         >
           <ExternalLink className="mr-2 size-3.5" />
           Open in new tab
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-xs"
+        onClick={(e) => e.stopPropagation()}
+        asChild
+      >
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-webhooks`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <WebhookIcon className="mr-2 size-3.5" />
+          {webhookLabel}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-xs"
+        onClick={(e) => e.stopPropagation()}
+        asChild
+      >
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-schedules`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <CalendarClockIcon className="mr-2 size-3.5" />
+          {scheduleLabel}
         </Link>
       </DropdownMenuItem>
       {item.alias && (

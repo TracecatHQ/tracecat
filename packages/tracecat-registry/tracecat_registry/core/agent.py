@@ -1,11 +1,15 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from typing import Annotated, Any, Literal
-from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.runtime import run_agent
-
-from tracecat.registry.fields import ActionType, TextArea
+from typing import Annotated, Any
 from typing_extensions import Doc
+
+from tracecat.agent.factory import build_agent
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.runtime import run_agent, run_agent_sync
+from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.exceptions import TracecatValidationError
+from tracecat.registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry import RegistrySecret, RegistrySecretType, registry
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -126,7 +130,7 @@ langfuse_secret = RegistrySecret(
     - `LANGFUSE_SECRET_KEY`: Optional Langfuse secret key.
 """
 
-PYDANTIC_AI_REGISTRY_SECRETS = [
+PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
     gemini_secret,
@@ -156,29 +160,11 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
-    fixed_arguments: Annotated[
-        dict[str, dict[str, Any]] | None,
-        Doc(
-            "Fixed action arguments: keys are action names, values are keyword arguments. "
-            "E.g. {'tools.slack.post_message': {'channel_id': 'C123456789', 'text': 'Hello, world!'}}"
-        ),
-    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -186,27 +172,101 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    max_tools_calls: Annotated[
+    max_tool_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
-) -> Any:
-    return await run_agent(
+) -> dict[str, Any]:
+    output = await run_agent(
         user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
         actions=actions,
-        fixed_arguments=fixed_arguments,
         instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
-        retries=retries,
-        max_tools_calls=max_tools_calls,
+        max_tool_calls=max_tool_calls,
         max_requests=max_requests,
         base_url=base_url,
+        retries=retries,
     )
+    return output.model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Run agent preset",
+    description="Run an AI agent using a saved agent preset.",
+    display_group="AI",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
+    namespace="ai",
+)
+async def preset_agent(
+    preset: Annotated[
+        str,
+        Doc("Preset of the agent to run (e.g. 'security-analyst')."),
+        AgentPreset(),
+    ],
+    user_prompt: Annotated[
+        str,
+        Doc("User prompt to the agent."),
+        TextArea(),
+    ],
+    actions: Annotated[
+        list[str] | None,
+        Doc(
+            "Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call."
+        ),
+        ActionType(multiple=True),
+    ] = None,
+    instructions: Annotated[
+        str | None,
+        Doc(
+            "Additional instructions to append to the preset instructions for this run."
+        ),
+        TextArea(),
+    ] = None,
+    max_tool_calls: Annotated[
+        int, Doc("Maximum number of tool calls for the agent.")
+    ] = 15,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+) -> dict[str, Any]:
+    async with AgentPresetService.with_session() as service:
+        config = await service.resolve_agent_preset_config(slug=preset)
+
+    if config.tool_approvals and any(config.tool_approvals.values()):
+        raise TracecatValidationError(
+            f"Agent preset '{preset}' requires approvals and cannot be run with the "
+            "'ai.preset_agent' action. Use 'ai.preset_approvals_agent' instead."
+        )
+
+    if actions is not None:
+        config.actions = actions
+
+    if instructions:
+        if config.instructions:
+            config.instructions = "\n".join([config.instructions, instructions])
+        else:
+            config.instructions = instructions
+
+    output = await run_agent(
+        user_prompt=user_prompt,
+        model_name=config.model_name,
+        model_provider=config.model_provider,
+        actions=config.actions,
+        namespaces=config.namespaces,
+        tool_approvals=config.tool_approvals,
+        instructions=config.instructions,
+        output_type=config.output_type,
+        model_settings=config.model_settings,
+        max_tool_calls=max_tool_calls,
+        max_requests=max_requests,
+        retries=config.retries,
+        base_url=config.base_url,
+        mcp_servers=config.mcp_servers,
+    )
+    return output.model_dump(mode="json")
 
 
 @registry.register(
@@ -229,18 +289,7 @@ async def action(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        Literal[
-            "bool",
-            "float",
-            "int",
-            "str",
-            "list[bool]",
-            "list[float]",
-            "list[int]",
-            "list[str]",
-        ]
-        | dict[str, Any]
-        | None,
+        OutputType | None,
         Doc(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
@@ -252,14 +301,16 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    return await run_agent(
-        user_prompt=user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        retries=retries,
-        max_requests=max_requests,
-        base_url=base_url,
+    agent = await build_agent(
+        AgentConfig(
+            model_name=model_name,
+            model_provider=model_provider,
+            instructions=instructions,
+            output_type=output_type,
+            model_settings=model_settings,
+            retries=retries,
+            base_url=base_url,
+        )
     )
+    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
+    return result.model_dump()

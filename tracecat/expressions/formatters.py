@@ -167,3 +167,26 @@ def tabulate(
         raise ValueError(
             f"Unsupported table format. Expected `markdown`, `html`, `csv`, or `xml`, got {format}."
         )
+
+
+def to_markdown_list(x: list[str], ordered: bool = False) -> str:
+    """Format list of strings into Markdown list."""
+    if ordered:
+        return "\n".join([f"{i + 1}. {item}" for i, item in enumerate(x)])
+    else:
+        return "\n".join([f"- {item}" for item in x])
+
+
+def to_markdown_tasks(x: list[str]) -> str:
+    """Format list of strings into Markdown tasks."""
+    return "\n".join([f"- [ ] {item}" for item in x])
+
+
+def to_markdown_table(x: list[dict[str, Any]]) -> str:
+    """Format list of dictionaries into Markdown table."""
+    return _format_markdown(x)
+
+
+def to_html(x: list[dict[str, Any]]) -> str:
+    """Format list of dictionaries into html table."""
+    return _format_html(x)

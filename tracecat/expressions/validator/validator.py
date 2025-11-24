@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from types import TracebackType
 from typing import Any, Literal, Self, TypeVar, override
 
@@ -7,17 +7,22 @@ from lark import Token, Tree
 from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.models import TaskResult
-from tracecat.expressions.common import ExprContext, ExprType
+from tracecat.dsl.schemas import TaskResult
+from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.secrets.models import SecretSearch
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.validation.models import (
+from tracecat.validation.schemas import (
     TemplateActionExprValidationResult,
     ValidationDetail,
 )
+from tracecat.variables.schemas import VariableSearch
+from tracecat.variables.service import VariablesService
 
 T = TypeVar("T")
 
@@ -102,6 +107,128 @@ class ExprValidator(BaseExprValidator):
             )
         return None
 
+    async def _variable_validator(
+        self,
+        *,
+        name: str,
+        key_path: str | None,
+        loc: tuple[str | int, ...],
+        environment: str,
+    ) -> None:
+        async with VariablesService.with_session() as service:
+            defined_variables = await service.search_variables(
+                VariableSearch(names={name}, environment=environment)
+            )
+
+        if (n_found := len(defined_variables)) != 1:
+            self.add(
+                status="error",
+                msg=(
+                    f"Found {n_found} variables matching {name!r} in the {environment!r} environment."
+                ),
+                type=ExprType.VARIABLE,
+                loc=loc,
+            )
+            return
+
+        values = defined_variables[0].values or {}
+        if key_path is None:
+            self.add(status="success", type=ExprType.VARIABLE)
+            return
+
+        segments = key_path.split(".")
+        if len(segments) > MAX_VARS_PATH_DEPTH:
+            full_path = ".".join([name, *segments])
+            self.add(
+                status="error",
+                msg=(
+                    "VARS expressions currently support at most one key segment "
+                    f"(`VARS.<name>.<key>`). Got {full_path!r} with {len(segments)} key "
+                    "segments after the variable name."
+                ),
+                type=ExprType.VARIABLE,
+                loc=loc,
+            )
+            return
+
+        current: Any = values
+        traversed: list[str] = []
+
+        for segment in segments:
+            if not isinstance(current, Mapping):
+                parent_path = ".".join([name, *traversed]) if traversed else name
+                full_path = ".".join([name, *traversed, segment])
+                self.add(
+                    status="error",
+                    msg=(
+                        f"Variable {name!r} has non-object value at {parent_path!r}; "
+                        f"cannot access nested key path {full_path!r}"
+                    ),
+                    type=ExprType.VARIABLE,
+                    loc=loc,
+                )
+                return
+
+            if segment not in current:
+                missing_path = ".".join([name, *traversed, segment])
+                self.add(
+                    status="error",
+                    msg=f"Variable {name!r} is missing key path: {missing_path!r}",
+                    type=ExprType.VARIABLE,
+                    loc=loc,
+                )
+                return
+
+            traversed.append(segment)
+            current = current[segment]
+
+        self.add(status="success", type=ExprType.VARIABLE)
+
+    async def _oauth_validator(
+        self,
+        *,
+        provider: str,
+        key: str,
+        grant_type: OAuthGrantType,
+        loc: tuple[str | int, ...],
+    ) -> None:
+        provider_key = ProviderKey(id=provider, grant_type=grant_type)
+        try:
+            async with IntegrationService.with_session() as service:
+                integration = await service.get_integration(provider_key=provider_key)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to validate OAuth provider",
+                provider_id=provider,
+                grant_type=grant_type.value,
+                error=str(exc),
+            )
+            self.add(
+                status="error",
+                msg=(
+                    "Encountered an error while validating OAuth provider"
+                    f" {provider!r} for grant type {grant_type.value!r}."
+                ),
+                type=ExprType.SECRET,
+                loc=loc,
+            )
+            return
+
+        if integration is None:
+            token_expr = f"{ExprContext.SECRETS.value}.{provider}.{key}"
+            self.add(
+                status="error",
+                msg=(
+                    f"OAuth provider {provider!r} is not configured for grant type"
+                    f" {grant_type.value!r} required by `{token_expr}`"
+                ),
+                type=ExprType.SECRET,
+                loc=loc,
+            )
+            return
+
+        self.add(status="success", type=ExprType.SECRET)
+
     @override
     def add(
         self,
@@ -167,11 +294,64 @@ class ExprValidator(BaseExprValidator):
         if name_key is None:
             return
         name, key = name_key
-        # Check that we've defined the secret in the SM
-        coro = self._secret_validator(
-            name=name, key=key, environment=self._environment, loc=self._loc
+        if name.endswith("_oauth"):  # <provider_id>_oauth.<key>
+            provider_id = name.removesuffix("_oauth")
+            expected_prefix = provider_id.upper()
+
+            def error_msg() -> str:
+                return f"OAuth token must be {expected_prefix}_SERVICE_TOKEN or {expected_prefix}_USER_TOKEN"
+
+            if key.endswith("SERVICE_TOKEN"):
+                grant_type = OAuthGrantType.CLIENT_CREDENTIALS
+                prefix = key.removesuffix("_SERVICE_TOKEN")
+            elif key.endswith("USER_TOKEN"):
+                grant_type = OAuthGrantType.AUTHORIZATION_CODE
+                prefix = key.removesuffix("_USER_TOKEN")
+            else:
+                self.add(
+                    status="error",
+                    msg=error_msg(),
+                    type=ExprType.SECRET,
+                    loc=self._loc,
+                )
+                return
+            # Prefix is the provider_id in uppercase.
+            if prefix != expected_prefix:
+                self.add(
+                    status="error",
+                    msg=error_msg(),
+                    type=ExprType.SECRET,
+                    loc=self._loc,
+                )
+                return
+            coro = self._oauth_validator(
+                provider=provider_id, key=key, grant_type=grant_type, loc=self._loc
+            )
+            self._task_group.create_task(coro)
+        else:
+            # Check that we've defined the secret in the SM
+            coro = self._secret_validator(
+                name=name, key=key, environment=self._environment, loc=self._loc
+            )
+            self._task_group.create_task(coro)
+
+    def vars(self, node: Tree[Token]):
+        name_key = super().vars(node)
+        self.logger.trace("Visit vars expression", name_key=name_key)
+        if name_key is None:
+            return
+        name, key_path = name_key
+        expr = ExprContext.VARS.value + "." + name
+        if key_path:
+            expr = f"{expr}.{key_path}"
+        self._task_group.create_task(
+            self._variable_validator(
+                name=name,
+                key_path=key_path,
+                loc=("expression", expr),
+                environment=self._environment,
+            )
         )
-        self._task_group.create_task(coro)
 
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)

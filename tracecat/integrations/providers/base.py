@@ -1,7 +1,9 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
 import asyncio
+import json
 from abc import ABC
+from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
 from urllib.parse import urlparse
 
@@ -11,12 +13,12 @@ from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import (
+from tracecat.integrations.schemas import (
     ProviderConfig,
     ProviderMetadata,
     ProviderScopes,
-    TokenResponse,
 )
+from tracecat.integrations.types import TokenResponse
 from tracecat.logger import logger
 
 
@@ -84,14 +86,27 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
             )
 
 
+class CustomOAuthProviderMixin:
+    """Mixin for dynamically created custom OAuth providers."""
+
+    _include_in_registry: ClassVar[bool] = False
+    config_model: ClassVar[type[BaseModel] | None] = None
+
+    @classmethod
+    def schema(cls) -> dict[str, Any] | None:  # pragma: no cover - trivial override
+        return None
+
+
 class BaseOAuthProvider(ABC):
     """Base OAuth provider containing logic common to all OAuth 2.0 providers."""
 
     id: ClassVar[str]
     _include_in_registry: ClassVar[bool] = True
-    # OAuth2 endpoints
-    _authorization_endpoint: ClassVar[str]
-    _token_endpoint: ClassVar[str]
+    # OAuth2 endpoint defaults
+    default_authorization_endpoint: ClassVar[str | None] = None
+    default_token_endpoint: ClassVar[str | None] = None
+    authorization_endpoint_help: ClassVar[str | list[str] | None] = None
+    token_endpoint_help: ClassVar[str | list[str] | None] = None
     scopes: ClassVar[ProviderScopes]
     grant_type: ClassVar[OAuthGrantType]
     # Provider specific configs
@@ -104,6 +119,8 @@ class BaseOAuthProvider(ABC):
         client_id: str | None = None,
         client_secret: str | None = None,
         scopes: list[str] | None = None,
+        authorization_endpoint: str | None = None,
+        token_endpoint: str | None = None,
         **kwargs,  # Allow subclasses to pass additional parameters
     ):
         """Initialize the OAuth provider.
@@ -112,6 +129,8 @@ class BaseOAuthProvider(ABC):
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
             scopes: Optional scopes to use (overrides defaults if provided)
+            authorization_endpoint: Optional authorization endpoint override
+            token_endpoint: Optional token endpoint override
             **kwargs: Additional keyword arguments (consumed by subclasses)
         """
         # kwargs allows subclasses to pass provider-specific params through from_config
@@ -128,12 +147,25 @@ class BaseOAuthProvider(ABC):
         self.client_secret = credentials.client_secret
         # Use provided scopes or fall back to defaults
         self.requested_scopes = self.scopes.default if scopes is None else scopes
+        # Resolve endpoints from overrides or defaults
+        resolved_authorization_endpoint = authorization_endpoint or getattr(
+            self, "default_authorization_endpoint", None
+        )
+        resolved_token_endpoint = token_endpoint or getattr(
+            self, "default_token_endpoint", None
+        )
 
-        # Validate required endpoints
-        if not self.authorization_endpoint or not self.token_endpoint:
+        if not resolved_authorization_endpoint or not resolved_token_endpoint:
             raise ValueError(
-                f"{self.__class__.__name__} must define authorization_endpoint and token_endpoint"
+                f"{self.__class__.__name__} requires both authorization and token endpoints"
             )
+
+        validate_oauth_endpoint(resolved_authorization_endpoint)
+        validate_oauth_endpoint(resolved_token_endpoint)
+
+        self._authorization_endpoint = resolved_authorization_endpoint
+        self._token_endpoint = resolved_token_endpoint
+
         if not self.id == self.metadata.id:
             raise ValueError(f"{self.__class__.__name__} id must match metadata.id")
 
@@ -197,18 +229,14 @@ class BaseOAuthProvider(ABC):
     @classmethod
     def from_config(cls, config: ProviderConfig) -> Self:
         """Create an OAuth provider from a configuration."""
-        if cls.config_model:
-            model = cls.config_model.model_validate(config.provider_config)
-            validated_config = model.model_dump(exclude_unset=True)
-        else:
-            validated_config = {}
         return cls(
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value()
             if config.client_secret
             else None,
             scopes=config.scopes,
-            **validated_config,
+            authorization_endpoint=config.authorization_endpoint,
+            token_endpoint=config.token_endpoint,
         )
 
     @classmethod
@@ -481,6 +509,77 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
             raise
 
 
+class ServiceAccountOAuthProvider(ClientCredentialsOAuthProvider):
+    """Base provider for service account style OAuth flows.
+
+    Service accounts typically use a JSON key containing a private key to mint JWT
+    assertions rather than client secrets issued by an authorization server. This
+    base class loads and validates the JSON payload while allowing subclasses to
+    implement provider-specific token acquisition.
+    """
+
+    def __init__(
+        self,
+        *,
+        subject: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._service_account_info: dict[str, Any] | None = None
+        self._service_account_subject: str | None = subject
+        super().__init__(**kwargs)
+
+    @property
+    def service_account_info(self) -> dict[str, Any]:
+        if self._service_account_info is None:
+            raise ValueError("Service account credentials have not been loaded.")
+        return self._service_account_info
+
+    @property
+    def service_account_subject(self) -> str | None:
+        return self._service_account_subject
+
+    def _resolve_client_credentials(
+        self, client_id: str | None, client_secret: str | None
+    ) -> ClientCredentials:
+        info = self._load_service_account_info(client_secret)
+        derived_client_id = self._derive_client_id(info, client_id)
+        self._service_account_info = info
+        return ClientCredentials(client_id=derived_client_id, client_secret=None)
+
+    def _load_service_account_info(self, client_secret: str | None) -> dict[str, Any]:
+        if client_secret is None or not client_secret.strip():
+            raise ValueError(
+                "Service account credentials (JSON) are required for this provider."
+            )
+        try:
+            parsed = json.loads(client_secret)
+        except JSONDecodeError as exc:
+            raise ValueError("Service account credentials must be valid JSON.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Service account credentials must be a JSON object.")
+
+        subject = self._extract_subject(parsed)
+        if subject and self._service_account_subject is None:
+            self._service_account_subject = subject
+
+        return parsed
+
+    def _extract_subject(self, info: dict[str, Any]) -> str | None:
+        subject = info.get("subject")
+        if subject is None:
+            return None
+        return str(subject).strip() or None
+
+    def _derive_client_id(
+        self, info: dict[str, Any], configured_client_id: str | None
+    ) -> str:
+        if configured_client_id is None or not configured_client_id.strip():
+            raise ValueError(
+                "Client ID (typically the service account email) is required."
+            )
+        return configured_client_id.strip()
+
+
 class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     """Base OAuth provider for Model Context Protocol (MCP) servers using OAuth 2.1.
 
@@ -492,11 +591,20 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     - Optional dynamic client registration
     """
 
-    _mcp_server_uri: ClassVar[str]
-    token_endpoint_auth_methods_supported: ClassVar[list[str]] = []
+    mcp_server_uri: ClassVar[str]
     # Optional fallback endpoints for when discovery fails
     _fallback_auth_endpoint: ClassVar[str | None] = None
     _fallback_token_endpoint: ClassVar[str | None] = None
+
+    @staticmethod
+    def _clean_credential(value: Any) -> str | None:
+        """Normalize credential inputs to trimmed strings or None."""
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return None
 
     def __init__(
         self,
@@ -504,42 +612,72 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         discovered_auth_endpoint: str | None = None,
         discovered_token_endpoint: str | None = None,
         registration_endpoint: str | None = None,
-        token_endpoint_auth_methods_supported: list[str] | None = None,
+        token_methods: list[str] | None = None,
         **kwargs,
     ):
         """Initialize MCP provider with dynamic endpoint discovery."""
         # Initialize logger early for discovery
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
 
-        # Initialize instance attributes
-        self._token_endpoint_auth_methods_supported: list[str] = []
+        # Extract endpoint overrides from kwargs if not explicitly provided
+        # This allows users to override defaults via authorization_endpoint/token_endpoint
+        if not discovered_auth_endpoint:
+            discovered_auth_endpoint = kwargs.pop("authorization_endpoint", None)
+        if not discovered_token_endpoint:
+            discovered_token_endpoint = kwargs.pop("token_endpoint", None)
 
-        # Discover OAuth endpoints before parent initialization
+        discovery_result = self._resolve_discovery_result(
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+            registration_endpoint=registration_endpoint,
+            token_methods_override=token_methods,
+        )
+
+        self._registration_endpoint = discovery_result.registration_endpoint
+        self._token_endpoint_auth_methods_supported = (
+            discovery_result.token_methods or []
+        )
+
+        super().__init__(
+            authorization_endpoint=discovery_result.authorization_endpoint,
+            token_endpoint=discovery_result.token_endpoint,
+            **kwargs,
+        )
+
+    def _resolve_discovery_result(
+        self,
+        *,
+        discovered_auth_endpoint: str | None,
+        discovered_token_endpoint: str | None,
+        registration_endpoint: str | None,
+        token_methods_override: list[str] | None,
+    ) -> OAuthDiscoveryResult:
+        """Return discovery result for initialization, performing lookup when needed."""
         if discovered_auth_endpoint and discovered_token_endpoint:
-            self._discovered_auth_endpoint = discovered_auth_endpoint
-            self._discovered_token_endpoint = discovered_token_endpoint
-            self._registration_endpoint = registration_endpoint
-            self._token_endpoint_auth_methods_supported = (
-                token_endpoint_auth_methods_supported or []
+            return OAuthDiscoveryResult(
+                authorization_endpoint=discovered_auth_endpoint,
+                token_endpoint=discovered_token_endpoint,
+                token_methods=token_methods_override or [],
+                registration_endpoint=registration_endpoint,
             )
-        else:
-            self._discover_oauth_endpoints()
-        super().__init__(**kwargs)
 
-    @property
-    def authorization_endpoint(self) -> str:
-        """Return the discovered authorization endpoint."""
-        return self._discovered_auth_endpoint
+        discovered = self._discover_oauth_endpoints(
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+        )
 
-    @property
-    def token_endpoint(self) -> str:
-        """Return the discovered token endpoint."""
-        return self._discovered_token_endpoint
+        return OAuthDiscoveryResult(
+            authorization_endpoint=discovered.authorization_endpoint,
+            token_endpoint=discovered.token_endpoint,
+            token_methods=token_methods_override or discovered.token_methods,
+            registration_endpoint=registration_endpoint
+            or discovered.registration_endpoint,
+        )
 
     @classmethod
     def _get_base_url(cls) -> str:
         """Extract HTTPS base URL from MCP server URI."""
-        parsed = urlparse(cls._mcp_server_uri)
+        parsed = urlparse(cls.mcp_server_uri)
 
         if parsed.scheme.lower() != "https":
             raise ValueError(
@@ -551,10 +689,14 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         return f"https://{parsed.netloc}"
 
-    def _discover_oauth_endpoints(self) -> None:
+    def _discover_oauth_endpoints(
+        self,
+        *,
+        discovered_auth_endpoint: str | None = None,
+        discovered_token_endpoint: str | None = None,
+    ) -> OAuthDiscoveryResult:
         """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
-        self._registration_endpoint = None
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
 
         try:
@@ -564,62 +706,97 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 response.raise_for_status()
                 discovery_doc = response.json()
 
-                # Store discovered endpoints as instance variables
                 auth_endpoint = discovery_doc["authorization_endpoint"]
                 token_endpoint = discovery_doc["token_endpoint"]
+                token_methods = discovery_doc.get(
+                    "token_endpoint_auth_methods_supported", []
+                )
 
                 # Validate discovered endpoints for security
                 base_domain = urlparse(base_url).hostname
                 validate_oauth_endpoint(auth_endpoint, base_domain)
                 validate_oauth_endpoint(token_endpoint, base_domain)
 
-                self._discovered_auth_endpoint = auth_endpoint
-                self._discovered_token_endpoint = token_endpoint
-                self._token_endpoint_auth_methods_supported = discovery_doc.get(
-                    "token_endpoint_auth_methods_supported", []
-                )
-
-                # Store and validate registration endpoint if available
                 registration_endpoint = discovery_doc.get("registration_endpoint")
                 if registration_endpoint:
                     validate_oauth_endpoint(registration_endpoint, base_domain)
-                self._registration_endpoint = registration_endpoint
 
                 self.logger.info(
                     "Discovered OAuth endpoints",
                     provider=self.id,
-                    authorization=self._discovered_auth_endpoint,
-                    token=self._discovered_token_endpoint,
+                    authorization=auth_endpoint,
+                    token=token_endpoint,
+                )
+                return OAuthDiscoveryResult(
+                    authorization_endpoint=auth_endpoint,
+                    token_endpoint=token_endpoint,
+                    token_methods=token_methods,
+                    registration_endpoint=registration_endpoint,
                 )
         except Exception as e:
             # Check if subclass provides fallback endpoints
             if self._fallback_auth_endpoint and self._fallback_token_endpoint:
-                self._discovered_auth_endpoint = self._fallback_auth_endpoint
-                self._discovered_token_endpoint = self._fallback_token_endpoint
-                self._token_endpoint_auth_methods_supported = (
-                    self.token_endpoint_auth_methods_supported
-                )
+                validate_oauth_endpoint(self._fallback_auth_endpoint)
+                validate_oauth_endpoint(self._fallback_token_endpoint)
                 self.logger.info(
                     "Using fallback OAuth endpoints",
                     provider=self.id,
-                    authorization=self._discovered_auth_endpoint,
-                    token=self._discovered_token_endpoint,
+                    authorization=self._fallback_auth_endpoint,
+                    token=self._fallback_token_endpoint,
                 )
-            else:
-                self.logger.error(
-                    "Failed to discover OAuth endpoints",
-                    provider=self.id,
-                    error=str(e),
-                    discovery_url=discovery_url,
+                return OAuthDiscoveryResult(
+                    authorization_endpoint=self._fallback_auth_endpoint,
+                    token_endpoint=self._fallback_token_endpoint,
+                    token_methods=[],
+                    registration_endpoint=None,
                 )
-                raise ValueError(
-                    f"Could not discover OAuth endpoints from {discovery_url} "
-                    f"and no fallback endpoints provided"
-                ) from e
+
+            # If _fallback_token_endpoint is None, check if configured endpoints are available
+            if self._fallback_token_endpoint is None:
+                # Check for configured endpoints from init params or class defaults
+                auth_endpoint = (
+                    discovered_auth_endpoint
+                    or self._fallback_auth_endpoint
+                    or getattr(self, "default_authorization_endpoint", None)
+                )
+                token_endpoint = discovered_token_endpoint or getattr(
+                    self, "default_token_endpoint", None
+                )
+
+                if auth_endpoint and token_endpoint:
+                    validate_oauth_endpoint(auth_endpoint)
+                    validate_oauth_endpoint(token_endpoint)
+                    self.logger.info(
+                        "Using configured OAuth endpoints",
+                        provider=self.id,
+                        authorization=auth_endpoint,
+                        token=token_endpoint,
+                    )
+                    return OAuthDiscoveryResult(
+                        authorization_endpoint=auth_endpoint,
+                        token_endpoint=token_endpoint,
+                        token_methods=[],
+                        registration_endpoint=None,
+                    )
+
+            self.logger.error(
+                "Failed to discover OAuth endpoints",
+                provider=self.id,
+                error=str(e),
+                discovery_url=discovery_url,
+            )
+            raise ValueError(
+                f"Could not discover OAuth endpoints from {discovery_url} "
+                f"and no fallback endpoints provided"
+            ) from e
 
     @classmethod
     async def _discover_oauth_endpoints_async(
-        cls, logger_instance
+        cls,
+        logger_instance,
+        *,
+        discovered_auth_endpoint: str | None = None,
+        discovered_token_endpoint: str | None = None,
     ) -> OAuthDiscoveryResult:
         """Async discovery counterpart used in event-loop contexts."""
 
@@ -660,7 +837,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             )
         except Exception as e:
             if cls._fallback_auth_endpoint and cls._fallback_token_endpoint:
-                token_methods = cls.token_endpoint_auth_methods_supported
+                token_methods = []
                 logger_instance.info(
                     "Using fallback OAuth endpoints",
                     provider=cls.id,
@@ -673,6 +850,34 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     token_methods=token_methods,
                     registration_endpoint=None,
                 )
+
+            # If _fallback_token_endpoint is None, check if configured endpoints are available
+            if cls._fallback_token_endpoint is None:
+                # Check for configured endpoints from init params or class defaults
+                auth_endpoint = (
+                    discovered_auth_endpoint
+                    or cls._fallback_auth_endpoint
+                    or getattr(cls, "default_authorization_endpoint", None)
+                )
+                token_endpoint = discovered_token_endpoint or getattr(
+                    cls, "default_token_endpoint", None
+                )
+
+                if auth_endpoint and token_endpoint:
+                    validate_oauth_endpoint(auth_endpoint)
+                    validate_oauth_endpoint(token_endpoint)
+                    logger_instance.info(
+                        "Using configured OAuth endpoints",
+                        provider=cls.id,
+                        authorization=auth_endpoint,
+                        token=token_endpoint,
+                    )
+                    return OAuthDiscoveryResult(
+                        authorization_endpoint=auth_endpoint,
+                        token_endpoint=token_endpoint,
+                        token_methods=[],
+                        registration_endpoint=None,
+                    )
 
             logger_instance.error(
                 "Failed to discover OAuth endpoints",
@@ -692,18 +897,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _resolve_client_credentials(
         self, client_id: str | None, client_secret: str | None
     ) -> ClientCredentials:
-        resolved_client_id = client_id if client_id and client_id.strip() else None
-        resolved_client_secret = (
-            client_secret if client_secret and client_secret.strip() else None
-        )
+        resolved_client_id = self._clean_credential(client_id)
+        resolved_client_secret = self._clean_credential(client_secret)
 
-        # Attempt dynamic client registration when no credentials are provided.
-        if resolved_client_id is None and self._registration_endpoint:
+        if not resolved_client_id and self._registration_endpoint:
             registration_result = self._perform_dynamic_registration()
             resolved_client_id = registration_result.client_id
             resolved_client_secret = registration_result.client_secret
 
-        if resolved_client_id is None:
+        if not resolved_client_id:
             raise ValueError("Missing hosted client credential: client_id")
 
         # Secrets are optional for public clients (token endpoint auth method "none").
@@ -744,9 +946,26 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 registration_auth_method
             )
 
-        registration_response = await cls._submit_registration_request(
-            registration_endpoint, registration_payload
-        )
+        try:
+            registration_response = await cls._submit_registration_request(
+                registration_endpoint, registration_payload
+            )
+        except httpx.HTTPError as exc:
+            logger_instance.error(
+                "Dynamic registration failed",
+                provider=cls.id,
+                error=str(exc),
+                registration_endpoint=registration_endpoint,
+            )
+            raise
+        except ValueError as exc:
+            logger_instance.error(
+                "Dynamic registration error",
+                provider=cls.id,
+                error=str(exc),
+                registration_endpoint=registration_endpoint,
+            )
+            raise
 
         client_id = registration_response.get("client_id")
         if not client_id:
@@ -779,17 +998,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         )
 
     def _get_token_endpoint_auth_method(self) -> str | None:
-        if self._client_registration_auth_method is not None:
+        if self._client_registration_auth_method:
             return self._client_registration_auth_method
-        methods = self._token_endpoint_auth_methods_supported
+        methods = self._token_endpoint_auth_methods_supported or []
         if self.client_secret:
-            if "client_secret_post" in methods:
-                return "client_secret_post"
-            if "client_secret_basic" in methods:
-                return "client_secret_basic"
-        else:
-            if "none" in methods:
-                return "none"
+            for candidate in ("client_secret_post", "client_secret_basic"):
+                if candidate in methods:
+                    return candidate
+        elif "none" in methods:
+            return "none"
         return super()._get_token_endpoint_auth_method()
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
@@ -798,7 +1015,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         The resource parameter identifies the MCP server that the token will be used with.
         """
         params = super()._get_additional_authorize_params()
-        params["resource"] = self._mcp_server_uri
+        params["resource"] = self.mcp_server_uri
         return params
 
     @classmethod
@@ -809,15 +1026,16 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         logger_instance = logger.bind(service=f"{cls.__name__}")
 
-        discovery_result = await cls._discover_oauth_endpoints_async(logger_instance)
+        # Extract discovered endpoints from kwargs if provided
+        # These will be used as fallbacks if discovery fails
+        discovered_auth_endpoint = kwargs.pop("authorization_endpoint", None)
+        discovered_token_endpoint = kwargs.pop("token_endpoint", None)
 
-        validated_config: dict[str, Any] = {}
-        if config and cls.config_model:
-            model = cls.config_model.model_validate(config.provider_config)
-            validated_config = model.model_dump(exclude_unset=True)
-        elif not config and cls.config_model and "provider_config" in kwargs:
-            model = cls.config_model.model_validate(kwargs["provider_config"])
-            validated_config = model.model_dump(exclude_unset=True)
+        discovery_result = await cls._discover_oauth_endpoints_async(
+            logger_instance,
+            discovered_auth_endpoint=discovered_auth_endpoint,
+            discovered_token_endpoint=discovered_token_endpoint,
+        )
 
         scopes = (
             config.scopes
@@ -825,33 +1043,15 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             else kwargs.get("scopes")
         )
 
-        client_id: str | None
-        client_secret: str | None
-
         if config:
-            client_id = config.client_id.strip() if config.client_id.strip() else None
-            if config.client_secret:
-                secret_value = config.client_secret.get_secret_value().strip()
-                client_secret = secret_value if secret_value else None
-            else:
-                client_secret = None
+            client_id = cls._clean_credential(config.client_id)
+            client_secret = cls._clean_credential(config.client_secret)
         else:
-            client_id_value = kwargs.get("client_id")
-            client_id = (
-                client_id_value.strip()
-                if isinstance(client_id_value, str)
-                else client_id_value
-            )
-            client_secret_value = kwargs.get("client_secret")
-            if isinstance(client_secret_value, str):
-                client_secret = client_secret_value.strip() or None
-            else:
-                client_secret = client_secret_value
+            client_id = cls._clean_credential(kwargs.get("client_id"))
+            client_secret = cls._clean_credential(kwargs.get("client_secret"))
 
         registration_auth_method = None
-        if (
-            client_id is None or (isinstance(client_id, str) and not client_id.strip())
-        ) and discovery_result.registration_endpoint:
+        if not client_id and discovery_result.registration_endpoint:
             registration_auth_method = cls._select_dynamic_registration_auth_method(
                 discovery_result.token_methods
             )
@@ -864,27 +1064,21 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             client_secret = registration_result.client_secret
             registration_auth_method = registration_result.auth_method
 
-        if client_id is None or (isinstance(client_id, str) and not client_id.strip()):
+        if not client_id:
             raise ValueError("Missing hosted client credential: client_id")
 
-        extra_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in {"client_id", "client_secret", "scopes", "provider_config"}
-        }
-
-        init_kwargs = {**validated_config, **extra_kwargs}
-
-        provider = cls(
+        init_kwargs = dict(kwargs)
+        init_kwargs.update(
             client_id=client_id,
             client_secret=client_secret,
             scopes=scopes,
-            discovered_auth_endpoint=discovery_result.authorization_endpoint,
-            discovered_token_endpoint=discovery_result.token_endpoint,
+            authorization_endpoint=discovery_result.authorization_endpoint,
+            token_endpoint=discovery_result.token_endpoint,
             registration_endpoint=discovery_result.registration_endpoint,
-            token_endpoint_auth_methods_supported=discovery_result.token_methods,
-            **init_kwargs,
+            token_methods=discovery_result.token_methods,
         )
+
+        provider = cls(**init_kwargs)
 
         if registration_auth_method:
             provider._client_registration_auth_method = registration_auth_method
@@ -897,5 +1091,5 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         The resource parameter must be included in token requests per MCP spec.
         """
         params = super()._get_additional_token_params()
-        params["resource"] = self._mcp_server_uri
+        params["resource"] = self.mcp_server_uri
         return params

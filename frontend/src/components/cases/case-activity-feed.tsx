@@ -11,6 +11,7 @@ import {
   CaseClosedEvent,
   CaseReopenedEvent,
   CaseUpdatedEvent,
+  CaseViewedEvent,
   EventActor,
   EventIcon,
   FieldsChangedEvent,
@@ -18,6 +19,12 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TaskAssigneeChangedEvent,
+  TaskCreatedEvent,
+  TaskDeletedEvent,
+  TaskPriorityChangedEvent,
+  TaskStatusChangedEvent,
+  TaskWorkflowChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
 import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -83,6 +90,10 @@ function ActivityFeedEvent({
           <CaseReopenedEvent event={event} actor={actor} />
         )}
 
+        {event.type === "case_viewed" && (
+          <CaseViewedEvent event={event} actor={actor} />
+        )}
+
         {/* Case updated events */}
         {event.type === "case_updated" && (
           <CaseUpdatedEvent event={event} actor={actor} />
@@ -91,6 +102,30 @@ function ActivityFeedEvent({
         {/* Assignee events */}
         {event.type === "assignee_changed" && (
           <AssigneeChangedEvent event={event} actor={actor} userMap={users} />
+        )}
+
+        {/* Task events */}
+        {event.type === "task_created" && (
+          <TaskCreatedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_deleted" && (
+          <TaskDeletedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_status_changed" && (
+          <TaskStatusChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_priority_changed" && (
+          <TaskPriorityChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_workflow_changed" && (
+          <TaskWorkflowChangedEvent event={event} actor={actor} />
+        )}
+        {event.type === "task_assignee_changed" && (
+          <TaskAssigneeChangedEvent
+            event={event}
+            actor={actor}
+            userMap={users}
+          />
         )}
 
         {/* Attachment events */}
@@ -258,7 +293,7 @@ export function CaseActivityFeed({
       <div className="space-y-4 p-4">
         {groupedActivities.map(({ date, activities }) => (
           <div key={date.toISOString()} className="space-y-2">
-            <div className="sticky top-0 z-10 bg-background py-2">
+            <div className="sticky top-0 z-10 py-2">
               <div className="flex items-center">
                 <div className="text-sm font-medium">
                   {date.toLocaleDateString(undefined, {

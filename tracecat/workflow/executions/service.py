@@ -7,7 +7,8 @@ from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
-from temporalio.api.enums.v1 import EventType
+import temporalio.api.enums.v1
+from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     Client,
@@ -16,23 +17,20 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
-from temporalio.common import (
-    SearchAttributeKey,
-    SearchAttributePair,
-    TypedSearchAttributes,
-)
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Interaction
+from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
-from tracecat.dsl.models import Task, TriggerInputs
-from tracecat.dsl.validation import validate_trigger_inputs
+from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
@@ -41,8 +39,6 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
-from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -61,7 +57,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.executions.models import (
+from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
     WorkflowDispatchResponse,
@@ -216,8 +212,12 @@ class WorkflowExecutionsService:
         # Source event id is the event ID of the scheduled event
         # Position -> WFECompact
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
+        # Map of activity ID to compact event
+        activity2eventid: dict[str, int] = {}
 
-        async for event in self.handle(wf_exec_id).fetch_history_events(**kwargs):
+        handle = self.handle(wf_exec_id)
+
+        async for event in handle.fetch_history_events(**kwargs):
             if is_scheduled_event(event):
                 # Create a new source event
                 source = await WorkflowExecutionEventCompact.from_source_event(event)
@@ -228,6 +228,16 @@ class WorkflowExecutionsService:
                     )
                     continue
                 id2event[event.event_id] = source
+
+                # If it's a scheduled activity, track the activity ID
+                if (
+                    event.event_type
+                    == temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                ):
+                    activity_id = (
+                        event.activity_task_scheduled_event_attributes.activity_id
+                    )
+                    activity2eventid[activity_id] = event.event_id
             # ── synthetic compact event for top-level workflow failure ──
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
                 failure = EventFailure.from_history_event(event)
@@ -273,8 +283,39 @@ class WorkflowExecutionsService:
                     source.action_result = await get_result(event)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
-        # For the resultant values, if there are duplicate source action_refs,
-        #  we should merge them into a single event.
+
+        desc = await handle.describe()
+        # Iterate over the pending activities and update the source event
+        for act in desc.raw_description.pending_activities:
+            if source_id := activity2eventid.get(act.activity_id):
+                source = id2event.get(source_id)
+                if source is None:
+                    logger.trace(
+                        "Source event not found for pending activity",
+                        source_id=source_id,
+                        activity_id=act.activity_id,
+                    )
+                    continue
+                if act.state == PendingActivityState.PENDING_ACTIVITY_STATE_STARTED:
+                    source.curr_event_type = WorkflowEventType.ACTIVITY_TASK_STARTED
+                    source.status = WorkflowExecutionEventStatus.STARTED
+                    if act.last_started_time:
+                        source.start_time = act.last_started_time.ToDatetime(
+                            datetime.UTC
+                        )
+                else:
+                    state_name = PendingActivityState.Name(act.state)
+                    logger.trace(
+                        "Skipping pending activity state update",
+                        activity_id=act.activity_id,
+                        pending_state=state_name,
+                    )
+            else:
+                logger.trace(
+                    "Pending activity without matching source event",
+                    activity_id=act.activity_id,
+                )
+
         task2events: dict[Task, WorkflowExecutionEventCompact] = {}
         for event in id2event.values():
             task = Task(ref=event.action_ref, stream_id=event.stream_id)
@@ -666,12 +707,6 @@ class WorkflowExecutionsService:
 
         Note: This method blocks until the workflow execution completes.
         """
-        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
-        if validation_result.status == "error":
-            logger.error(validation_result.msg, detail=validation_result.detail)
-            raise TracecatValidationError(
-                validation_result.msg, detail=validation_result.detail
-            )
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
@@ -716,12 +751,13 @@ class WorkflowExecutionsService:
         pairs = [trigger_type.to_temporal_search_attr_pair()]
         if self.role.user_id is not None:
             pairs.append(
-                SearchAttributePair(
-                    key=SearchAttributeKey.for_keyword(
-                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-                    ),
-                    value=str(self.role.user_id),
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                    str(self.role.user_id)
                 )
+            )
+        if self.role.workspace_id is not None:
+            pairs.append(
+                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
             )
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:

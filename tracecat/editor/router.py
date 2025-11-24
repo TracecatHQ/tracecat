@@ -8,13 +8,17 @@ from lark.visitors import Interpreter
 from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.editor.models import EditorActionRead, EditorFunctionRead, EditorParamRead
+from tracecat.editor.schemas import (
+    EditorActionRead,
+    EditorFunctionRead,
+    EditorParamRead,
+)
 from tracecat.expressions.functions import FUNCTION_MAPPING
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.identifiers.workflow import AnyWorkflowIDQuery
 from tracecat.registry.fields import EditorComponent
-from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/editor", tags=["editor"])

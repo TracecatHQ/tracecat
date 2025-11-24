@@ -7,7 +7,6 @@ import ray
 from tracecat import config
 from tracecat.logger import logger
 
-EXECUTION_TIMEOUT = 300
 DEFAULT_NUM_WORKERS = min(os.cpu_count() or 8, 8)
 
 

@@ -122,13 +122,13 @@ export function WorkflowsTagsDashboardTable() {
               enableHiding: false,
             },
             {
-              id: "Last Edited",
+              id: "Last edited",
               accessorKey: "updated_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Edited"
+                  title="Last edited"
                 />
               ),
               cell: ({ getValue }) => {
@@ -189,13 +189,13 @@ export function WorkflowsTagsDashboardTable() {
               enableSorting: true,
             },
             {
-              id: "Last Saved",
+              id: "Last saved",
               accessorKey: "latest_definition.created_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Saved"
+                  title="Last saved"
                 />
               ),
               cell: ({ getValue }) => {

@@ -1,8 +1,10 @@
 import {
   BracesIcon,
+  EyeIcon,
   type LucideIcon,
   PaperclipIcon,
   PencilIcon,
+  PlusIcon,
   TrashIcon,
   UserIcon,
   UserXIcon,
@@ -11,6 +13,7 @@ import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
   AttachmentDeletedEventRead,
+  CaseEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
   PayloadChangedEventRead,
@@ -18,6 +21,12 @@ import type {
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
+  TaskAssigneeChangedEventRead,
+  TaskCreatedEventRead,
+  TaskDeletedEventRead,
+  TaskPriorityChangedEventRead,
+  TaskStatusChangedEventRead,
+  TaskWorkflowChangedEventRead,
   UpdatedEventRead,
 } from "@/client"
 import {
@@ -198,6 +207,23 @@ export function CaseReopenedEvent({
   )
 }
 
+export function CaseViewedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CaseEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={EyeIcon} />
+      <span>
+        <EventActor user={actor} /> viewed the case
+      </span>
+    </div>
+  )
+}
+
 export function CaseClosedEvent({
   event,
   actor,
@@ -370,6 +396,193 @@ export function PayloadChangedEvent({
       <EventIcon icon={PencilIcon} />
       <span>
         <EventActor user={actor} /> updated the payload
+      </span>
+    </div>
+  )
+}
+
+// Task events
+
+export function TaskCreatedEvent({
+  event,
+  actor,
+}: {
+  event: TaskCreatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PlusIcon} />
+      <span>
+        <EventActor user={actor} /> created the task{" "}
+        <span className="font-medium">{event.title}</span>
+      </span>
+    </div>
+  )
+}
+
+export function TaskDeletedEvent({
+  event,
+  actor,
+}: {
+  event: TaskDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> deleted the task
+        {event.title ? (
+          <span>
+            {" "}
+            <span className="font-medium">{event.title}</span>
+          </span>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+const TASK_STATUS_LABELS: Record<
+  "todo" | "in_progress" | "completed" | "blocked",
+  string
+> = {
+  todo: "To Do",
+  in_progress: "In Progress",
+  completed: "Completed",
+  blocked: "Blocked",
+}
+
+export function TaskStatusChangedEvent({
+  event,
+  actor,
+}: {
+  event: TaskStatusChangedEventRead
+  actor: User
+}) {
+  if (event.old === event.new) return null
+  const oldStatus = TASK_STATUS_LABELS[event.old]
+  const newStatus = TASK_STATUS_LABELS[event.new]
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> changed{" "}
+        <span className="font-medium max-w-32 inline-block truncate align-bottom">
+          {event.title}
+        </span>{" "}
+        status: {oldStatus} → {newStatus}
+      </span>
+    </div>
+  )
+}
+
+export function TaskAssigneeChangedEvent({
+  event,
+  actor,
+  userMap,
+}: {
+  event: TaskAssigneeChangedEventRead
+  actor: User
+  userMap: Record<string, User>
+}) {
+  const oldAssignee = event.old ? userMap[event.old] : null
+  const newAssignee = event.new ? userMap[event.new] : null
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> {newAssignee ? "assigned" : "unassigned"}{" "}
+        <span className="font-medium max-w-32 inline-block truncate align-bottom">
+          {event.title}
+        </span>{" "}
+        {newAssignee ? (
+          <>
+            to <EventActor user={newAssignee} />
+          </>
+        ) : oldAssignee ? (
+          <>
+            from <EventActor user={oldAssignee} />
+          </>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+export function TaskPriorityChangedEvent({
+  event,
+  actor,
+}: {
+  event: TaskPriorityChangedEventRead
+  actor: User
+}) {
+  if (event.old === event.new) return null
+  const oldPriority = PRIORITIES[event.old]
+  const newPriority = PRIORITIES[event.new]
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> changed{" "}
+        <span className="font-medium max-w-32 inline-block truncate align-bottom">
+          {event.title}
+        </span>{" "}
+        priority: {oldPriority.label} → {newPriority.label}
+      </span>
+    </div>
+  )
+}
+
+export function TaskWorkflowChangedEvent({
+  event,
+  actor,
+}: {
+  event: TaskWorkflowChangedEventRead
+  actor: User
+}) {
+  if (event.old === event.new) return null
+  const hasOld = !!event.old
+  const hasNew = !!event.new
+
+  if (!hasOld && hasNew) {
+    return (
+      <div className="flex items-center space-x-2 text-xs">
+        <EventIcon icon={PencilIcon} />
+        <span>
+          <EventActor user={actor} /> linked workflow to{" "}
+          <span className="font-medium max-w-32 inline-block truncate align-bottom">
+            {event.title}
+          </span>
+        </span>
+      </div>
+    )
+  }
+
+  if (hasOld && !hasNew) {
+    return (
+      <div className="flex items-center space-x-2 text-xs">
+        <EventIcon icon={PencilIcon} />
+        <span>
+          <EventActor user={actor} /> removed workflow from{" "}
+          <span className="font-medium max-w-32 inline-block truncate align-bottom">
+            {event.title}
+          </span>
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> changed workflow on{" "}
+        <span className="font-medium max-w-32 inline-block truncate align-bottom">
+          {event.title}
+        </span>
       </span>
     </div>
   )

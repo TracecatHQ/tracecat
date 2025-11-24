@@ -5,9 +5,10 @@ from uuid import uuid4
 
 import pytest
 
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.db.models import Table, TableColumn
+from tracecat.exceptions import TracecatImportError
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import ColumnInfo, CSVImporter
+from tracecat.tables.importer import ColumnInfo, CSVImporter, CSVSchemaInferer
 from tracecat.tables.service import TablesService
 
 
@@ -193,7 +194,9 @@ class TestCSVImporter:
         await csv_importer.process_chunk(chunk, mock_service, mock_table)
 
         # Verify service was called correctly
-        mock_service.batch_insert_rows.assert_called_once_with(mock_table, chunk)
+        mock_service.batch_insert_rows.assert_called_once_with(
+            mock_table, chunk, chunk_size=csv_importer.chunk_size
+        )
         assert csv_importer.total_rows_inserted == 2
 
     @pytest.mark.anyio
@@ -206,3 +209,100 @@ class TestCSVImporter:
 
         mock_service.batch_insert_rows.assert_not_called()
         assert csv_importer.total_rows_inserted == 0
+
+
+class TestCSVSchemaInferer:
+    """Tests for CSV schema inference utilities."""
+
+    def test_infers_types_and_names(self) -> None:
+        """Ensure types and sanitised names are derived correctly."""
+        headers = [
+            "Name",
+            "Age",
+            "Active",
+            "Score",
+            "Joined",
+            "Identifier",
+            "Metadata",
+        ]
+        uuid_value = str(uuid4())
+        rows = [
+            {
+                "Name": "Alice",
+                "Age": "30",
+                "Active": "true",
+                "Score": "88.5",
+                "Joined": "2024-01-01T12:30:00Z",
+                "Identifier": uuid_value,
+                "Metadata": '{"team": "alpha"}',
+            },
+            {
+                "Name": "Bob",
+                "Age": "41",
+                "Active": "false",
+                "Score": "70",
+                "Joined": "2024-02-11",
+                "Identifier": uuid_value,
+                "Metadata": '{"team": "beta"}',
+            },
+        ]
+
+        inferer = CSVSchemaInferer.initialise(headers)
+        for row in rows:
+            inferer.observe(row)
+        columns = inferer.result()
+
+        assert [column.name for column in columns] == [
+            "name",
+            "age",
+            "active",
+            "score",
+            "joined",
+            "identifier",
+            "metadata",
+        ]
+        type_map = {column.name: column.type for column in columns}
+        assert type_map["name"] is SqlType.TEXT
+        assert type_map["age"] is SqlType.INTEGER
+        assert type_map["active"] is SqlType.BOOLEAN
+        assert type_map["score"] is SqlType.NUMERIC
+        assert type_map["joined"] is SqlType.TIMESTAMPTZ
+        assert type_map["identifier"] is SqlType.UUID
+        assert type_map["metadata"] is SqlType.JSONB
+
+    def test_handles_duplicate_and_invalid_headers(self) -> None:
+        """Ensure duplicate and invalid headers are auto-fixed."""
+        headers = ["First Name", "123count", ""]
+        rows = [
+            {
+                "First Name": "Alice",
+                "123count": "5",
+                "": "",
+            }
+        ]
+
+        inferer = CSVSchemaInferer.initialise(headers)
+        for row in rows:
+            inferer.observe(row)
+        columns = inferer.result()
+
+        assert [column.name for column in columns] == [
+            "firstname",
+            "col_2_123count",
+            "col_3",
+        ]
+        mapping = inferer.column_mapping
+        assert mapping["First Name"] == "firstname"
+        assert mapping["123count"] == "col_2_123count"
+        assert mapping[""] == "col_3"
+
+    def test_rejects_duplicate_headers(self) -> None:
+        """Duplicate CSV headers should raise an import error."""
+        headers = ["Name", "Age", "Name"]
+        with pytest.raises(TracecatImportError, match="Duplicate columns: Name"):
+            CSVSchemaInferer.initialise(headers)
+
+    def test_rejects_blank_duplicate_headers(self) -> None:
+        headers = ["", " ", ""]
+        with pytest.raises(TracecatImportError, match="Duplicate columns: <empty>"):
+            CSVSchemaInferer.initialise(headers)

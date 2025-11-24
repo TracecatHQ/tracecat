@@ -6,6 +6,8 @@ import Image from "next/image"
 import { useParams, usePathname } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
+import { useEffect, useMemo } from "react"
+import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -23,11 +25,36 @@ export default function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { workspaces, workspacesLoading, workspacesError } =
-    useWorkspaceManager()
+  const {
+    workspaces,
+    workspacesLoading,
+    workspacesError,
+    setLastWorkspaceId,
+    getLastWorkspaceId,
+  } = useWorkspaceManager()
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
+  const lastViewedWorkspaceId = useMemo(() => {
+    if (!workspaces || workspaces.length === 0) {
+      return undefined
+    }
+    const lastViewed = getLastWorkspaceId()
+    if (
+      lastViewed &&
+      lastViewed.trim().length > 0 &&
+      workspaces.some((workspace) => workspace.id === lastViewed)
+    ) {
+      return lastViewed
+    }
+    return undefined
+  }, [getLastWorkspaceId, workspaces])
+
+  useEffect(() => {
+    if (workspaceId) {
+      setLastWorkspaceId(workspaceId)
+    }
+  }, [setLastWorkspaceId, workspaceId])
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
@@ -37,6 +64,8 @@ export default function WorkspaceLayout({
   let selectedWorkspaceId: string
   if (workspaceId) {
     selectedWorkspaceId = workspaceId
+  } else if (lastViewedWorkspaceId) {
+    selectedWorkspaceId = lastViewedWorkspaceId
   } else if (workspaces.length > 0) {
     selectedWorkspaceId = workspaces[0].id
   } else {
@@ -60,12 +89,10 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{
     workflowId?: string
     caseId?: string
-    runbookId?: string
   }>()
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
-  const isRunbookDetail = !!params?.runbookId
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -90,20 +117,17 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Runbook detail pages have their own layout with chat sidebar
-  if (isRunbookDetail) {
-    return <>{children}</>
-  }
-
   // All other workspace pages get the app sidebar
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <div className="flex h-full flex-1 flex-col">
-          <ControlsHeader />
-          <div className="flex-1 overflow-y-scroll">{children}</div>
-        </div>
+        <CaseSelectionProvider>
+          <div className="flex h-full flex-1 flex-col">
+            <ControlsHeader />
+            <div className="flex-1 overflow-y-scroll">{children}</div>
+          </div>
+        </CaseSelectionProvider>
       </SidebarInset>
     </SidebarProvider>
   )

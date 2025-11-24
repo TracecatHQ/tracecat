@@ -18,14 +18,14 @@ definition:
       type: str
       description: Name of the file.
     base_url:
-      type: str
+      type: str | None
       description: Base URL of the Sublime API.
-      default: https://platform.sublime.security
+      default: null
   steps:
     - ref: binexplode_scan
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/v0/binexplode/scan
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/binexplode/scan
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
@@ -40,7 +40,7 @@ definition:
     - ref: get_scan_results
       action: core.http_poll
       args:
-        url: ${{ inputs.base_url }}/v0/binexplode/scan/${{ steps.get_task_id.result }}
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/binexplode/scan/${{ steps.get_task_id.result }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}

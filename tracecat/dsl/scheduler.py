@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
@@ -33,23 +33,26 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
-    from tracecat.dsl.models import (
+    from tracecat.dsl.schemas import (
         ROOT_STREAM,
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
         ActionStatement,
         ExecutionContext,
         GatherArgs,
         ScatterArgs,
         StreamID,
-        Task,
-        TaskExceptionInfo,
         TaskResult,
     )
+    from tracecat.dsl.types import (
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
+        Task,
+        TaskExceptionInfo,
+    )
+    from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
-    from tracecat.types.exceptions import TaskUnreachable
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +116,11 @@ class DSLScheduler:
                 self.adj[src_ref].add((task.ref, edge_type))
 
         # Scope management
-        self.streams: dict[StreamID, ExecutionContext] = {ROOT_STREAM: context}
+        self._root_context = context
+        """Points to the worklfow roots stream context"""
+        self.streams: dict[StreamID, ExecutionContext] = {
+            ROOT_STREAM: self._root_context
+        }
 
         self.stream_hierarchy: dict[StreamID, StreamID | None] = {ROOT_STREAM: None}
         """Points to the parent stream ID for each stream ID"""
@@ -180,6 +187,7 @@ class DSLScheduler:
                         ref=ref,
                         message=message,
                         type=exc.__class__.__name__,
+                        stream_id=task.stream_id,
                     )
                 elif all(k in details for k in ("ref", "message", "type")):
                     # Regular action error
@@ -209,6 +217,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
                 else:
                     # Child workflow error
@@ -239,6 +248,7 @@ class DSLScheduler:
                             ref=ref,
                             message=message,
                             type=exc.__class__.__name__,
+                            stream_id=task.stream_id,
                         )
             else:
                 self.logger.info(
@@ -259,6 +269,7 @@ class DSLScheduler:
                     ref=ref,
                     message=message,
                     type=exc.__class__.__name__,
+                    stream_id=task.stream_id,
                 )
             if task.stream_id == ROOT_STREAM:
                 self.logger.debug(
@@ -604,7 +615,7 @@ class DSLScheduler:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
-            context = self.get_context(task.stream_id)
+            context = self.build_stream_aware_context(stmt, task.stream_id)
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
@@ -1029,21 +1040,49 @@ class DSLScheduler:
 
         # Error handling strategy
         results = []
-        errors = []
+        errors: list[ActionErrorInfo] = []
         # Consume generator here
         match err_strategy := gather_args.error_strategy:
             # Default behavior
             case StreamErrorHandlingStrategy.PARTITION:
                 # Filter out and place in task result error
-                for item in filtered_items:
-                    if _is_error_info(item):
-                        errors.append(item)
-                    else:
-                        results.append(item)
+                results, errors = _partition_errors(filtered_items)
             case StreamErrorHandlingStrategy.DROP:
                 results = [item for item in filtered_items if not _is_error_info(item)]
             case StreamErrorHandlingStrategy.INCLUDE:
                 results = list(filtered_items)
+            case StreamErrorHandlingStrategy.RAISE:
+                # 'raise' partitions first so we can raise an error if there are errors in the stream
+                # Only raise an error if there are errors in the stream
+                results, errors = _partition_errors(filtered_items)
+                if errors:
+                    message = (
+                        f"Gather '{gather_ref}' encountered {len(errors)} error(s)"
+                    )
+                    gather_error = ActionErrorInfo(
+                        ref=gather_ref,
+                        message=message,
+                        type=ApplicationError.__name__,
+                        children=errors,
+                        stream_id=parent_stream_id,
+                    )
+                    app_error = ApplicationError(
+                        message,
+                        {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                        non_retryable=True,
+                    )
+                    self.logger.warning(
+                        "Raising gather error", errors=errors, app_error=app_error
+                    )
+
+                    # Register the gather failure so the scheduler halts and the workflow error
+                    # handler can run, even though the exception originates from a non-root stream.
+                    self.task_exceptions[gather_ref] = TaskExceptionInfo(
+                        exception=app_error,
+                        details=gather_error,
+                    )
+                    raise app_error
+
             case _:
                 raise ApplicationError(
                     f"Invalid error handling strategy: {err_strategy}"
@@ -1061,7 +1100,6 @@ class DSLScheduler:
         task_result.update(result=results)
         if errors:
             task_result.update(error=errors, error_typename=type(errors).__name__)
-
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
             task=task,
@@ -1076,6 +1114,18 @@ class DSLScheduler:
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
         return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
+
+    def build_stream_aware_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Build a context that is aware of the stream hierarchy."""
+        expr_ctxs = extract_expressions(task.model_dump())
+        resolved_actions: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            resolved_actions[action_ref] = self.get_stream_aware_action_result(
+                action_ref, stream_id
+            )
+        return {**self._root_context, ExprContext.ACTIONS: resolved_actions}
 
     def get_stream_aware_action_result(
         self, action_ref: str, stream_id: StreamID
@@ -1162,6 +1212,17 @@ class DSLScheduler:
                     raise
 
 
+def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results = []
+    errors = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
+
+
 def _is_error_info(detail: Any) -> bool:
     if isinstance(detail, ActionErrorInfo):
         return True
@@ -1172,3 +1233,10 @@ def _is_error_info(detail: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None
