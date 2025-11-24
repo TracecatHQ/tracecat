@@ -843,9 +843,10 @@ class CaseFieldsService(CustomFieldsService):
                 nullable=False,
                 server_default=sa.func.now(),
             ),
+            # Use the actual Case table column to avoid metadata resolution issues
             sa.ForeignKeyConstraint(
                 ["case_id"],
-                ["public.cases.id"],
+                [Case.__table__.c.id],
                 name="fk_case_fields_case",
                 ondelete="CASCADE",
             ),
