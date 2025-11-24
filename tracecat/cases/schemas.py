@@ -4,9 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
+import sqlalchemy as sa
 from pydantic import ConfigDict, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -86,6 +88,14 @@ class CaseUpdate(Schema):
 
 class CaseFieldReadMinimal(CustomFieldRead):
     """Minimal read model for a case field."""
+
+    @classmethod
+    def from_sa(
+        cls, column: sa.engine.interfaces.ReflectedColumn
+    ) -> CaseFieldReadMinimal:
+        return cls.model_validate(
+            super().from_sa(column, reserved_fields=set(RESERVED_CASE_FIELDS))
+        )
 
 
 class CaseFieldCreate(CustomFieldCreate):
