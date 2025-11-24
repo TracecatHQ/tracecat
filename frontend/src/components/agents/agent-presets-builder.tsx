@@ -42,10 +42,10 @@ import type {
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -67,6 +67,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Form,
   FormControl,
@@ -93,14 +101,6 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import {
   Tooltip,
   TooltipContent,
@@ -607,7 +607,8 @@ function PresetsSidebar({
                 </EmptyMedia>
                 <EmptyTitle>No agent preset found.</EmptyTitle>
                 <EmptyDescription>
-                  Create an AI agent preset to reuse across workflows, cases, and chat.
+                  Create an AI agent preset to reuse across workflows, cases,
+                  and chat.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -1332,8 +1333,7 @@ function AgentPresetForm({
                             id: integration.providerId,
                             label: integration.name,
                             value: integration.providerId,
-                            description:
-                              integration.description || "Connected",
+                            description: integration.description || "Connected",
                             icon: (
                               <ProviderIcon
                                 providerId={integration.providerId}
@@ -1866,7 +1866,8 @@ function AgentPresetBuilderChatPane({
               </EmptyMedia>
               <EmptyTitle>Builder assistant</EmptyTitle>
               <EmptyDescription>
-                Save the preset name and model provider to activate the builder assistant.
+                Save the preset name and model provider to activate the builder
+                assistant.
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>

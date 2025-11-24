@@ -144,7 +144,8 @@ export function AgentsBoard({
           </EmptyMedia>
           <EmptyTitle>No agent activity yet.</EmptyTitle>
           <EmptyDescription>
-            When agents run, they will appear here grouped by their latest status.
+            When agents run, they will appear here grouped by their latest
+            status.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
