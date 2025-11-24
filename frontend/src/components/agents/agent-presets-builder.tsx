@@ -93,6 +93,14 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -590,15 +598,32 @@ function PresetsSidebar({
       </div>
       <div className="flex-1 min-h-0">
         <ScrollArea className="h-full">
-          <div className="space-y-1 px-2 py-3">
+          <div
+            className={cn(
+              "px-2 py-3",
+              list.length === 0
+                ? "flex h-full min-h-[400px] items-center justify-center"
+                : "space-y-1"
+            )}
+          >
             {list.length === 0 ? (
-              <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-md border border-dashed px-3 text-center text-xs text-muted-foreground">
-                <Bot className="size-4 opacity-60" />
-                <span>No saved presets yet.</span>
-                <span>
-                  Create one to reuse agents across workflows and chat.
-                </span>
-              </div>
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Bot />
+                  </EmptyMedia>
+                  <EmptyTitle>No agent preset found.</EmptyTitle>
+                  <EmptyDescription>
+                    Create an AI agent preset to reuse across workflows, cases, and chat.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button size="sm" onClick={onCreate}>
+                    <Plus className="mr-1 size-4" />
+                    New agent preset
+                  </Button>
+                </EmptyContent>
+              </Empty>
             ) : (
               list.map((preset) => (
                 <SidebarItem
@@ -779,9 +804,18 @@ function AgentPresetChatPane({
   const renderBody = () => {
     if (!preset) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
-          <MessageCircle className="size-5" />
-          <p>Select a saved preset to start a conversation.</p>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Select a saved preset</EmptyTitle>
+              <EmptyDescription>
+                Select a saved preset to start a conversation.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </div>
       )
     }
@@ -835,19 +869,31 @@ function AgentPresetChatPane({
 
     if (!activeChatId) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <Bot className="size-5 text-muted-foreground" />
-          <p>Create a chat session to test this agent live.</p>
-          <Button
-            size="sm"
-            onClick={() => void handleStartChat()}
-            disabled={createChatPending || !canStartChat}
-          >
-            {createChatPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : null}
-            Start chat
-          </Button>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Bot />
+              </EmptyMedia>
+              <EmptyTitle>Live chat</EmptyTitle>
+              <EmptyDescription>
+                Converse with the agent live in a chat session.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                size="sm"
+                onClick={() => void handleStartChat()}
+                disabled={createChatPending || !canStartChat}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : null}
+                <Plus className="mr-1 size-4" />
+                Start chat
+              </Button>
+            </EmptyContent>
+          </Empty>
         </div>
       )
     }
@@ -1777,15 +1823,6 @@ function AgentPresetBuilderChatPane({
   }
 
   const renderBody = () => {
-    if (!presetId) {
-      return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <MessageCircle className="size-5" />
-          <p>Save this preset to chat with the builder assistant.</p>
-        </div>
-      )
-    }
-
     if (chatReadyLoading) {
       return (
         <div className="flex h-full items-center justify-center">
@@ -1832,22 +1869,30 @@ function AgentPresetBuilderChatPane({
 
     if (!activeChatId) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
-          <MessageCircle className="size-5 text-muted-foreground" />
-          <p>
-            Ask the assistant for prompt, tool, or approval suggestions to get
-            started.
-          </p>
-          <Button
-            size="sm"
-            onClick={() => void handleStartChat()}
-            disabled={createChatPending || !canStartChat}
-          >
-            {createChatPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : null}
-            Start assistant
-          </Button>
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Builder assistant</EmptyTitle>
+              <EmptyDescription>
+                Save the preset name and model provider to activate the builder assistant.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                size="sm"
+                onClick={() => void handleStartChat()}
+                disabled={createChatPending || !canStartChat}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : null}
+                Start assistant
+              </Button>
+            </EmptyContent>
+          </Empty>
         </div>
       )
     }

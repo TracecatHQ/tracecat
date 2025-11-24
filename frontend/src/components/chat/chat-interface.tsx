@@ -54,6 +54,14 @@ import {
 } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -195,24 +203,24 @@ export function ChatInterface({
   // Show empty state if no chats exist
   if (chats && chats.length === 0) {
     return (
-      <div className="flex h-full flex-col">
-        {/* Empty State */}
-        <div className="flex h-full items-center justify-center p-8">
-          <div className="text-center max-w-sm">
-            <MessageSquare className="mx-auto h-8 w-8 text-gray-400 mb-3" />
-            <h4 className="text-sm font-medium text-gray-900 mb-1">
-              No chat sessions
-            </h4>
-            <p className="text-xs text-gray-500 mb-4">
-              Create a chat session to start conversing with the AI assistant
-              about this {entityType}.
-            </p>
+      <div className="flex h-full items-center justify-center p-8">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <MessageSquare />
+            </EmptyMedia>
+            <EmptyTitle>No chat sessions</EmptyTitle>
+            <EmptyDescription>
+              Start a conversation with the {entityType} AI copilot.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
             <Button onClick={handleCreateChat} disabled={createChatPending}>
-              <Plus className="h-3 w-3 mr-1" />
-              Create chat session
+              <Plus className="mr-1 size-4" />
+              Start chat
             </Button>
-          </div>
-        </div>
+          </EmptyContent>
+        </Empty>
       </div>
     )
   }
