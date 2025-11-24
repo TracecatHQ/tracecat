@@ -272,9 +272,10 @@ services:
       - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1
     healthcheck:
       test: ["CMD", "tctl", "--address", "127.0.0.1:7233", "cluster", "health"]
-      interval: 1s
-      timeout: 5s
-      start_period: 2s
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     depends_on:
       - temporal_postgres_db
 
