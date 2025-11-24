@@ -49,6 +49,7 @@ def downgrade() -> None:
         existing_type=sa.TIMESTAMP(timezone=True),
         type_=postgresql.TIMESTAMP(),
         existing_nullable=True,
+        postgresql_using="end_at AT TIME ZONE 'UTC'",
     )
     op.alter_column(
         "schedule",
@@ -56,5 +57,6 @@ def downgrade() -> None:
         existing_type=sa.TIMESTAMP(timezone=True),
         type_=postgresql.TIMESTAMP(),
         existing_nullable=True,
+        postgresql_using="start_at AT TIME ZONE 'UTC'",
     )
     # ### end Alembic commands ###
