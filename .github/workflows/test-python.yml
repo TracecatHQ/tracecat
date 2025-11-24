@@ -138,6 +138,27 @@ jobs:
           TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
         run: uv run pytest tests/unit/test_workflows.py -ra
 
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Service Status ==="
+          docker compose -f docker-compose.dev.yml ps
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.dev.yml logs temporal --tail=200
+
+          echo "=== API Logs ==="
+          docker compose -f docker-compose.dev.yml logs api --tail=200
+
+          echo "=== Worker Logs ==="
+          docker compose -f docker-compose.dev.yml logs worker --tail=200
+
+          echo "=== Executor Logs ==="
+          docker compose -f docker-compose.dev.yml logs executor --tail=200
+
+          echo "=== Postgres Logs ==="
+          docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
+
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
@@ -249,3 +270,24 @@ jobs:
           else
             uv run pytest tests/${{ matrix.test_group }} -ra
           fi
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Service Status ==="
+          docker compose -f docker-compose.dev.yml ps
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.dev.yml logs temporal --tail=200
+
+          echo "=== API Logs ==="
+          docker compose -f docker-compose.dev.yml logs api --tail=200
+
+          echo "=== Worker Logs ==="
+          docker compose -f docker-compose.dev.yml logs worker --tail=200
+
+          echo "=== Executor Logs ==="
+          docker compose -f docker-compose.dev.yml logs executor --tail=200
+
+          echo "=== Postgres Logs ==="
+          docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
