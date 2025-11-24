@@ -213,13 +213,22 @@ class TemporaryClientCertificate:
                 )
 
 
-def httpx_to_response(response: httpx.Response) -> HTTPResponse:
+def httpx_to_response(
+    response: httpx.Response, *, base64_encode_data: bool = False
+) -> HTTPResponse:
     # Handle 204 No Content responses
     if response.status_code == 204:
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
             data=None,  # RFC 7231: 204 responses MUST NOT contain a body
+        )
+
+    if base64_encode_data:
+        return HTTPResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers.items()),
+            data=base64.b64encode(response.content).decode(),
         )
 
     # Parse response based on content type
@@ -554,6 +563,12 @@ async def http_request(
             "If specified, these status codes will not be treated as errors. Defaults to None."
         ),
     ] = None,
+    base64_encode_data: Annotated[
+        bool,
+        Doc(
+            "Base64 encode the raw response body before returning. Use this for binary downloads to prevent corruption from text decoding."
+        ),
+    ] = False,
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
@@ -612,7 +627,10 @@ async def http_request(
         except httpx.ReadTimeout as e:
             logger.error(f"HTTP request timed out after {timeout} seconds.")
             raise e
-        return httpx_to_response(response)
+        return httpx_to_response(
+            response,
+            base64_encode_data=base64_encode_data,
+        )
 
 
 class PredicateArgs(TypedDict):

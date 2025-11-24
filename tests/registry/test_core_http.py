@@ -15,6 +15,9 @@ from tracecat_registry.core.http import (
 )
 
 from tracecat.exceptions import TracecatException
+from tracecat.expressions.functions import str_to_b64
+
+PNG_URL = "https://urlscan.io/screenshots/019aa89e-05c5-714d-80ea-83fbeb06a500.png"
 
 
 # Test fixtures
@@ -45,6 +48,15 @@ def mock_no_content_response() -> httpx.Response:
         status_code=204,
         headers={},
     )
+
+
+@pytest.fixture
+async def urlscan_png_bytes() -> bytes:
+    """Fetch the live PNG used for corruption regression tests."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(PNG_URL)
+        response.raise_for_status()
+        return response.content
 
 
 # Test helper functions
@@ -260,6 +272,45 @@ async def test_http_request_bad_request() -> None:
     assert "400" in value
     assert "Bad Request" in value
     assert "Invalid parameters" in value
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_http_request_png_corruption_integration(
+    urlscan_png_bytes: bytes,
+) -> None:
+    """Reproduce corruption when PNG bytes are coerced into text then base64 encoded."""
+    response = await http_request(
+        url=PNG_URL,
+        method="GET",
+    )
+
+    assert response["status_code"] == 200
+    assert isinstance(response["data"], str)
+
+    corrupted_b64 = str_to_b64(response["data"])
+    expected_b64 = base64.b64encode(urlscan_png_bytes).decode()
+
+    # Text decoding the PNG changes the payload, so the downstream base64 differs
+    assert corrupted_b64 != expected_b64
+    assert base64.b64decode(corrupted_b64) != urlscan_png_bytes
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_http_request_png_base64_encode_data_integration(
+    urlscan_png_bytes: bytes,
+) -> None:
+    """Ensure base64_encode_data returns a lossless base64 string for binary downloads."""
+    response = await http_request(
+        url=PNG_URL,
+        method="GET",
+        base64_encode_data=True,
+    )
+
+    assert response["status_code"] == 200
+    assert isinstance(response["data"], str)
+    assert base64.b64decode(response["data"]) == urlscan_png_bytes
 
 
 # Test HTTP polling function
