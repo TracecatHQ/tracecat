@@ -6,7 +6,7 @@ from tracecat.integrations.providers.base import MCPAuthProvider
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 
-class RunRevealMCPProvider(MCPAuthProvider):
+class SecureAnnexMCPProvider(MCPAuthProvider):
     """Secure Annex OAuth provider for Model Context Protocol integration.
 
     This provider enables integration with Secure Annex's MCP server for:
