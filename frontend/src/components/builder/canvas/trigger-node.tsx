@@ -274,9 +274,7 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
                                 "inline-block size-2 rounded-full",
                                 isUpcoming && "bg-amber-400",
                                 isExpired && "bg-muted-foreground",
-                                !isUpcoming &&
-                                  !isExpired &&
-                                  "bg-emerald-500"
+                                !isUpcoming && !isExpired && "bg-emerald-500"
                               )}
                             />
                           </TooltipTrigger>
