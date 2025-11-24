@@ -41,7 +41,7 @@ export default function ApprovalsPage() {
 
   return (
     <div className="size-full overflow-auto px-3 py-6">
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-6">
+      <div className="mx-auto flex h-full w-full max-w-5xl flex-col items-center justify-center gap-6">
         <AgentsBoard
           sessions={sessions}
           isLoading={sessionsIsLoading}

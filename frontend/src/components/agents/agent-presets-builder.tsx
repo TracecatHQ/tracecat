@@ -45,6 +45,7 @@ import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -597,29 +598,24 @@ function PresetsSidebar({
         </Button>
       </div>
       <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full">
-          <div
-            className={cn(
-              "px-2 py-3",
-              list.length === 0
-                ? "flex h-full min-h-[400px] items-center justify-center"
-                : "space-y-1"
-            )}
-          >
-            {list.length === 0 ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Bot />
-                  </EmptyMedia>
-                  <EmptyTitle>No agent preset found.</EmptyTitle>
-                  <EmptyDescription>
-                    Create an AI agent preset to reuse across workflows, cases, and chat.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              list.map((preset) => (
+        {list.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-2">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Bot />
+                </EmptyMedia>
+                <EmptyTitle>No agent preset found.</EmptyTitle>
+                <EmptyDescription>
+                  Create an AI agent preset to reuse across workflows, cases, and chat.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </div>
+        ) : (
+          <ScrollArea className="h-full">
+            <div className="px-2 py-3 space-y-1">
+              {list.map((preset) => (
                 <SidebarItem
                   key={preset.id}
                   href={`/workspaces/${workspaceId}/agents/${preset.id}`}
@@ -628,10 +624,10 @@ function PresetsSidebar({
                   description={preset.description}
                   slug={preset.slug}
                 />
-              ))
-            )}
-          </div>
-        </ScrollArea>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
       </div>
     </div>
   )
@@ -1719,12 +1715,12 @@ function AgentPresetForm({
                     <FormItem>
                       <FormLabel>JSON schema</FormLabel>
                       <FormControl>
-                        <Textarea
-                          placeholder='{"type": "object", "properties": {...}}'
-                          rows={8}
-                          className="font-mono text-xs"
-                          {...field}
-                          disabled={isSaving}
+                        <CodeEditor
+                          value={field.value ?? ""}
+                          onChange={(value) => field.onChange(value)}
+                          language="json"
+                          readOnly={isSaving}
+                          className="min-h-[200px]"
                         />
                       </FormControl>
                       <FormDescription>

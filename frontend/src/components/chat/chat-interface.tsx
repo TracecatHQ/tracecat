@@ -209,14 +209,14 @@ export function ChatInterface({
             <EmptyMedia variant="icon">
               <MessageSquare />
             </EmptyMedia>
-            <EmptyTitle>No chat sessions</EmptyTitle>
+            <EmptyTitle>AI {entityType} chat</EmptyTitle>
             <EmptyDescription>
-              Start a conversation with the {entityType} AI copilot.
+              Start a chat session with the {entityType} copilot.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button onClick={handleCreateChat} disabled={createChatPending}>
-              Start chat
+              Start {entityType} chat
             </Button>
           </EmptyContent>
         </Empty>
