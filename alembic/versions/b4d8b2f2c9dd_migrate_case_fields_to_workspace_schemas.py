@@ -19,6 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 # Constants for schema and table management
 PUBLIC_SCHEMA = "public"
+SCHEMA_PREFIX = "custom_fields_"
 TABLE_NAME = "case_fields"
 # Base columns that exist in all case_fields tables (system columns)
 BASE_COLUMNS = {"id", "case_id", "created_at", "updated_at", "owner_id"}
@@ -34,10 +35,10 @@ def _workspace_schema(workspace_id: uuid.UUID) -> str:
         workspace_id: The UUID of the workspace
 
     Returns:
-        Schema name in format: case_fields_{short_workspace_id}
+        Schema name in format: {SCHEMA_PREFIX}{short_workspace_id}
     """
     ws_short = WorkspaceUUID.new(workspace_id).short()
-    return f"case_fields_{ws_short}"
+    return f"{SCHEMA_PREFIX}{ws_short}"
 
 
 def _prepare_identifier(name: str, bind: sa.engine.Connection) -> str:
@@ -108,7 +109,7 @@ def _ensure_workspace_table(
     workspace_table.create(bind=bind, checkfirst=True)
 
     # Ensure the FK constraint is present exactly once.
-    fk_name = f"fk_{TABLE_NAME}_case_id"
+    fk_name = f"fk_{TABLE_NAME}_case"
     existing_fks = {
         fk["name"] for fk in inspector.get_foreign_keys(TABLE_NAME, schema=schema_name)
     }
@@ -266,24 +267,6 @@ def downgrade() -> None:
         ).fetchall()
     ]
 
-    # Prepare column information for the merge back operation
-    public_columns = inspector.get_columns(TABLE_NAME, schema=PUBLIC_SCHEMA)
-    column_order = [
-        column["name"] for column in public_columns if column["name"] != "owner_id"
-    ]
-    column_list = ", ".join(_prepare_identifier(col, bind) for col in column_order)
-
-    # Prepare UPDATE assignments for conflict resolution (upsert logic)
-    update_assignments = ", ".join(
-        f"{_prepare_identifier(col, bind)} = EXCLUDED.{_prepare_identifier(col, bind)}"
-        for col in column_order
-    )
-    update_assignments = (
-        f"{update_assignments}, owner_id = EXCLUDED.owner_id"
-        if update_assignments
-        else "owner_id = EXCLUDED.owner_id"
-    )
-
     # Process each workspace schema for rollback
     for raw_workspace_id in workspace_ids:
         # Ensure workspace_id is a proper UUID object
@@ -302,6 +285,23 @@ def downgrade() -> None:
         if not inspector.has_table(TABLE_NAME, schema=schema_name):
             op.execute(sa.DDL(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
             continue
+
+        # Get columns from the WORKSPACE schema table (not public) to avoid column mismatch
+        # The workspace table may have different custom fields than the public table
+        ws_columns = inspector.get_columns(TABLE_NAME, schema=schema_name)
+        column_order = [col["name"] for col in ws_columns]
+        column_list = ", ".join(_prepare_identifier(col, bind) for col in column_order)
+
+        # Prepare UPDATE assignments for conflict resolution (upsert logic)
+        update_assignments = ", ".join(
+            f"{_prepare_identifier(col, bind)} = EXCLUDED.{_prepare_identifier(col, bind)}"
+            for col in column_order
+        )
+        update_assignments = (
+            f"{update_assignments}, owner_id = EXCLUDED.owner_id"
+            if update_assignments
+            else "owner_id = EXCLUDED.owner_id"
+        )
 
         # Prepare identifiers for the merge operation
         schema_quoted = _prepare_identifier(schema_name, bind)

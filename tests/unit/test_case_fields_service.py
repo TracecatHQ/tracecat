@@ -289,7 +289,7 @@ class TestCaseFieldsService:
 
         # Build a SQLAlchemy Table object matching the workspace table structure
         workspace_table = sa.Table(
-            case_fields_service._sanitized_table,
+            case_fields_service.sanitized_table_name,
             sa.MetaData(),
             sa.Column("id", sa.UUID, primary_key=True),
             sa.Column("case_id", sa.UUID, nullable=False),
