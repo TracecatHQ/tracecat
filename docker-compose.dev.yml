@@ -270,11 +270,10 @@ services:
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
     healthcheck:
-      test: ["CMD", "tctl", "--address", "127.0.0.1:7233", "cluster", "health"]
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
       interval: 5s
       timeout: 10s
-      retries: 12
-      start_period: 30s
+      retries: 30
     depends_on:
       - temporal_postgres_db
 
