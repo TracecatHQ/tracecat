@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Search content
+  description: Search Confluence content with Confluence Query Language (CQL) and optional space filters.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search
+  namespace: tools.confluence
+  name: search_content
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: >
+        Search query in CQL. Examples: 'type=page AND space=DEV', 'title~"Runbook"', or
+        'text ~ "incident response"'. CQL supports operators like AND/OR, ranges, and exact matches.
+    limit:
+      type: int
+      description: Maximum number of results to return (1-50).
+      default: 10
+    spaces_filter:
+      type: str | None
+      description: Optional comma-separated space keys to filter results (adds OR space clauses to the query).
+      default: null
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: build_cql
+      action: core.transform.apply
+      args:
+        value:
+          query: ${{ inputs.query }}
+          spaces_filter: ${{ inputs.spaces_filter }}
+        python_lambda: >
+          lambda data: (
+            f"({data['query']}) AND ({' OR '.join([f'space = \"{space.strip()}\"' for space in data['spaces_filter'].split(',') if space.strip()])})"
+            if data.get("spaces_filter")
+            else data["query"]
+          )
+    - ref: search_content
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search
+        method: GET
+        params:
+          cql: ${{ steps.build_cql.result.data }}
+          limit: ${{ inputs.limit }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.search_content.result.data }}

@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Add page label
+  description: Add a label to a Confluence page.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-addLabelsToContent
+  namespace: tools.confluence
+  name: add_page_label
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    page_id:
+      type: str
+      description: The ID of the page to label.
+    name:
+      type: str
+      description: Label name to apply.
+    prefix:
+      type: str
+      description: Label prefix (global, my, or team).
+      default: global
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: add_label
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/label
+        method: POST
+        headers:
+          Content-Type: application/json
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+        payload:
+          - prefix: ${{ inputs.prefix }}
+            name: ${{ inputs.name }}
+  returns: ${{ steps.add_label.result.data }}

@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Search users
+  description: Search Confluence users with a user-focused CQL query.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search
+  namespace: tools.confluence
+  name: search_users
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: >
+        User search query in CQL (e.g., 'user.fullname ~ "First Last"' or 'user.email = "user@example.com"').
+        Plain text is wrapped as a fullname search automatically.
+    limit:
+      type: int
+      description: Maximum number of results to return (1-50).
+      default: 10
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: build_cql
+      action: core.transform.apply
+      args:
+        value: ${{ inputs.query }}
+        python_lambda: >
+          lambda query: query
+          if any(x in query for x in ["=", "~", ">", "<", " AND ", " OR ", "user."])
+          else f'user.fullname ~ "{query}"'
+    - ref: search_users
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search/user
+        method: GET
+        params:
+          cql: ${{ steps.build_cql.result.data }}
+          limit: ${{ inputs.limit }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.search_users.result.data }}

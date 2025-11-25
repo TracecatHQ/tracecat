@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Get page by ID
+  description: Retrieve a Confluence page by its numeric ID with optional expanded fields.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContentById
+  namespace: tools.confluence
+  name: get_page
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    page_id:
+      type: str
+      description: >
+        Confluence page ID (numeric). In URLs like
+        https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title the ID is 123456789.
+    expand:
+      type: str
+      description: >
+        Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors,
+        children.attachment).
+      default: body.storage,version,space
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: get_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        method: GET
+        params:
+          expand: ${{ inputs.expand }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.get_page.result.data }}
