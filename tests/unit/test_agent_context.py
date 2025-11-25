@@ -1,11 +1,10 @@
 """Unit tests for agent context history processing."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -13,265 +12,343 @@ from pydantic_ai.messages import (
 )
 
 from tracecat.agent.context import (
-    _message_contains_tool_return_parts,
+    _clean_orphaned_tool_messages,
+    _count_tokens,
+    _get_tool_call_ids,
+    _get_tool_return_ids,
+    _has_tool_call,
+    _has_tool_return,
+    _truncate_content,
     trim_history_processor,
+    truncate_tool_returns_processor,
 )
 
+# === Helper function tests ===
 
-def test_message_contains_tool_return_parts_with_tool_return():
-    """Test detection of ToolReturnPart in a message."""
-    message = ModelResponse(
+
+def test_count_tokens():
+    """Test token counting heuristic."""
+    msg = ModelRequest(parts=[UserPromptPart(content="Hello world")])
+    tokens = _count_tokens(msg)
+    # Should be roughly len(json) / 4
+    assert tokens > 0
+    assert isinstance(tokens, int)
+
+
+def test_truncate_content_under_limit():
+    """Test truncation when content is under limit."""
+    content = "Short content"
+    result = _truncate_content(content, 100)
+    assert result == content
+
+
+def test_truncate_content_over_limit():
+    """Test truncation when content exceeds limit."""
+    content = "A" * 1000
+    result = _truncate_content(content, 100)
+    assert len(result) < len(content)
+    assert result.startswith("A" * 100)
+    assert "truncated" in result
+    assert "900 chars" in result
+
+
+def test_has_tool_call_true():
+    """Test detection of tool calls."""
+    msg = ModelResponse(
+        parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="call_1")]
+    )
+    assert _has_tool_call(msg) is True
+
+
+def test_has_tool_call_false_on_request():
+    """Test that ModelRequest is not detected as having tool call."""
+    msg = ModelRequest(parts=[UserPromptPart(content="Hello")])
+    assert _has_tool_call(msg) is False
+
+
+def test_has_tool_call_false_on_text_response():
+    """Test that text response is not detected as having tool call."""
+    msg = ModelResponse(parts=[TextPart(content="Hello")])
+    assert _has_tool_call(msg) is False
+
+
+def test_has_tool_return_true():
+    """Test detection of tool returns."""
+    msg = ModelRequest(
         parts=[
-            ToolReturnPart(
-                tool_name="test_tool",
-                content="result",
-                tool_call_id="call_123",
-            )
+            ToolReturnPart(tool_name="test", content="result", tool_call_id="call_1")
         ]
     )
-    assert _message_contains_tool_return_parts(message) is True
+    assert _has_tool_return(msg) is True
 
 
-def test_message_contains_tool_return_parts_without_tool_return():
-    """Test detection when message has no ToolReturnPart."""
-    message = ModelRequest(parts=[UserPromptPart(content="Hello")])
-    assert _message_contains_tool_return_parts(message) is False
+def test_has_tool_return_false():
+    """Test no false positive for tool returns."""
+    msg = ModelRequest(parts=[UserPromptPart(content="Hello")])
+    assert _has_tool_return(msg) is False
 
 
-def test_message_contains_tool_return_parts_mixed():
-    """Test detection with mixed parts including ToolReturnPart."""
-    message = ModelResponse(
+def test_get_tool_call_ids():
+    """Test extraction of tool call IDs."""
+    msg = ModelResponse(
         parts=[
+            ToolCallPart(tool_name="test1", args={}, tool_call_id="call_1"),
+            ToolCallPart(tool_name="test2", args={}, tool_call_id="call_2"),
             TextPart(content="Some text"),
-            ToolReturnPart(
-                tool_name="test_tool",
-                content="result",
-                tool_call_id="call_123",
-            ),
         ]
     )
-    assert _message_contains_tool_return_parts(message) is True
+    ids = _get_tool_call_ids(msg)
+    assert ids == {"call_1", "call_2"}
+
+
+def test_get_tool_return_ids():
+    """Test extraction of tool return IDs."""
+    msg = ModelRequest(
+        parts=[
+            ToolReturnPart(tool_name="test1", content="r1", tool_call_id="call_1"),
+            ToolReturnPart(tool_name="test2", content="r2", tool_call_id="call_2"),
+        ]
+    )
+    ids = _get_tool_return_ids(msg)
+    assert ids == {"call_1", "call_2"}
+
+
+# === Orphan cleaning tests ===
+
+
+def test_clean_orphaned_tool_messages_empty():
+    """Test cleaning empty list."""
+    result = _clean_orphaned_tool_messages([])
+    assert result == []
+
+
+def test_clean_orphaned_tool_messages_no_orphans():
+    """Test that paired tool calls/returns are kept."""
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="call_1")]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content="result", tool_call_id="call_1"
+                )
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done")]),
+    ]
+    result = _clean_orphaned_tool_messages(messages)
+    assert len(result) == 4
+
+
+def test_clean_orphaned_tool_messages_removes_orphan_call():
+    """Test removal of tool call without matching return."""
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="call_1")]
+        ),
+        # Missing tool return!
+        ModelResponse(parts=[TextPart(content="Done")]),
+    ]
+    result = _clean_orphaned_tool_messages(messages)
+    # Should remove the orphaned tool call
+    assert len(result) == 2
+    assert not any(_has_tool_call(m) for m in result)
+
+
+def test_clean_orphaned_tool_messages_removes_orphan_return():
+    """Test removal of tool return without matching call."""
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+        # Missing tool call!
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content="result", tool_call_id="call_1"
+                )
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done")]),
+    ]
+    result = _clean_orphaned_tool_messages(messages)
+    # Should remove the orphaned tool return
+    assert len(result) == 2
+    assert not any(_has_tool_return(m) for m in result)
+
+
+# === Truncate tool returns processor tests ===
+
+
+def test_truncate_tool_returns_processor_no_truncation_needed():
+    """Test that small tool returns are unchanged."""
+    mock_ctx = Mock()
+    messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="test", content="short", tool_call_id="call_1")
+            ]
+        )
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 1000):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert len(result) == 1
+    assert result[0].parts[0].content == "short"
+
+
+def test_truncate_tool_returns_processor_truncates_large_output():
+    """Test that large tool returns are truncated."""
+    mock_ctx = Mock()
+    large_content = "A" * 10000
+    messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content=large_content, tool_call_id="call_1"
+                )
+            ]
+        )
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert len(result) == 1
+    truncated_content = result[0].parts[0].content
+    assert len(truncated_content) < len(large_content)
+    assert "truncated" in truncated_content
+
+
+def test_truncate_tool_returns_processor_preserves_model_response():
+    """Test that ModelResponse messages pass through unchanged."""
+    mock_ctx = Mock()
+    messages = [ModelResponse(parts=[TextPart(content="A" * 10000)])]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert result == messages
+
+
+# === Trim history processor tests ===
 
 
 def test_trim_history_processor_under_limit():
-    """Test that messages are not trimmed when under the limit."""
+    """Test that messages under token limit are unchanged."""
     mock_ctx = Mock()
     mock_ctx.model.model_name = "test-model"
-    mock_ctx.usage.total_tokens = 1000
 
     messages = [
-        ModelRequest(parts=[SystemPromptPart(content="System prompt")]),
-        ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-        ModelResponse(parts=[TextPart(content="Response 1")]),
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+        ModelResponse(parts=[TextPart(content="Hi there")]),
     ]
 
-    result = trim_history_processor(mock_ctx, messages)
+    with patch(
+        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 100000}
+    ):
+        result = trim_history_processor(mock_ctx, messages)
+
     assert result == messages
-    assert len(result) == 3
 
 
-def test_trim_history_processor_over_limit():
-    """Test that messages are trimmed when over the limit and no tool returns block it."""
-    from unittest.mock import patch
-
-    from pydantic_ai.messages import RequestUsage
-
-    # Mock a small context limit for testing
-    with patch(
-        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 5000}
-    ):
-        with patch(
-            "tracecat.agent.context.TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 5000
-        ):
-            mock_ctx = Mock()
-            mock_ctx.model.model_name = "test-model"
-            mock_ctx.usage.total_tokens = 6000  # Over the 5000 limit
-
-            # Create messages with realistic token usage
-            # Each message has ~500 tokens
-            messages = [
-                ModelRequest(parts=[SystemPromptPart(content="System prompt")]),
-                ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 1")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 2")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 2")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 3")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 3")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 4")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 4")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 5")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 5")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 6")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 6")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-            ]
-
-            # Set usage on each message
-            for msg in messages:
-                if not hasattr(msg, "usage") or msg.usage.total_tokens == 0:
-                    msg.usage = RequestUsage(input_tokens=500)
-
-            result = trim_history_processor(mock_ctx, messages)
-
-            # Should trim older messages but keep system prompt
-            assert len(result) < len(messages)
-            assert result[0].parts[0].content == "System prompt"
-            # Should keep the most recent history messages
-            assert any("User message 6" in str(msg.parts) for msg in result)
-
-
-def test_trim_history_processor_preserves_tool_pairs():
-    """Test that tool call/return pairs are preserved together."""
-    from unittest.mock import patch
-
-    from pydantic_ai.messages import RequestUsage
-
-    # Mock a small context limit for testing
-    with patch(
-        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 5000}
-    ):
-        with patch(
-            "tracecat.agent.context.TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 5000
-        ):
-            mock_ctx = Mock()
-            mock_ctx.model.model_name = "test-model"
-            mock_ctx.usage.total_tokens = 6000  # Over the 5000 limit
-
-            # Create messages where ToolReturnPart is placed such that it would be
-            # the first message we'd keep when trimming
-            # With effective_limit = 4950 (5000 - 50), we can fit ~9 messages of 500 tokens each
-            # So if we have 12 history messages (6000 tokens), we'd trim the first 3
-            # Place ToolReturnPart as the 4th message (index 3) in history
-            messages = [
-                ModelRequest(parts=[SystemPromptPart(content="System prompt")]),
-                ModelRequest(parts=[UserPromptPart(content="Old 1")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 1")],
-                    usage=RequestUsage(input_tokens=1000),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="Old 2")]),
-                ModelResponse(
-                    parts=[
-                        ToolCallPart(
-                            tool_name="test_tool",
-                            args={"arg": "value"},
-                            tool_call_id="call_123",
-                        )
-                    ],
-                    usage=RequestUsage(input_tokens=1000),
-                ),
-                ModelResponse(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="test_tool",
-                            content="result",
-                            tool_call_id="call_123",
-                        )
-                    ],
-                    usage=RequestUsage(input_tokens=1000),
-                ),  # This would be at the trim boundary
-                ModelRequest(parts=[UserPromptPart(content="Recent 1")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 4")],
-                    usage=RequestUsage(input_tokens=1000),
-                ),
-            ]
-
-            # Set usage on each message
-            for msg in messages:
-                if not hasattr(msg, "usage") or msg.usage.total_tokens == 0:
-                    msg.usage = RequestUsage(input_tokens=1000)
-
-            result = trim_history_processor(mock_ctx, messages)
-
-            # When the first kept message has a ToolReturnPart, skip trimming
-            # to keep it paired with its ToolCallPart
-            # The function should return all messages to preserve the pair
-            assert len(result) == len(messages)
-
-
-def test_trim_history_processor_empty_messages():
-    """Test handling of empty message list."""
-    from unittest.mock import patch
-
-    with patch(
-        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 5000}
-    ):
-        with patch(
-            "tracecat.agent.context.TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 5000
-        ):
-            mock_ctx = Mock()
-            mock_ctx.model.model_name = "test-model"
-            mock_ctx.usage.total_tokens = 6000  # Over the 5000 limit
-
-            result = trim_history_processor(mock_ctx, [])
-            assert result == []
-
-
-def test_trim_history_processor_no_system_prompt():
-    """Test trimming when there's no system prompt."""
-    from unittest.mock import patch
-
-    from pydantic_ai.messages import RequestUsage
-
-    with patch(
-        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 5000}
-    ):
-        with patch(
-            "tracecat.agent.context.TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 5000
-        ):
-            mock_ctx = Mock()
-            mock_ctx.model.model_name = "test-model"
-            mock_ctx.usage.total_tokens = 6000  # Over the 5000 limit
-
-            messages = [
-                ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 1")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-                ModelRequest(parts=[UserPromptPart(content="User message 2")]),
-                ModelResponse(
-                    parts=[TextPart(content="Response 2")],
-                    usage=RequestUsage(input_tokens=500),
-                ),
-            ]
-
-            # Set usage on each message
-            for msg in messages:
-                if not hasattr(msg, "usage") or msg.usage.total_tokens == 0:
-                    msg.usage = RequestUsage(input_tokens=500)
-
-            result = trim_history_processor(mock_ctx, messages)
-
-            # Should trim but not expect a system prompt
-            assert len(result) <= len(messages)
-
-
-def test_trim_history_processor_single_message():
-    """Test handling of a single message."""
+def test_trim_history_processor_trims_over_limit():
+    """Test that messages over token limit are trimmed."""
     mock_ctx = Mock()
     mock_ctx.model.model_name = "test-model"
-    mock_ctx.usage.total_tokens = 1000
 
-    messages = [ModelRequest(parts=[UserPromptPart(content="Only message")])]
+    # Create many messages to exceed a small limit
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content=f"Message {i}" * 100)])
+        for i in range(20)
+    ]
 
-    result = trim_history_processor(mock_ctx, messages)
+    with patch(
+        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 500}
+    ):
+        result = trim_history_processor(mock_ctx, messages)
+
+    assert len(result) < len(messages)
+
+
+def test_trim_history_processor_empty():
+    """Test handling of empty message list."""
+    mock_ctx = Mock()
+    mock_ctx.model.model_name = "test-model"
+
+    result = trim_history_processor(mock_ctx, [])
+    assert result == []
+
+
+def test_trim_history_processor_safe_cut_avoids_tool_return():
+    """Test that trim doesn't cut at a tool return message."""
+    mock_ctx = Mock()
+    mock_ctx.model.model_name = "test-model"
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="A" * 1000)]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="call_1")]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content="result", tool_call_id="call_1"
+                )
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done")]),
+        ModelRequest(parts=[UserPromptPart(content="Final")]),
+    ]
+
+    with patch(
+        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 500}
+    ):
+        result = trim_history_processor(mock_ctx, messages)
+
+    # Should not start with a tool return
+    if result:
+        assert not _has_tool_return(result[0])
+
+
+def test_trim_history_processor_uses_default_limit():
+    """Test fallback to default context limit for unknown model."""
+    mock_ctx = Mock()
+    mock_ctx.model.model_name = "unknown-model"
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {}):
+        with patch(
+            "tracecat.agent.context.TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 100000
+        ):
+            result = trim_history_processor(mock_ctx, messages)
+
     assert result == messages
+
+
+def test_trim_history_processor_cleans_orphans_before_trimming():
+    """Test that orphaned tool messages are cleaned before trimming."""
+    mock_ctx = Mock()
+    mock_ctx.model.model_name = "test-model"
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Hello")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="orphan")]
+        ),
+        # Missing return - orphaned!
+        ModelResponse(parts=[TextPart(content="Done")]),
+    ]
+
+    with patch(
+        "tracecat.agent.context.TRACECAT__MODEL_CONTEXT_LIMITS", {"test-model": 100000}
+    ):
+        result = trim_history_processor(mock_ctx, messages)
+
+    # Orphaned tool call should be removed
+    assert not any(_has_tool_call(m) for m in result)
