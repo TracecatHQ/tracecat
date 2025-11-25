@@ -24,6 +24,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import UserAvatar from "@/components/user-avatar"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
@@ -130,13 +137,18 @@ export function AgentsBoard({
 
   if (groupedSessions.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
-        <Leaf className="size-5 text-muted-foreground/60" />
-        <p>No agent activity yet.</p>
-        <p className="text-xs text-muted-foreground/70">
-          When agents run, they will appear here grouped by their latest status.
-        </p>
-      </div>
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Leaf className="size-5 text-muted-foreground/60" />
+          </EmptyMedia>
+          <EmptyTitle>No agent activity yet.</EmptyTitle>
+          <EmptyDescription>
+            When agents run, they will appear here grouped by their latest
+            status.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     )
   }
 

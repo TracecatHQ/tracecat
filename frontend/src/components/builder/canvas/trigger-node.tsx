@@ -1,6 +1,7 @@
 import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
+  CalendarClockIcon,
   Shield,
   ShieldOff,
   TimerOffIcon,
@@ -186,6 +187,8 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
     return <UnplugIcon className="size-4 text-muted-foreground" />
   }
 
+  const now = new Date()
+
   return (
     <Table>
       <TableHeader>
@@ -201,13 +204,24 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 
       <TableBody>
         {schedules.length > 0 ? (
-          schedules.map(({ id, status, every, cron }) => {
+          schedules.map(({ id, status, every, cron, start_at, end_at }) => {
             const isCron = Boolean(cron)
             const label = isCron
               ? cron
               : every
                 ? `Every ${durationToHumanReadable(every)}`
                 : "Scheduled"
+
+            const start = start_at ? new Date(start_at) : null
+            const end = end_at ? new Date(end_at) : null
+            const hasStart = start && !Number.isNaN(start.getTime())
+            const hasEnd = end && !Number.isNaN(end.getTime())
+
+            const isUpcoming =
+              status === "online" && hasStart && now < (start as Date)
+            const isExpired =
+              status === "online" && hasEnd && now > (end as Date)
+            const hasWindow = hasStart || hasEnd
 
             return (
               <TableRow
@@ -222,6 +236,24 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
                         status === "offline" && "text-muted-foreground/80"
                       )}
                     >
+                      {hasWindow && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <CalendarClockIcon className="size-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={4}>
+                              {hasStart && hasEnd && start && end
+                                ? `Active from ${start.toLocaleString()} to ${end.toLocaleString()}`
+                                : hasStart && start
+                                  ? `Starts at ${start.toLocaleString()}`
+                                  : hasEnd && end
+                                    ? `Ends at ${end.toLocaleString()}`
+                                    : "Time window configured"}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
                       {isCron ? (
                         <>
                           <span className="font-medium">Cron</span>
@@ -234,7 +266,27 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
                       )}
                     </span>
                     {status === "online" ? (
-                      <span className="inline-block size-2 rounded-full bg-emerald-500" />
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className={cn(
+                                "inline-block size-2 rounded-full",
+                                isUpcoming && "bg-amber-400",
+                                isExpired && "bg-muted-foreground",
+                                !isUpcoming && !isExpired && "bg-emerald-500"
+                              )}
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={4}>
+                            {isUpcoming && start
+                              ? `Starts at ${start.toLocaleString()}`
+                              : isExpired && end
+                                ? `Ended at ${end.toLocaleString()}`
+                                : "Schedule active"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     ) : (
                       <TimerOffIcon className="size-3 text-muted-foreground" />
                     )}
