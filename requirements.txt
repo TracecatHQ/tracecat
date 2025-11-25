@@ -717,9 +717,9 @@ frozenlist==1.7.0 \
     #   aiohttp
     #   aiosignal
     #   ray
-genai-prices==0.0.44 \
-    --hash=sha256:605f81d223d5775c543de548f42deb6ec7e7e5539388f33c5149df2b087f8b6b \
-    --hash=sha256:668debbd3d670f0e46af4f5bd0ce815a74847ee8d62d292ee33319ada3733009
+genai-prices==0.0.47 \
+    --hash=sha256:3b8c514f0ce5818b3944a371861586ed9bfe10d02598e62c350b5bd2916d03c2 \
+    --hash=sha256:735e45950d2299276f2c00cd18075b77a124cd24ee58243f236ee29af3210594
     # via pydantic-ai-slim
 google-api-core==2.25.1 \
     --hash=sha256:8a2a56c1fef82987a524371f99f3bd0143702fecc670c72e600c1cda6bf8dbb7 \

@@ -64,6 +64,7 @@ MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
 REDIS_BASE_PORT = 6380
 REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
 REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
+DOCKER_RUN_TIMEOUT_SECONDS = int(os.getenv("TRACECAT_TEST_DOCKER_RUN_TIMEOUT", "60"))
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +112,7 @@ def redis_server():
         ],
         check=True,
         capture_output=True,
-        timeout=20,
+        timeout=DOCKER_RUN_TIMEOUT_SECONDS,
     )
 
     # Wait until Redis is ready
@@ -527,7 +528,7 @@ def minio_server():
             check=True,
             capture_output=True,
             # Add timeout
-            timeout=20,
+            timeout=DOCKER_RUN_TIMEOUT_SECONDS,
         )
 
         # Wait for MinIO to be ready
