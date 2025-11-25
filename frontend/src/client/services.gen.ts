@@ -4682,7 +4682,7 @@ export const casesDeleteTask = (
  * List all case fields.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns CaseFieldRead Successful Response
+ * @returns CaseFieldReadMinimal Successful Response
  * @throws ApiError
  */
 export const casesListFields = (

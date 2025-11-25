@@ -14,9 +14,9 @@ import {
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
-  CaseCustomFieldRead,
   CaseDurationDefinitionRead,
   CaseDurationRead,
+  CaseFieldRead,
   CasePriority,
   CaseSeverity,
   CaseUpdate,
@@ -598,7 +598,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     [customFields]
   )
   const handleCustomFieldClearAndHide = useCallback(
-    async (field: CaseCustomFieldRead) => {
+    async (field: CaseFieldRead) => {
       setClearedCustomFieldIds((prev) =>
         prev.includes(field.id) ? prev : [...prev, field.id]
       )

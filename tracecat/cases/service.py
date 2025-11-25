@@ -6,6 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -27,8 +28,6 @@ from tracecat.cases.schemas import (
     CaseCommentUpdate,
     CaseCreate,
     CaseEventVariant,
-    CaseFieldCreate,
-    CaseFieldUpdate,
     CaseReadMinimal,
     CaseTaskCreate,
     CaseTaskUpdate,
@@ -54,6 +53,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
+from tracecat.custom_fields import CustomFieldsService
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -75,7 +75,7 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, TablesService
+from tracecat.tables.service import TablesService
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -701,102 +701,99 @@ class CasesService(BaseWorkspaceService):
         await self.session.commit()
 
 
-class CaseFieldsService(BaseWorkspaceService):
-    """Service that manages the fields table."""
+class CaseFieldsService(CustomFieldsService):
+    """Service that manages workspace-scoped case fields."""
 
     service_name = "case_fields"
     _table = CaseFields.__tablename__
-    _schema = "public"
+    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-        self.editor = TableEditorService(
-            session=self.session,
-            role=self.role,
-            table_name=self._table,
-            schema_name=self._schema,
+    def _table_definition(self) -> sa.Table:
+        """Return the SQLAlchemy Table definition for the case_fields workspace table."""
+        return sa.Table(
+            self.sanitized_table_name,
+            sa.MetaData(),
+            sa.Column("id", UUID(as_uuid=True), primary_key=True),
+            sa.Column("case_id", UUID(as_uuid=True), unique=True, nullable=False),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            # Use the actual Case table column to avoid metadata resolution issues
+            sa.ForeignKeyConstraint(
+                ["case_id"],
+                [Case.__table__.c.id],
+                name="fk_case_fields_case",
+                ondelete="CASCADE",
+            ),
+            schema=self.schema_name,
         )
 
-    async def list_fields(
-        self,
-    ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """List all case fields.
+    async def _ensure_workspace_row(self, case_fields: CaseFields) -> None:
+        """Ensure a workspace data row exists for the metadata record."""
+        await self._ensure_schema_ready()
+        table = self._table_definition()
+        insert_stmt = insert(table).values(
+            id=case_fields.id, case_id=case_fields.case_id
+        )
+        stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=[table.c.case_id]
+        ).returning(table.c.id)
 
-        Returns:
-            The case fields
-        """
+        result = await self.session.execute(stmt)
+        row_id = result.scalar_one_or_none()
 
-        return await self.editor.get_columns()
+        if row_id is None:
+            select_stmt = sa.select(table.c.id).where(
+                table.c.case_id == case_fields.case_id
+            )
+            row_id = await self.session.scalar(select_stmt)
 
-    async def create_field(self, params: CaseFieldCreate) -> None:
-        """Create a new case field.
+        if row_id is None:
+            raise TracecatException(
+                "Failed to ensure case fields workspace row for the given case."
+            )
 
-        Args:
-            params: The parameters for the field to create
-        """
-        params.nullable = True  # For now, all fields are nullable
-        await self.editor.create_column(params)
-        await self.session.commit()
+        if case_fields.id != row_id:
+            case_fields.id = row_id
 
-    async def update_field(self, field_id: str, params: CaseFieldUpdate) -> None:
-        """Update a case field.
-
-        Args:
-            field_id: The name of the field to update
-            params: The parameters for the field to update
-        """
-        await self.editor.update_column(field_id, params)
-        await self.session.commit()
-
-    async def delete_field(self, field_id: str) -> None:
-        """Delete a case field.
-
-        Args:
-            field_id: The name of the field to delete
-        """
-        if field_id in CaseFields.__table__.columns:
-            raise ValueError(f"Field {field_id} is a reserved field")
-
-        await self.editor.delete_column(field_id)
-        await self.session.commit()
+        await self.session.flush()
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
-        """Get the fields for a case.
-
-        Args:
-            case: The case to get fields for
-        """
+        """Retrieve custom field values for a case."""
         if case.fields is None:
             return None
+        await self._ensure_workspace_row(case.fields)
         return await self.editor.get_row(case.fields.id)
 
     async def create_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
-        """Add fields to a case. Non-transactional.
-
-        Args:
-            case: The case to add fields to
-            fields: The fields to add
-        """
-        # Create a new CaseFields record with case_id
-        case_fields = CaseFields(case_id=case.id)
+        """Add custom field values to a case."""
+        if case.owner_id is None:
+            raise TracecatException(
+                "Cannot create case fields without an owning workspace."
+            )
+        case_fields = CaseFields(case_id=case.id, owner_id=case.owner_id)
         self.session.add(case_fields)
-        await self.session.flush()  # Populate the ID
+        await self.session.flush()
+        await self._ensure_workspace_row(case_fields)
 
-        # This will use the created case_fields ID
         try:
             if fields:
-                # If fields provided, update the row with those values
                 res = await self.editor.update_row(row_id=case_fields.id, data=fields)
                 await self.session.flush()
                 return res
-            else:
-                # If no fields provided, just get the row to return defaults
-                res = await self.editor.get_row(row_id=case_fields.id)
-                return res
+            return await self.editor.get_row(row_id=case_fields.id)
         except TracecatNotFoundError as e:
-            # This happens when UPDATE/SELECT finds no row - shouldn't occur after INSERT
             self.logger.error(
                 "Case fields row not found after creation",
                 case_fields_id=case_fields.id,
@@ -804,14 +801,13 @@ class CaseFieldsService(BaseWorkspaceService):
                 fields=fields,
                 error=str(e),
             )
-            # Extract field names for better error message
             field_names = list(fields.keys()) if fields else []
             field_info = (
                 f" Fields attempted: {', '.join(field_names)}." if field_names else ""
             )
             raise TracecatException(
-                f"Failed to save custom field values for case. The field row was created but could not be updated.{field_info} "
-                "Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
+                "Failed to save custom field values for case. The field row was created but could not be updated."
+                f"{field_info} Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
             ) from e
         except ProgrammingError as e:
             while cause := e.__cause__:
@@ -825,12 +821,8 @@ class CaseFieldsService(BaseWorkspaceService):
             ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
-        """Update a case field value. Non-transactional.
-
-        Args:
-            id: The id of the case field to update
-            fields: The fields to update
-        """
+        """Update existing custom field values."""
+        await self._ensure_schema_ready()
         try:
             await self.editor.update_row(id, fields)
         except ProgrammingError as e:

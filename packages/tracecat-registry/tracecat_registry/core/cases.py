@@ -24,10 +24,10 @@ from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseCustomFieldRead,
+    CaseFieldRead,
     CaseEventRead,
     CaseEventsWithUsers,
-    CaseFieldRead,
+    CaseFieldReadMinimal,
     CaseRead,
     CaseReadMinimal,
     CaseUpdate,
@@ -348,11 +348,11 @@ async def get_case(
         fields = await service.fields.get_fields(case) or {}
         field_definitions = await service.fields.list_fields()
 
-    final_fields = []
+    final_fields: list[CaseFieldRead] = []
     for defn in field_definitions:
-        f = CaseFieldRead.from_sa(defn)
+        f = CaseFieldReadMinimal.from_sa(defn)
         final_fields.append(
-            CaseCustomFieldRead(
+            CaseFieldRead(
                 id=f.id,
                 type=f.type,
                 description=f.description,

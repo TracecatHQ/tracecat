@@ -43,7 +43,7 @@ import {
   type CaseDurationDefinitionRead,
   type CaseDurationRead,
   type CaseEventsWithUsers,
-  type CaseFieldRead,
+  type CaseFieldReadMinimal,
   type CaseRead,
   type CaseReadMinimal,
   type CasesGetCaseData,
@@ -3411,7 +3411,7 @@ export function useCaseFields(workspaceId: string) {
     data: caseFields,
     isLoading: caseFieldsIsLoading,
     error: caseFieldsError,
-  } = useQuery<CaseFieldRead[], TracecatApiError>({
+  } = useQuery<CaseFieldReadMinimal[], TracecatApiError>({
     queryKey: ["case-fields", workspaceId],
     queryFn: async () => await casesListFields({ workspaceId }),
   })

@@ -774,16 +774,6 @@ export type CaseCreate = {
   } | null
 }
 
-export type CaseCustomFieldRead = {
-  id: string
-  type: SqlType
-  description: string
-  nullable: boolean
-  default: string | null
-  reserved: boolean
-  value: unknown
-}
-
 /**
  * Strategies for choosing which matching event should anchor a duration.
  */
@@ -1032,6 +1022,19 @@ export type CaseFieldRead = {
   nullable: boolean
   default: string | null
   reserved: boolean
+  value: unknown
+}
+
+/**
+ * Minimal read model for a case field.
+ */
+export type CaseFieldReadMinimal = {
+  id: string
+  type: SqlType
+  description: string
+  nullable: boolean
+  default: string | null
+  reserved: boolean
 }
 
 /**
@@ -1090,7 +1093,7 @@ export type CaseRead = {
   priority: CasePriority
   severity: CaseSeverity
   description: string
-  fields: Array<CaseCustomFieldRead>
+  fields: Array<CaseFieldRead>
   assignee?: UserRead | null
   payload: {
     [key: string]: unknown
@@ -6550,7 +6553,7 @@ export type CasesListFieldsData = {
   workspaceId: string
 }
 
-export type CasesListFieldsResponse = Array<CaseFieldRead>
+export type CasesListFieldsResponse = Array<CaseFieldReadMinimal>
 
 export type CasesCreateFieldData = {
   requestBody: CaseFieldCreate
@@ -9354,7 +9357,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<CaseFieldRead>
+        200: Array<CaseFieldReadMinimal>
         /**
          * Validation Error
          */

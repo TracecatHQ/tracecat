@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseFieldCreate, CaseFieldRead, CaseFieldUpdate
+from tracecat.cases.schemas import (
+    CaseFieldCreate,
+    CaseFieldReadMinimal,
+    CaseFieldUpdate,
+)
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Case, CaseFields
 from tracecat.exceptions import TracecatAuthorizationError
@@ -94,7 +98,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMP
         assert field.reserved is True
 
@@ -108,7 +112,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 
@@ -122,7 +126,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldRead.from_sa(column)
+        field = CaseFieldReadMinimal.from_sa(column)
         assert field.type is SqlType.TIMESTAMPTZ
         assert field.reserved is False
 
@@ -202,7 +206,7 @@ class TestCaseFieldsService:
     ) -> None:
         """Test getting fields for a case with fields."""
         # Create a CaseFields object for the test case
-        case_fields = CaseFields(case_id=test_case.id)
+        case_fields = CaseFields(case_id=test_case.id, owner_id=test_case.owner_id)
         session.add(case_fields)
         await session.commit()
 
@@ -277,3 +281,52 @@ class TestCaseFieldsService:
             # Verify the method was called with the right parameters
             # The field values are passed directly, not wrapped in a 'data' object
             mock_update_row.assert_called_once_with(fields_id, field_values)
+
+    async def test_ensure_workspace_row_reuses_existing_row_on_case_conflict(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+        session: AsyncSession,
+    ) -> None:
+        """Ensure conflict on case_id reuses the existing workspace row."""
+        await case_fields_service.initialize_workspace_schema()
+
+        # Build a SQLAlchemy Table object matching the workspace table structure
+        workspace_table = sa.Table(
+            case_fields_service.sanitized_table_name,
+            sa.MetaData(),
+            sa.Column("id", sa.UUID, primary_key=True),
+            sa.Column("case_id", sa.UUID, nullable=False),
+            schema=case_fields_service.schema_name,
+        )
+
+        # Seed workspace table with an existing row for the case_id but a different id
+        existing_row_id = uuid.uuid4()
+        insert_stmt = sa.insert(workspace_table).values(
+            id=existing_row_id, case_id=test_case.id
+        )
+        await session.execute(insert_stmt)
+
+        # Create the CaseFields metadata with a new id for the same case
+        new_case_fields = CaseFields(
+            case_id=test_case.id,
+            owner_id=test_case.owner_id,
+        )
+        session.add(new_case_fields)
+        await session.flush()
+        original_metadata_id = new_case_fields.id
+
+        # Should map the metadata row to the existing workspace row id instead of updating the table row
+        await case_fields_service._ensure_workspace_row(new_case_fields)
+
+        # Verify the workspace row keeps its original id
+        select_stmt = sa.select(workspace_table.c.id, workspace_table.c.case_id).where(
+            workspace_table.c.case_id == test_case.id
+        )
+        result = await session.execute(select_stmt)
+        row = result.one()
+        assert row.id == existing_row_id
+        assert row.case_id == test_case.id
+        # The metadata id should be aligned to the existing workspace row id
+        assert new_case_fields.id == existing_row_id
+        assert new_case_fields.id != original_metadata_id
