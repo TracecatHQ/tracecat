@@ -247,7 +247,6 @@ export function AddCustomFieldDialog({
             break
           }
           default: {
-            // Trim string values to avoid whitespace mismatches with backend validation
             defaultValue = String(rawDefault).trim()
           }
         }
