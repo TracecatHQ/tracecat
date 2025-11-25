@@ -244,15 +244,24 @@ export function CopilotChatPane({
     </PromptInput>
   )
 
-  // Welcome state: centered layout with input below welcome
+  // Welcome state: centered layout with suggestions below input
   if (showWelcome) {
     return (
       <div className={cn("flex h-full min-h-0 flex-col", className)}>
         <div className="flex flex-1 flex-col items-center justify-center">
-          <CopilotWelcomeMessage
-            suggestions={suggestions}
-            onSuggestionClick={handleSuggestionClick}
-          />
+          <motion.div
+            className="text-center"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <h3 className="text-lg font-medium text-foreground">
+              How can I help?
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ask about tables, cases, or anything in your workspace.
+            </p>
+          </motion.div>
           <motion.div
             className="mt-8 w-full max-w-2xl px-4"
             initial={{ opacity: 0, y: 10 }}
@@ -261,6 +270,27 @@ export function CopilotChatPane({
           >
             {promptInputElement}
           </motion.div>
+          {suggestions.length > 0 && (
+            <motion.div
+              className="mt-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, delay: 0.2, ease: "easeOut" }}
+            >
+              <Suggestions className="justify-center">
+                {suggestions.map((suggestion) => (
+                  <Suggestion
+                    key={suggestion}
+                    suggestion={suggestion}
+                    onClick={handleSuggestionClick}
+                    className="text-xs"
+                  >
+                    {suggestion}
+                  </Suggestion>
+                ))}
+              </Suggestions>
+            </motion.div>
+          )}
         </div>
         {toolsEnabled && (
           <ChatToolsDialog
@@ -353,46 +383,5 @@ export function CopilotChatPane({
         )}
       </div>
     </div>
-  )
-}
-
-interface CopilotWelcomeMessageProps {
-  suggestions: string[]
-  onSuggestionClick: (suggestion: string) => void
-}
-
-function CopilotWelcomeMessage({
-  suggestions,
-  onSuggestionClick,
-}: CopilotWelcomeMessageProps) {
-  return (
-    <motion.div
-      className="flex flex-col items-center gap-4"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-    >
-      <div className="text-center">
-        <h3 className="text-lg font-medium text-foreground">How can I help?</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask about tables, cases, or anything in your workspace.
-        </p>
-      </div>
-
-      {suggestions.length > 0 && (
-        <Suggestions className="justify-center">
-          {suggestions.map((suggestion) => (
-            <Suggestion
-              key={suggestion}
-              suggestion={suggestion}
-              onClick={onSuggestionClick}
-              className="text-xs"
-            >
-              {suggestion}
-            </Suggestion>
-          ))}
-        </Suggestions>
-      )}
-    </motion.div>
   )
 }
