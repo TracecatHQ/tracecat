@@ -23,12 +23,13 @@ TABLE_NAME = "case_fields"
 BASE_COLUMNS = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 MIGRATION_REVISION = "b4d8b2f2c9dd"
 PREVIOUS_REVISION = "a6c2d9e7f5b1"
+SCHEMA_PREFIX = "custom_fields_"
 
 
 def _workspace_schema(workspace_id: uuid.UUID) -> str:
     """Generate workspace-specific schema name."""
     ws_short = WorkspaceUUID.new(workspace_id).short()
-    return f"case_fields_{ws_short}"
+    return f"{SCHEMA_PREFIX}{ws_short}"
 
 
 def _run_alembic_upgrade(db_url: str, revision: str = MIGRATION_REVISION) -> None:
@@ -106,13 +107,14 @@ def test_db():
             conn.execute(termination_query)
             conn.execute(text(f'CREATE DATABASE "{test_db_name}"'))
 
-        test_url_sync = (
-            f"postgresql+psycopg://postgres:postgres@localhost:5432/{test_db_name}"
+        test_url_sync = TEST_DB_CONFIG.test_url_sync.replace(
+            TEST_DB_CONFIG.test_db_name, test_db_name
         )
 
         # Create tables in pre-migration state
         test_engine = create_engine(test_url_sync)
         with test_engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
             # Create workspace table
             conn.execute(
                 text(
