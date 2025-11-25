@@ -41,6 +41,8 @@ class CustomFieldRead(Schema):
                         if getattr(raw_type, "timezone", False)
                         else "TIMESTAMP WITHOUT TIME ZONE"
                     )
+            if type_str == "BIGINT":
+                type_str = SqlType.INTEGER
             if type_str == "TIMESTAMP WITH TIME ZONE":
                 sql_type = SqlType.TIMESTAMPTZ
             elif type_str in {"TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP"}:
