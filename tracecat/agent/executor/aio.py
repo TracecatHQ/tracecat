@@ -37,10 +37,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
     async def result(self) -> T:
         res = await self._task
         if res is None:
-            raise RuntimeError(
-                "Streaming agent run did not complete successfully. The selected "
-                "model may not support streaming responses."
-            )
+            raise RuntimeError("Agent run did not complete successfully.")
         return res
 
     async def cancel(self) -> None:
