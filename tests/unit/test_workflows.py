@@ -3275,6 +3275,92 @@ async def test_workflow_detached_child_workflow(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_scatter_with_child_workflow(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+):
+    """Test that scatter works with child workflow execution.
+
+    This test verifies that:
+    1. A scatter action can be followed by a child workflow execution in the scatter region
+    2. Each item in the scattered collection triggers a separate child workflow
+    3. The gather action properly collects results from all child workflows
+    """
+    test_name = f"{test_scatter_with_child_workflow.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Create a simple child workflow that doubles the input
+    child_dsl = DSLInput(
+        title="Child doubler",
+        description="Child workflow that doubles the input number",
+        entrypoint=DSLEntrypoint(ref="double"),
+        actions=[
+            ActionStatement(
+                ref="double",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER.number * 2 }}"},
+            )
+        ],
+        returns="${{ ACTIONS.double.result }}",
+    )
+
+    _ = await _create_and_commit_workflow(child_dsl, test_role, alias="child_doubler")
+
+    # Create parent workflow with scatter -> child workflow -> gather
+    parent_dsl = DSLInput(
+        title="Scatter with child workflow",
+        description="Test scatter followed by child workflow execution",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection="${{ [1, 2, 3, 4] }}").model_dump(),
+            ),
+            ActionStatement(
+                ref="call_child",
+                action="core.workflow.execute",
+                depends_on=["scatter"],
+                args={
+                    "workflow_alias": "child_doubler",
+                    "trigger_inputs": {"number": "${{ ACTIONS.scatter.result }}"},
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                },
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["call_child"],
+                args=GatherArgs(items="${{ ACTIONS.call_child.result }}").model_dump(),
+            ),
+        ],
+    )
+
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
+
+    # Each item should be doubled: [1, 2, 3, 4] -> [2, 4, 6, 8]
+    expected = {
+        "ACTIONS": {
+            "gather": {
+                "result": [2, 4, 6, 8],
+                "result_typename": "list",
+            }
+        },
+        "TRIGGER": {},
+    }
+    assert result == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "dsl,expected",
     [
