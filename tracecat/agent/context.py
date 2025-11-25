@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 import orjson
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
-    ModelRequestPart,
     ModelResponse,
     SystemPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_ai.tools import RunContext
+from pydantic_core import to_json
 
-from tracecat.agent.types import ModelMessageTA
 from tracecat.config import (
     TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT,
     TRACECAT__AGENT_TOOL_OUTPUT_LIMIT,
@@ -23,217 +22,264 @@ from tracecat.config import (
 from tracecat.logger import logger
 
 
-@dataclass(slots=True, frozen=True)
-class _MessageEntry:
-    """Helper for tracking retained messages during pruning."""
-
-    index: int
-    message: ModelMessage
-    size: int
+def _count_tokens(msg: ModelMessage) -> int:
+    """Count tokens in a message (~4 bytes per token)."""
+    return len(to_json(msg)) // 4
 
 
-def prune_history(
-    messages: Sequence[ModelMessage],
-    model_name: str,
-    *,
-    reserved_tokens: int = 0,
-) -> list[ModelMessage]:
-    """Return the pruned message history to include when invoking the model.
-    Args:
-        messages: Historical messages to prune.
-        model_name: Name of the model to determine context limit.
-        reserved_tokens: Number of characters reserved for the current prompt (not in history).
-    Returns:
-        List of messages that fit within the context limit, prioritizing recent messages
-        and always preserving the system prompt if present.
-    """
-    context_limit = TRACECAT__MODEL_CONTEXT_LIMITS.get(
-        model_name, TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT
-    )
-    context_limit = max(0, context_limit - reserved_tokens)
-    tool_limit = TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
-
-    retained: list[_MessageEntry] = []
-    total_size = 0
-
-    # Iterate from newest to oldest, keeping messages that fit within the limit
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-
-        # Truncate tool outputs before calculating size
-        truncated = _truncate_tool_outputs(message, tool_limit)
-        message_size = _estimate_message_size(truncated)
-
-        if retained and total_size + message_size > context_limit:
-            break
-
-        retained.append(_MessageEntry(index, truncated, message_size))
-        total_size += message_size
-
-    # Warn if the most recent message alone exceeds budget
-    if retained and total_size > context_limit:
-        logger.warning(
-            "Most recent message exceeds context budget; model invocation may fail",
-            message_size=retained[-1].size,
-            total_size=total_size,
-            context_limit=context_limit,
-            reserved_tokens=reserved_tokens,
-        )
-
-    retained.reverse()
-
-    # Ensure system prompt is retained (always at index 0 if it exists)
-    if (
-        messages
-        and _has_system_prompt(messages[0])
-        and all(entry.index != 0 for entry in retained)
-    ):
-        system_message = messages[0]
-        system_size = _estimate_message_size(system_message)
-        if retained:
-            while retained and total_size + system_size > context_limit:
-                popped = retained.pop(0)
-                total_size -= popped.size
-        retained.insert(0, _MessageEntry(0, system_message, system_size))
-        total_size += system_size
-
-    # Drop orphaned tool returns from the start of history
-    while retained and _is_tool_result_only(retained[0].message):
-        popped = retained.pop(0)
-        total_size -= popped.size
-
-    # Sanitize: remove any tool returns that don't have corresponding tool calls
-    retained, total_size = _sanitize_orphaned_tool_returns(retained)
-
-    logger.debug(
-        "Pruned message history",
-        original_count=len(messages),
-        retained_count=len(retained),
-        total_size=total_size,
-        context_limit=context_limit,
+def _truncate_content(content: str, max_chars: int) -> str:
+    """Truncate content with indicator."""
+    if len(content) <= max_chars:
+        return content
+    return (
+        content[:max_chars]
+        + f"\n\n[... truncated {len(content) - max_chars} chars ...]"
     )
 
-    return [entry.message for entry in retained]
 
+def _get_content_size(content: str | dict | list | None) -> tuple[str, int]:
+    """Get string representation and size of content.
 
-def _truncate_tool_outputs(message: ModelMessage, limit: int) -> ModelMessage:
-    if not isinstance(message, ModelRequest):
-        return message
-
-    updated_parts: list[ModelRequestPart] = []
-    changed = False
-    for part in message.parts:
-        if isinstance(part, ToolReturnPart):
-            truncated_content, did_change = truncate_tool_content(part.content, limit)
-            if did_change:
-                part = replace(part, content=truncated_content)
-                changed = True
-        updated_parts.append(part)
-
-    if not changed:
-        return message
-
-    return replace(message, parts=tuple(updated_parts))
-
-
-def truncate_tool_content(content: object, limit: int) -> tuple[object, bool]:
-    """Truncate tool output content if it exceeds the specified limit.
-    Args:
-        content: The tool output content to potentially truncate.
-        limit: Maximum size in characters.
-    Returns:
-        Tuple of (potentially truncated content, was_truncated boolean).
+    Returns (serialized_content, size) tuple.
+    For strings, returns the string itself.
+    For other types, serializes to JSON (with fallback to str for non-serializable).
     """
     if content is None:
-        return content, False
-
-    # Serialize to check length
-    try:
-        if isinstance(content, str):
-            serialized = content
-        elif isinstance(content, dict | list):
-            serialized = orjson.dumps(content).decode()
-        else:
-            serialized = str(content)
-    except (TypeError, ValueError):
-        serialized = str(content)
-
-    if len(serialized) <= limit:
-        return content, False
-
-    return f"{serialized[:limit]}... [truncated]", True
+        return "", 0
+    if isinstance(content, str):
+        return content, len(content)
+    # Serialize non-string content (dict, list, etc.) to check size
+    serialized = orjson.dumps(content, default=str).decode("utf-8")
+    return serialized, len(serialized)
 
 
-def _estimate_message_size(message: ModelMessage) -> int:
-    """Estimate the serialized size of a message in characters."""
-    return len(ModelMessageTA.dump_json(message))
+def truncate_tool_returns_processor(
+    ctx: RunContext[None],
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    """Truncate large tool return outputs to fit within limits.
 
-
-def _has_system_prompt(message: ModelMessage) -> bool:
-    """Check if a message contains a system prompt part."""
-    if not isinstance(message, ModelRequest):
-        return False
-    return any(isinstance(part, SystemPromptPart) for part in message.parts)
-
-
-def _is_tool_result_only(message: ModelMessage) -> bool:
-    if not isinstance(message, ModelRequest):
-        return False
-    return all(isinstance(part, ToolReturnPart) for part in message.parts)
-
-
-def _sanitize_orphaned_tool_returns(
-    retained: list[_MessageEntry],
-) -> tuple[list[_MessageEntry], int]:
-    """Remove tool returns that don't have corresponding tool calls in the history.
-    When messages are pruned, we might drop a ModelResponse containing ToolCallPart
-    but keep a later ModelRequest containing the corresponding ToolReturnPart. This
-    causes API errors since the tool result references a non-existent tool call.
-    Args:
-        retained: List of message entries to clean.
-    Returns:
-        Tuple of (cleaned list, new total_size).
+    Uses TRACECAT__AGENT_TOOL_OUTPUT_LIMIT from config (default 80k chars).
     """
-    # Collect all valid tool_call_ids from tool calls in the history
-    valid_tool_ids: set[str] = set()
-    for entry in retained:
-        if isinstance(entry.message, ModelResponse):
-            for part in entry.message.parts:
-                if isinstance(part, ToolCallPart):
-                    valid_tool_ids.add(part.tool_call_id)
+    max_chars = TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
+    result: list[ModelMessage] = []
 
-    # Filter out orphaned tool returns
-    cleaned: list[_MessageEntry] = []
-    for entry in retained:
-        if not isinstance(entry.message, ModelRequest):
-            cleaned.append(entry)
+    for msg in messages:
+        if not isinstance(msg, ModelRequest):
+            result.append(msg)
             continue
 
-        # Filter parts, keeping only non-orphaned tool returns
-        filtered_parts: list[ModelRequestPart] = []
-        for part in entry.message.parts:
+        # Check if any tool returns need truncation
+        needs_truncation = False
+        for part in msg.parts:
             if isinstance(part, ToolReturnPart):
-                if part.tool_call_id in valid_tool_ids:
-                    filtered_parts.append(part)
+                _, size = _get_content_size(part.content)
+                if size > max_chars:
+                    needs_truncation = True
+                    break
+
+        if not needs_truncation:
+            result.append(msg)
+            continue
+
+        # Truncate tool return parts
+        new_parts = []
+        for part in msg.parts:
+            if isinstance(part, ToolReturnPart):
+                serialized, size = _get_content_size(part.content)
+                if size > max_chars:
+                    truncated = _truncate_content(serialized, max_chars)
+                    new_parts.append(replace(part, content=truncated))
                 else:
-                    logger.debug(
-                        "Dropping orphaned tool return",
-                        tool_call_id=part.tool_call_id,
-                        tool_name=part.tool_name,
-                    )
+                    new_parts.append(part)
             else:
-                filtered_parts.append(part)
+                new_parts.append(part)
 
-        # Only keep the message if it has parts left
-        if filtered_parts:
-            if len(filtered_parts) != len(entry.message.parts):
-                # Message was modified, recalculate size
-                updated_message = replace(entry.message, parts=tuple(filtered_parts))
-                updated_size = _estimate_message_size(updated_message)
-                entry = replace(entry, message=updated_message, size=updated_size)
-            cleaned.append(entry)
+        result.append(replace(msg, parts=new_parts))
+
+    return result
+
+
+def _has_tool_call(msg: ModelMessage) -> bool:
+    """Check if message has a tool call."""
+    return isinstance(msg, ModelResponse) and any(
+        isinstance(part, ToolCallPart) for part in msg.parts
+    )
+
+
+def _has_tool_return(msg: ModelMessage) -> bool:
+    """Check if message has a tool return."""
+    return any(isinstance(part, ToolReturnPart) for part in msg.parts)
+
+
+def _get_tool_call_ids(msg: ModelMessage) -> set[str]:
+    """Get all tool call IDs from a message."""
+    return {p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)}
+
+
+def _get_tool_return_ids(msg: ModelMessage) -> set[str]:
+    """Get all tool return IDs from a message."""
+    return {p.tool_call_id for p in msg.parts if isinstance(p, ToolReturnPart)}
+
+
+def _has_system_prompt(msg: ModelMessage) -> bool:
+    """Check if message contains a system prompt."""
+    return isinstance(msg, ModelRequest) and any(
+        isinstance(part, SystemPromptPart) for part in msg.parts
+    )
+
+
+def _clean_orphaned_tool_messages(
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    """Remove any tool calls without matching returns and vice versa.
+
+    Scans the entire history and removes:
+    - Tool calls (ModelResponse) where next message doesn't have matching returns
+    - Tool returns (ModelRequest) where previous message doesn't have matching calls
+    """
+    if not messages:
+        return messages
+
+    result: list[ModelMessage] = []
+    i = 0
+
+    while i < len(messages):
+        msg = messages[i]
+
+        # Check for orphaned tool calls
+        if _has_tool_call(msg):
+            call_ids = _get_tool_call_ids(msg)
+
+            # Check if next message has matching returns
+            has_matching_returns = False
+            if i + 1 < len(messages):
+                next_msg = messages[i + 1]
+                return_ids = _get_tool_return_ids(next_msg)
+                has_matching_returns = bool(call_ids & return_ids)
+
+            if not has_matching_returns:
+                # Skip this orphaned tool call
+                i += 1
+                continue
+
+        # Check for orphaned tool returns
+        if _has_tool_return(msg):
+            return_ids = _get_tool_return_ids(msg)
+
+            # Check if previous kept message has matching calls
+            has_matching_calls = False
+            if result:
+                prev_msg = result[-1]
+                call_ids = _get_tool_call_ids(prev_msg)
+                has_matching_calls = bool(return_ids & call_ids)
+
+            if not has_matching_calls:
+                # Skip this orphaned tool return
+                i += 1
+                continue
+
+        result.append(msg)
+        i += 1
+
+    return result
+
+
+def trim_history_processor(
+    ctx: RunContext[None],
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    """Trim message history to fit within model's context limit.
+
+    Cleans orphaned tool calls/returns, then trims from the front
+    based on actual token counts until we fit within budget.
+    Preserves system prompt if present in the first message.
+    """
+    # First, clean any orphaned tool messages from the input
+    messages = _clean_orphaned_tool_messages(messages)
+
+    if not messages:
+        return messages
+
+    # Extract system prompt if present (must preserve it)
+    system_prompt_msg: ModelMessage | None = None
+    system_prompt_tokens = 0
+    trimmable_messages = messages
+
+    if messages and _has_system_prompt(messages[0]):
+        system_prompt_msg = messages[0]
+        system_prompt_tokens = _count_tokens(system_prompt_msg)
+        trimmable_messages = messages[1:]
+
+    if not trimmable_messages:
+        return messages  # Only system prompt, nothing to trim
+
+    # Get context limit for this model
+    token_budget = TRACECAT__MODEL_CONTEXT_LIMITS.get(
+        ctx.model.model_name, TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT
+    )
+
+    # Reserve tokens for system prompt
+    available_budget = token_budget - system_prompt_tokens
+
+    # Count tokens for each trimmable message
+    message_tokens = [_count_tokens(msg) for msg in trimmable_messages]
+    total_tokens = sum(message_tokens)
+
+    # If we're under budget, keep everything
+    if total_tokens <= available_budget:
+        return messages
+
+    # Work backwards from the end, accumulating tokens until we hit budget
+    accumulated_tokens = 0
+    cut_index = len(trimmable_messages)
+
+    for i in range(len(trimmable_messages) - 1, -1, -1):
+        msg_tokens = message_tokens[i]
+
+        if accumulated_tokens + msg_tokens > available_budget:
+            # This message would exceed budget, cut here
+            cut_index = i + 1
+            break
+
+        accumulated_tokens += msg_tokens
+
+    # Search forward from cut_index to find a safe cut point
+    for safe_cut in range(cut_index, len(trimmable_messages)):
+        first_message = trimmable_messages[safe_cut]
+
+        # Skip if first message has tool returns (orphaned without calls)
+        if _has_tool_return(first_message):
+            continue
+
+        # Skip if first message has tool calls (violates AI model ordering rules)
+        if _has_tool_call(first_message):
+            continue
+
+        # Found a safe cut point
+        trimmed = trimmable_messages[safe_cut:]
+
+        # Prepend system prompt if we had one
+        if system_prompt_msg is not None:
+            result = [system_prompt_msg, *trimmed]
         else:
-            logger.debug("Dropping empty message after removing orphaned tool returns")
+            result = trimmed
 
-    total_size = sum(entry.size for entry in cleaned)
-    return cleaned, total_size
+        if len(result) < len(messages):
+            kept_tokens = sum(message_tokens[safe_cut:]) + system_prompt_tokens
+            logger.info(
+                "History trimmed",
+                original=len(messages),
+                kept=len(result),
+                cut_index=safe_cut,
+                total_tokens=total_tokens + system_prompt_tokens,
+                kept_tokens=kept_tokens,
+                token_budget=token_budget,
+                model=ctx.model.model_name,
+                preserved_system_prompt=system_prompt_msg is not None,
+            )
+
+        return result
+
+    # No safe cut point found, keep all messages
+    return messages

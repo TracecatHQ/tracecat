@@ -487,18 +487,18 @@ TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT = int(
 """Default character limit for agent message history when truncating context."""
 
 TRACECAT__AGENT_TOOL_OUTPUT_LIMIT = int(
-    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 20_000)
+    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 80_000)
 )
 """Default character limit for individual tool outputs when truncating context."""
 
 TRACECAT__MODEL_CONTEXT_LIMITS = {
-    "gpt-4o-mini": 128_000,
-    "gpt-5-mini": 128_000,
-    "gpt-5-nano": 128_000,
-    "gpt-5": 128_000,
-    "claude-sonnet-4-5-20250929": 200_000,
-    "claude-haiku-4-5-20251001": 200_000,
-    "anthropic.claude-sonnet-4-5-20250929-v1:0": 200_000,
-    "anthropic.claude-haiku-4-5-20251001-v1:0": 200_000,
+    "gpt-4o-mini": 100_000,
+    "gpt-5-mini": 350_000,
+    "gpt-5-nano": 350_000,
+    "gpt-5": 350_000,
+    "claude-sonnet-4-5-20250929": 180_000,
+    "claude-haiku-4-5-20251001": 180_000,
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": 180_000,
+    "anthropic.claude-haiku-4-5-20251001-v1:0": 180_000,
 }
 """Model-specific character limits for agent message history truncation."""

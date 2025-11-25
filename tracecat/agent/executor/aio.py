@@ -14,7 +14,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import DeferredToolRequests
 
-from tracecat.agent.context import prune_history
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
@@ -90,18 +89,6 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
 
         if self.deps.message_store:
             message_history = await self.deps.message_store.load(args.session_id)
-            if message_history:
-                # Reserve space for the current user prompt (if not a continuation)
-                reserved = 0
-                if not args.is_continuation and args.user_prompt:
-                    # Rough estimate: current prompt size (chars) + overhead for serialization
-                    reserved = len(args.user_prompt) + 500
-
-                message_history = prune_history(
-                    message_history,
-                    args.config.model_name,
-                    reserved_tokens=reserved,
-                )
         else:
             message_history = None
 
