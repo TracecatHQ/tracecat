@@ -3628,6 +3628,20 @@ export const $CaseFieldRead = {
       type: "boolean",
       title: "Reserved",
     },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
     value: {
       title: "Value",
     },
@@ -3677,6 +3691,20 @@ export const $CaseFieldReadMinimal = {
     reserved: {
       type: "boolean",
       title: "Reserved",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
     },
   },
   type: "object",

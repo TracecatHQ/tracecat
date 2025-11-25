@@ -54,6 +54,7 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
+from tracecat.custom_fields.schemas import CustomFieldCreate
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -75,6 +76,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import normalize_column_options
+from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
 
 
@@ -630,15 +633,15 @@ class CasesService(BaseWorkspaceService):
             if not isinstance(fields, dict):
                 raise ValueError("Fields must be a dict")
 
-            if case_fields := case.fields:
+            # Check if workspace row exists for this case
+            existing_fields = await self.fields.get_fields(case)
+            if existing_fields is not None:
                 # Merge existing fields with new fields
-                existing_fields = await self.fields.get_fields(case) or {}
-                await self.fields.update_field_values(
-                    case_fields.id, existing_fields | fields
-                )
+                row_id = await self.fields._ensure_workspace_row(case.id)
+                await self.fields.update_field_values(row_id, existing_fields | fields)
             else:
                 # Case has no fields row yet, create one
-                existing_fields: dict[str, Any] = {}
+                existing_fields = {}
                 await self.fields.create_field_values(case, fields)
             diffs = []
             for field, value in fields.items():
@@ -702,14 +705,21 @@ class CasesService(BaseWorkspaceService):
 
 
 class CaseFieldsService(CustomFieldsService):
-    """Service that manages workspace-scoped case fields."""
+    """Service that manages workspace-scoped case fields.
+
+    CaseFields is the workspace-level definition storing schema metadata.
+    The actual per-case values are stored in a dynamic workspace table.
+    """
 
     service_name = "case_fields"
     _table = CaseFields.__tablename__
     _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 
     def _table_definition(self) -> sa.Table:
-        """Return the SQLAlchemy Table definition for the case_fields workspace table."""
+        """Return the SQLAlchemy Table definition for the case_fields workspace table.
+
+        This dynamic table stores the actual per-case field values.
+        """
         return sa.Table(
             self.sanitized_table_name,
             sa.MetaData(),
@@ -737,42 +747,119 @@ class CaseFieldsService(CustomFieldsService):
             schema=self.schema_name,
         )
 
-    async def _ensure_workspace_row(self, case_fields: CaseFields) -> None:
-        """Ensure a workspace data row exists for the metadata record."""
+    async def _get_or_create_definition(self) -> CaseFields:
+        """Get or create the CaseFields definition for this workspace."""
+        stmt = sa.select(CaseFields).where(CaseFields.owner_id == self.workspace_id)
+        result = await self.session.execute(stmt)
+        definition = result.scalar_one_or_none()
+
+        if definition is None:
+            definition = CaseFields(owner_id=self.workspace_id, schema={})
+            self.session.add(definition)
+            await self.session.flush()
+
+        return definition
+
+    async def get_field_schema(self) -> dict[str, Any]:
+        """Get the field schema (column definitions) for this workspace.
+
+        Returns a dict mapping field_id -> {type, options (only for SELECT/MULTI_SELECT)}
+        """
+        definition = await self._get_or_create_definition()
+        return definition.schema or {}
+
+    async def _update_field_schema(
+        self, field_id: str, field_def: dict[str, Any] | None
+    ) -> None:
+        """Update the field schema for a specific field.
+
+        Args:
+            field_id: The field name/id
+            field_def: The field definition dict {type, options (for SELECT/MULTI_SELECT only)} or None to remove
+        """
+        from sqlalchemy.orm.attributes import flag_modified
+
+        definition = await self._get_or_create_definition()
+        current_schema = definition.schema or {}
+
+        if field_def is None:
+            current_schema.pop(field_id, None)
+        else:
+            current_schema[field_id] = field_def
+
+        definition.schema = current_schema
+        flag_modified(definition, "schema")
+        await self.session.flush()
+
+    async def create_field(self, params: CustomFieldCreate) -> None:
+        """Create a new custom field column and update the schema."""
+
+        await self._ensure_schema_ready()
+        params.nullable = True  # Custom fields remain nullable by default
+        await self.editor.create_column(params)
+
+        # Store field metadata in schema
+        # Schema structure: {field_name: {type, options (only for SELECT/MULTI_SELECT)}}
+        field_def: dict[str, Any] = {"type": params.type.value}
+
+        # Only include options for SELECT/MULTI_SELECT types
+        if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
+            field_def["options"] = normalize_column_options(params.options)
+
+        await self._update_field_schema(params.name, field_def)
+
+        await self.session.commit()
+
+    async def delete_field(self, field_id: str) -> None:
+        """Delete a custom field and remove it from the schema."""
+        await self._ensure_schema_ready()
+        if field_id in self._reserved_columns:
+            raise ValueError(f"Field {field_id} is a reserved field")
+
+        # Remove from schema first
+        await self._update_field_schema(field_id, None)
+
+        await self.editor.delete_column(field_id)
+        await self.session.commit()
+
+    async def _ensure_workspace_row(self, case_id: uuid.UUID) -> uuid.UUID:
+        """Ensure a workspace data row exists for the given case.
+
+        Returns the row ID for the case's field values.
+        """
         await self._ensure_schema_ready()
         table = self._table_definition()
-        insert_stmt = insert(table).values(
-            id=case_fields.id, case_id=case_fields.case_id
-        )
+        row_id = uuid.uuid4()
+        insert_stmt = insert(table).values(id=row_id, case_id=case_id)
         stmt = insert_stmt.on_conflict_do_nothing(
             index_elements=[table.c.case_id]
         ).returning(table.c.id)
 
         result = await self.session.execute(stmt)
-        row_id = result.scalar_one_or_none()
+        inserted_id = result.scalar_one_or_none()
 
-        if row_id is None:
-            select_stmt = sa.select(table.c.id).where(
-                table.c.case_id == case_fields.case_id
-            )
-            row_id = await self.session.scalar(select_stmt)
+        if inserted_id is None:
+            # Row already exists, get its ID
+            select_stmt = sa.select(table.c.id).where(table.c.case_id == case_id)
+            inserted_id = await self.session.scalar(select_stmt)
 
-        if row_id is None:
+        if inserted_id is None:
             raise TracecatException(
                 "Failed to ensure case fields workspace row for the given case."
             )
 
-        if case_fields.id != row_id:
-            case_fields.id = row_id
-
-        await self.session.flush()
+        return inserted_id
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        if case.fields is None:
+        await self._ensure_schema_ready()
+        table = self._table_definition()
+        # Get the row ID for this case
+        select_stmt = sa.select(table.c.id).where(table.c.case_id == case.id)
+        row_id = await self.session.scalar(select_stmt)
+        if row_id is None:
             return None
-        await self._ensure_workspace_row(case.fields)
-        return await self.editor.get_row(case.fields.id)
+        return await self.editor.get_row(row_id)
 
     async def create_field_values(
         self, case: Case, fields: dict[str, Any]
@@ -782,21 +869,18 @@ class CaseFieldsService(CustomFieldsService):
             raise TracecatException(
                 "Cannot create case fields without an owning workspace."
             )
-        case_fields = CaseFields(case_id=case.id, owner_id=case.owner_id)
-        self.session.add(case_fields)
-        await self.session.flush()
-        await self._ensure_workspace_row(case_fields)
+        row_id = await self._ensure_workspace_row(case.id)
 
         try:
             if fields:
-                res = await self.editor.update_row(row_id=case_fields.id, data=fields)
+                res = await self.editor.update_row(row_id=row_id, data=fields)
                 await self.session.flush()
                 return res
-            return await self.editor.get_row(row_id=case_fields.id)
+            return await self.editor.get_row(row_id=row_id)
         except TracecatNotFoundError as e:
             self.logger.error(
                 "Case fields row not found after creation",
-                case_fields_id=case_fields.id,
+                row_id=row_id,
                 case_id=case.id,
                 fields=fields,
                 error=str(e),

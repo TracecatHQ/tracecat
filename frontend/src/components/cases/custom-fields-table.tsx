@@ -1,7 +1,6 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { format } from "date-fns"
 import { useState } from "react"
 import type { CaseFieldReadMinimal } from "@/client"
 import {
@@ -21,6 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -104,24 +104,49 @@ export function CustomFieldsTable({
               const defaultValue =
                 row.getValue<CaseFieldReadMinimal["default"]>("default")
               const fieldType = row.original.type
-              const parsedDate =
-                typeof defaultValue === "string" &&
-                defaultValue &&
-                (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
-                  ? new Date(defaultValue)
-                  : null
-              const isValidDate =
-                parsedDate && !Number.isNaN(parsedDate.getTime())
-                  ? parsedDate
-                  : null
 
-              return (
-                <div className="text-xs">
-                  {isValidDate
-                    ? format(isValidDate, "MMM d yyyy '·' p")
-                    : defaultValue || "-"}
-                </div>
-              )
+              // Parse default value - could be a JSON string for MULTI_SELECT
+              let parsedValues: string[] = []
+              if (defaultValue) {
+                if (fieldType === "MULTI_SELECT") {
+                  // Try to parse as JSON array
+                  try {
+                    const parsed = JSON.parse(defaultValue)
+                    if (Array.isArray(parsed)) {
+                      parsedValues = parsed.filter(
+                        (item): item is string => typeof item === "string"
+                      )
+                    }
+                  } catch {
+                    // Not valid JSON, treat as single value
+                    parsedValues = [defaultValue]
+                  }
+                } else if (fieldType === "SELECT") {
+                  parsedValues = [defaultValue]
+                }
+              }
+
+              // Render as badges for SELECT/MULTI_SELECT
+              if (
+                (fieldType === "SELECT" || fieldType === "MULTI_SELECT") &&
+                parsedValues.length > 0
+              ) {
+                return (
+                  <div className="flex flex-wrap gap-1">
+                    {parsedValues.map((item, idx) => (
+                      <Badge
+                        key={`default-${item}-${idx}`}
+                        variant="secondary"
+                        className="text-[11px]"
+                      >
+                        {item}
+                      </Badge>
+                    ))}
+                  </div>
+                )
+              }
+
+              return <div className="text-xs">{defaultValue || "-"}</div>
             },
             enableSorting: false,
             enableHiding: false,

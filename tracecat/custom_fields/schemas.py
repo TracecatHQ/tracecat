@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Self
+from typing import Any, Self
 
 import sqlalchemy as sa
 
@@ -19,6 +19,7 @@ class CustomFieldRead(Schema):
     nullable: bool
     default: str | None
     reserved: bool
+    options: list[str] | None = None
 
     @classmethod
     def from_sa(
@@ -26,6 +27,7 @@ class CustomFieldRead(Schema):
         column: sa.engine.interfaces.ReflectedColumn,
         *,
         reserved_fields: set[str] | None = None,
+        field_schema: dict[str, Any] | None = None,
     ) -> Self:
         raw_type = column["type"]
         if isinstance(raw_type, SqlType):
@@ -51,6 +53,12 @@ class CustomFieldRead(Schema):
                 sql_type = SqlType(type_str)
 
         reserved_set = reserved_fields or set()
+        options: list[str] | None = None
+
+        schema_metadata = field_schema.get(column["name"]) if field_schema else None
+        if schema_metadata and "type" in schema_metadata:
+            sql_type = SqlType(schema_metadata["type"])
+            options = schema_metadata.get("options")
 
         return cls(
             id=column["name"],
@@ -59,6 +67,7 @@ class CustomFieldRead(Schema):
             nullable=column["nullable"],
             default=parse_postgres_default(column.get("default")),
             reserved=column["name"] in reserved_set,
+            options=options,
         )
 
 
