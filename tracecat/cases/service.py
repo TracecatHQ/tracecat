@@ -744,11 +744,27 @@ class CaseFieldsService(CustomFieldsService):
         insert_stmt = insert(table).values(
             id=case_fields.id, case_id=case_fields.case_id
         )
-        stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[table.c.case_id],
-            set_={"id": insert_stmt.excluded.id},
-        )
-        await self.session.execute(stmt)
+        stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=[table.c.case_id]
+        ).returning(table.c.id)
+
+        result = await self.session.execute(stmt)
+        row_id = result.scalar_one_or_none()
+
+        if row_id is None:
+            select_stmt = sa.select(table.c.id).where(
+                table.c.case_id == case_fields.case_id
+            )
+            row_id = await self.session.scalar(select_stmt)
+
+        if row_id is None:
+            raise TracecatException(
+                "Failed to ensure case fields workspace row for the given case."
+            )
+
+        if case_fields.id != row_id:
+            case_fields.id = row_id
+
         await self.session.flush()
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:

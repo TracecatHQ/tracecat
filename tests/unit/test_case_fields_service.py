@@ -282,13 +282,13 @@ class TestCaseFieldsService:
             # The field values are passed directly, not wrapped in a 'data' object
             mock_update_row.assert_called_once_with(fields_id, field_values)
 
-    async def test_ensure_workspace_row_updates_id_on_case_conflict(
+    async def test_ensure_workspace_row_reuses_existing_row_on_case_conflict(
         self,
         case_fields_service: CaseFieldsService,
         test_case: Case,
         session: AsyncSession,
     ) -> None:
-        """Ensure conflict on case_id updates the stored row id."""
+        """Ensure conflict on case_id reuses the existing workspace row."""
         await case_fields_service.initialize_workspace_schema()
 
         # Build a SQLAlchemy Table object matching the workspace table structure
@@ -314,15 +314,19 @@ class TestCaseFieldsService:
         )
         session.add(new_case_fields)
         await session.flush()
+        original_metadata_id = new_case_fields.id
 
-        # Should update the workspace row to the new metadata id instead of erroring
+        # Should map the metadata row to the existing workspace row id instead of updating the table row
         await case_fields_service._ensure_workspace_row(new_case_fields)
 
-        # Verify the workspace row now matches the new id
+        # Verify the workspace row keeps its original id
         select_stmt = sa.select(workspace_table.c.id, workspace_table.c.case_id).where(
             workspace_table.c.case_id == test_case.id
         )
         result = await session.execute(select_stmt)
         row = result.one()
-        assert row.id == new_case_fields.id
+        assert row.id == existing_row_id
         assert row.case_id == test_case.id
+        # The metadata id should be aligned to the existing workspace row id
+        assert new_case_fields.id == existing_row_id
+        assert new_case_fields.id != original_metadata_id
