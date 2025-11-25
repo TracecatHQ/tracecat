@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -716,10 +717,7 @@ class CaseFieldsService(CustomFieldsService):
     _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 
     def _table_definition(self) -> sa.Table:
-        """Return the SQLAlchemy Table definition for the case_fields workspace table.
-
-        This dynamic table stores the actual per-case field values.
-        """
+        """Return the SQLAlchemy Table definition for the case_fields workspace table."""
         return sa.Table(
             self.sanitized_table_name,
             sa.MetaData(),
@@ -747,26 +745,17 @@ class CaseFieldsService(CustomFieldsService):
             schema=self.schema_name,
         )
 
-    async def _get_or_create_definition(self) -> CaseFields:
-        """Get or create the CaseFields definiton for this workspace."""
-        stmt = sa.select(CaseFields).where(CaseFields.owner_id == self.workspace_id)
-        result = await self.session.execute(stmt)
-        definition = result.scalar_one_or_none()
-
-        if definition is None:
-            definition = CaseFields(owner_id=self.workspace_id, schema={})
-            self.session.add(definition)
-            await self.session.flush()
-
-        return definition
-
     async def get_field_schema(self) -> dict[str, Any]:
         """Get the field schema (column definitions) for this workspace.
 
         Returns a dict mapping field_id -> {type, options (only for SELECT/MULTI_SELECT)}
         """
-        definition = await self._get_or_create_definition()
-        return definition.schema or {}
+        stmt = sa.select(CaseFields.schema).where(
+            CaseFields.owner_id == self.workspace_id
+        )
+        result = await self.session.execute(stmt)
+        schema = result.scalar_one_or_none()
+        return schema or {}
 
     async def _update_field_schema(
         self, field_id: str, field_def: dict[str, Any] | None
@@ -777,9 +766,15 @@ class CaseFieldsService(CustomFieldsService):
             field_id: The field name/id
             field_def: The field definition dict {type, options (for SELECT/MULTI_SELECT only)} or None to remove
         """
-        from sqlalchemy.orm.attributes import flag_modified
+        stmt = sa.select(CaseFields).where(CaseFields.owner_id == self.workspace_id)
+        result = await self.session.execute(stmt)
+        definition = result.scalar_one_or_none()
 
-        definition = await self._get_or_create_definition()
+        if definition is None:
+            definition = CaseFields(owner_id=self.workspace_id, schema={})
+            self.session.add(definition)
+            await self.session.flush()
+
         current_schema = definition.schema or {}
 
         if field_def is None:
@@ -854,12 +849,10 @@ class CaseFieldsService(CustomFieldsService):
         """Retrieve custom field values for a case."""
         await self._ensure_schema_ready()
         table = self._table_definition()
-        # Get the row ID for this case
-        select_stmt = sa.select(table.c.id).where(table.c.case_id == case.id)
-        row_id = await self.session.scalar(select_stmt)
-        if row_id is None:
-            return None
-        return await self.editor.get_row(row_id)
+        row_id = await self.session.scalar(
+            sa.select(table.c.id).where(table.c.case_id == case.id)
+        )
+        return await self.editor.get_row(row_id) if row_id else None
 
     async def create_field_values(
         self, case: Case, fields: dict[str, Any]
