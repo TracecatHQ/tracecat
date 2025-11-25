@@ -12,7 +12,15 @@ TOOL_DEFAULTS = {
     ],
     ChatEntity.AGENT_PRESET: [],
     ChatEntity.AGENT_PRESET_BUILDER: AGENT_PRESET_BUILDER_TOOL_NAMES,
-    ChatEntity.COPILOT: [],
+    ChatEntity.COPILOT: [
+        "core.table.list_tables",
+        "core.table.get_table_metadata",
+        "core.table.lookup",
+        "core.table.search_rows",
+        "core.cases.list_cases",
+        "core.cases.get_case",
+        "core.cases.search_cases",
+    ],
 }
 
 
