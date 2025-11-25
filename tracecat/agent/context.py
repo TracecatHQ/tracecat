@@ -7,6 +7,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
@@ -41,14 +42,14 @@ def _get_content_size(content: str | dict | list | None) -> tuple[str, int]:
 
     Returns (serialized_content, size) tuple.
     For strings, returns the string itself.
-    For other types, serializes to JSON.
+    For other types, serializes to JSON (with fallback to str for non-serializable).
     """
     if content is None:
         return "", 0
     if isinstance(content, str):
         return content, len(content)
     # Serialize non-string content (dict, list, etc.) to check size
-    serialized = orjson.dumps(content).decode("utf-8")
+    serialized = orjson.dumps(content, default=str).decode("utf-8")
     return serialized, len(serialized)
 
 
@@ -121,6 +122,13 @@ def _get_tool_return_ids(msg: ModelMessage) -> set[str]:
     return {p.tool_call_id for p in msg.parts if isinstance(p, ToolReturnPart)}
 
 
+def _has_system_prompt(msg: ModelMessage) -> bool:
+    """Check if message contains a system prompt."""
+    return isinstance(msg, ModelRequest) and any(
+        isinstance(part, SystemPromptPart) for part in msg.parts
+    )
+
+
 def _clean_orphaned_tool_messages(
     messages: list[ModelMessage],
 ) -> list[ModelMessage]:
@@ -185,6 +193,7 @@ def trim_history_processor(
 
     Cleans orphaned tool calls/returns, then trims from the front
     based on actual token counts until we fit within budget.
+    Preserves system prompt if present in the first message.
     """
     # First, clean any orphaned tool messages from the input
     messages = _clean_orphaned_tool_messages(messages)
@@ -192,36 +201,52 @@ def trim_history_processor(
     if not messages:
         return messages
 
+    # Extract system prompt if present (must preserve it)
+    system_prompt_msg: ModelMessage | None = None
+    system_prompt_tokens = 0
+    trimmable_messages = messages
+
+    if messages and _has_system_prompt(messages[0]):
+        system_prompt_msg = messages[0]
+        system_prompt_tokens = _count_tokens(system_prompt_msg)
+        trimmable_messages = messages[1:]
+
+    if not trimmable_messages:
+        return messages  # Only system prompt, nothing to trim
+
     # Get context limit for this model
     token_budget = TRACECAT__MODEL_CONTEXT_LIMITS.get(
         ctx.model.model_name, TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT
     )
 
-    # Count tokens for each message
-    message_tokens = [_count_tokens(msg) for msg in messages]
+    # Reserve tokens for system prompt
+    available_budget = token_budget - system_prompt_tokens
+
+    # Count tokens for each trimmable message
+    message_tokens = [_count_tokens(msg) for msg in trimmable_messages]
     total_tokens = sum(message_tokens)
 
     # If we're under budget, keep everything
-    if total_tokens <= token_budget:
+    if total_tokens <= available_budget:
         return messages
 
     # Work backwards from the end, accumulating tokens until we hit budget
     accumulated_tokens = 0
-    cut_index = len(messages)
+    cut_index = len(trimmable_messages)
 
-    for i in range(len(messages) - 1, -1, -1):
+    for i in range(len(trimmable_messages) - 1, -1, -1):
         msg_tokens = message_tokens[i]
 
-        if accumulated_tokens + msg_tokens > token_budget:
+        if accumulated_tokens + msg_tokens > available_budget:
             # This message would exceed budget, cut here
             cut_index = i + 1
             break
 
         accumulated_tokens += msg_tokens
 
-    # Search backward from cut_index to find a safe cut point
-    for safe_cut in range(cut_index, len(messages)):
-        first_message = messages[safe_cut]
+    # Search forward from cut_index to find a safe cut point
+    for safe_cut in range(cut_index, len(trimmable_messages)):
+        first_message = trimmable_messages[safe_cut]
 
         # Skip if first message has tool returns (orphaned without calls)
         if _has_tool_return(first_message):
@@ -232,19 +257,26 @@ def trim_history_processor(
             continue
 
         # Found a safe cut point
-        result = messages[safe_cut:]
+        trimmed = trimmable_messages[safe_cut:]
+
+        # Prepend system prompt if we had one
+        if system_prompt_msg is not None:
+            result = [system_prompt_msg, *trimmed]
+        else:
+            result = trimmed
 
         if len(result) < len(messages):
-            kept_tokens = sum(message_tokens[safe_cut:])
+            kept_tokens = sum(message_tokens[safe_cut:]) + system_prompt_tokens
             logger.info(
                 "History trimmed",
                 original=len(messages),
                 kept=len(result),
                 cut_index=safe_cut,
-                total_tokens=total_tokens,
+                total_tokens=total_tokens + system_prompt_tokens,
                 kept_tokens=kept_tokens,
                 token_budget=token_budget,
                 model=ctx.model.model_name,
+                preserved_system_prompt=system_prompt_msg is not None,
             )
 
         return result
