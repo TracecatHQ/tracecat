@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: List workspaces
+  description: List workspaces in an organization.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces#list-workspaces
+  namespace: tools.terraform_cloud
+  name: list_workspaces
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    organization_name:
+      type: str
+      description: Terraform organization name.
+    page_number:
+      type: int | None
+      description: Page number for pagination.
+      default: null
+    page_size:
+      type: int | None
+      description: Page size (maximum 100).
+      default: null
+    search_name:
+      type: str | None
+      description: Fuzzy search string for workspace names.
+      default: null
+    search_tags:
+      type: str | None
+      description: Comma-separated tags the workspace must include.
+      default: null
+    exclude_tags:
+      type: str | None
+      description: Comma-separated tags to exclude from results.
+      default: null
+    project_id:
+      type: str | None
+      description: Filter workspaces by project ID.
+      default: null
+    sort:
+      type: str | None
+      description: Sort by name, current-run.created-at, or latest-change-at. Prefix with - to reverse.
+      default: null
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: list_workspaces
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/organizations/${{ FN.url_encode(inputs.organization_name) }}/workspaces
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        params:
+          page[number]: ${{ inputs.page_number }}
+          page[size]: ${{ inputs.page_size }}
+          search[name]: ${{ inputs.search_name }}
+          search[tags]: ${{ inputs.search_tags }}
+          search[exclude-tags]: ${{ inputs.exclude_tags }}
+          filter[project][id]: ${{ inputs.project_id }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_workspaces.result.data }}

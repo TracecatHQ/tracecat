@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: List projects
+  description: List projects in an organization.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/projects#list-projects
+  namespace: tools.terraform_cloud
+  name: list_projects
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    organization_name:
+      type: str
+      description: Terraform organization name.
+    query:
+      type: str | None
+      description: Case-insensitive project name search string (q parameter).
+      default: null
+    names:
+      type: str | None
+      description: Comma-separated project names to match exactly.
+      default: null
+    page_number:
+      type: int | None
+      description: Page number for pagination.
+      default: null
+    page_size:
+      type: int | None
+      description: Page size (maximum 100).
+      default: null
+    sort:
+      type: str | None
+      description: Sort projects by name; prefix with - for descending.
+      default: null
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: list_projects
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/organizations/${{ FN.url_encode(inputs.organization_name) }}/projects
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        params:
+          q: ${{ inputs.query }}
+          filter[names]: ${{ inputs.names }}
+          page[number]: ${{ inputs.page_number }}
+          page[size]: ${{ inputs.page_size }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_projects.result.data }}

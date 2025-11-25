@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Apply run
+  description: Apply a run that is waiting for confirmation.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#apply-a-run
+  namespace: tools.terraform_cloud
+  name: apply_run
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    run_id:
+      type: str
+      description: Run ID to apply.
+    comment:
+      type: str | None
+      description: Optional apply comment.
+      default: null
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: apply_run
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/runs/${{ inputs.run_id }}/actions/apply
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        payload:
+          comment: ${{ inputs.comment }}
+  returns: ${{ steps.apply_run.result.status_code }}

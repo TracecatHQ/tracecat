@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Create project variable
+  description: Create a Terraform variable on a project.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/variables#project-variables
+  namespace: tools.terraform_cloud
+  name: create_project_variable
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    project_id:
+      type: str
+      description: Project ID.
+    key:
+      type: str
+      description: Variable key.
+    value:
+      type: str
+      description: Variable value.
+    category:
+      type: str
+      description: Variable category (terraform or env).
+      enum: ["terraform", "env"]
+    hcl:
+      type: bool
+      description: Interpret value as HCL.
+      default: false
+    sensitive:
+      type: bool
+      description: Whether the value is sensitive.
+      default: false
+    description:
+      type: str
+      description: Variable description.
+      default: ""
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: create_project_variable
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ inputs.project_id }}/vars
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        payload:
+          data:
+            type: vars
+            attributes:
+              key: ${{ inputs.key }}
+              value: ${{ inputs.value }}
+              category: ${{ inputs.category }}
+              hcl: ${{ inputs.hcl }}
+              sensitive: ${{ inputs.sensitive }}
+              description: ${{ inputs.description }}
+  returns: ${{ steps.create_project_variable.result.data }}

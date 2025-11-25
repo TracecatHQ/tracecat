@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: Queue apply run
+  description: Queue a run with auto-apply enabled.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#create-a-run
+  namespace: tools.terraform_cloud
+  name: queue_apply_run
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: Workspace ID to run against.
+    message:
+      type: str
+      description: Run message.
+      default: Run queued by Tracecat
+    auto_apply:
+      type: bool
+      description: Apply automatically after plan succeeds.
+      default: true
+    plan_only:
+      type: bool
+      description: Whether to run plan-only. Set false to allow apply.
+      default: false
+    is_destroy:
+      type: bool
+      description: Create a destroy plan.
+      default: false
+    refresh:
+      type: bool
+      description: Refresh state before planning.
+      default: true
+    refresh_only:
+      type: bool
+      description: Create a refresh-only plan.
+      default: false
+    target_addrs:
+      type: list[str]
+      description: List of resource addresses to target.
+      default: []
+    replace_addrs:
+      type: list[str]
+      description: Resources to replace during the run.
+      default: []
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: queue_apply_run
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/runs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        payload:
+          data:
+            type: runs
+            attributes:
+              message: ${{ inputs.message }}
+              auto-apply: ${{ inputs.auto_apply }}
+              plan-only: ${{ inputs.plan_only }}
+              is-destroy: ${{ inputs.is_destroy }}
+              refresh: ${{ inputs.refresh }}
+              refresh-only: ${{ inputs.refresh_only }}
+              target-addrs: ${{ inputs.target_addrs }}
+              replace-addrs: ${{ inputs.replace_addrs }}
+            relationships:
+              workspace:
+                data:
+                  type: workspaces
+                  id: ${{ inputs.workspace_id }}
+  returns: ${{ steps.queue_apply_run.result.data }}

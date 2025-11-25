@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Lock workspace
+  description: Lock a workspace to prevent new runs.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces#lock-a-workspace
+  namespace: tools.terraform_cloud
+  name: lock_workspace
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: Workspace ID to lock.
+    reason:
+      type: str
+      description: Reason for locking the workspace.
+      default: ""
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: lock_workspace
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/workspaces/${{ inputs.workspace_id }}/actions/lock
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        payload:
+          reason: ${{ inputs.reason }}
+  returns: ${{ steps.lock_workspace.result.status_code }}

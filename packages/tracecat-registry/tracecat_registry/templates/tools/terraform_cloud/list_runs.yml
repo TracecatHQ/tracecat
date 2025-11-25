@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List runs
+  description: List runs for a workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#list-runs-in-a-workspace
+  namespace: tools.terraform_cloud
+  name: list_runs
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: Workspace ID to list runs for.
+    page_number:
+      type: int | None
+      description: Page number for pagination.
+      default: null
+    page_size:
+      type: int | None
+      description: Page size (maximum 100).
+      default: null
+    operation:
+      type: str | None
+      description: Filter by operation (e.g. plan, apply, refresh). Comma-separated to include multiple.
+      default: null
+    status:
+      type: str | None
+      description: Filter by run status (e.g. planned, applied, errored). Comma-separated to include multiple.
+      default: null
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: list_runs
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/workspaces/${{ inputs.workspace_id }}/runs
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        params:
+          page[number]: ${{ inputs.page_number }}
+          page[size]: ${{ inputs.page_size }}
+          filter[operation]: ${{ inputs.operation }}
+          filter[status]: ${{ inputs.status }}
+  returns: ${{ steps.list_runs.result.data }}

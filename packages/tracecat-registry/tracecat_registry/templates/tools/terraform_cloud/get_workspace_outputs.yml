@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get workspace outputs
+  description: Fetch outputs from the current state version of a workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces
+  namespace: tools.terraform_cloud
+  name: get_workspace_outputs
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: Workspace ID.
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: get_outputs
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/workspaces/${{ inputs.workspace_id }}/current-state-version-outputs
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Accept: application/vnd.api+json
+  returns: ${{ steps.get_outputs.result.data }}

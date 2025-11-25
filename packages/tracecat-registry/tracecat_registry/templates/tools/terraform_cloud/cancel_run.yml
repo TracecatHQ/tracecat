@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Cancel run
+  description: Cancel a run that is in progress or pending.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run#cancel-a-run
+  namespace: tools.terraform_cloud
+  name: cancel_run
+  secrets:
+    - name: terraform_cloud
+      keys: ["TERRAFORM_CLOUD_TOKEN"]
+  expects:
+    run_id:
+      type: str
+      description: Run ID to cancel.
+    comment:
+      type: str
+      description: Optional cancel comment.
+      default: ""
+    base_url:
+      type: str
+      description: Terraform Cloud/Enterprise API base URL.
+      default: https://app.terraform.io/api/v2
+  steps:
+    - ref: cancel_run
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/runs/${{ inputs.run_id }}/actions/cancel
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform_cloud.TERRAFORM_CLOUD_TOKEN }}
+          Content-Type: application/vnd.api+json
+          Accept: application/vnd.api+json
+        payload:
+          comment: ${{ inputs.comment }}
+  returns: ${{ steps.cancel_run.result.status_code }}
