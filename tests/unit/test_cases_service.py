@@ -480,8 +480,9 @@ class TestCasesService:
         # Create case without initial field values
         created_case = await cases_service.create_case(case_create_params)
 
-        # Verify case was created with empty fields
-        assert created_case.fields is not None
+        # Verify case was created and has a field values row
+        fields_before = await cases_service.fields.get_fields(created_case)
+        assert fields_before is not None
 
         # Update parameters including fields
         update_params = CaseUpdate(
@@ -555,22 +556,26 @@ class TestCasesService:
         # Create a case first
         created_case = await cases_service.create_case(case_create_params)
 
+        # Create a known row_id for the workspace table row
+        row_id = uuid.uuid4()
+
         # Mock the field methods
         with (
             patch.object(cases_service.fields, "get_fields") as mock_get_fields,
             patch.object(
+                cases_service.fields, "_ensure_workspace_row"
+            ) as mock_ensure_row,
+            patch.object(
                 cases_service.fields, "update_field_values"
             ) as mock_update_fields,
         ):
-            fields_obj = MagicMock()
-            fields_obj.id = uuid.uuid4()
-            created_case.__dict__["fields"] = fields_obj
-
             # Setup mock to return existing field values
             mock_get_fields.return_value = {
                 "existing_field1": "original value",
                 "existing_field2": 456,
             }
+            # Mock _ensure_workspace_row to return our known row_id
+            mock_ensure_row.return_value = row_id
 
             # Update just the fields
             update_params = CaseUpdate(
@@ -583,9 +588,12 @@ class TestCasesService:
             # Verify get_fields was called
             mock_get_fields.assert_called_once_with(created_case)
 
+            # Verify _ensure_workspace_row was called with the case id
+            mock_ensure_row.assert_called_once_with(created_case.id)
+
             # Verify update_field_values was called with merged fields
             mock_update_fields.assert_called_once_with(
-                fields_obj.id,
+                row_id,
                 {
                     "existing_field1": "updated value",
                     "existing_field2": 456,

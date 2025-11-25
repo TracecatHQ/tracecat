@@ -748,7 +748,7 @@ class CaseFieldsService(CustomFieldsService):
         )
 
     async def _get_or_create_definition(self) -> CaseFields:
-        """Get or create the CaseFields definition for this workspace."""
+        """Get or create the CaseFields definiton for this workspace."""
         stmt = sa.select(CaseFields).where(CaseFields.owner_id == self.workspace_id)
         result = await self.session.execute(stmt)
         definition = result.scalar_one_or_none()

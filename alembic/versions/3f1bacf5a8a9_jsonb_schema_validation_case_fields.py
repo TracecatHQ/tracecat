@@ -176,7 +176,7 @@ def _repopulate_case_fields_from_workspace_tables(connection: sa.Connection) -> 
         ).fetchall()
 
         # For each row in the dynamic table, create/update a case_fields row
-        for i, (row_id, case_id) in enumerate(rows):
+        for i, (_, case_id) in enumerate(rows):
             if i == 0 and existing_cf_id:
                 # Update the existing case_fields row with the first case_id
                 connection.execute(

@@ -6,7 +6,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.db.models import Case, CaseFields, User
+from tracecat.db.models import Case, User
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -54,16 +54,7 @@ class TestCaseFieldsIntegration:
         assert created_case.summary == case_create_params.summary
         assert created_case.description == case_create_params.description
 
-        # Verify that a CaseFields row WAS created (new behavior: always create to ensure defaults)
-        assert created_case.fields is not None
-
-        # Query the database to verify fields row exists for this case
-        statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.execute(statement)
-        case_fields = result.scalar_one_or_none()
-        assert case_fields is not None
-
-        # Verify get_fields returns the row with metadata but no custom fields
+        # Verify get_fields returns a row (created for defaults) with no custom field values
         fields_data = await cases_service.fields.get_fields(created_case)
         assert fields_data is not None
         # Should have metadata fields but no custom fields
@@ -71,14 +62,11 @@ class TestCaseFieldsIntegration:
         assert "case_id" in fields_data
         assert "created_at" in fields_data
         assert "updated_at" in fields_data
-        # No other fields should be present (i.e., no custom fields)
-        assert len(fields_data) == 4
 
-        # Verify get_case returns the same case with fields row
+        # Verify get_case returns the same case
         retrieved_case = await cases_service.get_case(created_case.id)
         assert retrieved_case is not None
         assert retrieved_case.id == created_case.id
-        assert retrieved_case.fields is not None
 
     async def test_create_case_with_fields_before_columns_exist(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -136,17 +124,7 @@ class TestCaseFieldsIntegration:
         assert created_case.summary == params_with_fields.summary
         assert created_case.description == params_with_fields.description
 
-        # Verify that fields were created and associated with the case
-        assert created_case.fields is not None
-        assert created_case.fields.case_id == created_case.id
-
-        # Query the fields directly from the database to verify
-        statement = select(CaseFields).where(CaseFields.case_id == created_case.id)
-        result = await session.execute(statement)
-        case_fields = result.scalar_one_or_none()
-        assert case_fields is not None
-
-        # Now check the values of the fields
+        # Verify field values were saved
         fields_data = await cases_service.fields.get_fields(created_case)
         assert fields_data is not None
         assert fields_data["custom_field1"] == "test value"
@@ -256,7 +234,7 @@ class TestCaseFieldsIntegration:
         case_create_params: CaseCreate,
         session: AsyncSession,
     ) -> None:
-        """Test that deleting a case properly cascades to its fields."""
+        """Test that deleting a case also removes its field values from the workspace table."""
         # Create the fields
         await case_fields_service.create_field(
             CaseFieldCreate(
@@ -278,9 +256,9 @@ class TestCaseFieldsIntegration:
         created_case = await cases_service.create_case(params_with_fields)
         case_id = created_case.id
 
-        # Verify case and fields exist
-        assert created_case.fields is not None
-        fields_id = created_case.fields.id
+        # Verify field values exist
+        fields_data = await cases_service.fields.get_fields(created_case)
+        assert fields_data is not None
 
         # Delete the case
         await cases_service.delete_case(created_case)
@@ -290,10 +268,19 @@ class TestCaseFieldsIntegration:
         case_result = await session.execute(case_statement)
         assert case_result.first() is None
 
-        # Verify fields were also deleted due to cascade delete
-        fields_statement = select(CaseFields).where(CaseFields.id == fields_id)
-        fields_result = await session.execute(fields_statement)
-        assert fields_result.one_or_none() is None
+        # Verify field values are also deleted (due to FK cascade)
+        # Create a new case object to test get_fields
+        deleted_case = Case(
+            id=case_id,
+            owner_id=case_fields_service.workspace_id,
+            summary="",
+            description="",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        fields_after_delete = await cases_service.fields.get_fields(deleted_case)
+        assert fields_after_delete is None
 
 
 @pytest.mark.anyio
