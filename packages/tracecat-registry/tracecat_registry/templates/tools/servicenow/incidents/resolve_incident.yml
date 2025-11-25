@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: Resolve incident
+  description: Resolve an incident with closure details.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-PUT
+  namespace: tools.servicenow
+  name: resolve_incident
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  incident_id:
+    type: str
+    description: Incident number (e.g., INC0010001) or sys_id.
+  resolution_code:
+    type: str
+    description: Resolution code to record.
+  resolution_notes:
+    type: str
+    description: Resolution notes to record.
+steps:
+  - ref: lookup_incident
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params:
+        sysparm_query: number=${{ FN.url_encode(inputs.incident_id) }}^ORsys_id=${{ FN.url_encode(inputs.incident_id) }}
+        sysparm_limit: 1
+        sysparm_display_value: true
+  - ref: resolve_incident_id
+    action: core.script.run_python
+    args:
+      inputs:
+        lookup: ${{ steps.lookup_incident.result.data.result }}
+        incident_id: ${{ inputs.incident_id }}
+      script: |
+        def main(lookup, incident_id):
+            sys_id = incident_id
+            if isinstance(lookup, list) and lookup:
+                sys_id = lookup[0].get("sys_id", incident_id)
+            elif isinstance(lookup, dict) and lookup:
+                sys_id = lookup.get("sys_id", incident_id)
+            return {"sys_id": sys_id}
+  - ref: build_payload
+    action: core.script.run_python
+    args:
+      inputs:
+        resolution_code: ${{ inputs.resolution_code }}
+        resolution_notes: ${{ inputs.resolution_notes }}
+      script: |
+        def main(resolution_code, resolution_notes):
+            return {
+                "state": "6",
+                "close_code": resolution_code,
+                "close_notes": resolution_notes,
+                "resolved_at": "now",
+            }
+  - ref: resolve_incident
+    action: core.http_request
+    args:
+      method: PUT
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident/${{ FN.url_encode(steps.resolve_incident_id.result.sys_id) }}
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_payload.result }}
+returns: ${{ steps.resolve_incident.result.data }}

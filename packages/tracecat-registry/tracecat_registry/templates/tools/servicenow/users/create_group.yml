@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: Create group
+  description: Create a user group.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-POST
+  namespace: tools.servicenow
+  name: create_group
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  name:
+    type: str
+    description: Group name.
+  description:
+    type: str | None
+    description: Group description.
+    default: null
+  manager:
+    type: str | None
+    description: Manager sys_id or username.
+    default: null
+  parent:
+    type: str | None
+    description: Parent group sys_id.
+    default: null
+  type:
+    type: str | None
+    description: Group type.
+    default: null
+  email:
+    type: str | None
+    description: Group email.
+    default: null
+  active:
+    type: bool
+    description: Whether the group is active.
+    default: true
+steps:
+  - ref: build_payload
+    action: core.script.run_python
+    args:
+      inputs:
+        name: ${{ inputs.name }}
+        description: ${{ inputs.description }}
+        manager: ${{ inputs.manager }}
+        parent: ${{ inputs.parent }}
+        type: ${{ inputs.type }}
+        email: ${{ inputs.email }}
+        active: ${{ inputs.active }}
+      script: |
+        def main(name, description=None, manager=None, parent=None, type=None, email=None, active=True):
+            payload = {"name": name, "active": str(bool(active)).lower()}
+            optional = {
+                "description": description,
+                "manager": manager,
+                "parent": parent,
+                "type": type,
+                "email": email,
+            }
+            for key, value in optional.items():
+                if value is not None:
+                    payload[key] = value
+            return payload
+  - ref: create_group
+    action: core.http_request
+    args:
+      method: POST
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_user_group
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_payload.result }}
+returns: ${{ steps.create_group.result.data }}

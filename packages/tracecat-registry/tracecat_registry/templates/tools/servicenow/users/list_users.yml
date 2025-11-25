@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: List users
+  description: List users with optional filters.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-GET
+  namespace: tools.servicenow
+  name: list_users
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  limit:
+    type: int
+    description: Maximum number of users to return.
+    default: 10
+  offset:
+    type: int
+    description: Pagination offset.
+    default: 0
+  active:
+    type: bool | None
+    description: Filter by active status.
+    default: null
+  department:
+    type: str | None
+    description: Filter by department sys_id.
+    default: null
+  query:
+    type: str | None
+    description: Search text to match name, username, or email.
+    default: null
+steps:
+  - ref: build_params
+    action: core.script.run_python
+    args:
+      inputs:
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+        active: ${{ inputs.active }}
+        department: ${{ inputs.department }}
+        query: ${{ inputs.query }}
+      script: |
+        def main(limit, offset, active=None, department=None, query=None):
+            params = {
+                "sysparm_limit": limit,
+                "sysparm_offset": offset,
+                "sysparm_display_value": "true",
+            }
+            filters = []
+            if active is not None:
+                filters.append(f"active={str(active).lower()}")
+            if department:
+                filters.append(f"department={department}")
+            if query:
+                filters.append(f"nameLIKE{query}^ORuser_nameLIKE{query}^ORemailLIKE{query}")
+            if filters:
+                params["sysparm_query"] = "^".join(filters)
+            return params
+  - ref: list_users
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_user
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params: ${{ steps.build_params.result }}
+returns: ${{ steps.list_users.result.data }}

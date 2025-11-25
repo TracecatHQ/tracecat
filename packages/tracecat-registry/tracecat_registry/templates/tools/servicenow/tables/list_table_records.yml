@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: List table records
+  description: List records from a ServiceNow table with optional query and field selection.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-GET
+  namespace: tools.servicenow
+  name: list_table_records
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  table:
+    type: str
+    description: Target table name (e.g., incident, cmdb_ci_service).
+  query:
+    type: str | None
+    description: sysparm_query filter string.
+    default: null
+  fields:
+    type: list[str] | None
+    description: Specific fields to return (defaults to all).
+    default: null
+  limit:
+    type: int
+    description: Maximum records to return.
+    default: 10
+  offset:
+    type: int
+    description: Pagination offset.
+    default: 0
+  display_value:
+    type: bool
+    description: Return display values when true.
+    default: true
+steps:
+  - ref: build_params
+    action: core.script.run_python
+    args:
+      inputs:
+        query: ${{ inputs.query }}
+        fields: ${{ inputs.fields }}
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+        display_value: ${{ inputs.display_value }}
+      script: |
+        def main(query=None, fields=None, limit=10, offset=0, display_value=True):
+            params = {
+                "sysparm_limit": limit,
+                "sysparm_offset": offset,
+                "sysparm_display_value": "true" if display_value else "false",
+            }
+            if query:
+                params["sysparm_query"] = query
+            if fields:
+                params["sysparm_fields"] = ",".join(fields)
+            return params
+  - ref: list_records
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/${{ FN.url_encode(inputs.table) }}
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params: ${{ steps.build_params.result }}
+returns: ${{ steps.list_records.result.data }}

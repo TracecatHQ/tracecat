@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: Add comment
+  description: Add a comment or work note to an incident.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-PUT
+  namespace: tools.servicenow
+  name: add_comment
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  incident_id:
+    type: str
+    description: Incident number (e.g., INC0010001) or sys_id.
+  comment:
+    type: str
+    description: Text to add to the incident.
+  is_work_note:
+    type: bool
+    description: Set true to add as work note instead of customer-facing comment.
+    default: false
+steps:
+  - ref: lookup_incident
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params:
+        sysparm_query: number=${{ FN.url_encode(inputs.incident_id) }}^ORsys_id=${{ FN.url_encode(inputs.incident_id) }}
+        sysparm_limit: 1
+        sysparm_display_value: true
+  - ref: resolve_incident
+    action: core.script.run_python
+    args:
+      inputs:
+        lookup: ${{ steps.lookup_incident.result.data.result }}
+        incident_id: ${{ inputs.incident_id }}
+      script: |
+        def main(lookup, incident_id):
+            sys_id = incident_id
+            if isinstance(lookup, list) and lookup:
+                sys_id = lookup[0].get("sys_id", incident_id)
+            elif isinstance(lookup, dict) and lookup:
+                sys_id = lookup.get("sys_id", incident_id)
+            return {"sys_id": sys_id}
+  - ref: build_payload
+    action: core.script.run_python
+    args:
+      inputs:
+        comment: ${{ inputs.comment }}
+        is_work_note: ${{ inputs.is_work_note }}
+      script: |
+        def main(comment, is_work_note=False):
+            if is_work_note:
+                return {"work_notes": comment}
+            return {"comments": comment}
+  - ref: add_comment
+    action: core.http_request
+    args:
+      method: PUT
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident/${{ FN.url_encode(steps.resolve_incident.result.sys_id) }}
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_payload.result }}
+returns: ${{ steps.add_comment.result.data }}

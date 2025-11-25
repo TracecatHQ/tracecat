@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: List incidents
+  description: List incidents with optional filters.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-GET
+  namespace: tools.servicenow
+  name: list_incidents
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  limit:
+    type: int
+    description: Maximum number of incidents to return.
+    default: 10
+  offset:
+    type: int
+    description: Pagination offset.
+    default: 0
+  state:
+    type: str | None
+    description: Filter by state.
+    default: null
+  assigned_to:
+    type: str | None
+    description: Filter by assigned user.
+    default: null
+  category:
+    type: str | None
+    description: Filter by category.
+    default: null
+  query:
+    type: str | None
+    description: Additional query string to search short_description or description.
+    default: null
+steps:
+  - ref: build_params
+    action: core.script.run_python
+    args:
+      inputs:
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+        state: ${{ inputs.state }}
+        assigned_to: ${{ inputs.assigned_to }}
+        category: ${{ inputs.category }}
+        query: ${{ inputs.query }}
+      script: |
+        def main(limit, offset, state=None, assigned_to=None, category=None, query=None):
+            params = {
+                "sysparm_limit": limit,
+                "sysparm_offset": offset,
+                "sysparm_display_value": "true",
+                "sysparm_exclude_reference_link": "true",
+            }
+            filters = []
+            if state:
+                filters.append(f"state={state}")
+            if assigned_to:
+                filters.append(f"assigned_to={assigned_to}")
+            if category:
+                filters.append(f"category={category}")
+            if query:
+                filters.append(f"short_descriptionLIKE{query}^ORdescriptionLIKE{query}")
+            if filters:
+                params["sysparm_query"] = "^".join(filters)
+            return params
+  - ref: list_incidents
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params: ${{ steps.build_params.result }}
+returns: ${{ steps.list_incidents.result.data }}

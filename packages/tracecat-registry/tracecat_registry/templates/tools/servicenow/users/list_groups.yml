@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: List groups
+  description: List user groups with optional filters.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-GET
+  namespace: tools.servicenow
+  name: list_groups
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  limit:
+    type: int
+    description: Maximum number of groups to return.
+    default: 10
+  offset:
+    type: int
+    description: Pagination offset.
+    default: 0
+  active:
+    type: bool | None
+    description: Filter by active status.
+    default: null
+  query:
+    type: str | None
+    description: Search text to match group name or description.
+    default: null
+  type:
+    type: str | None
+    description: Filter by group type.
+    default: null
+steps:
+  - ref: build_params
+    action: core.script.run_python
+    args:
+      inputs:
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+        active: ${{ inputs.active }}
+        query: ${{ inputs.query }}
+        type: ${{ inputs.type }}
+      script: |
+        def main(limit, offset, active=None, query=None, type=None):
+            params = {
+                "sysparm_limit": limit,
+                "sysparm_offset": offset,
+                "sysparm_display_value": "true",
+            }
+            filters = []
+            if active is not None:
+                filters.append(f"active={str(active).lower()}")
+            if type:
+                filters.append(f"type={type}")
+            if query:
+                filters.append(f"nameLIKE{query}^ORdescriptionLIKE{query}")
+            if filters:
+                params["sysparm_query"] = "^".join(filters)
+            return params
+  - ref: list_groups
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_user_group
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params: ${{ steps.build_params.result }}
+returns: ${{ steps.list_groups.result.data }}

@@ -1,0 +1,113 @@
+type: action
+definition:
+  title: Create user
+  description: Create a ServiceNow user.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-POST
+  namespace: tools.servicenow
+  name: create_user
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  user_name:
+    type: str
+    description: Username.
+  first_name:
+    type: str
+    description: First name.
+  last_name:
+    type: str
+    description: Last name.
+  email:
+    type: str
+    description: Email address.
+  title:
+    type: str | None
+    description: Job title.
+    default: null
+  department:
+    type: str | None
+    description: Department sys_id.
+    default: null
+  manager:
+    type: str | None
+    description: Manager sys_id or username.
+    default: null
+  phone:
+    type: str | None
+    description: Phone number.
+    default: null
+  mobile_phone:
+    type: str | None
+    description: Mobile phone number.
+    default: null
+  location:
+    type: str | None
+    description: Location sys_id.
+    default: null
+  password:
+    type: str | None
+    description: Initial password.
+    default: null
+  active:
+    type: bool
+    description: Whether the user is active.
+    default: true
+steps:
+  - ref: build_payload
+    action: core.script.run_python
+    args:
+      inputs:
+        user_name: ${{ inputs.user_name }}
+        first_name: ${{ inputs.first_name }}
+        last_name: ${{ inputs.last_name }}
+        email: ${{ inputs.email }}
+        title: ${{ inputs.title }}
+        department: ${{ inputs.department }}
+        manager: ${{ inputs.manager }}
+        phone: ${{ inputs.phone }}
+        mobile_phone: ${{ inputs.mobile_phone }}
+        location: ${{ inputs.location }}
+        password: ${{ inputs.password }}
+        active: ${{ inputs.active }}
+      script: |
+        def main(user_name, first_name, last_name, email, title=None, department=None, manager=None,
+                 phone=None, mobile_phone=None, location=None, password=None, active=True):
+            payload = {
+                "user_name": user_name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": email,
+                "active": str(bool(active)).lower(),
+            }
+            optional = {
+                "title": title,
+                "department": department,
+                "manager": manager,
+                "phone": phone,
+                "mobile_phone": mobile_phone,
+                "location": location,
+                "user_password": password,
+            }
+            for key, value in optional.items():
+                if value is not None:
+                    payload[key] = value
+            return payload
+  - ref: create_user
+    action: core.http_request
+    args:
+      method: POST
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_user
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_payload.result }}
+returns: ${{ steps.create_user.result.data }}

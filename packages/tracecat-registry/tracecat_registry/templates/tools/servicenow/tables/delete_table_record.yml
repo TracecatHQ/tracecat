@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Delete table record
+  description: Delete a record from a ServiceNow table by sys_id.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-DELETE
+  namespace: tools.servicenow
+  name: delete_table_record
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  table:
+    type: str
+    description: Target table name (e.g., incident, cmdb_ci_service).
+  record_id:
+    type: str
+    description: Record sys_id.
+steps:
+  - ref: delete_record
+    action: core.http_request
+    args:
+      method: DELETE
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/${{ FN.url_encode(inputs.table) }}/${{ FN.url_encode(inputs.record_id) }}
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      headers:
+        Accept: application/json
+returns: ${{ steps.delete_record.result.data }}

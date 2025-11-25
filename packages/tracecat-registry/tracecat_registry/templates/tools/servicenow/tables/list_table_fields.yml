@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: List table fields
+  description: List dictionary entries (and choices) for a ServiceNow table.
+  display_group: ServiceNow
+  doc_url: https://developer.servicenow.com/dev.do#!/reference/api/u_tahoe/rest/c_TableAPI#r_TableAPI-GET
+  namespace: tools.servicenow
+  name: list_table_fields
+  secrets:
+    - name: servicenow
+      keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
+expects:
+  instance_url:
+    type: str | None
+    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    default: null
+  table:
+    type: str
+    description: Target table name (e.g., incident).
+  element:
+    type: str | None
+    description: Optional field name filter.
+    default: null
+  include_choices:
+    type: bool
+    description: Include sys_choice options for fields that use choices.
+    default: true
+steps:
+  - ref: list_fields
+    action: core.http_request
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_dictionary
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params:
+        sysparm_query: ${{ "name=" + FN.url_encode(inputs.table) + ("^element=" + FN.url_encode(inputs.element) if inputs.element else "") }}
+        sysparm_display_value: true
+  - ref: list_choices
+    action: core.http_request
+    when: ${{ inputs.include_choices }}
+    args:
+      method: GET
+      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_choice
+      auth:
+        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+      params:
+        sysparm_query: ${{ "name=" + FN.url_encode(inputs.table) + ("^element=" + FN.url_encode(inputs.element) if inputs.element else "") }}
+        sysparm_display_value: true
+  - ref: combine
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: ${{ steps.list_fields.result.data.result }}
+        choices: ${{ steps.list_choices.result.data.result if inputs.include_choices else [] }}
+      script: |
+        from collections import defaultdict
+
+        def main(fields, choices):
+            choice_map = defaultdict(list)
+            for c in choices or []:
+                element = c.get("element")
+                choice_map[element].append(c)
+            for f in fields or []:
+                elem = f.get("element")
+                f["choices"] = choice_map.get(elem, [])
+            return {"fields": fields, "choice_count": sum(len(v) for v in choice_map.values())}
+returns: ${{ steps.combine.result }}
