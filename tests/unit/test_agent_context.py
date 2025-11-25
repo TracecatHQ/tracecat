@@ -233,6 +233,79 @@ def test_truncate_tool_returns_processor_preserves_model_response():
     assert result == messages
 
 
+def test_truncate_tool_returns_processor_truncates_large_dict():
+    """Test that large dict tool returns are serialized and truncated."""
+    mock_ctx = Mock()
+    # Create a large dict that exceeds the limit when serialized
+    large_dict = {"data": "A" * 10000, "nested": {"key": "value"}}
+    messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content=large_dict, tool_call_id="call_1"
+                )
+            ]
+        )
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert len(result) == 1
+    truncated_content = result[0].parts[0].content
+    # Content should now be a truncated string
+    assert isinstance(truncated_content, str)
+    assert "truncated" in truncated_content
+    assert len(truncated_content) < 10000
+
+
+def test_truncate_tool_returns_processor_truncates_large_list():
+    """Test that large list tool returns are serialized and truncated."""
+    mock_ctx = Mock()
+    # Create a large list that exceeds the limit when serialized
+    large_list = ["item" * 100 for _ in range(100)]
+    messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content=large_list, tool_call_id="call_1"
+                )
+            ]
+        )
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert len(result) == 1
+    truncated_content = result[0].parts[0].content
+    # Content should now be a truncated string
+    assert isinstance(truncated_content, str)
+    assert "truncated" in truncated_content
+
+
+def test_truncate_tool_returns_processor_small_dict_unchanged():
+    """Test that small dict tool returns are not modified."""
+    mock_ctx = Mock()
+    small_dict = {"key": "value"}
+    messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="test", content=small_dict, tool_call_id="call_1"
+                )
+            ]
+        )
+    ]
+
+    with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 1000):
+        result = truncate_tool_returns_processor(mock_ctx, messages)
+
+    assert len(result) == 1
+    # Content should remain as the original dict
+    assert result[0].parts[0].content == small_dict
+
+
 # === Trim history processor tests ===
 
 

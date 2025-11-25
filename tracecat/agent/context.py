@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import orjson
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -35,13 +36,29 @@ def _truncate_content(content: str, max_chars: int) -> str:
     )
 
 
+def _get_content_size(content: str | dict | list | None) -> tuple[str, int]:
+    """Get string representation and size of content.
+
+    Returns (serialized_content, size) tuple.
+    For strings, returns the string itself.
+    For other types, serializes to JSON.
+    """
+    if content is None:
+        return "", 0
+    if isinstance(content, str):
+        return content, len(content)
+    # Serialize non-string content (dict, list, etc.) to check size
+    serialized = orjson.dumps(content).decode("utf-8")
+    return serialized, len(serialized)
+
+
 def truncate_tool_returns_processor(
     ctx: RunContext[None],
     messages: list[ModelMessage],
 ) -> list[ModelMessage]:
     """Truncate large tool return outputs to fit within limits.
 
-    Uses TRACECAT__AGENT_TOOL_OUTPUT_LIMIT from config (default 20k chars).
+    Uses TRACECAT__AGENT_TOOL_OUTPUT_LIMIT from config (default 80k chars).
     """
     max_chars = TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
     result: list[ModelMessage] = []
@@ -55,8 +72,8 @@ def truncate_tool_returns_processor(
         needs_truncation = False
         for part in msg.parts:
             if isinstance(part, ToolReturnPart):
-                content = part.content
-                if isinstance(content, str) and len(content) > max_chars:
+                _, size = _get_content_size(part.content)
+                if size > max_chars:
                     needs_truncation = True
                     break
 
@@ -68,9 +85,9 @@ def truncate_tool_returns_processor(
         new_parts = []
         for part in msg.parts:
             if isinstance(part, ToolReturnPart):
-                content = part.content
-                if isinstance(content, str) and len(content) > max_chars:
-                    truncated = _truncate_content(content, max_chars)
+                serialized, size = _get_content_size(part.content)
+                if size > max_chars:
+                    truncated = _truncate_content(serialized, max_chars)
                     new_parts.append(replace(part, content=truncated))
                 else:
                     new_parts.append(part)
