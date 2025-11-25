@@ -579,6 +579,7 @@ export type BinaryContent = {
     | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     | "text/html"
     | "text/markdown"
+    | "application/msword"
     | "application/vnd.ms-excel"
     | string
   vendor_metadata?: {
@@ -678,6 +679,9 @@ export type BuiltinToolCallPart = {
     | null
   tool_call_id?: string
   id?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   provider_name?: string | null
   part_kind?: "builtin-tool-call"
 }
@@ -701,8 +705,18 @@ export type BuiltinToolReturnPart = {
   metadata?: unknown
   timestamp?: string
   provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_kind?: "builtin-tool-return"
 }
+
+export type CachePoint = {
+  kind?: "cache-point"
+  ttl?: "5m" | "1h"
+}
+
+export type ttl = "5m" | "1h"
 
 /**
  * Model for attachment download URL response.
@@ -2011,6 +2025,9 @@ export type FilePart = {
   content: BinaryContent
   id?: string | null
   provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_kind?: "file"
 }
 
@@ -2069,7 +2086,13 @@ export type FunctionToolResultEvent = {
   content?:
     | string
     | Array<
-        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+        | string
+        | ImageUrl
+        | AudioUrl
+        | DocumentUrl
+        | VideoUrl
+        | BinaryContent
+        | CachePoint
       >
     | null
   event_kind?: "function_tool_result"
@@ -2521,6 +2544,10 @@ export type ModelRequest = {
   >
   instructions?: string | null
   kind?: "request"
+  run_id?: string | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -2551,6 +2578,10 @@ export type ModelResponse = {
     | "tool_call"
     | "error"
     | null
+  run_id?: string | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type ModelSecretConfig = {
@@ -2615,6 +2646,26 @@ export type PartDeltaEvent = {
   event_kind?: "part_delta"
 }
 
+export type PartEndEvent = {
+  index: number
+  part:
+    | TextPart
+    | ToolCallPart
+    | BuiltinToolCallPart
+    | BuiltinToolReturnPart
+    | ThinkingPart
+    | FilePart
+  next_part_kind?:
+    | "text"
+    | "thinking"
+    | "tool-call"
+    | "builtin-tool-call"
+    | "builtin-tool-return"
+    | "file"
+    | null
+  event_kind?: "part_end"
+}
+
 export type PartStartEvent = {
   index: number
   part:
@@ -2624,6 +2675,14 @@ export type PartStartEvent = {
     | BuiltinToolReturnPart
     | ThinkingPart
     | FilePart
+  previous_part_kind?:
+    | "text"
+    | "thinking"
+    | "tool-call"
+    | "builtin-tool-call"
+    | "builtin-tool-return"
+    | "file"
+    | null
   event_kind?: "part_start"
 }
 
@@ -4268,6 +4327,9 @@ export type TextArea = {
 export type TextPart = {
   content: string
   id?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_kind?: "text"
 }
 
@@ -4276,6 +4338,9 @@ export type TextPart = {
  */
 export type TextPartDelta = {
   content_delta: string
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_delta_kind?: "text"
 }
 
@@ -4301,6 +4366,9 @@ export type ThinkingPart = {
   id?: string | null
   signature?: string | null
   provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_kind?: "thinking"
 }
 
@@ -4308,6 +4376,9 @@ export type ThinkingPartDelta = {
   content_delta?: string | null
   signature_delta?: string | null
   provider_name?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_delta_kind?: "thinking"
 }
 
@@ -4337,6 +4408,9 @@ export type ToolCallPart = {
     | null
   tool_call_id?: string
   id?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_kind?: "tool-call"
 }
 
@@ -4349,6 +4423,9 @@ export type ToolCallPartDelta = {
       }
     | null
   tool_call_id?: string | null
+  provider_details?: {
+    [key: string]: unknown
+  } | null
   part_delta_kind?: "tool_call"
 }
 
@@ -4373,7 +4450,13 @@ export type ToolReturn = {
   content?:
     | string
     | Array<
-        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+        | string
+        | ImageUrl
+        | AudioUrl
+        | DocumentUrl
+        | VideoUrl
+        | BinaryContent
+        | CachePoint
       >
     | null
   metadata?: unknown
@@ -4535,7 +4618,13 @@ export type UserPromptPart = {
   content:
     | string
     | Array<
-        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+        | string
+        | ImageUrl
+        | AudioUrl
+        | DocumentUrl
+        | VideoUrl
+        | BinaryContent
+        | CachePoint
       >
   timestamp?: string
   part_kind?: "user-prompt"
@@ -6817,6 +6906,7 @@ export type ChatStreamChatEventsData = {
 export type ChatStreamChatEventsResponse = Array<
   | PartStartEvent
   | PartDeltaEvent
+  | PartEndEvent
   | FinalResultEvent
   | FunctionToolCallEvent
   | FunctionToolResultEvent
@@ -9806,6 +9896,7 @@ export type $OpenApiTs = {
         200: Array<
           | PartStartEvent
           | PartDeltaEvent
+          | PartEndEvent
           | FinalResultEvent
           | FunctionToolCallEvent
           | FunctionToolResultEvent
