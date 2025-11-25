@@ -94,9 +94,7 @@ class WorkspaceService(BaseService):
         )
         self.session.add(ownership)
 
-        await self.session.commit()
-        await self.session.refresh(workspace)
-
+        # Initialize workspace-scoped case fields schema in the same transaction
         bootstrap_role = Role(
             type="service",
             service_id="tracecat-service",
@@ -108,6 +106,9 @@ class WorkspaceService(BaseService):
             session=self.session, role=bootstrap_role
         )
         await case_fields_service.initialize_workspace_schema()
+
+        await self.session.commit()
+        await self.session.refresh(workspace)
 
         return workspace
 
