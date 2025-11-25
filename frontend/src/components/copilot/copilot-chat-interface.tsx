@@ -410,18 +410,18 @@ function CopilotChatBody({
       : undefined
   )
 
-  if (!chatId || chatLoading || chatReadyLoading || !chat) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <CenteredSpinner />
-      </div>
-    )
-  }
-
   if (chatError) {
     return (
       <div className="flex h-full items-center justify-center">
         <span className="text-red-500">Failed to load chat</span>
+      </div>
+    )
+  }
+
+  if (!chatId || chatLoading || chatReadyLoading || !chat) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
       </div>
     )
   }
