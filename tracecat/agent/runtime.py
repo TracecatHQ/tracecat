@@ -201,11 +201,7 @@ async def run_agent(
         handle = await executor.start(args)
         result = await handle.result()
         if result is None:
-            raise RuntimeError(
-                "Action: Streaming agent run did not complete successfully. The "
-                "selected model may not support streaming responses. Try switching "
-                "to a model with streaming support or disable streaming."
-            )
+            raise RuntimeError("Agent run did not complete successfully.")
         end_time = default_timer()
         return AgentOutput(
             output=try_parse_json(result.output),
