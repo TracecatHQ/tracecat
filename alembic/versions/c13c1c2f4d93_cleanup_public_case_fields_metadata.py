@@ -15,7 +15,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 revision: str = "c13c1c2f4d93"
 down_revision: str | None = "b4d8b2f2c9dd"
 branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = ("803938b158ce",)
 
 # Constants for the migration
 PUBLIC_SCHEMA = "public"
