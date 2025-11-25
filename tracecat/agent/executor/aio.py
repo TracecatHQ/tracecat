@@ -39,8 +39,7 @@ class AioAgentRunHandle[T](BaseAgentRunHandle[T]):
         if res is None:
             raise RuntimeError(
                 "Streaming agent run did not complete successfully. The selected "
-                "model may not support streaming responses. Try switching to a "
-                "model with streaming support or disable streaming."
+                "model may not support streaming responses."
             )
         return res
 
