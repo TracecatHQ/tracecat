@@ -9,13 +9,13 @@ abnf==2.2.0 \
     --hash=sha256:433380fd32855bbc60bc7b3d35d40616e21383a32ed1c9b8893d16d9f4a6c2f4 \
     --hash=sha256:5dc2ae31a84ff454f7de46e08a2a21a442a0e21a092468420587a1590b490d1f
     # via polyfile
-aioboto3==15.1.0 \
-    --hash=sha256:37763bbc6321ceb479106dc63bc84c8fdb59dd02540034a12941aebef2057c5c \
-    --hash=sha256:66006142a2ccc7d6d07aa260ba291c4922b6767d270ba42f95c59e85d8b3e645
+aioboto3==15.5.0 \
+    --hash=sha256:cc880c4d6a8481dd7e05da89f41c384dbd841454fc1998ae25ca9c39201437a6 \
+    --hash=sha256:ea8d8787d315594842fbfcf2c4dce3bac2ad61be275bc8584b2ce9a3402a6979
     # via tracecat-registry
-aiobotocore==2.24.0 \
-    --hash=sha256:72bb1f8eb1b962779a95e1bcc9cf35bc33196ad763b622a40ae7fa9d2e95c87c \
-    --hash=sha256:b32c0c45d38c22a18ce395a0b5448606c5260603296a152895b5bdb40ab3139d
+aiobotocore==2.25.1 \
+    --hash=sha256:ea9be739bfd7ece8864f072ec99bb9ed5c7e78ebb2b0b15f29781fbe02daedbc \
+    --hash=sha256:eb6daebe3cbef5b39a0bb2a97cffbe9c7cb46b2fcc399ad141f369f3c2134b1f
     # via aioboto3
 aiofiles==24.1.0 \
     --hash=sha256:22a075c9e5a3810f0c2e48f3008c94d68c65d763b9b03857924c99e57355166c \
@@ -258,16 +258,16 @@ blis==1.3.0 \
     --hash=sha256:ef188f1f914d52acbbd75993ba25554e381ec9099758b340cd0da41af94ae8ae \
     --hash=sha256:f56e0454ce44bc08797383ce427ee5e2b044aab1eafb450eab82e86f8bfac853
     # via thinc
-boto3==1.39.11 \
-    --hash=sha256:3027edf20642fe1d5f9dc50a420d0fe2733073ed6a9f0f047b60fe08c3682132 \
-    --hash=sha256:af8f1dad35eceff7658fab43b39b0f55892b6e3dd12308733521cc24dd2c9a02
+boto3==1.40.61 \
+    --hash=sha256:6b9c57b2a922b5d8c17766e29ed792586a818098efe84def27c8f582b33f898c \
+    --hash=sha256:d6c56277251adf6c2bdd25249feae625abe4966831676689ff23b4694dea5b12
     # via
     #   aiobotocore
     #   pydantic-ai-slim
     #   tracecat-registry
-botocore==1.39.11 \
-    --hash=sha256:1545352931a8a186f3e977b1e1a4542d7d434796e274c3c62efd0210b5ea76dc \
-    --hash=sha256:953b12909d6799350e346ab038e55b6efe622c616f80aef74d7a6683ffdd972c
+botocore==1.40.61 \
+    --hash=sha256:17ebae412692fd4824f99cde0f08d50126dc97954008e5ba2b522eb049238aa7 \
+    --hash=sha256:a2487ad69b090f9cccd64cf07c7021cd80ee9c0655ad974f87045b02f3ef52cd
     # via
     #   aiobotocore
     #   boto3
@@ -717,9 +717,9 @@ frozenlist==1.7.0 \
     #   aiohttp
     #   aiosignal
     #   ray
-genai-prices==0.0.35 \
-    --hash=sha256:4e53f19ffe4151074bf7e60f2dd1a0b65593b4c4a9134149bd940e3e77467db2 \
-    --hash=sha256:79b1cdfeef9a0ee7b2895781c3b2beafd22a0aec76a8864aab8aa6ff6013a9e3
+genai-prices==0.0.44 \
+    --hash=sha256:605f81d223d5775c543de548f42deb6ec7e7e5539388f33c5149df2b087f8b6b \
+    --hash=sha256:668debbd3d670f0e46af4f5bd0ce815a74847ee8d62d292ee33319ada3733009
     # via pydantic-ai-slim
 google-api-core==2.25.1 \
     --hash=sha256:8a2a56c1fef82987a524371f99f3bd0143702fecc670c72e600c1cda6bf8dbb7 \
@@ -732,9 +732,9 @@ google-auth==2.37.0 \
     #   google-api-core
     #   google-genai
     #   tracecat
-google-genai==1.46.0 \
-    --hash=sha256:6824c31149fe3b1c7285b25f79b924c5f89fd52466f62e30f76954f8104fe3a7 \
-    --hash=sha256:879c4a260d630db0dcedb5cc84a9d7b47acd29e43e9dc63541b511b757ea7296
+google-genai==1.52.0 \
+    --hash=sha256:a74e8a4b3025f23aa98d6a0f84783119012ca6c336fd68f73c5d2b11465d7fc5 \
+    --hash=sha256:c8352b9f065ae14b9322b949c7debab8562982f03bf71d44130cd2b798c20743
     # via pydantic-ai-slim
 googleapis-common-protos==1.70.0 \
     --hash=sha256:0e1b44e0ea153e6594f9f394fef15193a68aaaea2d843f83e2742717ca753257 \
@@ -1112,9 +1112,9 @@ marshmallow==3.26.1 \
     --hash=sha256:3350409f20a70a7e4e11a27661187b77cdcaeb20abca41c1454fe33636bea09c \
     --hash=sha256:e6d8affb6cb61d39d26402096dc0aee12d5a26d490a121f118d2e81dc0719dc6
     # via tracecat-registry
-mcp==1.15.0 \
-    --hash=sha256:314614c8addc67b663d6c3e4054db0a5c3dedc416c24ef8ce954e203fdc2333d \
-    --hash=sha256:5bda1f4d383cf539d3c035b3505a3de94b20dbd7e4e8b4bd071e14634eeb2d72
+mcp==1.22.0 \
+    --hash=sha256:769b9ac90ed42134375b19e777a2858ca300f95f2e800982b3e2be62dfc0ba01 \
+    --hash=sha256:bed758e24df1ed6846989c909ba4e3df339a27b4f30f1b8b627862a4bade4e98
     # via
     #   openai-agents
     #   pydantic-ai-slim
@@ -1751,9 +1751,9 @@ pydantic==2.11.9 \
     #   thinc
     #   tracecat
     #   weasel
-pydantic-ai-slim==1.6.0 \
-    --hash=sha256:66184ec9b233a0b2be3b57861cad1e01f368e2443541f257a2b05a82bfa7ef94 \
-    --hash=sha256:d6ee5fde9a31fb0ec7942b9735d7730b864b9dc9a3e3651e8933dac4f76ea621
+pydantic-ai-slim==1.22.0 \
+    --hash=sha256:0c962bac44ea81bd731e787e07106ebc49dc1ea9c842b131a5adec0e869aad37 \
+    --hash=sha256:9c2b0504daf3cfd4c06c2454ebf3011b6e08cf05cb18460f2a97c258b8cead6a
     # via tracecat
 pydantic-core==2.33.2 \
     --hash=sha256:04a1a413977ab517154eebb2d326da71638271477d6ad87a769102f7c2488c56 \
@@ -1793,9 +1793,9 @@ pydantic-extra-types==2.10.5 \
     --hash=sha256:1dcfa2c0cf741a422f088e0dbb4690e7bfadaaf050da3d6f80d6c3cf58a2bad8 \
     --hash=sha256:b60c4e23d573a69a4f1a16dd92888ecc0ef34fb0e655b4f305530377fa70e7a8
     # via tracecat
-pydantic-graph==1.6.0 \
-    --hash=sha256:66fc7fa54670af43b8559cc33aaee385cc131d621ff4eb0f4279549e96328b53 \
-    --hash=sha256:89765bc3ada736706602d60cbabc83841d8c6aaecdede3f1dc6ac719a2e28c00
+pydantic-graph==1.22.0 \
+    --hash=sha256:388c2153fddd7a7f7befcca24ff520fe29b26ac01b5ebc49051a4dcd7198226b \
+    --hash=sha256:cc3d396e27f6a664211ed5ebacb205e6f1e2e42f1ca21846a587e3b52b438fe8
     # via pydantic-ai-slim
 pydantic-settings==2.11.0 \
     --hash=sha256:d0e87a1c7d33593beb7194adb8470fc426e95ba02af83a0f23474a04c9a08180 \
@@ -1814,6 +1814,7 @@ pyjwt==2.10.1 \
     --hash=sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb
     # via
     #   fastapi-users
+    #   mcp
     #   pygithub
 pymongo==4.8.0 \
     --hash=sha256:236bbd7d0aef62e64caf4b24ca200f8c8670d1a6f5ea828c39eccdae423bc2b2 \
@@ -2264,9 +2265,9 @@ ruff==0.13.0 \
     --hash=sha256:d2a5c62f8ccc6dd2fe259917482de7275cecc86141ee10432727c4816235bc41 \
     --hash=sha256:dcd628101d9f7d122e120ac7c17e0a0f468b19bc925501dbe03c1cb7f5415b24 \
     --hash=sha256:fbc6b1934eb1c0033da427c805e27d164bb713f8e273a024a7e86176d7f462cf
-s3transfer==0.13.1 \
-    --hash=sha256:a981aa7429be23fe6dfc13e80e4020057cbab622b08c0315288758d67cabc724 \
-    --hash=sha256:c3fdba22ba1bd367922f27ec8032d6a1cf5f10c934fb5d68cf60fd5a23d936cf
+s3transfer==0.14.0 \
+    --hash=sha256:ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456 \
+    --hash=sha256:eff12264e7c8b4985074ccce27a3b38a485bb7f7422cc8046fee9be4983e4125
     # via boto3
 sentry-sdk==2.24.1 \
     --hash=sha256:36baa6a1128b9d98d2adc5e9b2f887eff0a6af558fc2b96ed51919042413556d \
@@ -2410,13 +2411,12 @@ tavily-python==0.7.6 \
     --hash=sha256:ab3c20a6bc5d9880262c5d7f1cfbfdf6ea607f55f552e1049faabced112fd8da \
     --hash=sha256:efb9528afdcdf0f6c6d718f33d084be02e34842cde3dafb39034e40fd56b0e7c
     # via tracecat-registry
-temporalio==1.17.0 \
-    --hash=sha256:00b34a986012a355bdadf0e7eb9e57e176f2e0b1d69ea4be9eb73c21672e7fd0 \
-    --hash=sha256:1ac8f1ade36fafe7110b979b6a16d89203e1f4fb9c874f2fe3b5d83c17b13244 \
-    --hash=sha256:36a84e52727e287e13777d86fa0bbda11ba6523f75a616b811cc9d799b37b98c \
-    --hash=sha256:617f37edce3db97cc7d2ff81c145a1b92c100f6e0e42207739271d10c2eea38e \
-    --hash=sha256:7a86948c74a872b7f5ecb51c5d7e8013fdda4d6a220fe92185629342e94393e7 \
-    --hash=sha256:f2724220fda1fd5948d917350ac25069c62624f46e53d4d6c6171baa75681145
+temporalio==1.19.0 \
+    --hash=sha256:162459c293553be39994f20c635a132f7332ae71bd7ba4042f8473701fcf1c7c \
+    --hash=sha256:c2d6d5cad8aec56e048705aa4f0bab83fec15343757ea7acf8504f2e0c289b60 \
+    --hash=sha256:d85c89018cba9471ce529d90c9cee5bcc31790fd64176b9ada32cc76440f8d73 \
+    --hash=sha256:f706c8f49771daf342ac8daa8ed07f4124fae943177f9feef458a1255aee717c \
+    --hash=sha256:f772f0698d60f808bc3c4a055fb53e40d757fa646411845b911863eebbf0549d
     # via tracecat
 tenacity==8.3.0 \
     --hash=sha256:3649f6443dbc0d9b01b9d8020a9c4ec7a1ff5f6f3c6c8a036ef371f573fe9185 \
@@ -2586,6 +2586,7 @@ typing-extensions==4.15.0 \
     #   flupy
     #   google-genai
     #   grpcio
+    #   mcp
     #   minio
     #   modal
     #   mypy
@@ -2615,6 +2616,7 @@ typing-inspection==0.4.1 \
     --hash=sha256:389055682238f53b04f7badcb49b989835495a96700ced5dab2d8feae4b26f51 \
     --hash=sha256:6ae134cc0203c33377d43188d4064e9b357dba58cff3185f22924610e70a9d28
     # via
+    #   mcp
     #   pydantic
     #   pydantic-ai-slim
     #   pydantic-graph

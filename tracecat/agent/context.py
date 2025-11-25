@@ -1,239 +1,138 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
-
-import orjson
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelRequest,
-    ModelRequestPart,
     ModelResponse,
-    SystemPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_ai.tools import RunContext
 
-from tracecat.agent.types import ModelMessageTA
-from tracecat.config import (
-    TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT,
-    TRACECAT__AGENT_TOOL_OUTPUT_LIMIT,
-    TRACECAT__MODEL_CONTEXT_LIMITS,
-)
 from tracecat.logger import logger
 
-
-@dataclass(slots=True, frozen=True)
-class _MessageEntry:
-    """Helper for tracking retained messages during pruning."""
-
-    index: int
-    message: ModelMessage
-    size: int
+# Maximum number of messages to keep in history
+MESSAGE_WINDOW = 15
 
 
-def prune_history(
-    messages: Sequence[ModelMessage],
-    model_name: str,
-    *,
-    reserved_tokens: int = 0,
+def _has_tool_call(msg: ModelMessage) -> bool:
+    """Check if message has a tool call."""
+    return isinstance(msg, ModelResponse) and any(
+        isinstance(part, ToolCallPart) for part in msg.parts
+    )
+
+
+def _has_tool_return(msg: ModelMessage) -> bool:
+    """Check if message has a tool return."""
+    return any(isinstance(part, ToolReturnPart) for part in msg.parts)
+
+
+def _get_tool_call_ids(msg: ModelMessage) -> set[str]:
+    """Get all tool call IDs from a message."""
+    return {p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)}
+
+
+def _get_tool_return_ids(msg: ModelMessage) -> set[str]:
+    """Get all tool return IDs from a message."""
+    return {p.tool_call_id for p in msg.parts if isinstance(p, ToolReturnPart)}
+
+
+def _clean_orphaned_tool_messages(
+    messages: list[ModelMessage],
 ) -> list[ModelMessage]:
-    """Return the pruned message history to include when invoking the model.
-    Args:
-        messages: Historical messages to prune.
-        model_name: Name of the model to determine context limit.
-        reserved_tokens: Number of characters reserved for the current prompt (not in history).
-    Returns:
-        List of messages that fit within the context limit, prioritizing recent messages
-        and always preserving the system prompt if present.
+    """Remove any tool calls without matching returns and vice versa.
+
+    Scans the entire history and removes:
+    - Tool calls (ModelResponse) where next message doesn't have matching returns
+    - Tool returns (ModelRequest) where previous message doesn't have matching calls
     """
-    context_limit = TRACECAT__MODEL_CONTEXT_LIMITS.get(
-        model_name, TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT
-    )
-    context_limit = max(0, context_limit - reserved_tokens)
-    tool_limit = TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
+    if not messages:
+        return messages
 
-    retained: list[_MessageEntry] = []
-    total_size = 0
+    result: list[ModelMessage] = []
+    i = 0
 
-    # Iterate from newest to oldest, keeping messages that fit within the limit
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
+    while i < len(messages):
+        msg = messages[i]
 
-        # Truncate tool outputs before calculating size
-        truncated = _truncate_tool_outputs(message, tool_limit)
-        message_size = _estimate_message_size(truncated)
+        # Check for orphaned tool calls
+        if _has_tool_call(msg):
+            call_ids = _get_tool_call_ids(msg)
 
-        if retained and total_size + message_size > context_limit:
-            break
+            # Check if next message has matching returns
+            has_matching_returns = False
+            if i + 1 < len(messages):
+                next_msg = messages[i + 1]
+                return_ids = _get_tool_return_ids(next_msg)
+                has_matching_returns = bool(call_ids & return_ids)
 
-        retained.append(_MessageEntry(index, truncated, message_size))
-        total_size += message_size
+            if not has_matching_returns:
+                # Skip this orphaned tool call
+                i += 1
+                continue
 
-    # Warn if the most recent message alone exceeds budget
-    if retained and total_size > context_limit:
-        logger.warning(
-            "Most recent message exceeds context budget; model invocation may fail",
-            message_size=retained[-1].size,
-            total_size=total_size,
-            context_limit=context_limit,
-            reserved_tokens=reserved_tokens,
-        )
+        # Check for orphaned tool returns
+        if _has_tool_return(msg):
+            return_ids = _get_tool_return_ids(msg)
 
-    retained.reverse()
+            # Check if previous kept message has matching calls
+            has_matching_calls = False
+            if result:
+                prev_msg = result[-1]
+                call_ids = _get_tool_call_ids(prev_msg)
+                has_matching_calls = bool(return_ids & call_ids)
 
-    # Ensure system prompt is retained (always at index 0 if it exists)
-    if (
-        messages
-        and _has_system_prompt(messages[0])
-        and all(entry.index != 0 for entry in retained)
-    ):
-        system_message = messages[0]
-        system_size = _estimate_message_size(system_message)
-        if retained:
-            while retained and total_size + system_size > context_limit:
-                popped = retained.pop(0)
-                total_size -= popped.size
-        retained.insert(0, _MessageEntry(0, system_message, system_size))
-        total_size += system_size
+            if not has_matching_calls:
+                # Skip this orphaned tool return
+                i += 1
+                continue
 
-    # Drop orphaned tool returns from the start of history
-    while retained and _is_tool_result_only(retained[0].message):
-        popped = retained.pop(0)
-        total_size -= popped.size
+        result.append(msg)
+        i += 1
 
-    # Sanitize: remove any tool returns that don't have corresponding tool calls
-    retained, total_size = _sanitize_orphaned_tool_returns(retained)
-
-    logger.debug(
-        "Pruned message history",
-        original_count=len(messages),
-        retained_count=len(retained),
-        total_size=total_size,
-        context_limit=context_limit,
-    )
-
-    return [entry.message for entry in retained]
+    return result
 
 
-def _truncate_tool_outputs(message: ModelMessage, limit: int) -> ModelMessage:
-    if not isinstance(message, ModelRequest):
-        return message
+def trim_history_processor(
+    ctx: RunContext[None],
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    """Trim message history to a fixed window size.
 
-    updated_parts: list[ModelRequestPart] = []
-    changed = False
-    for part in message.parts:
-        if isinstance(part, ToolReturnPart):
-            truncated_content, did_change = truncate_tool_content(part.content, limit)
-            if did_change:
-                part = replace(part, content=truncated_content)
-                changed = True
-        updated_parts.append(part)
-
-    if not changed:
-        return message
-
-    return replace(message, parts=tuple(updated_parts))
-
-
-def truncate_tool_content(content: object, limit: int) -> tuple[object, bool]:
-    """Truncate tool output content if it exceeds the specified limit.
-    Args:
-        content: The tool output content to potentially truncate.
-        limit: Maximum size in characters.
-    Returns:
-        Tuple of (potentially truncated content, was_truncated boolean).
+    Cleans orphaned tool calls/returns, then finds a safe cut point.
     """
-    if content is None:
-        return content, False
+    # First, clean any orphaned tool messages from the input
+    messages = _clean_orphaned_tool_messages(messages)
 
-    # Serialize to check length
-    try:
-        if isinstance(content, str):
-            serialized = content
-        elif isinstance(content, dict | list):
-            serialized = orjson.dumps(content).decode()
-        else:
-            serialized = str(content)
-    except (TypeError, ValueError):
-        serialized = str(content)
+    if len(messages) <= MESSAGE_WINDOW:
+        return messages
 
-    if len(serialized) <= limit:
-        return content, False
+    # Start at target cut point and search backward for a safe cut
+    target_cut = len(messages) - MESSAGE_WINDOW
 
-    return f"{serialized[:limit]}... [truncated]", True
+    for cut_index in range(target_cut, -1, -1):
+        first_message = messages[cut_index]
 
-
-def _estimate_message_size(message: ModelMessage) -> int:
-    """Estimate the serialized size of a message in characters."""
-    return len(ModelMessageTA.dump_json(message))
-
-
-def _has_system_prompt(message: ModelMessage) -> bool:
-    """Check if a message contains a system prompt part."""
-    if not isinstance(message, ModelRequest):
-        return False
-    return any(isinstance(part, SystemPromptPart) for part in message.parts)
-
-
-def _is_tool_result_only(message: ModelMessage) -> bool:
-    if not isinstance(message, ModelRequest):
-        return False
-    return all(isinstance(part, ToolReturnPart) for part in message.parts)
-
-
-def _sanitize_orphaned_tool_returns(
-    retained: list[_MessageEntry],
-) -> tuple[list[_MessageEntry], int]:
-    """Remove tool returns that don't have corresponding tool calls in the history.
-    When messages are pruned, we might drop a ModelResponse containing ToolCallPart
-    but keep a later ModelRequest containing the corresponding ToolReturnPart. This
-    causes API errors since the tool result references a non-existent tool call.
-    Args:
-        retained: List of message entries to clean.
-    Returns:
-        Tuple of (cleaned list, new total_size).
-    """
-    # Collect all valid tool_call_ids from tool calls in the history
-    valid_tool_ids: set[str] = set()
-    for entry in retained:
-        if isinstance(entry.message, ModelResponse):
-            for part in entry.message.parts:
-                if isinstance(part, ToolCallPart):
-                    valid_tool_ids.add(part.tool_call_id)
-
-    # Filter out orphaned tool returns
-    cleaned: list[_MessageEntry] = []
-    for entry in retained:
-        if not isinstance(entry.message, ModelRequest):
-            cleaned.append(entry)
+        # Skip if first message has tool returns (orphaned without calls)
+        if _has_tool_return(first_message):
             continue
 
-        # Filter parts, keeping only non-orphaned tool returns
-        filtered_parts: list[ModelRequestPart] = []
-        for part in entry.message.parts:
-            if isinstance(part, ToolReturnPart):
-                if part.tool_call_id in valid_tool_ids:
-                    filtered_parts.append(part)
-                else:
-                    logger.debug(
-                        "Dropping orphaned tool return",
-                        tool_call_id=part.tool_call_id,
-                        tool_name=part.tool_name,
-                    )
-            else:
-                filtered_parts.append(part)
+        # Skip if first message has tool calls (violates AI model ordering rules)
+        if _has_tool_call(first_message):
+            continue
 
-        # Only keep the message if it has parts left
-        if filtered_parts:
-            if len(filtered_parts) != len(entry.message.parts):
-                # Message was modified, recalculate size
-                updated_message = replace(entry.message, parts=tuple(filtered_parts))
-                updated_size = _estimate_message_size(updated_message)
-                entry = replace(entry, message=updated_message, size=updated_size)
-            cleaned.append(entry)
-        else:
-            logger.debug("Dropping empty message after removing orphaned tool returns")
+        # Found a safe cut point
+        result = messages[cut_index:]
 
-    total_size = sum(entry.size for entry in cleaned)
-    return cleaned, total_size
+        if len(result) < len(messages):
+            logger.info(
+                "History trimmed",
+                original=len(messages),
+                kept=len(result),
+                cut_index=cut_index,
+                model=ctx.model.model_name,
+            )
+
+        return result
+
+    # No safe cut point found, keep all messages
+    return messages

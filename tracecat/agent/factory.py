@@ -8,6 +8,7 @@ from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 
+from tracecat.agent.context import trim_history_processor
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tools import build_agent_tools
@@ -106,5 +107,6 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         tools=agent_tools,
         toolsets=toolsets,
         deps_type=config.deps_type or type(None),
+        history_processors=[trim_history_processor],
     )
     return agent

@@ -2222,6 +2222,7 @@ export const $BinaryContent = {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "text/html",
             "text/markdown",
+            "application/msword",
             "application/vnd.ms-excel",
           ],
         },
@@ -2558,6 +2559,18 @@ export const $BuiltinToolCallPart = {
       ],
       title: "Id",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     provider_name: {
       anyOf: [
         {
@@ -2633,6 +2646,18 @@ export const $BuiltinToolReturnPart = {
       ],
       title: "Provider Name",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     part_kind: {
       type: "string",
       const: "builtin-tool-return",
@@ -2644,6 +2669,25 @@ export const $BuiltinToolReturnPart = {
   required: ["tool_name", "content"],
   title: "BuiltinToolReturnPart",
   description: "A tool return message from a built-in tool.",
+} as const
+
+export const $CachePoint = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "cache-point",
+      title: "Kind",
+      default: "cache-point",
+    },
+    ttl: {
+      type: "string",
+      enum: ["5m", "1h"],
+      title: "Ttl",
+      default: "5m",
+    },
+  },
+  type: "object",
+  title: "CachePoint",
 } as const
 
 export const $CaseAttachmentDownloadResponse = {
@@ -6427,6 +6471,18 @@ export const $FilePart = {
       ],
       title: "Provider Name",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     part_kind: {
       type: "string",
       const: "file",
@@ -6660,6 +6716,9 @@ export const $FunctionToolResultEvent = {
               },
               {
                 $ref: "#/components/schemas/BinaryContent",
+              },
+              {
+                $ref: "#/components/schemas/CachePoint",
               },
             ],
           },
@@ -7875,6 +7934,29 @@ export const $ModelRequest = {
       title: "Kind",
       default: "request",
     },
+    run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run Id",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+    },
   },
   type: "object",
   required: ["parts"],
@@ -7992,6 +8074,29 @@ export const $ModelResponse = {
         },
       ],
       title: "Finish Reason",
+    },
+    run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run Id",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
     },
   },
   type: "object",
@@ -8207,6 +8312,77 @@ export const $PartDeltaEvent = {
   title: "PartDeltaEvent",
 } as const
 
+export const $PartEndEvent = {
+  properties: {
+    index: {
+      type: "integer",
+      title: "Index",
+    },
+    part: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/TextPart",
+        },
+        {
+          $ref: "#/components/schemas/ToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolCallPart",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinToolReturnPart",
+        },
+        {
+          $ref: "#/components/schemas/ThinkingPart",
+        },
+        {
+          $ref: "#/components/schemas/FilePart",
+        },
+      ],
+      title: "Part",
+      discriminator: {
+        propertyName: "part_kind",
+        mapping: {
+          "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
+          "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
+          file: "#/components/schemas/FilePart",
+          text: "#/components/schemas/TextPart",
+          thinking: "#/components/schemas/ThinkingPart",
+          "tool-call": "#/components/schemas/ToolCallPart",
+        },
+      },
+    },
+    next_part_kind: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "text",
+            "thinking",
+            "tool-call",
+            "builtin-tool-call",
+            "builtin-tool-return",
+            "file",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Part Kind",
+    },
+    event_kind: {
+      type: "string",
+      const: "part_end",
+      title: "Event Kind",
+      default: "part_end",
+    },
+  },
+  type: "object",
+  required: ["index", "part"],
+  title: "PartEndEvent",
+} as const
+
 export const $PartStartEvent = {
   properties: {
     index: {
@@ -8246,6 +8422,25 @@ export const $PartStartEvent = {
           "tool-call": "#/components/schemas/ToolCallPart",
         },
       },
+    },
+    previous_part_kind: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "text",
+            "thinking",
+            "tool-call",
+            "builtin-tool-call",
+            "builtin-tool-return",
+            "file",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Previous Part Kind",
     },
     event_kind: {
       type: "string",
@@ -12990,6 +13185,18 @@ export const $TextPart = {
       ],
       title: "Id",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     part_kind: {
       type: "string",
       const: "text",
@@ -13008,6 +13215,18 @@ export const $TextPartDelta = {
     content_delta: {
       type: "string",
       title: "Content Delta",
+    },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
     },
     part_delta_kind: {
       type: "string",
@@ -13093,6 +13312,18 @@ export const $ThinkingPart = {
       ],
       title: "Provider Name",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     part_kind: {
       type: "string",
       const: "thinking",
@@ -13140,6 +13371,18 @@ export const $ThinkingPartDelta = {
         },
       ],
       title: "Provider Name",
+    },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
     },
     part_delta_kind: {
       type: "string",
@@ -13236,6 +13479,18 @@ export const $ToolCallPart = {
       ],
       title: "Id",
     },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
     part_kind: {
       type: "string",
       const: "tool-call",
@@ -13287,6 +13542,18 @@ export const $ToolCallPartDelta = {
         },
       ],
       title: "Tool Call Id",
+    },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
     },
     part_delta_kind: {
       type: "string",
@@ -13349,6 +13616,9 @@ export const $ToolReturn = {
               },
               {
                 $ref: "#/components/schemas/BinaryContent",
+              },
+              {
+                $ref: "#/components/schemas/CachePoint",
               },
             ],
           },
@@ -13877,6 +14147,9 @@ export const $UserPromptPart = {
               },
               {
                 $ref: "#/components/schemas/BinaryContent",
+              },
+              {
+                $ref: "#/components/schemas/CachePoint",
               },
             ],
           },
