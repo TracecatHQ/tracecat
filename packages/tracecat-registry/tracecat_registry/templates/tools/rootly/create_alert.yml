@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Create incident
+  title: Create alert
   description: Creates a new alert from provided data.
   display_group: Rootly
   doc_url: https://docs.rootly.com/api-reference/alerts/creates-an-alert
