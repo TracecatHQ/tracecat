@@ -204,6 +204,13 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | tools.phishlabs        | get_feed_data                           | `phishlabs`               |
 | tools.phishlabs        | get_threat_data                         | `phishlabs`               |
 | tools.pymongo          | execute_operation                       | `mongodb`                 |
+| tools.rootly           | create_alert                            | `rootly`                  |
+| tools.rootly           | create_incident                         | `rootly`                  |
+| tools.rootly           | get_alert                               | `rootly`                  |
+| tools.rootly           | get_incident                            | `rootly`                  |
+| tools.rootly           | list_alerts                             | `rootly`                  |
+| tools.rootly           | list_incident_alerts                    | `rootly`                  |
+| tools.rootly           | list_incidents                          | `rootly`                  |
 | tools.sentinel_one     | list_threats                            | `sentinel_one`, `ssl`     |
 | tools.slack            | ask_text_input                          | `slack`                   |
 | tools.slack            | lookup_user_by_email                    | `slack`                   |
@@ -286,6 +293,7 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | `opencti`              | `OPENCTI_API_TOKEN`                                                            | -                                                                                                                  |
 | `pagerduty`            | `PAGERDUTY_API_TOKEN`                                                          | -                                                                                                                  |
 | `phishlabs`            | `PL_CLIENT_ID` `PL_CLIENT_SECRET` `PL_CUSTOMER_ID` `PL_PASSWORD` `PL_USERNAME` | -                                                                                                                  |
+| `rootly`               | `ROOTLY_API_KEY`                                                               | -                                                                                                                  |
 | `sentinel_one`         | `SENTINEL_ONE_API_TOKEN`                                                       | -                                                                                                                  |
 | `slack`                | `SLACK_BOT_TOKEN`                                                              | -                                                                                                                  |
 | `smtp`                 | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER`                                | -                                                                                                                  |
