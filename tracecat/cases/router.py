@@ -534,28 +534,16 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
-    except TracecatException as e:
-        # Check if this is a duplicate field error
-        if "already exists" in str(e).lower():
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail=str(e),
-            ) from e
-        raise
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
             e = cause
         if isinstance(e, DuplicateColumnError):
-            # Format: 'column "field_name" of relation "table_name" already exists'
             raise HTTPException(
                 status_code=HTTP_409_CONFLICT,
                 detail=f"A field with the name '{params.name}' already exists",
             ) from e
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while creating the field: {e}",
-        ) from e
+        raise
 
 
 @case_fields_router.patch("/{field_id}", status_code=HTTP_204_NO_CONTENT)
