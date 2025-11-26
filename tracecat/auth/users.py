@@ -1,4 +1,6 @@
 import contextlib
+import hashlib
+import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
@@ -331,7 +333,57 @@ def get_user_manager_context(
     return contextlib.asynccontextmanager(get_user_manager)(user_db=user_db)
 
 
+def _get_cookie_name() -> str:
+    """Get the cookie name, respecting environment variable override or generating a stable one.
+
+    Returns:
+        Cookie name from environment variable if set, a stable generated name in development,
+        or None to use the default cookie name.
+    """
+    # Allow explicit override via environment variable (for backward compatibility)
+    if env_cookie_name := (
+        os.environ.get("TRACECAT__DEV_COOKIE_NAME")
+        or os.environ.get("TRACECAT__COOKIE_NAME")
+    ):
+        return env_cookie_name
+
+    # Only generate stable cookie name in development mode
+    if config.TRACECAT__APP_ENV == "development":
+        """Generate a stable cookie name unique to this tracecat instance.
+
+        Uses the Docker Compose project name (COMPOSE_PROJECT_NAME) if available,
+        which provides a stable, instance-specific identifier. Falls back to a hash
+        of stable configuration values if not in a Docker Compose environment.
+
+        This ensures each instance gets a unique cookie name that remains consistent
+        across restarts, preventing cookie conflicts when running multiple instances.
+
+        Returns:
+            A stable cookie name like 'tracecat_auth_<project_name>' or 'tracecat_auth_<hash>'.
+        """
+        # Prefer Docker Compose project name (most stable and human-readable)
+        from slugify import slugify
+
+        if compose_project_name := os.environ.get("COMPOSE_PROJECT_NAME"):
+            return f"tracecat_auth_{slugify(compose_project_name)}"
+
+        # Fallback: use hash of stable instance configuration
+        # Use database URI as primary source of uniqueness (most stable per instance)
+        # Fall back to API URL if DB URI is not available
+        stable_value = config.TRACECAT__DB_URI or config.TRACECAT__API_URL
+
+        # Generate a short hash (first 8 characters of SHA256)
+        hash_obj = hashlib.sha256(stable_value.encode())
+        hash_hex = hash_obj.hexdigest()[:8]
+
+        return f"tracecat_auth_{hash_hex}"
+
+    # In production/staging, use default cookie name (None)
+    return "fastapiusersauth"
+
+
 cookie_transport = CookieTransport(
+    cookie_name=_get_cookie_name(),
     cookie_max_age=config.SESSION_EXPIRE_TIME_SECONDS,
     cookie_secure=config.TRACECAT__API_URL.startswith("https"),
 )
