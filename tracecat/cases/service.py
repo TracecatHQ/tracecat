@@ -816,23 +816,30 @@ class CaseFieldsService(CustomFieldsService):
     async def ensure_workspace_row(self, case_id: uuid.UUID) -> uuid.UUID:
         """Ensure a workspace data row exists for the given case.
 
-        Returns the row ID for the case's field values.
+        Args:
+            case_id: The case ID to ensure a row exists for
+
+        Returns:
+            The row ID for the case's field values
+
+        Raises:
+            TracecatException: If the row could not be created or retrieved
         """
         await self._ensure_schema_ready()
         table = self._table_definition()
         row_id = uuid.uuid4()
+
+        # Use ON CONFLICT DO UPDATE SET id = id to ensure we always get a row ID back,
+        # even if the row already exists. This prevents race conditions where two
+        # concurrent requests both try to insert the same row.
         insert_stmt = insert(table).values(id=row_id, case_id=case_id)
-        stmt = insert_stmt.on_conflict_do_nothing(
-            index_elements=[table.c.case_id]
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[table.c.case_id],
+            set_={table.c.id: table.c.id},  # No-op update to ensure RETURNING works
         ).returning(table.c.id)
 
         result = await self.session.execute(stmt)
         inserted_id = result.scalar_one_or_none()
-
-        if inserted_id is None:
-            # Row already exists, get its ID
-            select_stmt = sa.select(table.c.id).where(table.c.case_id == case_id)
-            inserted_id = await self.session.scalar(select_stmt)
 
         if inserted_id is None:
             raise TracecatException(
@@ -853,7 +860,23 @@ class CaseFieldsService(CustomFieldsService):
     async def upsert_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
-        """Upsert custom field values for a case."""
+        """Upsert custom field values for a case.
+
+        This method ensures the workspace row exists and updates field values.
+        It does NOT commit - the caller is responsible for committing the transaction
+        to ensure atomicity with other operations (e.g., case creation/update).
+
+        Args:
+            case: The case to upsert field values for
+            fields: Dictionary of field names to values
+
+        Returns:
+            Dictionary containing the updated row data
+
+        Raises:
+            TracecatException: If the case has no owner or if field operations fail
+            TracecatNotFoundError: If the row is not found after ensuring it exists
+        """
         if case.owner_id is None:
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
