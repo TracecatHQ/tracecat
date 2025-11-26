@@ -368,9 +368,10 @@ def _get_cookie_name() -> str:
             return f"tracecat_auth_{slugify(compose_project_name)}"
 
         # Fallback: use hash of stable instance configuration
-        # Use database URI as primary source of uniqueness (most stable per instance)
-        # Fall back to API URL if DB URI is not available
-        stable_value = config.TRACECAT__DB_URI or config.TRACECAT__API_URL
+        # Use public app URL as primary source of uniqueness (unique per instance)
+        # The DB URI and internal API URL are typically the same across Docker instances
+        # since they use internal Docker network addresses
+        stable_value = config.TRACECAT__PUBLIC_APP_URL
 
         # Generate a short hash (first 8 characters of SHA256)
         hash_obj = hashlib.sha256(stable_value.encode())
