@@ -50,7 +50,7 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatException, TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import (
