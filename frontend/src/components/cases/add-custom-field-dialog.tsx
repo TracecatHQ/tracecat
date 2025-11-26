@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
-import { casesCreateField } from "@/client"
+import { ApiError, casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -278,11 +279,21 @@ export function AddCustomFieldDialog({
       onOpenChange(false)
     } catch (error) {
       console.error("Failed to create case field", error)
-      toast({
-        title: "Error creating field",
-        description: "Failed to create the case field. Please try again.",
-        variant: "destructive",
-      })
+      if (error instanceof ApiError) {
+        const apiError = error as TracecatApiError
+        if (apiError.status === 409) {
+          // Duplicate field error - show inline error only, no toast
+          form.setError("name", {
+            type: "manual",
+            message: "A field with this name already exists",
+          })
+        }
+      } else {
+        toast({
+          title: "Error creating field",
+          description: "Failed to create the case field. Please try again.",
+        })
+      }
     } finally {
       setIsSubmitting(false)
     }
