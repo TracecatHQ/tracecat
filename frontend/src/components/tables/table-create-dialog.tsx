@@ -90,31 +90,28 @@ const createTableSchema = z
       .min(1, "At least one column is required"),
   })
   .superRefine((data, ctx) => {
-    // Check for duplicate column names
+    // Check for duplicate column names - only show error on the last occurrence
     const columnNames = data.columns.map((col) => col.name.toLowerCase())
     const seen = new Set<string>()
-    const duplicates = new Set<string>()
+    const duplicateIndices = new Map<string, number>() // Track last index for each duplicate name
 
     for (let i = 0; i < columnNames.length; i++) {
       const name = columnNames[i]
       if (seen.has(name)) {
-        duplicates.add(name)
+        // This is a duplicate - update to track the latest occurrence
+        duplicateIndices.set(name, i)
       } else {
         seen.add(name)
       }
     }
 
-    // Add errors for duplicate column names
-    if (duplicates.size > 0) {
-      for (let i = 0; i < data.columns.length; i++) {
-        if (duplicates.has(columnNames[i])) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Column names must be unique",
-            path: ["columns", i, "name"],
-          })
-        }
-      }
+    // Add errors only for the last occurrence of each duplicate
+    for (const [_, index] of duplicateIndices.entries()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Column names must be unique",
+        path: ["columns", index, "name"],
+      })
     }
   })
 
