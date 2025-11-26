@@ -1,7 +1,7 @@
 """jsonb schema validation case fields
 
 Revision ID: 3f1bacf5a8a9
-Revises: c13c1c2f4d93
+Revises: b873c83b8e0a
 Create Date: 2025-11-25 20:33:14.153722
 
 """
@@ -17,7 +17,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 # revision identifiers, used by Alembic.
 revision: str = "3f1bacf5a8a9"
-down_revision: str | None = "c13c1c2f4d93"
+down_revision: str | None = "b873c83b8e0a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
