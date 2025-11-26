@@ -75,17 +75,48 @@ const tableColumnSchema = z
     }
   })
 
-const createTableSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Name is required")
-    .max(100, "Name cannot exceed 100 characters")
-    .regex(
-      /^[a-zA-Z0-9_]+$/,
-      "Name must contain only letters, numbers, and underscores"
-    ),
-  columns: z.array(tableColumnSchema).min(1, "At least one column is required"),
-})
+const createTableSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(100, "Name cannot exceed 100 characters")
+      .regex(
+        /^[a-zA-Z0-9_]+$/,
+        "Name must contain only letters, numbers, and underscores"
+      ),
+    columns: z
+      .array(tableColumnSchema)
+      .min(1, "At least one column is required"),
+  })
+  .superRefine((data, ctx) => {
+    // Check for duplicate column names
+    const columnNames = data.columns.map((col) => col.name.toLowerCase())
+    const seen = new Set<string>()
+    const duplicates = new Set<string>()
+
+    for (let i = 0; i < columnNames.length; i++) {
+      const name = columnNames[i]
+      if (seen.has(name)) {
+        duplicates.add(name)
+      } else {
+        seen.add(name)
+      }
+    }
+
+    // Add errors for duplicate column names
+    if (duplicates.size > 0) {
+      for (let i = 0; i < data.columns.length; i++) {
+        if (duplicates.has(columnNames[i])) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Column names must be unique",
+            path: ["columns", i, "name"],
+          })
+        }
+      }
+    }
+  })
 
 type CreateTableSchema = z.infer<typeof createTableSchema>
 

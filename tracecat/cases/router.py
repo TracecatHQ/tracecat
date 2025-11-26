@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
+from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
 from starlette.status import (
@@ -10,6 +11,7 @@ from starlette.status import (
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
@@ -48,7 +50,7 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatException, TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import (
@@ -530,7 +532,30 @@ async def create_field(
 ) -> None:
     """Create a new case field."""
     service = CaseFieldsService(session, role)
-    await service.create_field(params)
+    try:
+        await service.create_field(params)
+    except TracecatException as e:
+        # Check if this is a duplicate field error
+        if "already exists" in str(e).lower():
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=str(e),
+            ) from e
+        raise
+    except ProgrammingError as e:
+        # Drill down to the root cause
+        while (cause := e.__cause__) is not None:
+            e = cause
+        if isinstance(e, DuplicateColumnError):
+            # Format: 'column "field_name" of relation "table_name" already exists'
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"A field with the name '{params.name}' already exists",
+            ) from e
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while creating the field: {e}",
+        ) from e
 
 
 @case_fields_router.patch("/{field_id}", status_code=HTTP_204_NO_CONTENT)
