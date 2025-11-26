@@ -705,7 +705,7 @@ class CaseFieldsService(CustomFieldsService):
     """Service that manages workspace-scoped case fields.
 
     CaseFields is the workspace-level definition storing schema metadata.
-    The actual per-case values are stored in a dynamic workspace table.
+    The actual per-case values are stored in the workspace's custom fields schema in the `case_fields` table.
     """
 
     service_name = "case_fields"
