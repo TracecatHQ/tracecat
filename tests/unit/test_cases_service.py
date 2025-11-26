@@ -528,11 +528,11 @@ class TestCasesService:
             fields={"custom_field1": "test value", "custom_field2": 123},
         )
 
-        # Mock the create_field_values method
+        # Mock the upsert_field_values method
         with patch.object(
-            cases_service.fields, "create_field_values"
-        ) as mock_insert_fields:
-            mock_insert_fields.return_value = {
+            cases_service.fields, "upsert_field_values"
+        ) as mock_upsert_fields:
+            mock_upsert_fields.return_value = {
                 "custom_field1": "test value",
                 "custom_field2": 123,
             }
@@ -544,8 +544,8 @@ class TestCasesService:
             assert created_case.summary == params_with_fields.summary
             assert created_case.description == params_with_fields.description
 
-            # Verify that create_field_values was called with the case and fields
-            mock_insert_fields.assert_called_once_with(
+            # Verify that upsert_field_values was called with the case and fields
+            mock_upsert_fields.assert_called_once_with(
                 created_case, {"custom_field1": "test value", "custom_field2": 123}
             )
 
@@ -555,27 +555,18 @@ class TestCasesService:
         """Test updating just the fields of a case."""
         # Create a case first
         created_case = await cases_service.create_case(case_create_params)
-
-        # Create a known row_id for the workspace table row
-        row_id = uuid.uuid4()
-
         # Mock the field methods
         with (
             patch.object(cases_service.fields, "get_fields") as mock_get_fields,
             patch.object(
-                cases_service.fields, "_ensure_workspace_row"
-            ) as mock_ensure_row,
-            patch.object(
-                cases_service.fields, "update_field_values"
-            ) as mock_update_fields,
+                cases_service.fields, "upsert_field_values"
+            ) as mock_upsert_fields,
         ):
             # Setup mock to return existing field values
             mock_get_fields.return_value = {
                 "existing_field1": "original value",
                 "existing_field2": 456,
             }
-            # Mock _ensure_workspace_row to return our known row_id
-            mock_ensure_row.return_value = row_id
 
             # Update just the fields
             update_params = CaseUpdate(
@@ -588,17 +579,10 @@ class TestCasesService:
             # Verify get_fields was called
             mock_get_fields.assert_called_once_with(created_case)
 
-            # Verify _ensure_workspace_row was called with the case id
-            mock_ensure_row.assert_called_once_with(created_case.id)
-
-            # Verify update_field_values was called with merged fields
-            mock_update_fields.assert_called_once_with(
-                row_id,
-                {
-                    "existing_field1": "updated value",
-                    "existing_field2": 456,
-                    "new_field": "new value",
-                },
+            # Verify upsert_field_values was called with the fields (not merged)
+            mock_upsert_fields.assert_called_once_with(
+                created_case,
+                {"existing_field1": "updated value", "new_field": "new value"},
             )
 
     async def test_cascade_delete(

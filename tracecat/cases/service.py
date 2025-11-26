@@ -541,7 +541,7 @@ class CasesService(BaseWorkspaceService):
 
             # Always create the fields row to ensure defaults are applied
             # Pass empty dict if no fields provided to trigger default value application
-            await self.fields.create_field_values(case, params.fields or {})
+            await self.fields.upsert_field_values(case, params.fields or {})
 
             run_ctx = ctx_run.get()
             await self.events.create_event(
@@ -630,20 +630,16 @@ class CasesService(BaseWorkspaceService):
         if fields := set_fields.pop("fields", None):
             # If fields was set, we need to update the fields row
             # It must be a dictionary because we validated it in the model
-            # Get existing fields
             if not isinstance(fields, dict):
                 raise ValueError("Fields must be a dict")
 
-            # Check if workspace row exists for this case
-            existing_fields = await self.fields.get_fields(case)
-            if existing_fields is not None:
-                # Merge existing fields with new fields
-                row_id = await self.fields._ensure_workspace_row(case.id)
-                await self.fields.update_field_values(row_id, existing_fields | fields)
-            else:
-                # Case has no fields row yet, create one
-                existing_fields = {}
-                await self.fields.create_field_values(case, fields)
+            # Get existing fields for diff calculation
+            existing_fields = await self.fields.get_fields(case) or {}
+
+            # Upsert the field values (handles both create and update)
+            await self.fields.upsert_field_values(case, fields)
+
+            # Calculate diffs for event
             diffs = []
             for field, value in fields.items():
                 old_value = existing_fields.get(field)
@@ -817,7 +813,7 @@ class CaseFieldsService(CustomFieldsService):
         await self.editor.delete_column(field_id)
         await self.session.commit()
 
-    async def _ensure_workspace_row(self, case_id: uuid.UUID) -> uuid.UUID:
+    async def ensure_workspace_row(self, case_id: uuid.UUID) -> uuid.UUID:
         """Ensure a workspace data row exists for the given case.
 
         Returns the row ID for the case's field values.
@@ -854,15 +850,15 @@ class CaseFieldsService(CustomFieldsService):
         )
         return await self.editor.get_row(row_id) if row_id else None
 
-    async def create_field_values(
+    async def upsert_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
-        """Add custom field values to a case."""
+        """Upsert custom field values for a case."""
         if case.owner_id is None:
             raise TracecatException(
-                "Cannot create case fields without an owning workspace."
+                "Cannot upsert case fields without an owning workspace."
             )
-        row_id = await self._ensure_workspace_row(case.id)
+        row_id = await self.ensure_workspace_row(case.id)
 
         try:
             if fields:
@@ -872,7 +868,7 @@ class CaseFieldsService(CustomFieldsService):
             return await self.editor.get_row(row_id=row_id)
         except TracecatNotFoundError as e:
             self.logger.error(
-                "Case fields row not found after creation",
+                "Case fields row not found after upsert",
                 row_id=row_id,
                 case_id=case.id,
                 fields=fields,
@@ -883,7 +879,7 @@ class CaseFieldsService(CustomFieldsService):
                 f" Fields attempted: {', '.join(field_names)}." if field_names else ""
             )
             raise TracecatException(
-                "Failed to save custom field values for case. The field row was created but could not be updated."
+                "Failed to save custom field values for case. The field row was upserted but could not be updated."
                 f"{field_info} Please verify all custom fields exist in Settings > Cases > Custom Fields and have correct data types."
             ) from e
         except ProgrammingError as e:
@@ -895,22 +891,6 @@ class CaseFieldsService(CustomFieldsService):
                 ) from e
             raise TracecatException(
                 "Failed to create case fields due to an unexpected error."
-            ) from e
-
-    async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
-        """Update existing custom field values."""
-        await self._ensure_schema_ready()
-        try:
-            await self.editor.update_row(id, fields)
-        except ProgrammingError as e:
-            while cause := e.__cause__:
-                e = cause
-            if isinstance(e, UndefinedColumnError):
-                raise TracecatException(
-                    "Failed to update case fields. One or more custom fields do not exist. Please ensure these fields have been created and try again."
-                ) from e
-            raise TracecatException(
-                "Failed to update case fields due to an unexpected error."
             ) from e
 
 

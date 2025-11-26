@@ -207,7 +207,7 @@ class TestCaseFieldsService:
         """Test getting fields for a case with field values."""
         # Initialize workspace schema and ensure a row exists for the case
         await case_fields_service.initialize_workspace_schema()
-        row_id = await case_fields_service._ensure_workspace_row(test_case.id)
+        row_id = await case_fields_service.ensure_workspace_row(test_case.id)
 
         # Mock the editor.get_row method to return a response
         mock_fields_data = {
@@ -227,27 +227,34 @@ class TestCaseFieldsService:
             assert fields == mock_fields_data
             mock_get_row.assert_called_once_with(row_id)
 
-    async def test_create_field_values(
+    async def test_upsert_field_values(
         self, case_fields_service: CaseFieldsService, test_case: Case
     ) -> None:
-        """Test inserting field values for a case."""
-        # Field values to insert
+        """Test upserting field values for a case."""
+        # Field values to upsert
         fields_data = {"custom_field1": "test value", "custom_field2": 123}
 
         # Mock result from editor.update_row
         mock_result = {"id": uuid.uuid4(), "case_id": test_case.id, **fields_data}
 
-        # Mock the editor.update_row method
-        with patch.object(case_fields_service.editor, "update_row") as mock_update_row:
+        # Mock the editor methods
+        with (
+            patch.object(
+                case_fields_service, "ensure_workspace_row"
+            ) as mock_ensure_row,
+            patch.object(case_fields_service.editor, "update_row") as mock_update_row,
+        ):
+            mock_ensure_row.return_value = uuid.uuid4()
             mock_update_row.return_value = mock_result
 
-            # Insert field values
-            result = await case_fields_service.create_field_values(
+            # Upsert field values
+            result = await case_fields_service.upsert_field_values(
                 test_case, fields_data
             )
 
             # Verify the result matches the full mock_result
             assert result == mock_result
+            mock_ensure_row.assert_called_once_with(test_case.id)
             mock_update_row.assert_called_once()
 
             # Verify the call arguments
@@ -256,23 +263,30 @@ class TestCaseFieldsService:
             assert "data" in call_kwargs
             assert call_kwargs["data"] == fields_data
 
-    async def test_update_field_values(
-        self, case_fields_service: CaseFieldsService
+    async def test_upsert_field_values_empty_fields(
+        self, case_fields_service: CaseFieldsService, test_case: Case
     ) -> None:
-        """Test updating field values."""
-        # Create a UUID for the fields row
-        fields_id = uuid.uuid4()
+        """Test upserting with empty fields returns row without updates."""
+        # Mock the editor methods
+        mock_row_id = uuid.uuid4()
+        mock_row = {"id": mock_row_id, "case_id": test_case.id}
 
-        # Field values to update
-        field_values = {"custom_field1": "updated value", "custom_field2": 456}
+        with (
+            patch.object(
+                case_fields_service, "ensure_workspace_row"
+            ) as mock_ensure_row,
+            patch.object(case_fields_service.editor, "get_row") as mock_get_row,
+        ):
+            mock_ensure_row.return_value = mock_row_id
+            mock_get_row.return_value = mock_row
 
-        # Mock the editor.update_row method
-        with patch.object(case_fields_service.editor, "update_row") as mock_update_row:
-            # Update field values
-            await case_fields_service.update_field_values(fields_id, field_values)
+            # Upsert with empty fields
+            result = await case_fields_service.upsert_field_values(test_case, {})
 
-            # Verify the method was called with the right parameters
-            mock_update_row.assert_called_once_with(fields_id, field_values)
+            # Should call get_row instead of update_row when fields is empty
+            assert result == mock_row
+            mock_ensure_row.assert_called_once_with(test_case.id)
+            mock_get_row.assert_called_once_with(row_id=mock_row_id)
 
     async def test_ensure_workspace_row_reuses_existing_row_on_case_conflict(
         self,
@@ -300,7 +314,7 @@ class TestCaseFieldsService:
         await session.execute(insert_stmt)
 
         # Call _ensure_workspace_row - should return the existing row id
-        returned_id = await case_fields_service._ensure_workspace_row(test_case.id)
+        returned_id = await case_fields_service.ensure_workspace_row(test_case.id)
 
         # Verify the returned ID is the existing row's ID
         assert returned_id == existing_row_id
@@ -309,7 +323,7 @@ class TestCaseFieldsService:
         select_stmt = sa.select(workspace_table.c.id, workspace_table.c.case_id).where(
             workspace_table.c.case_id == test_case.id
         )
-        result = await session.execute(select_stmt)
+        result = await session.exe_cute(select_stmt)
         row = result.one()
         assert row.id == existing_row_id
         assert row.case_id == test_case.id
@@ -341,25 +355,6 @@ class TestCaseFieldsService:
 
         exists = await conn.run_sync(check_exists)
         assert exists is True
-
-    async def test_create_field_values_empty_fields(
-        self,
-        case_fields_service: CaseFieldsService,
-        test_case: Case,
-    ) -> None:
-        """Test creating field values with empty dict returns row without updates."""
-        # Mock the editor methods
-        mock_row = {"id": uuid.uuid4(), "case_id": test_case.id}
-
-        with patch.object(case_fields_service.editor, "get_row") as mock_get_row:
-            mock_get_row.return_value = mock_row
-
-            # Create with empty fields
-            result = await case_fields_service.create_field_values(test_case, {})
-
-            # Should call get_row instead of update_row when fields is empty
-            assert result == mock_row
-            mock_get_row.assert_called_once()
 
     async def test_delete_all_reserved_fields_raises(
         self, case_fields_service: CaseFieldsService
