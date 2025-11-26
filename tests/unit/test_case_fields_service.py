@@ -323,7 +323,7 @@ class TestCaseFieldsService:
         select_stmt = sa.select(workspace_table.c.id, workspace_table.c.case_id).where(
             workspace_table.c.case_id == test_case.id
         )
-        result = await session.exe_cute(select_stmt)
+        result = await session.execute(select_stmt)
         row = result.one()
         assert row.id == existing_row_id
         assert row.case_id == test_case.id
