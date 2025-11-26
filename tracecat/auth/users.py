@@ -341,10 +341,10 @@ def _get_cookie_name() -> str:
         or None to use the default cookie name.
     """
     # Allow explicit override via environment variable (for backward compatibility)
-    env_cookie_name = os.environ.get("TRACECAT__DEV_COOKIE_NAME") or os.environ.get(
-        "TRACECAT__COOKIE_NAME"
-    )
-    if env_cookie_name:
+    if env_cookie_name := (
+        os.environ.get("TRACECAT__DEV_COOKIE_NAME")
+        or os.environ.get("TRACECAT__COOKIE_NAME")
+    ):
         return env_cookie_name
 
     # Only generate stable cookie name in development mode
