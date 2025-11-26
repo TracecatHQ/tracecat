@@ -42,8 +42,6 @@ def mock_case():
     case.priority = CasePriority.MEDIUM
     case.severity = CaseSeverity.MEDIUM
     case.status = CaseStatus.NEW
-    case.fields = MagicMock()
-    case.fields.id = uuid.uuid4()
     # Add attributes needed for the updated get_case function
     case.created_at = datetime.now()
     case.updated_at = datetime.now()

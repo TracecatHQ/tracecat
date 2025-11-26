@@ -1076,6 +1076,7 @@ class CaseFields(TimestampMixin, Base):
     """A table of fields for a case."""
 
     __tablename__ = "case_fields"
+    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_fields_owner"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1091,14 +1092,7 @@ class CaseFields(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    # Add required foreign key to Case
-    case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
-        unique=True,  # Ensures one-to-one
-        nullable=False,  # Ensures CaseFields must have a Case
-    )
-    case: Mapped[Case] = relationship(back_populates="fields")
+    schema: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class CaseTagLink(Base):
@@ -1319,14 +1313,6 @@ class Case(RecordModel):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
         doc="The ID of the user who is assigned to the case.",
-    )
-
-    fields: Mapped[CaseFields | None] = relationship(
-        "CaseFields",
-        back_populates="case",
-        cascade="all, delete",
-        uselist=False,
-        lazy="selectin",
     )
     comments: Mapped[list[CaseComment]] = relationship(
         "CaseComment",

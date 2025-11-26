@@ -91,10 +91,17 @@ class CaseFieldReadMinimal(CustomFieldRead):
 
     @classmethod
     def from_sa(
-        cls, column: sa.engine.interfaces.ReflectedColumn
+        cls,
+        column: sa.engine.interfaces.ReflectedColumn,
+        *,
+        field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
         return cls.model_validate(
-            super().from_sa(column, reserved_fields=set(RESERVED_CASE_FIELDS))
+            super().from_sa(
+                column,
+                reserved_fields=set(RESERVED_CASE_FIELDS),
+                field_schema=field_schema,
+            )
         )
 
 
