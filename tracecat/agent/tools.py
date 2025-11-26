@@ -18,8 +18,7 @@ from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
 
-from tracecat.agent.context import truncate_tool_content
-from tracecat.config import TRACECAT__AGENT_MAX_TOOLS, TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
+from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
@@ -191,12 +190,7 @@ async def create_tool_from_registry(
         # Each tool invocation should create its own short-lived DB session to
         # avoid concurrent operations on a shared AsyncSession when multiple
         # tools are called in parallel by the agent.
-        result = await call_tracecat_action(action_name, merged_args)
-        # Truncate large tool outputs before they enter the agent context
-        truncated_result, _ = truncate_tool_content(
-            result, TRACECAT__AGENT_TOOL_OUTPUT_LIMIT
-        )
-        return truncated_result
+        return await call_tracecat_action(action_name, merged_args)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(

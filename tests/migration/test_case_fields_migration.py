@@ -32,6 +32,48 @@ def _workspace_schema(workspace_id: uuid.UUID) -> str:
     return f"{SCHEMA_PREFIX}{ws_short}"
 
 
+def _has_fk_to_cases(conn, schema: str) -> bool:
+    """Check whether the given table has a FK from case_id to public.cases."""
+    result = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            WHERE tc.table_schema = :schema
+              AND tc.table_name = :table
+              AND tc.constraint_type = 'FOREIGN KEY'
+              AND kcu.column_name = 'case_id'
+            """
+        ),
+        {"schema": schema, "table": TABLE_NAME},
+    )
+    return result.scalar_one() > 0
+
+
+def _has_unique_case_id(conn, schema: str) -> bool:
+    """Check whether the given table has a UNIQUE constraint on case_id."""
+    result = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            WHERE tc.table_schema = :schema
+              AND tc.table_name = :table
+              AND tc.constraint_type = 'UNIQUE'
+              AND kcu.column_name = 'case_id'
+            """
+        ),
+        {"schema": schema, "table": TABLE_NAME},
+    )
+    return result.scalar_one() > 0
+
+
 def _run_alembic_upgrade(db_url: str, revision: str = MIGRATION_REVISION) -> None:
     """Run alembic upgrade to a specific revision."""
     env = os.environ.copy()
@@ -352,6 +394,28 @@ class TestCaseFieldsMigrationUpgrade:
         finally:
             engine.dispose()
 
+    def test_upgrade_applies_constraints(
+        self, test_db: str, sample_data: dict[str, list[uuid.UUID]]
+    ) -> None:
+        """Upgrade should preserve FK and uniqueness constraints in workspace tables."""
+        workspace_ids = sample_data["workspace_ids"]
+
+        _run_alembic_upgrade(test_db)
+
+        engine = create_engine(test_db)
+        try:
+            with engine.begin() as conn:
+                for workspace_id in workspace_ids:
+                    schema_name = _workspace_schema(workspace_id)
+                    assert _has_fk_to_cases(conn, schema_name), (
+                        f"{schema_name}.{TABLE_NAME} should keep FK to cases(id)"
+                    )
+                    assert _has_unique_case_id(conn, schema_name), (
+                        f"{schema_name}.{TABLE_NAME} should enforce unique case_id"
+                    )
+        finally:
+            engine.dispose()
+
     def test_upgrade_migrates_data(
         self, test_db: str, sample_data: dict[str, list[uuid.UUID]]
     ) -> None:
@@ -476,7 +540,7 @@ class TestCaseFieldsMigrationUpgrade:
                 result = conn.execute(
                     text(
                         """
-                        SELECT column_name
+                        SELECT column_name, data_type, is_nullable
                         FROM information_schema.columns
                         WHERE table_schema = :schema AND table_name = :table
                         ORDER BY ordinal_position
@@ -484,11 +548,25 @@ class TestCaseFieldsMigrationUpgrade:
                     ),
                     {"schema": schema_name, "table": TABLE_NAME},
                 )
-                columns = {row[0] for row in result.fetchall()}
+                column_rows = result.fetchall()
+                columns = {row[0] for row in column_rows}
 
                 assert "custom_field1" in columns, "custom_field1 should be migrated"
                 assert "custom_field2" in columns, "custom_field2 should be migrated"
                 assert "custom_field3" in columns, "custom_field3 should be migrated"
+
+                column_info = {
+                    row[0]: {"data_type": row[1], "is_nullable": row[2] == "YES"}
+                    for row in column_rows
+                }
+
+                # Validate types and nullability are preserved
+                assert column_info["custom_field1"]["data_type"] == "text"
+                assert column_info["custom_field1"]["is_nullable"] is True
+                assert column_info["custom_field2"]["data_type"] == "integer"
+                assert column_info["custom_field2"]["is_nullable"] is True
+                assert column_info["custom_field3"]["data_type"] == "boolean"
+                assert column_info["custom_field3"]["is_nullable"] is True
 
                 # Verify data was migrated with custom column values
                 result = conn.execute(
@@ -506,6 +584,10 @@ class TestCaseFieldsMigrationUpgrade:
                 assert row[0] == "test value", "custom_field1 value should be preserved"
                 assert row[1] == 42, "custom_field2 value should be preserved"
                 assert row[2] is True, "custom_field3 value should be preserved"
+                # Public table should retain FK metadata to cases table
+                assert _has_fk_to_cases(conn, PUBLIC_SCHEMA), (
+                    "Public case_fields table should retain FK from case_id to cases(id)"
+                )
         finally:
             engine.dispose()
 
@@ -597,5 +679,96 @@ class TestCaseFieldsMigrationDowngrade:
                     assert not result.scalar_one(), (
                         f"Schema {schema_name} should be dropped after downgrade"
                     )
+        finally:
+            engine.dispose()
+
+    def test_downgrade_restores_custom_columns_and_values(self, test_db: str) -> None:
+        """Downgrade should recreate custom columns in public table with data restored."""
+        workspace_id = uuid.uuid4()
+        case_id = uuid.uuid4()
+
+        engine = create_engine(test_db)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO workspace (id, name, owner_id, settings)
+                        VALUES (:id, :name, :owner_id, :settings)
+                        """
+                    ),
+                    {
+                        "id": workspace_id,
+                        "name": "downgrade-custom",
+                        "owner_id": config.TRACECAT__DEFAULT_ORG_ID,
+                        "settings": "{}",
+                    },
+                )
+
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO cases (id, owner_id, summary, description, status, priority, severity)
+                        VALUES (:id, :ws_id, 'Case', 'Desc', 'NEW', 'LOW', 'LOW')
+                        """
+                    ),
+                    {"id": case_id, "ws_id": workspace_id},
+                )
+
+                conn.execute(
+                    text(
+                        """
+                        ALTER TABLE case_fields
+                        ADD COLUMN custom_field_text TEXT,
+                        ADD COLUMN custom_field_int INTEGER
+                        """
+                    )
+                )
+
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO case_fields (id, case_id, owner_id, custom_field_text, custom_field_int)
+                        VALUES (gen_random_uuid(), :case_id, :ws_id, 'abc', 7)
+                        """
+                    ),
+                    {"case_id": case_id, "ws_id": workspace_id},
+                )
+
+            _run_alembic_stamp(test_db, PREVIOUS_REVISION)
+            _run_alembic_upgrade(test_db)
+            _run_alembic_downgrade(test_db)
+
+            with engine.begin() as conn:
+                public_columns = conn.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = :schema AND table_name = :table
+                        """
+                    ),
+                    {"schema": PUBLIC_SCHEMA, "table": TABLE_NAME},
+                ).fetchall()
+                public_column_names = {row[0] for row in public_columns}
+
+                assert "custom_field_text" in public_column_names
+                assert "custom_field_int" in public_column_names
+
+                row = conn.execute(
+                    text(
+                        f"""
+                        SELECT custom_field_text, custom_field_int, owner_id
+                        FROM {PUBLIC_SCHEMA}.{TABLE_NAME}
+                        WHERE case_id = :case_id
+                        """
+                    ),
+                    {"case_id": case_id},
+                ).fetchone()
+
+                assert row is not None, "Row should be restored to public table"
+                assert row[0] == "abc"
+                assert row[1] == 7
+                assert row[2] == workspace_id
         finally:
             engine.dispose()
