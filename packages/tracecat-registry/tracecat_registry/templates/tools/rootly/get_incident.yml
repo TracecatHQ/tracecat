@@ -24,7 +24,7 @@ definition:
         url: https://api.rootly.com/v1/incidents/${{ inputs.incident_id }}
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
         params:
           include: ${{ inputs.include }}
   returns: ${{ FN.deserialize_json(steps.get_incident.result.data) }}

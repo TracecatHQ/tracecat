@@ -33,7 +33,7 @@ definition:
         url: https://api.rootly.com/v1/alerts
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
         params:
           include: ${{ inputs.include }}
           filter[status]: ${{ inputs.status }}
