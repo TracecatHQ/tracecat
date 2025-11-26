@@ -480,8 +480,9 @@ class TestCasesService:
         # Create case without initial field values
         created_case = await cases_service.create_case(case_create_params)
 
-        # Verify case was created with empty fields
-        assert created_case.fields is not None
+        # Verify case was created and has a field values row
+        fields_before = await cases_service.fields.get_fields(created_case)
+        assert fields_before is not None
 
         # Update parameters including fields
         update_params = CaseUpdate(
@@ -527,11 +528,11 @@ class TestCasesService:
             fields={"custom_field1": "test value", "custom_field2": 123},
         )
 
-        # Mock the create_field_values method
+        # Mock the upsert_field_values method
         with patch.object(
-            cases_service.fields, "create_field_values"
-        ) as mock_insert_fields:
-            mock_insert_fields.return_value = {
+            cases_service.fields, "upsert_field_values"
+        ) as mock_upsert_fields:
+            mock_upsert_fields.return_value = {
                 "custom_field1": "test value",
                 "custom_field2": 123,
             }
@@ -543,8 +544,8 @@ class TestCasesService:
             assert created_case.summary == params_with_fields.summary
             assert created_case.description == params_with_fields.description
 
-            # Verify that create_field_values was called with the case and fields
-            mock_insert_fields.assert_called_once_with(
+            # Verify that upsert_field_values was called with the case and fields
+            mock_upsert_fields.assert_called_once_with(
                 created_case, {"custom_field1": "test value", "custom_field2": 123}
             )
 
@@ -554,18 +555,13 @@ class TestCasesService:
         """Test updating just the fields of a case."""
         # Create a case first
         created_case = await cases_service.create_case(case_create_params)
-
         # Mock the field methods
         with (
             patch.object(cases_service.fields, "get_fields") as mock_get_fields,
             patch.object(
-                cases_service.fields, "update_field_values"
-            ) as mock_update_fields,
+                cases_service.fields, "upsert_field_values"
+            ) as mock_upsert_fields,
         ):
-            fields_obj = MagicMock()
-            fields_obj.id = uuid.uuid4()
-            created_case.__dict__["fields"] = fields_obj
-
             # Setup mock to return existing field values
             mock_get_fields.return_value = {
                 "existing_field1": "original value",
@@ -583,14 +579,10 @@ class TestCasesService:
             # Verify get_fields was called
             mock_get_fields.assert_called_once_with(created_case)
 
-            # Verify update_field_values was called with merged fields
-            mock_update_fields.assert_called_once_with(
-                fields_obj.id,
-                {
-                    "existing_field1": "updated value",
-                    "existing_field2": 456,
-                    "new_field": "new value",
-                },
+            # Verify upsert_field_values was called with the fields (not merged)
+            mock_upsert_fields.assert_called_once_with(
+                created_case,
+                {"existing_field1": "updated value", "new_field": "new value"},
             )
 
     async def test_cascade_delete(

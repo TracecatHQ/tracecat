@@ -1036,6 +1036,7 @@ export type CaseFieldRead = {
   nullable: boolean
   default: string | null
   reserved: boolean
+  options?: Array<string> | null
   value: unknown
 }
 
@@ -1049,6 +1050,7 @@ export type CaseFieldReadMinimal = {
   nullable: boolean
   default: string | null
   reserved: boolean
+  options?: Array<string> | null
 }
 
 /**

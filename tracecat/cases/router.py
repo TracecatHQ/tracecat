@@ -290,9 +290,10 @@ async def get_case(
         )
     fields = await service.fields.get_fields(case) or {}
     field_definitions = await service.fields.list_fields()
+    field_schema = await service.fields.get_field_schema()
     final_fields = []
     for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn)
+        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
                 id=f.id,
@@ -301,6 +302,7 @@ async def get_case(
                 nullable=f.nullable,
                 default=f.default,
                 reserved=f.reserved,
+                options=f.options,
                 value=fields.get(f.id),
             )
         )
@@ -518,7 +520,11 @@ async def list_fields(
     """List all case fields."""
     service = CaseFieldsService(session, role)
     columns = await service.list_fields()
-    return [CaseFieldReadMinimal.from_sa(column) for column in columns]
+    field_schema = await service.get_field_schema()
+    return [
+        CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        for column in columns
+    ]
 
 
 @case_fields_router.post("", status_code=HTTP_201_CREATED)
