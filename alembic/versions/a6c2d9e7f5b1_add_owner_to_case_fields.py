@@ -33,8 +33,35 @@ def upgrade() -> None:
         schema="public",
     )
 
-    # Step 3: Create a foreign key constraint linking owner_id to workspace.id
+    # Step 3: Populate the new owner_id column with data from the related cases table
+    # This copies the owner_id from each case to all its associated case_fields
+    # Only copy owner_ids that exist in the workspace table to maintain referential integrity
+    op.execute(
+        sa.text(
+            """
+            UPDATE public.case_fields AS cf
+            SET owner_id = c.owner_id
+            FROM public.cases AS c
+            WHERE cf.case_id = c.id
+            AND c.owner_id IN (SELECT id FROM public.workspace)
+            """
+        )
+    )
+
+    # Step 4: Delete orphaned case_fields records that don't have a valid owner_id
+    # This removes any case_fields that are linked to cases with invalid workspace references
+    op.execute(
+        sa.text(
+            """
+            DELETE FROM public.case_fields
+            WHERE owner_id IS NULL
+            """
+        )
+    )
+
+    # Step 5: Create a foreign key constraint linking owner_id to workspace.id
     # This ensures referential integrity and cascades deletes from workspace to case_fields
+    # This is done AFTER data population to avoid constraint violations
     op.create_foreign_key(
         "fk_case_fields_owner_id",
         "case_fields",
@@ -46,20 +73,7 @@ def upgrade() -> None:
         ondelete="CASCADE",
     )
 
-    # Step 4: Populate the new owner_id column with data from the related cases table
-    # This copies the owner_id from each case to all its associated case_fields
-    op.execute(
-        sa.text(
-            """
-            UPDATE public.case_fields AS cf
-            SET owner_id = c.owner_id
-            FROM public.cases AS c
-            WHERE cf.case_id = c.id
-            """
-        )
-    )
-
-    # Step 5: Make the owner_id column NOT NULL after populating it with data
+    # Step 6: Make the owner_id column NOT NULL after populating it with data
     # This ensures data integrity going forward - all case_fields must have an owner
     op.alter_column(
         "case_fields",
