@@ -130,6 +130,7 @@ async def remove_temporal_search_attributes():
                     TemporalSearchAttr.TRIGGER_TYPE.value,
                     TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
                     TemporalSearchAttr.WORKSPACE_ID.value,
+                    TemporalSearchAttr.ALIAS.value,
                 ],
                 namespace=namespace,
             )
@@ -148,5 +149,6 @@ async def remove_temporal_search_attributes():
                 TemporalSearchAttr.TRIGGER_TYPE.value,
                 TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
                 TemporalSearchAttr.WORKSPACE_ID.value,
+                TemporalSearchAttr.ALIAS.value,
             ],
         )
