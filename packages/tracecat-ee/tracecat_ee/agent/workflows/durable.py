@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, ModelSettings, RunContext
+from pydantic_ai import Agent, ModelSettings, RunContext, UsageLimits
 from pydantic_ai.durable_exec.temporal import TemporalRunContext
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -21,6 +21,7 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    from tracecat import config
     from tracecat.agent.parsers import parse_output_type, try_parse_json
     from tracecat.agent.schemas import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
@@ -91,6 +92,27 @@ class DurableAgentWorkflow:
             ModelSettings(**cfg.model_settings) if cfg.model_settings else None
         )
 
+        # Enforce and derive safety limits (requests and tool calls)
+        max_requests = (
+            args.agent_args.max_requests
+            if args.agent_args.max_requests is not None
+            else config.TRACECAT__AGENT_MAX_REQUESTS
+        )
+        if max_requests > config.TRACECAT__AGENT_MAX_REQUESTS:
+            raise ApplicationError(
+                f"Cannot request more than {config.TRACECAT__AGENT_MAX_REQUESTS} requests",
+                non_retryable=True,
+            )
+
+        max_tool_calls = args.agent_args.max_tool_calls
+        if max_tool_calls is None:
+            max_tool_calls = config.TRACECAT__AGENT_MAX_TOOL_CALLS
+        if max_tool_calls > config.TRACECAT__AGENT_MAX_TOOL_CALLS:
+            raise ApplicationError(
+                f"Cannot request more than {config.TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls",
+                non_retryable=True,
+            )
+
         model = DurableModel(
             role=args.role,
             info=ModelInfo(
@@ -137,6 +159,11 @@ class DurableAgentWorkflow:
             persistent=False,
             namespace="agent",
         )
+
+        usage_limits = UsageLimits(
+            request_limit=max_requests,
+            tool_calls_limit=max_tool_calls,
+        )
         # TODO: Implement max turns
         while True:
             logger.info("Running agent", turn=self._turn)
@@ -144,6 +171,7 @@ class DurableAgentWorkflow:
                 message_history=messages,
                 deferred_tool_results=self.approvals.get(),
                 deps=deps,
+                usage_limits=usage_limits,
             )
             logger.debug("AGENT RUN RESULT", result=result)
 
