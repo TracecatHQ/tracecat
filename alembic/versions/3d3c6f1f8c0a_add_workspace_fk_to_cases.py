@@ -1,7 +1,7 @@
 """add workspace foreign key to cases
 
 Revision ID: 3d3c6f1f8c0a
-Revises: 7694c8910510
+Revises: 3f1bacf5a8a9
 Create Date: 2025-11-22 00:00:00.000000
 
 """
