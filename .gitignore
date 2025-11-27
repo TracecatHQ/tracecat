@@ -9,6 +9,8 @@ node_modules/
 .dev/
 .llm/
 .v0/
+.trees/
+.worktrees/
 
 # UV
 
