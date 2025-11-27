@@ -5,7 +5,7 @@ The physical PostgreSQL columns should remain BIGINT, but the metadata should us
 (the Tracecat SqlType enum value).
 
 Revision ID: a81bc08c39a1
-Revises: b873c83b8e0a
+Revises: 3d3c6f1f8c0a
 Create Date: 2025-11-27 10:14:17.606168
 
 """
@@ -18,7 +18,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a81bc08c39a1"
-down_revision: str | None = "b873c83b8e0a"
+down_revision: str | None = "3d3c6f1f8c0a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
