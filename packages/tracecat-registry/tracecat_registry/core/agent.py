@@ -4,12 +4,15 @@ from typing import Annotated, Any
 from typing_extensions import Doc
 
 from tracecat.agent.factory import build_agent
-from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.runtime import run_agent, run_agent_sync
+from tracecat.agent.runtime import run_agent_sync
 from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.exceptions import TracecatValidationError
 from tracecat.registry.fields import ActionType, AgentPreset, TextArea
-from tracecat_registry import RegistrySecret, RegistrySecretType, registry
+from tracecat_registry import (
+    ActionIsInterfaceError,
+    RegistrySecret,
+    RegistrySecretType,
+    registry,
+)
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -178,21 +181,15 @@ async def agent(
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
+    # Paid feature
+    tool_approvals: Annotated[
+        dict[str, bool] | None,
+        Doc(
+            "Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
-    output = await run_agent(
-        user_prompt=user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=actions,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        max_tool_calls=max_tool_calls,
-        max_requests=max_requests,
-        base_url=base_url,
-        retries=retries,
-    )
-    return output.model_dump(mode="json")
+    raise ActionIsInterfaceError()
 
 
 @registry.register(
@@ -232,41 +229,7 @@ async def preset_agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
 ) -> dict[str, Any]:
-    async with AgentPresetService.with_session() as service:
-        config = await service.resolve_agent_preset_config(slug=preset)
-
-    if config.tool_approvals and any(config.tool_approvals.values()):
-        raise TracecatValidationError(
-            f"Agent preset '{preset}' requires approvals and cannot be run with the "
-            "'ai.preset_agent' action. Use 'ai.preset_approvals_agent' instead."
-        )
-
-    if actions is not None:
-        config.actions = actions
-
-    if instructions:
-        if config.instructions:
-            config.instructions = "\n".join([config.instructions, instructions])
-        else:
-            config.instructions = instructions
-
-    output = await run_agent(
-        user_prompt=user_prompt,
-        model_name=config.model_name,
-        model_provider=config.model_provider,
-        actions=config.actions,
-        namespaces=config.namespaces,
-        tool_approvals=config.tool_approvals,
-        instructions=config.instructions,
-        output_type=config.output_type,
-        model_settings=config.model_settings,
-        max_tool_calls=max_tool_calls,
-        max_requests=max_requests,
-        retries=config.retries,
-        base_url=config.base_url,
-        mcp_servers=config.mcp_servers,
-    )
-    return output.model_dump(mode="json")
+    raise ActionIsInterfaceError()
 
 
 @registry.register(
