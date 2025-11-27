@@ -239,6 +239,11 @@ class Workspace(RecordModel):
         back_populates="owner",
         cascade="all, delete",
     )
+    cases: Mapped[list[Case]] = relationship(
+        "Case",
+        back_populates="owner",
+        cascade="all, delete",
+    )
     secrets: Mapped[list[Secret]] = relationship(
         "Secret",
         back_populates="owner",
@@ -1308,6 +1313,11 @@ class Case(RecordModel):
         nullable=True,
         doc="Additional data payload for the case",
     )
+    owner_id: Mapped[OwnerID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
@@ -1340,6 +1350,7 @@ class Case(RecordModel):
         back_populates="assigned_cases",
         lazy="selectin",
     )
+    owner: Mapped[Workspace] = relationship("Workspace", back_populates="cases")
     tags: Mapped[list[CaseTag]] = relationship(
         "CaseTag",
         secondary=CaseTagLink.__table__,
