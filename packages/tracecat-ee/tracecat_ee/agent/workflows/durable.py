@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterable
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, ModelSettings, RunContext
 from pydantic_ai.durable_exec.temporal import TemporalRunContext
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -21,7 +21,7 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat.agent.parsers import try_parse_json
+    from tracecat.agent.parsers import parse_output_type, try_parse_json
     from tracecat.agent.schemas import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
     from tracecat.auth.types import Role
@@ -80,15 +80,23 @@ class DurableAgentWorkflow:
         else:
             logger.info("Starting agent", prompt=args.agent_args.user_prompt)
 
+        cfg = args.agent_args.config
+
         messages: list[ModelMessage] = [
             ModelRequest.user_text_prompt(args.agent_args.user_prompt)
         ]
+
+        # Build model settings from agent config
+        model_settings: ModelSettings | None = (
+            ModelSettings(**cfg.model_settings) if cfg.model_settings else None
+        )
+
         model = DurableModel(
             role=args.role,
             info=ModelInfo(
-                name=args.agent_args.config.model_name,
-                provider=args.agent_args.config.model_provider,
-                base_url=args.agent_args.config.base_url,
+                name=cfg.model_name,
+                provider=cfg.model_provider,
+                base_url=cfg.base_url,
             ),
             activity_config=workflow.ActivityConfig(
                 start_to_close_timeout=timedelta(seconds=60),
@@ -98,11 +106,26 @@ class DurableAgentWorkflow:
         )
         logger.info("DURABLE MODEL", model_info=model._info)
 
+        # Determine base output type from config
+        base_output_type = parse_output_type(cfg.output_type)
+
+        # Always allow DeferredToolRequests so approvals can flow through
+        output_type_for_agent: type[Any] | list[type[Any]]
+        if isinstance(base_output_type, list):
+            output_type_for_agent = [*base_output_type, DeferredToolRequests]
+        else:
+            output_type_for_agent = [base_output_type, DeferredToolRequests]
+
+        # Use configured instructions when available
+        instructions = cfg.instructions or "You are a helpful assistant."
+
         agent = Agent(
             model,
             name="durable-agent",
-            output_type=[str, DeferredToolRequests],
-            instructions="You are a helpful assistant.",
+            output_type=output_type_for_agent,
+            instructions=instructions,
+            model_settings=model_settings,
+            retries=cfg.retries,
             deps_type=PersistableStreamingAgentDepsSpec,
             event_stream_handler=self._event_stream_handler,
             toolsets=[ext_toolset],
