@@ -7,8 +7,6 @@ class PlatformAction(StrEnum):
     TRANSFORM_GATHER = "core.transform.gather"
     AI_AGENT = "ai.agent"
     AI_PRESET_AGENT = "ai.preset_agent"
-    AI_APPROVALS_AGENT = "ai.approvals_agent"
-    AI_PRESET_APPROVALS_AGENT = "ai.preset_approvals_agent"
     AI_ACTION = "ai.action"
 
     @classmethod
@@ -16,8 +14,6 @@ class PlatformAction(StrEnum):
         return action in (
             cls.AI_AGENT,
             cls.AI_PRESET_AGENT,
-            cls.AI_APPROVALS_AGENT,
-            cls.AI_PRESET_APPROVALS_AGENT,
             cls.AI_ACTION,
         )
 

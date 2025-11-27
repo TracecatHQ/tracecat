@@ -7,10 +7,6 @@ import lark
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.agent.actions import (
-    ApprovalsAgentActionArgs,
-    PresetApprovalsAgentActionArgs,
-)
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -32,6 +28,7 @@ from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -291,10 +288,6 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
-            elif action_name == PlatformAction.AI_APPROVALS_AGENT:
-                validated = ApprovalsAgentActionArgs.model_validate(args)
-            elif action_name == PlatformAction.AI_PRESET_APPROVALS_AGENT:
-                validated = PresetApprovalsAgentActionArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)
@@ -378,6 +371,24 @@ async def validate_dsl_actions(
         )
         if result.status == "error" and result.detail:
             details.extend(result.detail)
+
+        # Feature flag gate: tool approvals are an enterprise feature
+        # NOTE: This should be paywalled, instead of being a feature flag
+        if (
+            act_stmt.action == "ai.agent"
+            and act_stmt.args.get("tool_approvals") is not None
+            and not is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
+        ):
+            details.append(
+                ValidationDetail(
+                    type="action",
+                    msg=(
+                        "`tool_approvals` requires the 'agent-approvals' feature flag. "
+                        "Remove the field or enable the flag."
+                    ),
+                    loc=(act_stmt.ref, "tool_approvals"),
+                )
+            )
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             details.append(
@@ -385,15 +396,6 @@ async def validate_dsl_actions(
                     type="action",
                     msg=f"`run_if` must only contain an expression. Got {act_stmt.run_if!r}.",
                     loc=(act_stmt.ref, "run_if"),
-                )
-            )
-        # Validate that ai.approvals_agent doesn't use loops
-        if act_stmt.action == PlatformAction.AI_APPROVALS_AGENT and act_stmt.for_each:
-            details.append(
-                ValidationDetail(
-                    type="action",
-                    msg=f"The `{PlatformAction.AI_APPROVALS_AGENT.value}` action cannot be used with for_each. Use `core.transform.scatter` instead to iterate over multiple items.",
-                    loc=(act_stmt.ref, "for_each"),
                 )
             )
         # Validate `for_each`
