@@ -132,11 +132,10 @@ class DurableAgentWorkflow:
         base_output_type = parse_output_type(cfg.output_type)
 
         # Always allow DeferredToolRequests so approvals can flow through
-        output_type_for_agent: type[Any] | list[type[Any]]
-        if isinstance(base_output_type, list):
-            output_type_for_agent = [*base_output_type, DeferredToolRequests]
-        else:
-            output_type_for_agent = [base_output_type, DeferredToolRequests]
+        output_type_for_agent: list[type[Any]] = [
+            base_output_type,
+            DeferredToolRequests,
+        ]
 
         # Use configured instructions when available
         instructions = cfg.instructions or "You are a helpful assistant."
