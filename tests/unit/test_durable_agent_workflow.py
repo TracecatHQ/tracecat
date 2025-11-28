@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
     ToolCallPart,
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -38,12 +39,18 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.preset.schemas import AgentPresetCreate
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import ModelRequestArgs, ModelRequestResult, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
 from tracecat.agent.tools import SimpleToolExecutor
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import User
+from tracecat.db.models import (
+    RegistryAction,
+    RegistryRepository,
+    User,
+)
 from tracecat.dsl.common import RETRY_POLICIES
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -409,6 +416,151 @@ async def test_agent_workflow_uses_agent_config_model_settings(
 
     assert seen_settings is not None
     assert seen_settings == raw_settings
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_with_preset_config(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Ensure DurableAgentWorkflow works with config derived from an AgentPreset.
+
+    This bridges the preset service layer and the durable agent workflow by:
+    1. Creating an AgentPreset via AgentPresetService
+    2. Converting it to AgentConfig
+    3. Running DurableAgentWorkflow with that config and verifying approvals.
+    """
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Create a minimal registry action so preset actions validation passes
+    repo = RegistryRepository(
+        owner_id=svc_role.workspace_id,
+        origin="test-agent-preset-repo",
+    )
+    session.add(repo)
+    await session.commit()
+    await session.refresh(repo)
+
+    registry_action = RegistryAction(
+        owner_id=svc_role.workspace_id,
+        repository_id=repo.id,
+        name="http_request",
+        namespace="core",
+        description="HTTP request action",
+        origin="test-agent-preset-repo",
+        type="template",
+        interface={},
+    )
+    session.add(registry_action)
+    await session.commit()
+
+    # Create an agent preset that uses this action and requires approval
+    preset_service = AgentPresetService(session=session, role=svc_role)
+    preset_create = AgentPresetCreate(
+        name="Durable preset",
+        slug=None,
+        description="Preset for durable agent workflow",
+        instructions="You are a preset-based test agent.",
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        base_url=None,
+        output_type=None,
+        actions=["core.http_request"],
+        namespaces=None,
+        tool_approvals={"core.http_request": True},
+        mcp_integrations=None,
+        retries=3,
+    )
+    preset = await preset_service.create_preset(preset_create)
+    preset_config = await preset_service._preset_to_agent_config(preset)
+
+    # Model behavior: first call requests a tool, second returns final answer
+    def mock_response(call_count: int, args: ModelRequestArgs) -> ModelResponse:
+        if call_count == 0:
+            return create_tool_call_response(
+                [
+                    ToolCallPart(
+                        tool_name="core__http_request",
+                        args={"url": "https://example.com", "method": "GET"},
+                        tool_call_id="call_preset_123",
+                    )
+                ]
+            )
+        return create_text_response("HTTP request completed from preset")
+
+    activities = create_activities_with_mock_model(mock_response)
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Make a test HTTP request using preset",
+            config=preset_config,
+        ),
+    )
+
+    wf_handle = None
+    try:
+        async with agent_worker_factory(
+            temporal_client, task_queue=queue, custom_activities=activities
+        ):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=f"test-agent-preset-{mock_session_id}",
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=60),
+            )
+
+            # Wait for approval to be pending
+            tool_call_id = None
+            async with ApprovalService.with_session(role=svc_role) as svc:
+                for _ in range(50):
+                    await asyncio.sleep(0.1)
+                    approvals = await svc.list_approvals_for_session(mock_session_id)
+                    if approvals:
+                        assert len(approvals) == 1
+                        approval = approvals[0]
+                        await svc.session.refresh(approval)
+                        if approval.status == ApprovalStatus.PENDING:
+                            tool_call_id = approval.tool_call_id
+                            break
+
+            assert tool_call_id is not None, "No pending approval found for preset"
+
+            # Submit approval via workflow update
+            submission = WorkflowApprovalSubmission(
+                approvals={tool_call_id: True},
+                approved_by=test_user.id,
+            )
+            await wf_handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                submission,
+            )
+
+            # Wait for workflow to complete
+            result = await wf_handle.result()
+            assert result.session_id == mock_session_id
+            assert result.output == "HTTP request completed from preset"
+
+            # Verify approval was applied
+            async with ApprovalService.with_session(role=svc_role) as svc:
+                approval = await svc.get_approval_by_session_and_tool(
+                    session_id=mock_session_id,
+                    tool_call_id=tool_call_id,
+                )
+                assert approval is not None
+                assert approval.status == ApprovalStatus.APPROVED
+                assert approval.approved_by == test_user.id
+    finally:
+        if wf_handle:
+            await wf_handle.cancel()
 
 
 @pytest.mark.anyio
