@@ -22,6 +22,8 @@ import type {
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
+  AgentGetWorkspaceProvidersStatusData,
+  AgentGetWorkspaceProvidersStatusResponse,
   AgentListAgentSessionsData,
   AgentListAgentSessionsResponse,
   AgentListModelsResponse,
@@ -2816,6 +2818,29 @@ export const agentSetDefaultModel = (
     url: "/agent/default-model",
     query: {
       model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Providers Status
+ * Get workspace credential status for all providers.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns boolean Successful Response
+ * @throws ApiError
+ */
+export const agentGetWorkspaceProvidersStatus = (
+  data: AgentGetWorkspaceProvidersStatusData
+): CancelablePromise<AgentGetWorkspaceProvidersStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/workspace/providers/status",
+    query: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

@@ -136,6 +136,12 @@ export function useUpdateAgentPreset(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset", workspaceId, preset.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-agent-providers-status", workspaceId],
+      })
       toast({
         title: "Agent preset updated",
         description: `Saved ${preset.name}`,

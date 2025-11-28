@@ -35,6 +35,15 @@ OrganizationUserRole = Annotated[
     ),
 ]
 
+WorkspaceUserRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
+
 
 @router.get("/models")
 async def list_models(
@@ -188,3 +197,14 @@ async def set_default_model(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to set default model: {str(e)}",
         ) from e
+
+
+@router.get("/workspace/providers/status")
+async def get_workspace_providers_status(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+) -> dict[str, bool]:
+    """Get workspace credential status for all providers."""
+    service = AgentManagementService(session, role=role)
+    return await service.get_workspace_providers_status()

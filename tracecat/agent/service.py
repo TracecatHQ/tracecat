@@ -51,6 +51,10 @@ class AgentManagementService(BaseService):
         """Get the standardized secret name for a provider's credentials."""
         return f"agent-{provider}-credentials"
 
+    def _get_workspace_credential_secret_name(self, provider: str) -> str:
+        """Get the workspace secret name for a provider's credentials."""
+        return provider
+
     async def list_providers(self) -> list[str]:
         """List all available AI model providers."""
         return sorted({c.provider for c in MODEL_CONFIGS.values()})
@@ -128,10 +132,22 @@ class AgentManagementService(BaseService):
         return secret
 
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider."""
+        """Get decrypted credentials for an AI provider at organization level."""
         secret_name = self._get_credential_secret_name(provider)
         try:
             secret = await self.secrets_service.get_org_secret_by_name(secret_name)
+            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+        except TracecatNotFoundError:
+            return None
+
+    async def get_workspace_provider_credentials(
+        self, provider: str
+    ) -> dict[str, str] | None:
+        """Get decrypted credentials for an AI provider at workspace level."""
+        secret_name = self._get_workspace_credential_secret_name(provider)
+        try:
+            secret = await self.secrets_service.get_secret_by_name(secret_name)
             decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
             return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
         except TracecatNotFoundError:
@@ -151,16 +167,29 @@ class AgentManagementService(BaseService):
             )
 
     async def check_provider_credentials(self, provider: str) -> bool:
-        """Check if credentials exist for a provider."""
+        """Check if credentials exist for a provider at organization level."""
         credentials = await self.get_provider_credentials(provider)
         return credentials is not None
 
     async def get_providers_status(self) -> dict[str, bool]:
-        """Get credential status for all providers."""
+        """Get credential status for all providers at organization level."""
         providers = await self.list_providers()
         status = {}
         for provider in providers:
             status[provider] = await self.check_provider_credentials(provider)
+        return status
+
+    async def check_workspace_provider_credentials(self, provider: str) -> bool:
+        """Check if credentials exist for a provider at workspace level."""
+        credentials = await self.get_workspace_provider_credentials(provider)
+        return credentials is not None
+
+    async def get_workspace_providers_status(self) -> dict[str, bool]:
+        """Get credential status for all providers at workspace level."""
+        providers = await self.list_providers()
+        status = {}
+        for provider in providers:
+            status[provider] = await self.check_workspace_provider_credentials(provider)
         return status
 
     async def set_default_model(self, model_name: str) -> None:
@@ -228,8 +257,16 @@ class AgentManagementService(BaseService):
         *,
         preset_id: uuid.UUID | None = None,
         slug: str | None = None,
+        use_workspace_credentials: bool = False,
     ) -> AsyncIterator[AgentConfig]:
-        """Yield an agent preset configuration with provider credentials loaded."""
+        """Yield an agent preset configuration with provider credentials loaded.
+
+        Args:
+            preset_id: Agent preset ID to load
+            slug: Agent preset slug to load (alternative to preset_id)
+            use_workspace_credentials: If True, use workspace-scoped credentials.
+                If False (default), use organization-scoped credentials.
+        """
         if self.presets is None:
             raise TracecatAuthorizationError(
                 "Agent presets require a workspace role",
@@ -239,7 +276,17 @@ class AgentManagementService(BaseService):
             preset_id=preset_id,
             slug=slug,
         )
-        credentials = await self.get_provider_credentials(preset_config.model_provider)
+
+        # Get credentials from appropriate scope
+        if use_workspace_credentials:
+            credentials = await self.get_workspace_provider_credentials(
+                preset_config.model_provider
+            )
+        else:
+            credentials = await self.get_provider_credentials(
+                preset_config.model_provider
+            )
+
         if not credentials:
             raise TracecatNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
