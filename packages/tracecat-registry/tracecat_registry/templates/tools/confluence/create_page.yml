@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Create page
+  description: Create a new Confluence page in a space, optionally under a parent.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-createContent
+  namespace: tools.confluence
+  name: create_page
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    space_key:
+      type: str
+      description: Space key for the page (e.g., DEV, TEAM).
+    title:
+      type: str
+      description: Title of the new page.
+    content:
+      type: str
+      description: >
+        Page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+    content_representation:
+      type: str
+      description: Content representation for the body (storage or wiki).
+      default: storage
+    parent_id:
+      type: str | None
+      description: Optional parent page ID to nest under.
+      default: null
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          space_key: ${{ inputs.space_key }}
+          title: ${{ inputs.title }}
+          content: ${{ inputs.content }}
+          representation: ${{ inputs.content_representation }}
+          parent_id: ${{ inputs.parent_id }}
+        script: |
+          def main(space_key, title, content, representation, parent_id):
+              payload = {
+                  "type": "page",
+                  "title": title,
+                  "space": {"key": space_key},
+                  "body": {
+                      representation: {
+                          "value": content,
+                          "representation": representation,
+                      }
+                  },
+              }
+              if parent_id:
+                  payload["ancestors"] = [{"id": str(parent_id)}]
+              return payload
+    - ref: create_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content
+        method: POST
+        headers:
+          Content-Type: application/json
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+        payload: ${{ steps.build_payload.result.data }}
+  returns: ${{ steps.create_page.result.data }}

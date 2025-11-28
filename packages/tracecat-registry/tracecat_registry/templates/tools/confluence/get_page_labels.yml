@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get page labels
+  description: List labels applied to a Confluence page.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-getLabelsForContent
+  namespace: tools.confluence
+  name: get_page_labels
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    page_id:
+      type: str
+      description: The ID of the page to fetch labels for.
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: get_labels
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/label
+        method: GET
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.get_labels.result.data }}

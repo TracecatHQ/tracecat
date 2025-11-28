@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Get page by title
+  description: Find a Confluence page by title within a space.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContent
+  namespace: tools.confluence
+  name: get_page_by_title
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    space_key:
+      type: str
+      description: Space key containing the page (e.g., DEV, TEAM).
+    title:
+      type: str
+      description: Exact page title to retrieve.
+    expand:
+      type: str
+      description: >
+        Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors,
+        children.attachment).
+      default: body.storage,version,space
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: lookup_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content
+        method: GET
+        params:
+          title: ${{ inputs.title }}
+          spaceKey: ${{ inputs.space_key }}
+          type: page
+          expand: ${{ inputs.expand }}
+          limit: 1
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+    - ref: first_result
+      action: core.script.run_python
+      args:
+        inputs:
+          results: ${{ steps.lookup_page.result.data.results }}
+        script: |
+          def main(results):
+              return results[0] if results else None
+  returns: ${{ steps.first_result.result.data }}

@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get page comments
+  description: Retrieve comments for a Confluence page with pagination support. Use start/limit to iterate through all comments.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/{id}/child-commentsOfContent
+  namespace: tools.confluence
+  name: get_page_comments
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    page_id:
+      type: str
+      description: Confluence page ID to fetch comments for.
+    depth:
+      type: str
+      description: Depth of comments to return (e.g., all, root).
+      default: all
+    expand:
+      type: str
+      description: Fields to expand on each comment (e.g., body.view, body.storage, version).
+      default: body.view,version
+    limit:
+      type: int
+      description: Maximum number of comments to return per request (1-50).
+      default: 25
+    start:
+      type: int
+      description: Starting index for pagination (0-based). Use _links.next from response to get next page.
+      default: 0
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: get_comments
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/child/comment
+        method: GET
+        params:
+          expand: ${{ inputs.expand }}
+          depth: ${{ inputs.depth }}
+          limit: ${{ inputs.limit }}
+          start: ${{ inputs.start }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.get_comments.result.data }}

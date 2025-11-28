@@ -1,0 +1,106 @@
+type: action
+definition:
+  title: Update page
+  description: Update an existing Confluence page, incrementing the version automatically.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-update
+  namespace: tools.confluence
+  name: update_page
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    page_id:
+      type: str
+      description: ID of the page to update.
+    title:
+      type: str
+      description: New title for the page.
+    content:
+      type: str
+      description: >
+        Updated page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+    content_representation:
+      type: str
+      description: Content representation for the body (storage or wiki).
+      default: storage
+    is_minor_edit:
+      type: bool
+      description: Whether this is a minor edit for versioning purposes.
+      default: false
+    version_comment:
+      type: str
+      description: Optional version comment to record with the update.
+      default: ""
+    parent_id:
+      type: str | None
+      description: Optional new parent page ID to set on update.
+      default: null
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: fetch_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        method: GET
+        params:
+          expand: version,space
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          page: ${{ steps.fetch_page.result.data }}
+          title: ${{ inputs.title }}
+          content: ${{ inputs.content }}
+          representation: ${{ inputs.content_representation }}
+          is_minor_edit: ${{ inputs.is_minor_edit }}
+          version_comment: ${{ inputs.version_comment }}
+          parent_id: ${{ inputs.parent_id }}
+        script: |
+          def main(page, title, content, representation, is_minor_edit, version_comment, parent_id):
+              payload = {
+                  "type": "page",
+                  "title": title,
+                  "version": {
+                      "number": int(page.get("version", {}).get("number", 0)) + 1,
+                      "minorEdit": is_minor_edit,
+                  },
+                  "body": {
+                      representation: {
+                          "value": content,
+                          "representation": representation,
+                      }
+                  },
+              }
+              # Add space key if present
+              space_key = page.get("space", {}).get("key")
+              if space_key:
+                  payload["space"] = {"key": space_key}
+
+              # Add version comment if provided
+              if version_comment:
+                  payload["version"]["message"] = version_comment
+
+              # Add ancestors if parent_id is provided
+              if parent_id:
+                  payload["ancestors"] = [{"id": str(parent_id)}]
+
+              return payload
+    - ref: update_page
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        method: PUT
+        headers:
+          Content-Type: application/json
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+        payload: ${{ steps.build_payload.result.data }}
+  returns: ${{ steps.update_page.result.data }}

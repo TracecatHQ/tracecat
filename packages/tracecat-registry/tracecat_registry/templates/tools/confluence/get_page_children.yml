@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: Get child pages
+  description: List child pages for a parent Confluence page with pagination and optional content expansion.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/{id}/child-childrenOfType
+  namespace: tools.confluence
+  name: get_page_children
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    parent_id:
+      type: str
+      description: The ID of the parent page whose children you want to retrieve.
+    expand:
+      type: str
+      description: Fields to expand on each child (e.g., version, body.storage, body.view).
+      default: version
+    include_content:
+      type: bool
+      description: Whether to force body.storage expansion for child content.
+      default: false
+    limit:
+      type: int
+      description: Maximum number of child pages to return (1-50).
+      default: 25
+    start:
+      type: int
+      description: Starting index for pagination (0-based).
+      default: 0
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: resolve_expand
+      action: core.script.run_python
+      args:
+        inputs:
+          expand: ${{ inputs.expand }}
+          include_content: ${{ inputs.include_content }}
+        script: |
+          def main(expand, include_content):
+              if not include_content:
+                  return expand
+
+              # Merge expand fields with body.storage, removing duplicates while preserving order
+              parts = [part.strip() for part in (expand + ",body.storage").split(",") if part.strip()]
+              # Use dict.fromkeys() to remove duplicates while maintaining order
+              unique_parts = list(dict.fromkeys(parts))
+              return ",".join(unique_parts)
+    - ref: get_children
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.parent_id) }}/child/page
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          limit: ${{ inputs.limit }}
+          expand: ${{ steps.resolve_expand.result.data }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.get_children.result.data }}

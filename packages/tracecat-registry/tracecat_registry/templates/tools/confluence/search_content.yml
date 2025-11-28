@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Search content
+  description: Search Confluence content with Confluence Query Language (CQL) and optional space filters.
+  display_group: Confluence
+  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search
+  namespace: tools.confluence
+  name: search_content
+  secrets:
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: >
+        Search query in CQL. Examples: 'type=page AND space=DEV', 'title~"Runbook"', or
+        'text ~ "incident response"'. CQL supports operators like AND/OR, ranges, and exact matches.
+    limit:
+      type: int
+      description: Maximum number of results to return (1-50).
+      default: 10
+    spaces_filter:
+      type: str | None
+      description: Optional comma-separated space keys to filter results (adds OR space clauses to the query).
+      default: null
+    base_url:
+      type: str | None
+      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      default: null
+  steps:
+    - ref: build_cql
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          spaces_filter: ${{ inputs.spaces_filter }}
+        script: |
+          import re
+
+          def main(query, spaces_filter):
+              # Return base query if no spaces_filter provided
+              if not spaces_filter:
+                  return query
+
+              # Parse and filter out empty space keys
+              space_keys = [space.strip() for space in spaces_filter.split(',') if space.strip()]
+
+              # Only add space clause if there are valid space keys
+              if not space_keys:
+                  return query
+
+              # Preserve ORDER BY clauses by appending the space filter before them
+              match = re.search(r"\s+ORDER\s+BY\s+", query, flags=re.IGNORECASE)
+              if match:
+                  base_query = query[: match.start()].rstrip()
+                  order_by = query[match.start():].lstrip()
+              else:
+                  base_query = query
+                  order_by = ""
+
+              space_clause = ' OR '.join([f'space = "{key}"' for key in space_keys])
+              filtered_query = f"({base_query}) AND ({space_clause})"
+
+              return f"{filtered_query} {order_by}" if order_by else filtered_query
+    - ref: search_content
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search
+        method: GET
+        params:
+          cql: ${{ steps.build_cql.result.data }}
+          limit: ${{ inputs.limit }}
+        auth:
+          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
+          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
+  returns: ${{ steps.search_content.result.data }}
