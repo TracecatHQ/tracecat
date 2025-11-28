@@ -142,48 +142,29 @@ def configure_ldap_secrets(live_ldap_server: dict[str, Any]):
 
 def _run_search(
     ldap_data: dict[str, str],
-    *,
-    attributes: str,
 ) -> list[dict[str, Any]]:
     return search_entries(
         search_base=ldap_data["base_dn"],
         search_filter=ldap_data["filter"],
-        attributes=attributes,
     )
 
 
 def test_live_search_all_attributes(
     ldap_test_data: dict[str, str], configure_ldap_secrets
 ) -> None:
-    results = _run_search(ldap_test_data, attributes="ALL_ATTRIBUTES")
+    results = _run_search(ldap_test_data)
     assert results and results[0]["attributes"]["uid"] == ["tracecat.test"]
 
 
-def test_live_search_single_attribute(
+def test_live_search_returns_all_attributes(
     ldap_test_data: dict[str, str], configure_ldap_secrets
 ) -> None:
-    results = _run_search(ldap_test_data, attributes="uid")
+    results = _run_search(ldap_test_data)
     assert results
     attrs = results[0]["attributes"]
-    assert set(attrs) == {"uid"}
+    # Verify that all expected attributes are present
+    assert "uid" in attrs
+    assert "mail" in attrs
+    assert "cn" in attrs
     assert attrs["uid"] == ["tracecat.test"]
-
-
-def test_live_search_multiple_attribute_string(
-    ldap_test_data: dict[str, str], configure_ldap_secrets
-) -> None:
-    results = _run_search(ldap_test_data, attributes="uid, mail\n cn ")
-    assert results
-    attrs = results[0]["attributes"]
-    assert set(attrs) == {"uid", "mail", "cn"}
     assert attrs["mail"] == ["tracecat@example.com"]
-
-
-def test_live_search_blank_string_defaults_to_all_attributes(
-    ldap_test_data: dict[str, str], configure_ldap_secrets
-) -> None:
-    results = _run_search(ldap_test_data, attributes="   ")
-    assert results
-    attrs = results[0]["attributes"]
-    assert "mail" in attrs and "cn" in attrs
-    assert attrs["uid"] == ["tracecat.test"]
