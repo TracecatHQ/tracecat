@@ -9,113 +9,113 @@ definition:
   secrets:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
-expects:
-  base_url:
-    type: str | None
-    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
-    default: null
-  short_description:
-    type: str
-    description: Short description of the incident.
-  description:
-    type: str | None
-    description: Detailed description of the incident.
-    default: null
-  caller_id:
-    type: str | None
-    description: User who reported the incident (sys_id or user name).
-    default: null
-  category:
-    type: str | None
-    description: Category of the incident.
-    default: null
-  subcategory:
-    type: str | None
-    description: Subcategory of the incident.
-    default: null
-  priority:
-    type: str | None
-    description: Priority of the incident.
-    default: null
-  impact:
-    type: str | None
-    description: Impact of the incident.
-    default: null
-  urgency:
-    type: str | None
-    description: Urgency of the incident.
-    default: null
-  assigned_to:
-    type: str | None
-    description: User assigned to the incident.
-    default: null
-  assignment_group:
-    type: str | None
-    description: Group assigned to the incident.
-    default: null
-steps:
-  - ref: resolve_base_url
-    action: core.script.run_python
-    args:
-      inputs:
-        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
-      script: |
-        from urllib.parse import urlparse
+  expects:
+    base_url:
+      type: str | None
+      description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
+      default: null
+    short_description:
+      type: str
+      description: Short description of the incident.
+    description:
+      type: str | None
+      description: Detailed description of the incident.
+      default: null
+    caller_id:
+      type: str | None
+      description: User who reported the incident (sys_id or user name).
+      default: null
+    category:
+      type: str | None
+      description: Category of the incident.
+      default: null
+    subcategory:
+      type: str | None
+      description: Subcategory of the incident.
+      default: null
+    priority:
+      type: str | None
+      description: Priority of the incident.
+      default: null
+    impact:
+      type: str | None
+      description: Impact of the incident.
+      default: null
+    urgency:
+      type: str | None
+      description: Urgency of the incident.
+      default: null
+    assigned_to:
+      type: str | None
+      description: User assigned to the incident.
+      default: null
+    assignment_group:
+      type: str | None
+      description: Group assigned to the incident.
+      default: null
+  steps:
+    - ref: resolve_base_url
+      action: core.script.run_python
+      args:
+        inputs:
+          base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+        script: |
+          from urllib.parse import urlparse
 
-        def main(base_url=None):
-            if not base_url:
-                raise ValueError("ServiceNow base_url is required")
+          def main(base_url=None):
+              if not base_url:
+                  raise ValueError("ServiceNow base_url is required")
 
-            parsed = urlparse(base_url)
-            if parsed.scheme != "https":
-                raise ValueError("ServiceNow base_url must use https")
-            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
-                raise ValueError("ServiceNow base_url must be a service-now.com host")
+              parsed = urlparse(base_url)
+              if parsed.scheme != "https":
+                  raise ValueError("ServiceNow base_url must use https")
+              if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                  raise ValueError("ServiceNow base_url must be a service-now.com host")
 
-            return {"base_url": base_url.rstrip("/")}
-  - ref: build_payload
-    action: core.script.run_python
-    args:
-      inputs:
-        short_description: ${{ inputs.short_description }}
-        description: ${{ inputs.description }}
-        caller_id: ${{ inputs.caller_id }}
-        category: ${{ inputs.category }}
-        subcategory: ${{ inputs.subcategory }}
-        priority: ${{ inputs.priority }}
-        impact: ${{ inputs.impact }}
-        urgency: ${{ inputs.urgency }}
-        assigned_to: ${{ inputs.assigned_to }}
-        assignment_group: ${{ inputs.assignment_group }}
-      script: |
-        def main(short_description, description=None, caller_id=None, category=None, subcategory=None,
-                 priority=None, impact=None, urgency=None, assigned_to=None, assignment_group=None):
-            payload = {"short_description": short_description}
-            optional = {
-                "description": description,
-                "caller_id": caller_id,
-                "category": category,
-                "subcategory": subcategory,
-                "priority": priority,
-                "impact": impact,
-                "urgency": urgency,
-                "assigned_to": assigned_to,
-                "assignment_group": assignment_group,
-            }
-            for key, value in optional.items():
-                if value is not None:
-                    payload[key] = value
-            return payload
-  - ref: create_incident
-    action: core.http_request
-    args:
-      method: POST
-      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
-      auth:
-        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
-        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
-      headers:
-        Accept: application/json
-        Content-Type: application/json
-      payload: ${{ steps.build_payload.result }}
-returns: ${{ steps.create_incident.result.data }}
+              return {"base_url": base_url.rstrip("/")}
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          short_description: ${{ inputs.short_description }}
+          description: ${{ inputs.description }}
+          caller_id: ${{ inputs.caller_id }}
+          category: ${{ inputs.category }}
+          subcategory: ${{ inputs.subcategory }}
+          priority: ${{ inputs.priority }}
+          impact: ${{ inputs.impact }}
+          urgency: ${{ inputs.urgency }}
+          assigned_to: ${{ inputs.assigned_to }}
+          assignment_group: ${{ inputs.assignment_group }}
+        script: |
+          def main(short_description, description=None, caller_id=None, category=None, subcategory=None,
+                   priority=None, impact=None, urgency=None, assigned_to=None, assignment_group=None):
+              payload = {"short_description": short_description}
+              optional = {
+                  "description": description,
+                  "caller_id": caller_id,
+                  "category": category,
+                  "subcategory": subcategory,
+                  "priority": priority,
+                  "impact": impact,
+                  "urgency": urgency,
+                  "assigned_to": assigned_to,
+                  "assignment_group": assignment_group,
+              }
+              for key, value in optional.items():
+                  if value is not None:
+                      payload[key] = value
+              return payload
+    - ref: create_incident
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
+        auth:
+          username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+          password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_incident.result.data }}

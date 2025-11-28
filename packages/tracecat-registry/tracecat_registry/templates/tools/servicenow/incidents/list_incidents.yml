@@ -9,100 +9,100 @@ definition:
   secrets:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
-expects:
-  base_url:
-    type: str | None
-    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
-    default: null
-  limit:
-    type: int
-    description: Maximum number of incidents to return.
-    default: 10
-  offset:
-    type: int
-    description: Pagination offset.
-    default: 0
-  state:
-    type: str | None
-    description: Filter by state.
-    default: null
-  assigned_to:
-    type: str | None
-    description: Filter by assigned user.
-    default: null
-  category:
-    type: str | None
-    description: Filter by category.
-    default: null
-  query:
-    type: str | None
-    description: Additional query string to search short_description or description.
-    default: null
-steps:
-  - ref: resolve_base_url
-    action: core.script.run_python
-    args:
-      inputs:
-        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
-      script: |
-        from urllib.parse import urlparse
+  expects:
+    base_url:
+      type: str | None
+      description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
+      default: null
+    limit:
+      type: int
+      description: Maximum number of incidents to return.
+      default: 10
+    offset:
+      type: int
+      description: Pagination offset.
+      default: 0
+    state:
+      type: str | None
+      description: Filter by state.
+      default: null
+    assigned_to:
+      type: str | None
+      description: Filter by assigned user.
+      default: null
+    category:
+      type: str | None
+      description: Filter by category.
+      default: null
+    query:
+      type: str | None
+      description: Additional query string to search short_description or description.
+      default: null
+  steps:
+    - ref: resolve_base_url
+      action: core.script.run_python
+      args:
+        inputs:
+          base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+        script: |
+          from urllib.parse import urlparse
 
-        def main(base_url=None):
-            if not base_url:
-                raise ValueError("ServiceNow base_url is required")
+          def main(base_url=None):
+              if not base_url:
+                  raise ValueError("ServiceNow base_url is required")
 
-            parsed = urlparse(base_url)
-            if parsed.scheme != "https":
-                raise ValueError("ServiceNow base_url must use https")
-            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
-                raise ValueError("ServiceNow base_url must be a service-now.com host")
+              parsed = urlparse(base_url)
+              if parsed.scheme != "https":
+                  raise ValueError("ServiceNow base_url must use https")
+              if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                  raise ValueError("ServiceNow base_url must be a service-now.com host")
 
-            return {"base_url": base_url.rstrip("/")}
-  - ref: build_params
-    action: core.script.run_python
-    args:
-      inputs:
-        limit: ${{ inputs.limit }}
-        offset: ${{ inputs.offset }}
-        state: ${{ inputs.state }}
-        assigned_to: ${{ inputs.assigned_to }}
-        category: ${{ inputs.category }}
-        query: ${{ inputs.query }}
-      script: |
-        from urllib.parse import quote_plus
+              return {"base_url": base_url.rstrip("/")}
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          state: ${{ inputs.state }}
+          assigned_to: ${{ inputs.assigned_to }}
+          category: ${{ inputs.category }}
+          query: ${{ inputs.query }}
+        script: |
+          from urllib.parse import quote_plus
 
 
-        def main(limit, offset, state=None, assigned_to=None, category=None, query=None):
-            params = {
-                "sysparm_limit": limit,
-                "sysparm_offset": offset,
-                "sysparm_display_value": "true",
-                "sysparm_exclude_reference_link": "true",
-            }
-            base_filters = []
-            if state:
-                base_filters.append(f"state={quote_plus(state, safe='')}")
-            if assigned_to:
-                base_filters.append(f"assigned_to={quote_plus(assigned_to, safe='')}")
-            if category:
-                base_filters.append(f"category={quote_plus(category, safe='')}")
-            if query:
-                safe_query = quote_plus(query, safe="")
-                branches = [
-                    "^".join(base_filters + [f"short_descriptionLIKE{safe_query}"]),
-                    "^".join(base_filters + [f"descriptionLIKE{safe_query}"]),
-                ]
-                params["sysparm_query"] = "^NQ".join(branches)
-            elif base_filters:
-                params["sysparm_query"] = "^".join(base_filters)
-            return params
-  - ref: list_incidents
-    action: core.http_request
-    args:
-      method: GET
-      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
-      auth:
-        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
-        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
-      params: ${{ steps.build_params.result }}
-returns: ${{ steps.list_incidents.result.data }}
+          def main(limit, offset, state=None, assigned_to=None, category=None, query=None):
+              params = {
+                  "sysparm_limit": limit,
+                  "sysparm_offset": offset,
+                  "sysparm_display_value": "true",
+                  "sysparm_exclude_reference_link": "true",
+              }
+              base_filters = []
+              if state:
+                  base_filters.append(f"state={quote_plus(state, safe='')}")
+              if assigned_to:
+                  base_filters.append(f"assigned_to={quote_plus(assigned_to, safe='')}")
+              if category:
+                  base_filters.append(f"category={quote_plus(category, safe='')}")
+              if query:
+                  safe_query = quote_plus(query, safe="")
+                  branches = [
+                      "^".join(base_filters + [f"short_descriptionLIKE{safe_query}"]),
+                      "^".join(base_filters + [f"descriptionLIKE{safe_query}"]),
+                  ]
+                  params["sysparm_query"] = "^NQ".join(branches)
+              elif base_filters:
+                  params["sysparm_query"] = "^".join(base_filters)
+              return params
+    - ref: list_incidents
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
+        auth:
+          username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+          password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_incidents.result.data }}

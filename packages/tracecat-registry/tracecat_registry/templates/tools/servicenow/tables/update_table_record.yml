@@ -9,50 +9,50 @@ definition:
   secrets:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
-expects:
-  base_url:
-    type: str | None
-    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
-    default: null
-  table:
-    type: str
-    description: Target table name (e.g., incident, cmdb_ci_service).
-  record_id:
-    type: str
-    description: Record sys_id.
-  fields:
-    type: dict[str, Any]
-    description: Field values to update.
-steps:
-  - ref: resolve_base_url
-    action: core.script.run_python
-    args:
-      inputs:
-        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
-      script: |
-        from urllib.parse import urlparse
+  expects:
+    base_url:
+      type: str | None
+      description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
+      default: null
+    table:
+      type: str
+      description: Target table name (e.g., incident, cmdb_ci_service).
+    record_id:
+      type: str
+      description: Record sys_id.
+    fields:
+      type: dict[str, Any]
+      description: Field values to update.
+  steps:
+    - ref: resolve_base_url
+      action: core.script.run_python
+      args:
+        inputs:
+          base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+        script: |
+          from urllib.parse import urlparse
 
-        def main(base_url=None):
-            if not base_url:
-                raise ValueError("ServiceNow base_url is required")
+          def main(base_url=None):
+              if not base_url:
+                  raise ValueError("ServiceNow base_url is required")
 
-            parsed = urlparse(base_url)
-            if parsed.scheme != "https":
-                raise ValueError("ServiceNow base_url must use https")
-            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
-                raise ValueError("ServiceNow base_url must be a service-now.com host")
+              parsed = urlparse(base_url)
+              if parsed.scheme != "https":
+                  raise ValueError("ServiceNow base_url must use https")
+              if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                  raise ValueError("ServiceNow base_url must be a service-now.com host")
 
-            return {"base_url": base_url.rstrip("/")}
-  - ref: update_record
-    action: core.http_request
-    args:
-      method: PATCH
-      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/${{ FN.url_encode(inputs.table) }}/${{ FN.url_encode(inputs.record_id) }}
-      auth:
-        username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
-        password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
-      headers:
-        Accept: application/json
-        Content-Type: application/json
-      payload: ${{ inputs.fields }}
-returns: ${{ steps.update_record.result.data }}
+              return {"base_url": base_url.rstrip("/")}
+    - ref: update_record
+      action: core.http_request
+      args:
+        method: PATCH
+        url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/${{ FN.url_encode(inputs.table) }}/${{ FN.url_encode(inputs.record_id) }}
+        auth:
+          username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
+          password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        payload: ${{ inputs.fields }}
+  returns: ${{ steps.update_record.result.data }}
