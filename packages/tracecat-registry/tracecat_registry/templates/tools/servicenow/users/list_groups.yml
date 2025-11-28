@@ -10,9 +10,9 @@ definition:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
 expects:
-  instance_url:
+  base_url:
     type: str | None
-    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
     default: null
   limit:
     type: int
@@ -35,6 +35,25 @@ expects:
     description: Filter by group type.
     default: null
 steps:
+  - ref: resolve_base_url
+    action: core.script.run_python
+    args:
+      inputs:
+        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+      script: |
+        from urllib.parse import urlparse
+
+        def main(base_url=None):
+            if not base_url:
+                raise ValueError("ServiceNow base_url is required")
+
+            parsed = urlparse(base_url)
+            if parsed.scheme != "https":
+                raise ValueError("ServiceNow base_url must use https")
+            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                raise ValueError("ServiceNow base_url must be a service-now.com host")
+
+            return {"base_url": base_url.rstrip("/")}
   - ref: build_params
     action: core.script.run_python
     args:
@@ -45,27 +64,35 @@ steps:
         query: ${{ inputs.query }}
         type: ${{ inputs.type }}
       script: |
+        from urllib.parse import quote_plus
+
+
         def main(limit, offset, active=None, query=None, type=None):
             params = {
                 "sysparm_limit": limit,
                 "sysparm_offset": offset,
                 "sysparm_display_value": "true",
             }
-            filters = []
+            base_filters = []
             if active is not None:
-                filters.append(f"active={str(active).lower()}")
+                base_filters.append(f"active={quote_plus(str(active).lower(), safe='')}")
             if type:
-                filters.append(f"type={type}")
+                base_filters.append(f"type={quote_plus(type, safe='')}")
             if query:
-                filters.append(f"nameLIKE{query}^ORdescriptionLIKE{query}")
-            if filters:
-                params["sysparm_query"] = "^".join(filters)
+                safe_query = quote_plus(query, safe="")
+                branches = [
+                    "^".join(base_filters + [f"nameLIKE{safe_query}"]),
+                    "^".join(base_filters + [f"descriptionLIKE{safe_query}"]),
+                ]
+                params["sysparm_query"] = "^NQ".join(branches)
+            elif base_filters:
+                params["sysparm_query"] = "^".join(base_filters)
             return params
   - ref: list_groups
     action: core.http_request
     args:
       method: GET
-      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/sys_user_group
+      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/sys_user_group
       auth:
         username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
         password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}

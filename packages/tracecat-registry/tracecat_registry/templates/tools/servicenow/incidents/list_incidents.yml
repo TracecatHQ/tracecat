@@ -10,9 +10,9 @@ definition:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
 expects:
-  instance_url:
+  base_url:
     type: str | None
-    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
     default: null
   limit:
     type: int
@@ -39,6 +39,25 @@ expects:
     description: Additional query string to search short_description or description.
     default: null
 steps:
+  - ref: resolve_base_url
+    action: core.script.run_python
+    args:
+      inputs:
+        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+      script: |
+        from urllib.parse import urlparse
+
+        def main(base_url=None):
+            if not base_url:
+                raise ValueError("ServiceNow base_url is required")
+
+            parsed = urlparse(base_url)
+            if parsed.scheme != "https":
+                raise ValueError("ServiceNow base_url must use https")
+            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                raise ValueError("ServiceNow base_url must be a service-now.com host")
+
+            return {"base_url": base_url.rstrip("/")}
   - ref: build_params
     action: core.script.run_python
     args:
@@ -50,6 +69,9 @@ steps:
         category: ${{ inputs.category }}
         query: ${{ inputs.query }}
       script: |
+        from urllib.parse import quote_plus
+
+
         def main(limit, offset, state=None, assigned_to=None, category=None, query=None):
             params = {
                 "sysparm_limit": limit,
@@ -57,23 +79,28 @@ steps:
                 "sysparm_display_value": "true",
                 "sysparm_exclude_reference_link": "true",
             }
-            filters = []
+            base_filters = []
             if state:
-                filters.append(f"state={state}")
+                base_filters.append(f"state={quote_plus(state, safe='')}")
             if assigned_to:
-                filters.append(f"assigned_to={assigned_to}")
+                base_filters.append(f"assigned_to={quote_plus(assigned_to, safe='')}")
             if category:
-                filters.append(f"category={category}")
+                base_filters.append(f"category={quote_plus(category, safe='')}")
             if query:
-                filters.append(f"short_descriptionLIKE{query}^ORdescriptionLIKE{query}")
-            if filters:
-                params["sysparm_query"] = "^".join(filters)
+                safe_query = quote_plus(query, safe="")
+                branches = [
+                    "^".join(base_filters + [f"short_descriptionLIKE{safe_query}"]),
+                    "^".join(base_filters + [f"descriptionLIKE{safe_query}"]),
+                ]
+                params["sysparm_query"] = "^NQ".join(branches)
+            elif base_filters:
+                params["sysparm_query"] = "^".join(base_filters)
             return params
   - ref: list_incidents
     action: core.http_request
     args:
       method: GET
-      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident
+      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
       auth:
         username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
         password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}

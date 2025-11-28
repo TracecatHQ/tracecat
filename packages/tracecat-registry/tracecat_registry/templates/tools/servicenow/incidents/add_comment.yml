@@ -10,9 +10,9 @@ definition:
     - name: servicenow
       keys: ["SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"]
 expects:
-  instance_url:
+  base_url:
     type: str | None
-    description: ServiceNow instance URL (e.g., https://your-instance.service-now.com)
+    description: ServiceNow base URL (e.g., https://your-instance.service-now.com)
     default: null
   incident_id:
     type: str
@@ -25,11 +25,30 @@ expects:
     description: Set true to add as work note instead of customer-facing comment.
     default: false
 steps:
+  - ref: resolve_base_url
+    action: core.script.run_python
+    args:
+      inputs:
+        base_url: ${{ inputs.base_url or VARS.servicenow.base_url }}
+      script: |
+        from urllib.parse import urlparse
+
+        def main(base_url=None):
+            if not base_url:
+                raise ValueError("ServiceNow base_url is required")
+
+            parsed = urlparse(base_url)
+            if parsed.scheme != "https":
+                raise ValueError("ServiceNow base_url must use https")
+            if not parsed.hostname or not parsed.hostname.endswith("service-now.com"):
+                raise ValueError("ServiceNow base_url must be a service-now.com host")
+
+            return {"base_url": base_url.rstrip("/")}
   - ref: lookup_incident
     action: core.http_request
     args:
       method: GET
-      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident
+      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident
       auth:
         username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
         password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
@@ -66,7 +85,7 @@ steps:
     action: core.http_request
     args:
       method: PUT
-      url: ${{ (inputs.instance_url || VARS.servicenow.instance_url) }}/api/now/table/incident/${{ FN.url_encode(steps.resolve_incident.result.sys_id) }}
+      url: ${{ steps.resolve_base_url.result.base_url }}/api/now/table/incident/${{ FN.url_encode(steps.resolve_incident.result.sys_id) }}
       auth:
         username: ${{ SECRETS.servicenow.SERVICENOW_USERNAME }}
         password: ${{ SECRETS.servicenow.SERVICENOW_PASSWORD }}
