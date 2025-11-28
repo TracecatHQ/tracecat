@@ -35,6 +35,8 @@ definition:
           query: ${{ inputs.query }}
           spaces_filter: ${{ inputs.spaces_filter }}
         script: |
+          import re
+
           def main(query, spaces_filter):
               # Return base query if no spaces_filter provided
               if not spaces_filter:
@@ -47,8 +49,19 @@ definition:
               if not space_keys:
                   return query
 
+              # Preserve ORDER BY clauses by appending the space filter before them
+              match = re.search(r"\s+ORDER\s+BY\s+", query, flags=re.IGNORECASE)
+              if match:
+                  base_query = query[: match.start()].rstrip()
+                  order_by = query[match.start():].lstrip()
+              else:
+                  base_query = query
+                  order_by = ""
+
               space_clause = ' OR '.join([f'space = "{key}"' for key in space_keys])
-              return f"({query}) AND ({space_clause})"
+              filtered_query = f"({base_query}) AND ({space_clause})"
+
+              return f"{filtered_query} {order_by}" if order_by else filtered_query
     - ref: search_content
       action: core.http_request
       args:

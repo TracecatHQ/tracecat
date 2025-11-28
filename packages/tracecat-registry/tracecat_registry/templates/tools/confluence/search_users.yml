@@ -40,7 +40,7 @@ definition:
     - ref: search_users
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search/user
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search
         method: GET
         params:
           cql: ${{ steps.build_cql.result.data }}
