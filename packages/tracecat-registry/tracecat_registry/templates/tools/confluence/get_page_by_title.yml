@@ -42,9 +42,11 @@ definition:
           username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
           password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
     - ref: first_result
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value: ${{ steps.lookup_page.result.data.results }}
-        python_lambda: >
-          lambda results: results[0] if results else None
+        inputs:
+          results: ${{ steps.lookup_page.result.data.results }}
+        script: |
+          def main(results):
+              return results[0] if results else None
   returns: ${{ steps.first_result.result.data }}

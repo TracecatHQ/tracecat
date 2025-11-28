@@ -34,27 +34,30 @@ definition:
       default: null
   steps:
     - ref: build_payload
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           space_key: ${{ inputs.space_key }}
           title: ${{ inputs.title }}
           content: ${{ inputs.content }}
           representation: ${{ inputs.content_representation }}
           parent_id: ${{ inputs.parent_id }}
-        python_lambda: >
-          lambda data: {
-            "type": "page",
-            "title": data["title"],
-            "space": {"key": data["space_key"]},
-            "body": {
-              data["representation"]: {
-                "value": data["content"],
-                "representation": data["representation"],
+        script: |
+          def main(space_key, title, content, representation, parent_id):
+              payload = {
+                  "type": "page",
+                  "title": title,
+                  "space": {"key": space_key},
+                  "body": {
+                      representation: {
+                          "value": content,
+                          "representation": representation,
+                      }
+                  },
               }
-            },
-            **({"ancestors": [{"id": str(data["parent_id"])}]} if data.get("parent_id") else {}),
-          }
+              if parent_id:
+                  payload["ancestors"] = [{"id": str(parent_id)}]
+              return payload
     - ref: create_page
       action: core.http_request
       args:

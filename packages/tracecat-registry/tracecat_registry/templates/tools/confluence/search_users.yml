@@ -25,13 +25,18 @@ definition:
       default: null
   steps:
     - ref: build_cql
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value: ${{ inputs.query }}
-        python_lambda: >
-          lambda query: query
-          if any(x in query for x in ["=", "~", ">", "<", " AND ", " OR ", "user."])
-          else f'user.fullname ~ "{query}"'
+        inputs:
+          query: ${{ inputs.query }}
+        script: |
+          def main(query):
+              # If already a CQL expression, return as-is
+              if any(x in query for x in ["=", "~", ">", "<", " AND ", " OR ", "user."]):
+                  return query
+              # Escape double quotes in plain text and wrap in fullname search
+              escaped_query = query.replace('"', '\\"')
+              return f'user.fullname ~ "{escaped_query}"'
     - ref: search_users
       action: core.http_request
       args:

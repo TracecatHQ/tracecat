@@ -35,17 +35,21 @@ definition:
       default: null
   steps:
     - ref: resolve_expand
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           expand: ${{ inputs.expand }}
           include_content: ${{ inputs.include_content }}
-        python_lambda: >
-          lambda data: (
-            ",".join(dict.fromkeys([part.strip() for part in (data["expand"] + ",body.storage").split(",") if part.strip()]))
-            if data.get("include_content")
-            else data["expand"]
-          )
+        script: |
+          def main(expand, include_content):
+              if not include_content:
+                  return expand
+
+              # Merge expand fields with body.storage, removing duplicates while preserving order
+              parts = [part.strip() for part in (expand + ",body.storage").split(",") if part.strip()]
+              # Use dict.fromkeys() to remove duplicates while maintaining order
+              unique_parts = list(dict.fromkeys(parts))
+              return ",".join(unique_parts)
     - ref: get_children
       action: core.http_request
       args:

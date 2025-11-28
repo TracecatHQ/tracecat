@@ -26,21 +26,22 @@ definition:
       default: null
   steps:
     - ref: build_payload
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           content: ${{ inputs.content }}
           representation: ${{ inputs.content_representation }}
-        python_lambda: >
-          lambda data: {
-            "type": "comment",
-            "body": {
-              data["representation"]: {
-                "value": data["content"],
-                "representation": data["representation"],
+        script: |
+          def main(content, representation):
+              return {
+                  "type": "comment",
+                  "body": {
+                      representation: {
+                          "value": content,
+                          "representation": representation,
+                      }
+                  },
               }
-            },
-          }
     - ref: add_comment
       action: core.http_request
       args:

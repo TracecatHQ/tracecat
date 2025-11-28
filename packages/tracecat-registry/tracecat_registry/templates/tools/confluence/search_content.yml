@@ -29,17 +29,26 @@ definition:
       default: null
   steps:
     - ref: build_cql
-      action: core.transform.apply
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           query: ${{ inputs.query }}
           spaces_filter: ${{ inputs.spaces_filter }}
-        python_lambda: >
-          lambda data: (
-            f"({data['query']}) AND ({' OR '.join([f'space = \"{space.strip()}\"' for space in data['spaces_filter'].split(',') if space.strip()])})"
-            if data.get("spaces_filter")
-            else data["query"]
-          )
+        script: |
+          def main(query, spaces_filter):
+              # Return base query if no spaces_filter provided
+              if not spaces_filter:
+                  return query
+
+              # Parse and filter out empty space keys
+              space_keys = [space.strip() for space in spaces_filter.split(',') if space.strip()]
+
+              # Only add space clause if there are valid space keys
+              if not space_keys:
+                  return query
+
+              space_clause = ' OR '.join([f'space = "{key}"' for key in space_keys])
+              return f"({query}) AND ({space_clause})"
     - ref: search_content
       action: core.http_request
       args:
