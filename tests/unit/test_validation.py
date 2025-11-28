@@ -871,9 +871,12 @@ async def test_agent_tool_approvals_requires_feature_flag(
     repo.init(include_base=True, include_templates=False)
 
     ra_service = RegistryActionsService(session, role=test_role)
-    await ra_service.create_action(
-        RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
-    )
+    # Ensure the agent action is registered exactly once.
+    # It may already exist if the base registry has been synced.
+    if await ra_service.get_action_or_none("ai.agent") is None:
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
+        )
 
     dsl = DSLInput(
         title="Test Workflow",
@@ -927,9 +930,12 @@ async def test_agent_tool_approvals_passes_with_feature_flag(
     repo.init(include_base=True, include_templates=False)
 
     ra_service = RegistryActionsService(session, role=test_role)
-    await ra_service.create_action(
-        RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
-    )
+    # Ensure the agent action is registered exactly once.
+    # It may already exist if the base registry has been synced.
+    if await ra_service.get_action_or_none("ai.agent") is None:
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
+        )
 
     dsl = DSLInput(
         title="Test Workflow",
