@@ -100,15 +100,24 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
         port=live_ldap_server["port"],
         get_info=ldap3.NONE,
     )
-    conn = ldap3.Connection(
-        server,
-        user=live_ldap_server["user"],
-        password=live_ldap_server["password"],
-        auto_bind=True,
-    )
     users_dn = f"ou=Users,{LDAP_BASE_DN}"
 
-    conn.add(users_dn, ["organizationalUnit", "top"], {"ou": "Users"})
+    # Retry connection and OU creation with backoff - container may still be initializing
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = ldap3.Connection(
+                server,
+                user=live_ldap_server["user"],
+                password=live_ldap_server["password"],
+                auto_bind=True,
+            )
+            conn.add(users_dn, ["organizationalUnit", "top"], {"ou": "Users"})
+            break
+        except LDAPException:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(1)
     user_dn = f"cn=Tracecat,{users_dn}"
     if conn.search(user_dn, "(objectClass=*)"):
         conn.delete(user_dn)
