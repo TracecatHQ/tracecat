@@ -76,6 +76,10 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         return AioAgentRunHandle(task, run_id=str(args.session_id))
 
     async def _start_agent(self, args: RunAgentArgs) -> ExecutorResult:
+        # CE executor requires config to be provided (no preset support)
+        if args.config is None:
+            raise ValueError("config is required for AioStreamingAgentExecutor")
+
         # Fire-and-forget execution using the agent function directly
         logger.info(
             "Starting streaming agent",

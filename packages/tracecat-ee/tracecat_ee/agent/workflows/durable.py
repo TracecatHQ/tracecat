@@ -21,10 +21,14 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat import config
     from tracecat.agent.parsers import parse_output_type, try_parse_json
+    from tracecat.agent.preset.activities import (
+        ResolveAgentPresetConfigActivityInput,
+        resolve_agent_preset_config_activity,
+    )
     from tracecat.agent.schemas import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
     from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
+    from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
@@ -68,20 +72,63 @@ class DurableAgentWorkflow:
         self.session_id = args.agent_args.session_id
         self.run_ctx_type = TemporalRunContext[PersistableStreamingAgentDepsSpec]
         self.approvals = ApprovalManager(role=self.role)
+        self.max_requests = args.agent_args.max_requests
+        self.max_tool_calls = args.agent_args.max_tool_calls
+        self.usage_limits = UsageLimits(
+            request_limit=self.max_requests,
+            tool_calls_limit=self.max_tool_calls,
+        )
+
+    async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
+        if args.agent_args.preset_slug:
+            preset_config = await workflow.execute_activity(
+                resolve_agent_preset_config_activity,
+                ResolveAgentPresetConfigActivityInput(
+                    role=self.role, preset_slug=args.agent_args.preset_slug
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            # Apply overrides from the provided config (if any)
+            # When using a preset, the 'config' in args acts as an override layer
+            if override_cfg := args.agent_args.config:
+                if override_cfg.actions:
+                    preset_config.actions = override_cfg.actions
+
+                if override_cfg.instructions:
+                    if preset_config.instructions:
+                        preset_config.instructions = "\n".join(
+                            [
+                                preset_config.instructions,
+                                override_cfg.instructions,
+                            ]
+                        )
+                    else:
+                        preset_config.instructions = override_cfg.instructions
+
+            cfg = preset_config
+        else:
+            cfg = args.agent_args.config
+            if cfg is None:
+                raise ApplicationError(
+                    "Config must be provided if preset_slug is not set",
+                    non_retryable=True,
+                )
+        return cfg
 
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
         logger.info("DurableAgentWorkflow run", args=args)
-        ext_toolset = await self._build_toolset(args)
-        logger.info("TOOLSET", toolset=ext_toolset)
-        logger.info("AGENT CONTEXT", agent_context=AgentContext.get())
+        logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
         if workflow.unsafe.is_replaying():
             logger.info("Workflow is replaying")
         else:
             logger.info("Starting agent", prompt=args.agent_args.user_prompt)
 
-        cfg = args.agent_args.config
+        cfg = await self._build_config(args)
+        ext_toolset = await self._build_toolset(cfg)
+        logger.debug("TOOLSET", toolset=ext_toolset)
 
         messages: list[ModelMessage] = [
             ModelRequest.user_text_prompt(args.agent_args.user_prompt)
@@ -91,27 +138,6 @@ class DurableAgentWorkflow:
         model_settings: ModelSettings | None = (
             ModelSettings(**cfg.model_settings) if cfg.model_settings else None
         )
-
-        # Enforce and derive safety limits (requests and tool calls)
-        max_requests = (
-            args.agent_args.max_requests
-            if args.agent_args.max_requests is not None
-            else config.TRACECAT__AGENT_MAX_REQUESTS
-        )
-        if max_requests > config.TRACECAT__AGENT_MAX_REQUESTS:
-            raise ApplicationError(
-                f"Cannot request more than {config.TRACECAT__AGENT_MAX_REQUESTS} requests",
-                non_retryable=True,
-            )
-
-        max_tool_calls = args.agent_args.max_tool_calls
-        if max_tool_calls is None:
-            max_tool_calls = config.TRACECAT__AGENT_MAX_TOOL_CALLS
-        if max_tool_calls > config.TRACECAT__AGENT_MAX_TOOL_CALLS:
-            raise ApplicationError(
-                f"Cannot request more than {config.TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls",
-                non_retryable=True,
-            )
 
         model = DurableModel(
             role=args.role,
@@ -126,7 +152,7 @@ class DurableAgentWorkflow:
             ),
             deps_type=PersistableStreamingAgentDepsSpec,
         )
-        logger.info("DURABLE MODEL", model_info=model._info)
+        logger.debug("DURABLE MODEL", model_info=model._info)
 
         # Determine base output type from config
         base_output_type = parse_output_type(cfg.output_type)
@@ -159,10 +185,6 @@ class DurableAgentWorkflow:
             namespace="agent",
         )
 
-        usage_limits = UsageLimits(
-            request_limit=max_requests,
-            tool_calls_limit=max_tool_calls,
-        )
         # TODO: Implement max turns
         while True:
             logger.info("Running agent", turn=self._turn)
@@ -170,7 +192,7 @@ class DurableAgentWorkflow:
                 message_history=messages,
                 deferred_tool_results=self.approvals.get(),
                 deps=deps,
-                usage_limits=usage_limits,
+                usage_limits=self.usage_limits,
             )
             logger.debug("AGENT RUN RESULT", result=result)
 
@@ -228,16 +250,16 @@ class DurableAgentWorkflow:
         self.approvals.validate_responses(submission.approvals)
 
     async def _build_toolset(
-        self, args: AgentWorkflowArgs
+        self, config: AgentConfig
     ) -> RemoteToolset[PersistableStreamingAgentDepsSpec]:
         build_tool_defs_result = await workflow.execute_activity_method(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
                 tool_filters=ToolFilters(
-                    namespaces=args.agent_args.config.namespaces,
-                    actions=args.agent_args.config.actions,
+                    namespaces=config.namespaces,
+                    actions=config.actions,
                 ),
-                tool_approvals=args.agent_args.config.tool_approvals,
+                tool_approvals=config.tool_approvals,
             ),
             start_to_close_timeout=timedelta(seconds=120),
         )

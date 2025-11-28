@@ -10,7 +10,7 @@ from typing import (
     TypedDict,
 )
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_ai import RunUsage
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
@@ -32,8 +32,10 @@ class RunAgentArgs(BaseModel):
     """User prompt for the agent."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
-    config: AgentConfig
-    """Configuration for the agent."""
+    config: AgentConfig | None = None
+    """Configuration for the agent. Required if preset_slug is not provided."""
+    preset_slug: str | None = None
+    """Slug for the preset configuration (if using a preset)."""
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
@@ -42,6 +44,13 @@ class RunAgentArgs(BaseModel):
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False
     """If True, do not emit a new user message; continue prior run with deferred results."""
+
+    @model_validator(mode="after")
+    def validate_config_or_preset(self) -> RunAgentArgs:
+        """Ensure either config or preset_slug is provided."""
+        if self.config is None and self.preset_slug is None:
+            raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        return self
 
 
 class ModelConfig(BaseModel):

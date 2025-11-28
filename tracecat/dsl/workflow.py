@@ -28,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
-    from tracecat_ee.agent.actions import AgentActionArgs, PresetAgentActionArgs
+    from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
     from tracecat_ee.agent.types import AgentWorkflowID
     from tracecat_ee.agent.workflows.durable import (
         AgentWorkflowArgs,
@@ -37,10 +37,6 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
-    from tracecat.agent.preset.activities import (
-        ResolveAgentPresetConfigActivityInput,
-        resolve_agent_preset_config_activity,
-    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.types import AgentConfig
     from tracecat.concurrency import GatheringTaskGroup
@@ -658,27 +654,18 @@ class DSLWorkflow:
                         task.args, operand=agent_operand
                     )
                     preset_action_args = PresetAgentActionArgs(**evaluated_args)
-                    preset_config = await workflow.execute_activity(
-                        resolve_agent_preset_config_activity,
-                        ResolveAgentPresetConfigActivityInput(
-                            role=self.role, preset_slug=preset_action_args.preset
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                    )
 
-                    if preset_action_args.actions is not None:
-                        preset_config.actions = preset_action_args.actions
-
-                    if preset_action_args.instructions:
-                        if preset_config.instructions:
-                            preset_config.instructions = "\n".join(
-                                [
-                                    preset_config.instructions,
-                                    preset_action_args.instructions,
-                                ]
-                            )
-                        else:
-                            preset_config.instructions = preset_action_args.instructions
+                    # Create override config with placeholder model/provider
+                    # These will be ignored by DurableAgentWorkflow when preset_slug is present
+                    # but are required by AgentConfig schema.
+                    override_config = None
+                    if preset_action_args.actions or preset_action_args.instructions:
+                        override_config = AgentConfig(
+                            model_name="preset-override",
+                            model_provider="preset-override",
+                            actions=preset_action_args.actions,
+                            instructions=preset_action_args.instructions,
+                        )
 
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
@@ -690,7 +677,8 @@ class DSLWorkflow:
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
-                            config=preset_config,
+                            preset_slug=preset_action_args.preset,
+                            config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
                         ),
