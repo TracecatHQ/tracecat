@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: List projects
+  description: List all projects in a Terraform Cloud organization.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/projects
+  namespace: tools.terraform
+  name: list_projects
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    organization:
+      type: str
+      description: The name of the Terraform Cloud organization.
+    page[size]:
+      type: int
+      description: The number of projects to return per page.
+      default: 20
+    page[number]:
+      type: int
+      description: The page number to return.
+      default: 1
+  steps:
+    - ref: list_projects
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/organizations/${{ inputs.organization }}/projects
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        params:
+          page[size]: ${{ inputs.page[size] }}
+          page[number]: ${{ inputs.page[number] }}
+  returns: ${{ steps.list_projects.result.data }}

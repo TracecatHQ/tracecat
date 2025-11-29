@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List workspace variables
+  description: List all variables configured for a Terraform Cloud workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspace-variables
+  namespace: tools.terraform
+  name: list_workspace_variables
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: The ID of the workspace to list variables for.
+  steps:
+    - ref: list_variables
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/workspaces/${{ inputs.workspace_id }}/vars
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+  returns: ${{ steps.list_variables.result.data }}

@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: List workspaces
+  description: List all workspaces in a Terraform Cloud organization, optionally filtered by project.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces
+  namespace: tools.terraform
+  name: list_workspaces
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    organization:
+      type: str
+      description: The name of the Terraform Cloud organization.
+    project_id:
+      type: str | None
+      description: Optional project ID to filter workspaces by project.
+      default: null
+    page[size]:
+      type: int
+      description: The number of workspaces to return per page.
+      default: 20
+    page[number]:
+      type: int
+      description: The page number to return.
+      default: 1
+  steps:
+    - ref: build_url
+      action: core.script.run_python
+      args:
+        inputs:
+          organization: ${{ inputs.organization }}
+          project_id: ${{ inputs.project_id }}
+        script: |
+          def main(organization, project_id):
+              base_url = f"https://app.terraform.io/api/v2/organizations/{organization}/workspaces"
+              if project_id:
+                  return f"{base_url}?filter[project][id]={project_id}"
+              return base_url
+    - ref: list_workspaces
+      action: core.http_request
+      args:
+        url: ${{ steps.build_url.result.data }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        params:
+          page[size]: ${{ inputs.page[size] }}
+          page[number]: ${{ inputs.page[number] }}
+  returns: ${{ steps.list_workspaces.result.data }}
