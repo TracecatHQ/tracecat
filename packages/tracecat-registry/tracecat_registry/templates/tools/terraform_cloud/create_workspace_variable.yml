@@ -1,0 +1,67 @@
+type: action
+definition:
+  title: Create workspace variable
+  description: Create a new variable in a Terraform Cloud workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspace-variables
+  namespace: tools.terraform
+  name: create_workspace_variable
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: The ID of the workspace to create the variable in.
+    key:
+      type: str
+      description: The name of the variable.
+    value:
+      type: str
+      description: The value of the variable.
+    category:
+      type: enum['terraform', 'env']
+      description: Whether this is a Terraform variable or environment variable.
+      default: terraform
+    sensitive:
+      type: bool
+      description: Whether the value is sensitive and should be hidden in the UI.
+      default: false
+    hcl:
+      type: bool
+      description: Whether the value is in HCL format.
+      default: false
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          key: ${{ inputs.key }}
+          value: ${{ inputs.value }}
+          category: ${{ inputs.category }}
+          sensitive: ${{ inputs.sensitive }}
+          hcl: ${{ inputs.hcl }}
+        script: |
+          def main(key, value, category, sensitive, hcl):
+              return {
+                  "data": {
+                      "type": "vars",
+                      "attributes": {
+                          "key": key,
+                          "value": value,
+                          "category": category,
+                          "sensitive": sensitive,
+                          "hcl": hcl
+                      }
+                  }
+              }
+    - ref: create_variable
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/workspaces/${{ inputs.workspace_id }}/vars
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_variable.result.data }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: List runs
+  description: List all runs for a Terraform Cloud workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run
+  namespace: tools.terraform
+  name: list_runs
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: The ID of the workspace to list runs for.
+    page[size]:
+      type: int
+      description: The number of runs to return per page.
+      default: 20
+    page[number]:
+      type: int
+      description: The page number to return.
+      default: 1
+  steps:
+    - ref: list_runs
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/workspaces/${{ inputs.workspace_id }}/runs
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        params:
+          page[size]: ${{ inputs.page[size] }}
+          page[number]: ${{ inputs.page[number] }}
+  returns: ${{ steps.list_runs.result.data }}

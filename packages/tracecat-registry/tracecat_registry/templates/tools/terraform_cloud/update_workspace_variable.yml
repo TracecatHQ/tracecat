@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: Update workspace variable
+  description: Update an existing variable in a Terraform Cloud workspace.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspace-variables
+  namespace: tools.terraform
+  name: update_workspace_variable
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: The ID of the workspace containing the variable.
+    variable_id:
+      type: str
+      description: The ID of the variable to update.
+    key:
+      type: str | None
+      description: The name of the variable. Only required if changing the key.
+      default: null
+    value:
+      type: str | None
+      description: The value of the variable. Only required if changing the value.
+      default: null
+    sensitive:
+      type: bool | None
+      description: Whether the value is sensitive.
+      default: null
+    hcl:
+      type: bool | None
+      description: Whether the value is in HCL format.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          variable_id: ${{ inputs.variable_id }}
+          key: ${{ inputs.key }}
+          value: ${{ inputs.value }}
+          sensitive: ${{ inputs.sensitive }}
+          hcl: ${{ inputs.hcl }}
+        script: |
+          def main(variable_id, key, value, sensitive, hcl):
+              attributes = {}
+              if key is not None:
+                  attributes["key"] = key
+              if value is not None:
+                  attributes["value"] = value
+              if sensitive is not None:
+                  attributes["sensitive"] = sensitive
+              if hcl is not None:
+                  attributes["hcl"] = hcl
+
+              return {
+                  "data": {
+                      "type": "vars",
+                      "id": variable_id,
+                      "attributes": attributes
+                  }
+              }
+    - ref: update_variable
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/vars/${{ inputs.variable_id }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_variable.result.data }}

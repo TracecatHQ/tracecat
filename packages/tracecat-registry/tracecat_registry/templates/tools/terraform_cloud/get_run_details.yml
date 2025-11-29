@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get run details
+  description: Get details for a specific Terraform Cloud run.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run
+  namespace: tools.terraform
+  name: get_run_details
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    run_id:
+      type: str
+      description: The ID of the run to get details for.
+  steps:
+    - ref: get_run
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/runs/${{ inputs.run_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+  returns: ${{ steps.get_run.result.data }}

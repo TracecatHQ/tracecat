@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get workspace details
+  description: Get details for a workspace by ID or by organization and workspace name.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/workspaces
+  namespace: tools.terraform
+  name: get_workspace_details
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str | None
+      description: The workspace ID. If provided, organization and workspace_name are ignored.
+      default: null
+    organization:
+      type: str | None
+      description: The organization name. Required if workspace_id is not provided.
+      default: null
+    workspace_name:
+      type: str | None
+      description: The workspace name. Required if workspace_id is not provided.
+      default: null
+  steps:
+    - ref: build_url
+      action: core.script.run_python
+      args:
+        inputs:
+          workspace_id: ${{ inputs.workspace_id }}
+          organization: ${{ inputs.organization }}
+          workspace_name: ${{ inputs.workspace_name }}
+        script: |
+          def main(workspace_id, organization, workspace_name):
+              if workspace_id:
+                  return f"https://app.terraform.io/api/v2/workspaces/{workspace_id}"
+              elif organization and workspace_name:
+                  return f"https://app.terraform.io/api/v2/organizations/{organization}/workspaces/{workspace_name}"
+              else:
+                  raise ValueError("Either workspace_id or both organization and workspace_name must be provided")
+    - ref: get_workspace
+      action: core.http_request
+      args:
+        url: ${{ steps.build_url.result.data }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+  returns: ${{ steps.get_workspace.result.data }}

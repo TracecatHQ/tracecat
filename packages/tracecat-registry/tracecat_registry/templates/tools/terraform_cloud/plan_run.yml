@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Plan run
+  description: Create a plan-only run in Terraform Cloud to preview infrastructure changes.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run
+  namespace: tools.terraform
+  name: plan_run
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    workspace_id:
+      type: str
+      description: The ID of the workspace to create the plan run for.
+    message:
+      type: str | None
+      description: Optional message to describe the purpose of the run.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          workspace_id: ${{ inputs.workspace_id }}
+          message: ${{ inputs.message }}
+        script: |
+          def main(workspace_id, message):
+              payload = {
+                  "data": {
+                      "type": "runs",
+                      "attributes": {
+                          "plan-only": True
+                      },
+                      "relationships": {
+                          "workspace": {
+                              "data": {
+                                  "type": "workspaces",
+                                  "id": workspace_id
+                              }
+                          }
+                      }
+                  }
+              }
+              if message:
+                  payload["data"]["attributes"]["message"] = message
+              return payload
+    - ref: create_run
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/runs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        payload: ${{ steps.build_payload.result.data }}
+  returns: ${{ steps.create_run.result.data }}

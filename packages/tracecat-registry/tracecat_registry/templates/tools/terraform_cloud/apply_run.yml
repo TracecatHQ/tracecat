@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Apply run
+  description: Apply a planned Terraform Cloud run to execute infrastructure changes.
+  display_group: Terraform Cloud
+  doc_url: https://developer.hashicorp.com/terraform/cloud-docs/api-docs/run
+  namespace: tools.terraform
+  name: apply_run
+  secrets:
+    - name: terraform
+      keys: ["TERRAFORM_API_TOKEN"]
+  expects:
+    run_id:
+      type: str
+      description: The ID of the run to apply.
+    comment:
+      type: str | None
+      description: Optional comment explaining why the run is being applied.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          comment: ${{ inputs.comment }}
+        script: |
+          def main(comment):
+              if comment:
+                  return {"comment": comment}
+              return {}
+    - ref: apply_run
+      action: core.http_request
+      args:
+        url: https://app.terraform.io/api/v2/runs/${{ inputs.run_id }}/actions/apply
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
+          Content-Type: application/vnd.api+json
+        payload: ${{ steps.build_payload.result.data }}
+  returns: ${{ steps.apply_run.result.data }}
