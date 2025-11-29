@@ -63,5 +63,5 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
-        payload: ${{ steps.build_payload.result.data }}
+        payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.create_variable.result.data }}

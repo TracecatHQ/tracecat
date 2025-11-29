@@ -37,12 +37,13 @@ definition:
       action: core.script.run_python
       args:
         inputs:
+          variable_id: ${{ inputs.variable_id }}
           key: ${{ inputs.key }}
           value: ${{ inputs.value }}
           sensitive: ${{ inputs.sensitive }}
           hcl: ${{ inputs.hcl }}
         script: |
-          def main(key, value, sensitive, hcl):
+          def main(variable_id, key, value, sensitive, hcl):
               attributes = {}
               if key is not None:
                   attributes["key"] = key
@@ -56,16 +57,17 @@ definition:
               return {
                   "data": {
                       "type": "vars",
+                      "id": variable_id,
                       "attributes": attributes
                   }
               }
     - ref: update_variable
       action: core.http_request
       args:
-        url: https://app.terraform.io/api/v2/workspaces/${{ inputs.workspace_id }}/vars/${{ inputs.variable_id }}
+        url: https://app.terraform.io/api/v2/vars/${{ inputs.variable_id }}
         method: PATCH
         headers:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
-        payload: ${{ steps.build_payload.result.data }}
+        payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.update_variable.result.data }}
