@@ -6,9 +6,7 @@ from tracecat.integrations.providers.base import ClientCredentialsOAuthProvider
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 SERVICENOW_TOKEN_DOCS_URL = "https://www.servicenow.com/docs/bundle/yokohama-api-reference/page/integrate/inbound-rest/reference/r_RESTOAuthExample.html"
-SERVICENOW_API_DOCS_URL = (
-    "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/build/applications/concept/api-rest.html"
-)
+SERVICENOW_API_DOCS_URL = "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/build/applications/concept/api-rest.html"
 
 
 class ServiceNowOAuthProvider(ClientCredentialsOAuthProvider):
