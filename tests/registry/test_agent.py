@@ -2,6 +2,7 @@ import textwrap
 from typing import Any
 
 import pytest
+from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent
 
 from tracecat.auth.types import Role
@@ -61,30 +62,17 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
         """),
     )
 
-    result = await agent(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        actions=[],
-        instructions="Be concise and factual.",
-        output_type=output_type,
-        max_tool_calls=0,
-        max_requests=3,
-    )
-
-    assert isinstance(result, dict)
-    assert "output" in result
-    assert "message_history" in result
-    assert isinstance(result["message_history"], list)
-
-    output = result["output"]
-    if output_type is None:
-        assert isinstance(output, str)
-        assert len(output) > 0
-    elif output_type == "list[str]":
-        assert isinstance(output, list)
-        assert len(output) >= 1
-        assert all(isinstance(x, str) and x for x in output)
+    with pytest.raises(ActionIsInterfaceError):
+        await agent(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=[],
+            instructions="Be concise and factual.",
+            output_type=output_type,
+            max_tool_calls=0,
+            max_requests=3,
+        )
 
 
 @pytest.mark.anyio
@@ -109,26 +97,17 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
         ),
     )
 
-    result = await agent(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        actions=[],
-        instructions="Be concise and factual.",
-        output_type=output_type,
-        max_tool_calls=0,
-        max_requests=3,
-    )
-
-    assert isinstance(result, dict)
-    assert "output" in result
-    assert "message_history" in result
-    assert isinstance(result["message_history"], list)
-
-    output = result["output"]
-    assert isinstance(output, dict)
-    # At minimum, the schema requires 'summary'
-    assert "summary" in output and isinstance(output["summary"], str)
+    with pytest.raises(ActionIsInterfaceError):
+        await agent(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=[],
+            instructions="Be concise and factual.",
+            output_type=output_type,
+            max_tool_calls=0,
+            max_requests=3,
+        )
 
 
 @pytest.mark.anyio

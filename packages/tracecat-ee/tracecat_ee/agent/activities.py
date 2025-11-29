@@ -177,7 +177,7 @@ class AgentActivities:
         ctx_role.set(args.role)
         AgentContext.set_from(ctx)
 
-        async with secrets_manager.load_secrets(PlatformAction.AI_APPROVALS_AGENT):
+        async with secrets_manager.load_secrets(PlatformAction.AI_AGENT):
             model = get_model(
                 args.model_info.name, args.model_info.provider, args.model_info.base_url
             )
@@ -206,7 +206,7 @@ class AgentActivities:
         run_context = await self._reconstruct_run_context(
             args.serialized_run_context, spec=deps
         )
-        async with secrets_manager.load_secrets(PlatformAction.AI_APPROVALS_AGENT):
+        async with secrets_manager.load_secrets(PlatformAction.AI_AGENT):
             model = get_model(
                 args.model_info.name,
                 args.model_info.provider,

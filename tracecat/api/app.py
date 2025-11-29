@@ -222,10 +222,7 @@ def create_app(**kwargs) -> FastAPI:
         agent_preset_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
     )
-    app.include_router(
-        ee_agent_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_APPROVALS))],
-    )
+    app.include_router(ee_agent_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)

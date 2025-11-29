@@ -28,10 +28,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
-    from tracecat_ee.agent.actions import (
-        ApprovalsAgentActionArgs,
-        PresetApprovalsAgentActionArgs,
-    )
+    from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
     from tracecat_ee.agent.types import AgentWorkflowID
     from tracecat_ee.agent.workflows.durable import (
         AgentWorkflowArgs,
@@ -40,10 +37,6 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
-    from tracecat.agent.preset.activities import (
-        ResolveAgentPresetConfigActivityInput,
-        resolve_agent_preset_config_activity,
-    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.types import AgentConfig
     from tracecat.concurrency import GatheringTaskGroup
@@ -108,7 +101,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
-    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -607,26 +599,16 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
-                case PlatformAction.AI_APPROVALS_AGENT:
-                    logger.info("Executing approvals agent", task=task)
-                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
-                    if not approvals_enabled:
-                        raise ApplicationError(
-                            "Approvals AI agent feature is not enabled.",
-                            non_retryable=True,
-                            type="FeatureDisabledError",
-                        )
-                    # Evaluate templated arguments before invoking the agent workflow.
+                case PlatformAction.AI_AGENT:
+                    logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
-                    action_args = ApprovalsAgentActionArgs(**evaluated_args)
+                    action_args = AgentActionArgs(**evaluated_args)
                     wf_info = workflow.info()
-                    child_search_attributes = (
-                        _build_agent_child_search_attributes(wf_info, task.ref)
-                        if approvals_enabled
-                        else wf_info.typed_search_attributes
+                    child_search_attributes = _build_agent_child_search_attributes(
+                        wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
@@ -645,6 +627,8 @@ class DSLWorkflow:
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
                             ),
+                            max_requests=action_args.max_requests,
+                            max_tool_calls=action_args.max_tool_calls,
                         ),
                     )
                     action_result: Any = await workflow.execute_child_workflow(
@@ -663,34 +647,29 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
-                case PlatformAction.AI_PRESET_APPROVALS_AGENT:
-                    logger.info("Executing preset approvals agent", task=task)
-                    approvals_enabled = is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
-                    if not approvals_enabled:
-                        raise ApplicationError(
-                            "Approvals AI agent feature is not enabled.",
-                            non_retryable=True,
-                            type="FeatureDisabledError",
-                        )
+                case PlatformAction.AI_PRESET_AGENT:
+                    logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
-                    preset_action_args = PresetApprovalsAgentActionArgs(
-                        **evaluated_args
-                    )
-                    preset_config = await workflow.execute_activity(
-                        resolve_agent_preset_config_activity,
-                        ResolveAgentPresetConfigActivityInput(
-                            role=self.role, preset_slug=preset_action_args.preset
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                    )
+                    preset_action_args = PresetAgentActionArgs(**evaluated_args)
+
+                    # Create override config with placeholder model/provider
+                    # These will be ignored by DurableAgentWorkflow when preset_slug is present
+                    # but are required by AgentConfig schema.
+                    override_config = None
+                    if preset_action_args.actions or preset_action_args.instructions:
+                        override_config = AgentConfig(
+                            model_name="preset-override",
+                            model_provider="preset-override",
+                            actions=preset_action_args.actions,
+                            instructions=preset_action_args.instructions,
+                        )
+
                     wf_info = workflow.info()
-                    child_search_attributes = (
-                        _build_agent_child_search_attributes(wf_info, task.ref)
-                        if approvals_enabled
-                        else wf_info.typed_search_attributes
+                    child_search_attributes = _build_agent_child_search_attributes(
+                        wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
@@ -698,7 +677,10 @@ class DSLWorkflow:
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
-                            config=preset_config,
+                            preset_slug=preset_action_args.preset,
+                            config=override_config,
+                            max_requests=preset_action_args.max_requests,
+                            max_tool_calls=preset_action_args.max_tool_calls,
                         ),
                     )
                     action_result = await workflow.execute_child_workflow(

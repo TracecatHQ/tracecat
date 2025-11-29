@@ -9,6 +9,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
+import tracecat.config as config
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
@@ -21,6 +22,7 @@ from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
 from tracecat.expressions.validation import TemplateValidator
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -36,7 +38,7 @@ from tracecat.registry.actions.service import (
     validate_action_template,
 )
 from tracecat.registry.repository import Repository
-from tracecat.validation.schemas import ValidationResultType
+from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
 from tracecat.validation.service import validate_dsl
 
 
@@ -853,3 +855,110 @@ async def test_validate_dsl_with_optional_oauth_credentials(
         f"Expected no secret validation errors for optional OAuth credentials, "
         f"but got {len(secret_errors)}: {secret_errors}"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_agent_tool_approvals_requires_feature_flag(
+    test_role, db_session_with_repo, monkeypatch
+):
+    session, db_repo_id = db_session_with_repo
+
+    # Ensure feature flag disabled
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    # Ensure the agent action is registered exactly once.
+    # It may already exist if the base registry has been synced.
+    if await ra_service.get_action_or_none("ai.agent") is None:
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
+        )
+
+    dsl = DSLInput(
+        title="Test Workflow",
+        description="Agent with tool approvals",
+        entrypoint=DSLEntrypoint(expects={}),
+        actions=[
+            ActionStatement(
+                ref="agent_action",
+                action="ai.agent",
+                args={
+                    "user_prompt": "Hello",
+                    "model_name": "gpt-4o-mini",
+                    "model_provider": "openai",
+                    "actions": ["tools.slack.post_message"],
+                    "tool_approvals": {"tools.slack.post_message": True},
+                },
+            )
+        ],
+    )
+
+    validation_results = await validate_dsl(session, dsl)
+    action_errors = [
+        r for r in validation_results if r.root.type == ValidationResultType.ACTION
+    ]
+
+    assert len(action_errors) == 1
+    root = action_errors[0].root
+    assert isinstance(root, ActionValidationResult)
+    detail = root.detail
+    if detail is None:
+        detail_msgs: set[str] = set()
+    else:
+        detail_msgs = {d.msg for d in detail}
+    assert any("agent-approvals" in msg for msg in detail_msgs)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_agent_tool_approvals_passes_with_feature_flag(
+    test_role, db_session_with_repo, monkeypatch
+):
+    session, db_repo_id = db_session_with_repo
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__FEATURE_FLAGS",
+        {FeatureFlag.AGENT_APPROVALS},
+    )
+
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    # Ensure the agent action is registered exactly once.
+    # It may already exist if the base registry has been synced.
+    if await ra_service.get_action_or_none("ai.agent") is None:
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
+        )
+
+    dsl = DSLInput(
+        title="Test Workflow",
+        description="Agent with tool approvals",
+        entrypoint=DSLEntrypoint(expects={}),
+        actions=[
+            ActionStatement(
+                ref="agent_action",
+                action="ai.agent",
+                args={
+                    "user_prompt": "Hello",
+                    "model_name": "gpt-4o-mini",
+                    "model_provider": "openai",
+                    "actions": ["tools.slack.post_message"],
+                    "tool_approvals": {"tools.slack.post_message": True},
+                },
+            )
+        ],
+    )
+
+    validation_results = await validate_dsl(session, dsl)
+    action_errors = [
+        r for r in validation_results if r.root.type == ValidationResultType.ACTION
+    ]
+
+    assert len(action_errors) == 0

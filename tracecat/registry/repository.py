@@ -856,11 +856,18 @@ def generate_model_from_function(
         field_info = Field(default=default, **field_info_kwargs)
         fields[name] = (field_annotation, field_info)
     # Dynamically create and return the Pydantic model class
+    # Pass the function's module so Pydantic can resolve type aliases (e.g., OutputTypeLiteral)
+    func_module = sys.modules.get(func.__module__)
+    func_globals = getattr(func_module, "__dict__", {}) if func_module else {}
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),
         __config__=ConfigDict(extra="forbid"),
+        __module__=func.__module__,
+        __validators__={},
         **fields,
     )
+    # Rebuild the model with the function's global namespace to resolve forward references
+    input_model.model_rebuild(_types_namespace=func_globals)
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)

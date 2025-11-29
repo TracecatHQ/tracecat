@@ -460,16 +460,16 @@ class TestAgentPresetService:
         )
 
         # Get agent config by ID
-        config = await agent_preset_service.get_agent_config(created_preset.id)
+        agent_config = await agent_preset_service.get_agent_config(created_preset.id)
 
-        assert isinstance(config, AgentConfig)
-        assert config.model_name == agent_preset_create_params.model_name
-        assert config.model_provider == agent_preset_create_params.model_provider
-        assert config.instructions == agent_preset_create_params.instructions
-        assert config.actions == agent_preset_create_params.actions
-        assert config.namespaces == agent_preset_create_params.namespaces
-        assert config.tool_approvals == agent_preset_create_params.tool_approvals
-        assert config.retries == agent_preset_create_params.retries
+        assert isinstance(agent_config, AgentConfig)
+        assert agent_config.model_name == agent_preset_create_params.model_name
+        assert agent_config.model_provider == agent_preset_create_params.model_provider
+        assert agent_config.instructions == agent_preset_create_params.instructions
+        assert agent_config.actions == agent_preset_create_params.actions
+        assert agent_config.namespaces == agent_preset_create_params.namespaces
+        assert agent_config.tool_approvals == agent_preset_create_params.tool_approvals
+        assert agent_config.retries == agent_preset_create_params.retries
 
     async def test_get_agent_config_by_slug(
         self,
@@ -608,15 +608,59 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
 
         # Test conversion
-        config = await agent_preset_service._preset_to_agent_config(preset)
+        agent_config = await agent_preset_service._preset_to_agent_config(preset)
 
-        assert isinstance(config, AgentConfig)
-        assert config.model_name == preset.model_name
-        assert config.model_provider == preset.model_provider
-        assert config.base_url == preset.base_url
-        assert config.instructions == preset.instructions
-        assert config.output_type == preset.output_type
-        assert config.actions == preset.actions
-        assert config.namespaces == preset.namespaces
-        assert config.tool_approvals == preset.tool_approvals
-        assert config.retries == preset.retries
+        assert isinstance(agent_config, AgentConfig)
+        assert agent_config.model_name == preset.model_name
+        assert agent_config.model_provider == preset.model_provider
+        assert agent_config.base_url == preset.base_url
+        assert agent_config.instructions == preset.instructions
+        assert agent_config.output_type == preset.output_type
+        assert agent_config.actions == preset.actions
+        assert agent_config.namespaces == preset.namespaces
+        assert agent_config.tool_approvals == preset.tool_approvals
+        assert agent_config.retries == preset.retries
+
+    async def test_create_preset_with_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Test that creating a preset with tool_approvals is allowed."""
+        agent_preset_create_params.actions = ["tools.test.test_action"]
+        agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
+
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        assert preset.tool_approvals == {"tools.test.test_action": True}
+
+    async def test_update_preset_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Test that updating tool_approvals on a preset is allowed."""
+        agent_preset_create_params.actions = ["tools.test.test_action"]
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        update_params = AgentPresetUpdate(
+            tool_approvals={"tools.test.test_action": True}
+        )
+        updated_preset = await agent_preset_service.update_preset(preset, update_params)
+        assert updated_preset.tool_approvals == {"tools.test.test_action": True}
+
+    async def test_update_preset_clear_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Test that clearing tool_approvals on a preset is allowed."""
+        agent_preset_create_params.actions = ["tools.test.test_action"]
+        agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        update_params = AgentPresetUpdate(tool_approvals=None)
+        updated_preset = await agent_preset_service.update_preset(preset, update_params)
+        assert updated_preset.tool_approvals is None

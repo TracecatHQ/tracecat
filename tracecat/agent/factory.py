@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic_ai import Agent, ModelSettings, StructuredDict, Tool
+from pydantic_ai import Agent, ModelSettings, Tool
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
@@ -12,42 +12,13 @@ from tracecat.agent.context import (
     trim_history_processor,
     truncate_tool_returns_processor,
 )
+from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tools import build_agent_tools
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig
 
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
-
-
-SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
-    "bool": bool,
-    "float": float,
-    "int": int,
-    "str": str,
-    "list[bool]": list[bool],
-    "list[float]": list[float],
-    "list[int]": list[int],
-    "list[str]": list[str],
-}
-
-
-def _parse_output_type(output_type: OutputType) -> type[Any]:
-    if isinstance(output_type, str):
-        try:
-            return SUPPORTED_OUTPUT_TYPES[output_type]
-        except KeyError as e:
-            raise ValueError(
-                f"Unknown output type: {output_type}. Expected one of: {', '.join(SUPPORTED_OUTPUT_TYPES.keys())}"
-            ) from e
-    elif isinstance(output_type, dict):
-        schema_name = output_type.get("name") or output_type.get("title")
-        schema_description = output_type.get("description")
-        return StructuredDict(
-            output_type, name=schema_name, description=schema_description
-        )
-    else:
-        return str
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
@@ -66,7 +37,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     if config.custom_tools:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)
-    _output_type = _parse_output_type(config.output_type) if config.output_type else str
+    _output_type = parse_output_type(config.output_type)
     _model_settings = (
         ModelSettings(**config.model_settings) if config.model_settings else None
     )
