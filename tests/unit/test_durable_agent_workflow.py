@@ -38,6 +38,7 @@ from tracecat_ee.agent.workflows.durable import (
     WorkflowApprovalSubmission,
 )
 
+from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.preset.schemas import AgentPresetCreate
 from tracecat.agent.preset.service import AgentPresetService
@@ -52,8 +53,19 @@ from tracecat.db.models import (
     User,
 )
 from tracecat.dsl.common import RETRY_POLICIES
+from tracecat.feature_flags import FeatureFlag
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def enable_agent_approvals_flag(monkeypatch):
+    """Enable agent approvals feature flag for all tests in this module."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__FEATURE_FLAGS",
+        {FeatureFlag.AGENT_APPROVALS},
+    )
 
 
 # Helper functions for constructing mock model responses
