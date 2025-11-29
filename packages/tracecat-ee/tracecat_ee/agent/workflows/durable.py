@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.logger import logger
     from tracecat_ee.agent.activities import (
         AgentActivities,
@@ -127,6 +128,13 @@ class DurableAgentWorkflow:
             logger.info("Starting agent", prompt=args.agent_args.user_prompt)
 
         cfg = await self._build_config(args)
+
+        # Enforce feature flag for tool approvals
+        if cfg.tool_approvals and not is_feature_enabled(FeatureFlag.AGENT_APPROVALS):
+            raise ApplicationError(
+                "`tool_approvals` requires the 'agent-approvals' feature flag to be enabled.",
+                non_retryable=True,
+            )
         ext_toolset = await self._build_toolset(cfg)
         logger.debug("TOOLSET", toolset=ext_toolset)
 
