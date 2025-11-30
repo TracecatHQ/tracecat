@@ -64,11 +64,13 @@ from tracecat.db.models import (
     CaseTagLink,
     CaseTask,
     User,
+    Workflow,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import (
@@ -1181,6 +1183,65 @@ class CaseTasksService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Task {task_id} not found")
         return task
 
+    async def _validate_default_trigger_values(
+        self,
+        workflow_id: uuid.UUID | None,
+        default_trigger_values: dict[str, Any],
+    ) -> None:
+        """Validate default_trigger_values against workflow's expects schema.
+
+        Args:
+            workflow_id: The workflow ID to validate against
+            default_trigger_values: The trigger values to validate
+
+        Raises:
+            TracecatNotFoundError: If the workflow is not found
+            TracecatValidationError: If values don't match schema
+        """
+
+        if not workflow_id:
+            raise TracecatValidationError(
+                "Cannot set default_trigger_values without a workflow_id"
+            )
+        # Fetch workflow
+        stmt = select(Workflow).where(
+            Workflow.owner_id == self.workspace_id,
+            Workflow.id == workflow_id,
+        )
+        result = await self.session.execute(stmt)
+        workflow = result.scalars().first()
+
+        if not workflow:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+        # Skip validation if workflow has no expects schema
+        if not workflow.expects:
+            return
+
+        # Validate directly against the expects schema without using DSLInput
+        from pydantic import ValidationError
+
+        from tracecat.expressions.expectations import (
+            ExpectedField,
+            create_expectation_model,
+        )
+
+        expects_schema = {
+            field_name: ExpectedField.model_validate(field_schema)
+            for field_name, field_schema in workflow.expects.items()
+        }
+
+        validator = create_expectation_model(
+            expects_schema, model_name="DefaultTriggerValuesValidator"
+        )
+
+        try:
+            validator(**default_trigger_values)
+        except ValidationError as e:
+            raise TracecatValidationError(
+                f"Invalid default_trigger_values for workflow '{workflow.title}': {e}"
+            ) from e
+
     async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
         """Create a new task for a case.
 
@@ -1208,6 +1269,11 @@ class CaseTasksService(BaseWorkspaceService):
             WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
         )
 
+        if params.default_trigger_values:
+            await self._validate_default_trigger_values(
+                workflow_uuid, params.default_trigger_values
+            )
+
         task = CaseTask(
             owner_id=self.workspace_id,
             case_id=case_id,
@@ -1217,6 +1283,7 @@ class CaseTasksService(BaseWorkspaceService):
             status=params.status,
             assignee_id=params.assignee_id,
             workflow_id=workflow_uuid,
+            default_trigger_values=params.default_trigger_values,
         )
         self.session.add(task)
         # Flush to get task ID before emitting event
@@ -1330,6 +1397,12 @@ class CaseTasksService(BaseWorkspaceService):
                 # Convert workflow_id from AnyWorkflowID to UUID
                 new_wfid = WorkflowUUID.new(params.workflow_id)
 
+            # Validate existing default_trigger_values against new workflow if both exist
+            if new_wfid and task.default_trigger_values:
+                await self._validate_default_trigger_values(
+                    new_wfid, task.default_trigger_values
+                )
+
             if old_wfid != new_wfid:
                 task.workflow_id = new_wfid
                 await events_svc.create_event(
@@ -1342,6 +1415,17 @@ class CaseTasksService(BaseWorkspaceService):
                         wf_exec_id=wf_exec_id,
                     ),
                 )
+
+        # default_trigger_values change - validate against current workflow if it exists
+        if (
+            new_default_values := set_fields.pop("default_trigger_values", None)
+        ) is not None:
+            # Validate against current workflow if both exist
+            if task.workflow_id and new_default_values:
+                await self._validate_default_trigger_values(
+                    task.workflow_id, new_default_values
+                )
+            task.default_trigger_values = new_default_values
 
         # Title and description - update silently without events
         if (new_title := set_fields.pop("title", None)) is not None:

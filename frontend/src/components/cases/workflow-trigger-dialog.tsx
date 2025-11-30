@@ -37,6 +37,7 @@ interface WorkflowTriggerDialogProps {
   caseData: CaseRead
   workflowId: string | null
   workflowTitle?: string | null
+  defaultTriggerValues?: Record<string, unknown> | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -45,6 +46,7 @@ export function WorkflowTriggerDialog({
   caseData,
   workflowId,
   workflowTitle,
+  defaultTriggerValues,
   open,
   onOpenChange,
 }: WorkflowTriggerDialogProps) {
@@ -178,6 +180,7 @@ export function WorkflowTriggerDialog({
             caseId={caseData.id}
             caseFields={caseFieldsRecord}
             groupCaseFields={effectiveGroupCaseFields}
+            defaultTriggerValues={defaultTriggerValues}
             onSubmit={handleSchemaSubmit}
             isSubmitting={createExecutionIsPending}
           />

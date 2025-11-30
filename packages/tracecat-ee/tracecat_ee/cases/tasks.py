@@ -44,8 +44,13 @@ async def create_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    default_trigger_values: Annotated[
+        dict[str, Any] | None,
+        Doc("The default trigger values for the task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Create a new task for a case."""
+
     if priority:
         priority_enum = CasePriority(priority)
     if status:
@@ -61,6 +66,7 @@ async def create_task(
                 status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
                 workflow_id=workflow_id or None,
+                default_trigger_values=default_trigger_values,
             ),
         )
 
@@ -147,6 +153,10 @@ async def update_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    default_trigger_values: Annotated[
+        dict[str, Any] | None,
+        Doc("The default trigger values for the task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Update an existing case task."""
     params: dict[str, Any] = {}
@@ -162,6 +172,8 @@ async def update_task(
         params["status"] = (
             status if isinstance(status, CaseTaskStatus) else CaseTaskStatus(status)
         )
+    if default_trigger_values is not None:
+        params["default_trigger_values"] = default_trigger_values
     if assignee_id is not None:
         params["assignee_id"] = UUID(assignee_id)
     if workflow_id is not None:

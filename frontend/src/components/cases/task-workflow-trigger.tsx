@@ -2,18 +2,20 @@
 
 import { PlayIcon } from "lucide-react"
 import { useState } from "react"
-import type { CaseRead, WorkflowReadMinimal } from "@/client"
+import type { CaseRead, CaseTaskRead, WorkflowReadMinimal } from "@/client"
 import { WorkflowTriggerDialog } from "@/components/cases/workflow-trigger-dialog"
 import { Button } from "@/components/ui/button"
 
 interface TaskWorkflowTriggerProps {
   caseData: CaseRead
   workflow: WorkflowReadMinimal
+  task?: CaseTaskRead | null
 }
 
 export function TaskWorkflowTrigger({
   caseData,
   workflow,
+  task,
 }: TaskWorkflowTriggerProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const { id: workflowId, title: workflowTitle } = workflow
@@ -40,6 +42,7 @@ export function TaskWorkflowTrigger({
         caseData={caseData}
         workflowId={workflowId}
         workflowTitle={workflowTitle}
+        defaultTriggerValues={task?.default_trigger_values}
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
       />

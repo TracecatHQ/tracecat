@@ -171,7 +171,11 @@ export function CaseTasksTable({
               </Button>
 
               {workflow && (
-                <TaskWorkflowTrigger caseData={caseData} workflow={workflow} />
+                <TaskWorkflowTrigger
+                  caseData={caseData}
+                  workflow={workflow}
+                  task={task}
+                />
               )}
             </div>
           )

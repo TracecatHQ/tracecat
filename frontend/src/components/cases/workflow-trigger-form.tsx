@@ -58,6 +58,7 @@ interface WorkflowTriggerFormProps {
   caseId: string
   caseFields: Record<string, unknown>
   groupCaseFields: boolean
+  defaultTriggerValues?: Record<string, unknown> | null
   onSubmit: (values: TriggerFormValues) => Promise<void>
   isSubmitting: boolean
 }
@@ -178,6 +179,7 @@ export function WorkflowTriggerForm({
   caseId,
   caseFields,
   groupCaseFields,
+  defaultTriggerValues,
   onSubmit,
   isSubmitting,
 }: WorkflowTriggerFormProps) {
@@ -251,8 +253,16 @@ export function WorkflowTriggerForm({
       }
     }
 
+    if (defaultTriggerValues) {
+      for (const [key, value] of Object.entries(defaultTriggerValues)) {
+        if (value !== undefined) {
+          defaults[key] = value
+        }
+      }
+    }
+
     return defaults
-  }, [schema, caseId, caseFields, groupCaseFields])
+  }, [schema, caseId, caseFields, groupCaseFields, defaultTriggerValues])
 
   useEffect(() => {
     form.reset(computedDefaults)
