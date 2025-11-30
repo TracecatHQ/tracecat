@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get incident
+  description: Retrieves a specific incident by id.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/incidents/retrieves-an-incident
+  namespace: tools.rootly
+  name: get_incident
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    incident_id:
+      type: str
+      description: The ID of the incident.
+    include:
+      type: str | None
+      description: Include additional data. Comma separated if needed (e.g. sub_statuses,causes,subscribers)
+      default: null
+  steps:
+    - ref: get_incident
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/incidents/${{ inputs.incident_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        params:
+          include: ${{ inputs.include }}
+  returns: ${{ FN.deserialize_json(steps.get_incident.result.data) }}

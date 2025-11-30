@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Create alert
+  description: Creates a new alert from provided data.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/alerts/creates-an-alert
+  namespace: tools.rootly
+  name: create_alert
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    attributes:
+      type: dict[str, Any]
+      description: Alert data attributes
+      default: null
+  steps:
+    - ref: create_alert
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/alerts
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        payload:
+          data:
+            type: alerts
+            attributes: ${{ inputs.attributes }}
+  returns: ${{ FN.deserialize_json(steps.create_alert.result.data) }}

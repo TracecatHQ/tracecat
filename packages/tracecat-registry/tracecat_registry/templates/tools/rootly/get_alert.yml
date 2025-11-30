@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get alert
+  description: Retrieves a specific alert by id.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/alerts/retrieves-an-alert
+  namespace: tools.rootly
+  name: get_alert
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    alert_id:
+      type: str
+      description: The ID of the alert.
+    include:
+      type: str | None
+      description: Include additional data. Comma separated if needed (e.g. environments,services,groups)
+      default: null
+  steps:
+    - ref: get_alert
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/alerts/${{ inputs.alert_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        params:
+          include: ${{ inputs.include }}
+  returns: ${{ FN.deserialize_json(steps.get_alert.result.data) }}

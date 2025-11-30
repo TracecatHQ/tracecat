@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List alerts
+  description: List alerts.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/alerts/list-alerts
+  namespace: tools.rootly
+  name: list_alerts
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    include:
+      type: str | None
+      description: Include additional data. Comma separated if needed (e.g. environments,services,groups)
+      default: null
+    status:
+      type: str | None
+      description: Filter by status (e.g. triggered, acknowledged, resolved)
+      default: null
+    page_size:
+      type: int | None
+      description: Page size.
+      default: null
+    page_number:
+      type: int | None
+      description: Page number.
+      default: null
+  steps:
+    - ref: list_alerts
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        params:
+          include: ${{ inputs.include }}
+          filter[status]: ${{ inputs.status }}
+          page[size]: ${{ inputs.page_size }}
+          page[number]: ${{ inputs.page_number }}
+  returns: ${{ FN.deserialize_json(steps.list_alerts.result.data) }}

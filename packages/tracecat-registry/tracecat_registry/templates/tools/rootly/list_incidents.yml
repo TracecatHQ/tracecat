@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List incidents
+  description: List incidents.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/incidents/list-incidents
+  namespace: tools.rootly
+  name: list_incidents
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    include:
+      type: str | None
+      description: Include additional data. Comma separated if needed (e.g. sub_statuses,causes,subscribers)
+      default: null
+    status:
+      type: str | None
+      description: Filter by status (e.g. started, mitigated, resolved)
+      default: null
+    severity:
+      type: str | None
+      description: Filter by severity (e.g. not-sure-yet, sev4-minor-issue)
+      default: null
+    page_size:
+      type: int | None
+      description: Page size.
+      default: null
+    page_number:
+      type: int | None
+      description: Page number.
+      default: null
+  steps:
+    - ref: list_incidents
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/incidents
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        params:
+          include: ${{ inputs.include }}
+          filter[status]: ${{ inputs.status }}
+          filter[severity]: ${{ inputs.severity }}
+          page[size]: ${{ inputs.page_size }}
+          page[number]: ${{ inputs.page_number }}
+  returns: ${{ FN.deserialize_json(steps.list_incidents.result.data) }}

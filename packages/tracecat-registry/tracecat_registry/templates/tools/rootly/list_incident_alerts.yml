@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List incidents alerts
+  description: List incidents alerts.
+  display_group: Rootly
+  doc_url: https://docs.rootly.com/api-reference/alerts/list-incident-alerts
+  namespace: tools.rootly
+  name: list_incident_alerts
+  secrets:
+    - name: rootly
+      keys: ["ROOTLY_API_KEY"]
+  expects:
+    incident_id:
+      type: str
+      description: The ID of the incident.
+    include:
+      type: str | None
+      description: Include additional data. Comma separated if needed (e.g. environments,services,groups)
+      default: null
+  steps:
+    - ref: list_incident_alerts
+      action: core.http_request
+      args:
+        url: https://api.rootly.com/v1/incidents/${{ inputs.incident_id }}/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rootly.ROOTLY_API_KEY }}
+        params:
+          include: ${{ inputs.include }}
+  returns: ${{ FN.deserialize_json(steps.list_incident_alerts.result.data) }}
