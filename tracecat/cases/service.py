@@ -1398,7 +1398,13 @@ class CaseTasksService(BaseWorkspaceService):
                 new_wfid = WorkflowUUID.new(params.workflow_id)
 
             # Validate existing default_trigger_values against new workflow if both exist
-            if new_wfid and task.default_trigger_values:
+            # Only validate if default_trigger_values is NOT being updated in this request
+            # (if it is, the new values will be validated later)
+            if (
+                new_wfid
+                and task.default_trigger_values
+                and "default_trigger_values" not in params.model_fields_set
+            ):
                 await self._validate_default_trigger_values(
                     new_wfid, task.default_trigger_values
                 )

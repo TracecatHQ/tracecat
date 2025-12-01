@@ -172,12 +172,11 @@ async def update_task(
         params["status"] = (
             status if isinstance(status, CaseTaskStatus) else CaseTaskStatus(status)
         )
-    if default_trigger_values is not None:
-        params["default_trigger_values"] = default_trigger_values
     if assignee_id is not None:
         params["assignee_id"] = UUID(assignee_id)
     if workflow_id is not None:
         params["workflow_id"] = workflow_id
+    params["default_trigger_values"] = default_trigger_values
 
     async with CaseTasksService.with_session() as service:
         task = await service.update_task(UUID(task_id), CaseTaskUpdate(**params))
