@@ -338,7 +338,7 @@ function WorkflowManualTrigger({
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <PopoverContent className="w-fit p-3">
+            <PopoverContent className="w-fit max-w-xl p-3 sm:max-w-2xl">
               <form onSubmit={form.handleSubmit(runWithPayload)}>
                 <div className="flex h-fit flex-col">
                   <span className="mb-2 text-xs text-muted-foreground">
@@ -354,6 +354,7 @@ function WorkflowManualTrigger({
                             value={field.value}
                             language="json"
                             onChange={field.onChange}
+                            className="[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md [&_.cm-scroller]:max-h-96 [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:h-auto sm:[&_.cm-scroller]:max-h-[500px]"
                           />
                         </FormControl>
                         <FormMessage />
