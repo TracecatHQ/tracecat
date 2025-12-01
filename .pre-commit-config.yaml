@@ -23,6 +23,8 @@ repos:
         args:
           - check
           - --fix
+          - --show-fixes
+          - --verbose
           - .
         pass_filenames: false
       - id: ruff-format
