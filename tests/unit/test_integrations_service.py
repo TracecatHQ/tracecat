@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -140,6 +141,17 @@ def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MockOAuthProvider:
     # Set required environment variable
     monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
     return MockOAuthProvider(
+        client_id="mock_client_id", client_secret="mock_client_secret"
+    )
+
+
+@pytest.fixture
+def mock_pkce_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> MockOAuthProviderWithPKCE:
+    """Create a mock OAuth provider instance with PKCE enabled."""
+    monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+    return MockOAuthProviderWithPKCE(
         client_id="mock_client_id", client_secret="mock_client_secret"
     )
 
@@ -1476,13 +1488,51 @@ class TestBaseOAuthProvider:
                 state,
             )
 
-            url = await mock_provider.get_authorization_url(state)
+            url, code_verifier = await mock_provider.get_authorization_url(state)
 
             assert "mock.provider/oauth/authorize" in url
             assert state in url
+            assert code_verifier is None
             mock_create_url.assert_called_once_with(
                 mock_provider.authorization_endpoint,
                 state=state,
+            )
+
+    async def test_get_authorization_url_with_pkce(
+        self, mock_pkce_provider: MockOAuthProviderWithPKCE
+    ) -> None:
+        """Test generating authorization URL when PKCE is enabled."""
+        state = "test_state_pkce"
+        code_verifier = "pkce_verifier_value_1234567890"
+        expected_challenge = create_s256_code_challenge(code_verifier)
+
+        with (
+            patch(
+                "tracecat.integrations.providers.base.secrets.token_urlsafe",
+                return_value=code_verifier,
+            ),
+            patch.object(
+                AsyncOAuth2Client, "create_authorization_url"
+            ) as mock_create_url,
+        ):
+            mock_create_url.return_value = (
+                "https://mock.provider/oauth/authorize?client_id=mock_client_id&state=test_state_pkce",
+                state,
+            )
+
+            url, returned_verifier = await mock_pkce_provider.get_authorization_url(
+                state
+            )
+
+            assert "mock.provider/oauth/authorize" in url
+            assert returned_verifier == code_verifier
+            mock_create_url.assert_called_once_with(
+                mock_pkce_provider.authorization_endpoint,
+                state=state,
+                custom_auth_param="auth_value",
+                audience="test-api",
+                code_challenge=expected_challenge,
+                code_challenge_method="S256",
             )
 
     async def test_exchange_code_for_token(

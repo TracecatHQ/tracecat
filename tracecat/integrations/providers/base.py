@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import secrets
 from abc import ABC
 from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
@@ -9,6 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
@@ -193,9 +195,9 @@ class BaseOAuthProvider(ABC):
         self.logger.info(
             "OAuth provider initialized",
             provider=self.id,
-            client_id=self.client_id,
             scopes=self.requested_scopes,
             grant_type=self.grant_type,
+            code_challenge_method=client_kwargs.get("code_challenge_method"),
         )
 
     @property
@@ -325,8 +327,6 @@ class BaseOAuthProvider(ABC):
         self.logger.info(
             "Registered OAuth client dynamically",
             provider=self.id,
-            registration_endpoint=self._registration_endpoint,
-            client_id=client_id,
         )
 
         return DynamicRegistrationResult(
@@ -384,21 +384,56 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
         """Override to add provider-specific authorization parameters."""
         return {}
 
-    async def get_authorization_url(self, state: str) -> str:
-        """Get the OAuth authorization URL."""
+    async def get_authorization_url(self, state: str) -> tuple[str, str | None]:
+        """Get the OAuth authorization URL.
+
+        Returns:
+            Tuple of (authorization_url, code_verifier)
+            code_verifier is None if PKCE is not used
+        """
         # Build authorization URL with authlib
-        url, _ = self.client.create_authorization_url(
+        additional_params = self._get_additional_authorize_params()
+
+        # Manually generate PKCE parameters if enabled for this provider
+        code_verifier = None
+        if self._use_pkce():
+            # Generate code_verifier (43-128 characters, base64url encoded)
+            code_verifier = secrets.token_urlsafe(32)  # Generates 43 characters
+            # Generate code_challenge from verifier
+            code_challenge = create_s256_code_challenge(code_verifier)
+            additional_params["code_challenge"] = code_challenge
+            additional_params["code_challenge_method"] = "S256"
+
+        url, auth_state = self.client.create_authorization_url(
             self.authorization_endpoint,
             state=state,
-            **self._get_additional_authorize_params(),
+            **additional_params,
         )
 
-        self.logger.info("Generated OAuth authorization URL", provider=self.id)
-        return url
+        self.logger.info(
+            "Generated OAuth authorization URL",
+            provider=self.id,
+            has_code_verifier=code_verifier is not None,
+            use_pkce=self._use_pkce(),
+        )
+        return url, code_verifier
 
-    async def exchange_code_for_token(self, code: str, state: str) -> TokenResponse:
-        """Exchange authorization code for access token."""
+    async def exchange_code_for_token(
+        self, code: str, state: str, code_verifier: str | None = None
+    ) -> TokenResponse:
+        """Exchange authorization code for access token.
+
+        Args:
+            code: Authorization code from OAuth provider
+            state: State parameter from authorization request
+            code_verifier: PKCE code verifier (required if PKCE was used)
+        """
         try:
+            # Build token request params
+            token_params = self._get_additional_token_params()
+            if code_verifier:
+                token_params["code_verifier"] = code_verifier
+
             # Exchange code for token using authlib
             token = cast(
                 dict[str, Any],
@@ -407,11 +442,15 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                     self.token_endpoint,
                     code=code,
                     state=state,
-                    **self._get_additional_token_params(),
+                    **token_params,
                 ),  # type: ignore
             )
 
-            self.logger.info("Successfully acquired OAuth token", provider=self.id)
+            self.logger.info(
+                "Successfully acquired OAuth token",
+                provider=self.id,
+                used_pkce=code_verifier is not None,
+            )
 
             # Convert authlib token response to our TokenResponse model
             return TokenResponse(
@@ -429,7 +468,6 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                 "Error exchanging code for token",
                 provider=self.id,
                 error=str(e),
-                state=state,
             )
             raise
 
@@ -724,8 +762,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 self.logger.info(
                     "Discovered OAuth endpoints",
                     provider=self.id,
-                    authorization=auth_endpoint,
-                    token=token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=auth_endpoint,
@@ -741,8 +777,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 self.logger.info(
                     "Using fallback OAuth endpoints",
                     provider=self.id,
-                    authorization=self._fallback_auth_endpoint,
-                    token=self._fallback_token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=self._fallback_auth_endpoint,
@@ -769,8 +803,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     self.logger.info(
                         "Using configured OAuth endpoints",
                         provider=self.id,
-                        authorization=auth_endpoint,
-                        token=token_endpoint,
                     )
                     return OAuthDiscoveryResult(
                         authorization_endpoint=auth_endpoint,
@@ -783,7 +815,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Failed to discover OAuth endpoints",
                 provider=self.id,
                 error=str(e),
-                discovery_url=discovery_url,
             )
             raise ValueError(
                 f"Could not discover OAuth endpoints from {discovery_url} "
@@ -826,8 +857,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             logger_instance.info(
                 "Discovered OAuth endpoints",
                 provider=cls.id,
-                authorization=authorization_endpoint,
-                token=token_endpoint,
             )
             return OAuthDiscoveryResult(
                 authorization_endpoint=authorization_endpoint,
@@ -841,8 +870,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 logger_instance.info(
                     "Using fallback OAuth endpoints",
                     provider=cls.id,
-                    authorization=cls._fallback_auth_endpoint,
-                    token=cls._fallback_token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=cls._fallback_auth_endpoint,
@@ -869,8 +896,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     logger_instance.info(
                         "Using configured OAuth endpoints",
                         provider=cls.id,
-                        authorization=auth_endpoint,
-                        token=token_endpoint,
                     )
                     return OAuthDiscoveryResult(
                         authorization_endpoint=auth_endpoint,
@@ -883,7 +908,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Failed to discover OAuth endpoints",
                 provider=cls.id,
                 error=str(e),
-                discovery_url=discovery_url,
             )
             raise ValueError(
                 f"Could not discover OAuth endpoints from {discovery_url} "
@@ -946,6 +970,11 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 registration_auth_method
             )
 
+        logger_instance.info(
+            "Attempting dynamic client registration",
+            provider=cls.id,
+        )
+
         try:
             registration_response = await cls._submit_registration_request(
                 registration_endpoint, registration_payload
@@ -955,7 +984,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Dynamic registration failed",
                 provider=cls.id,
                 error=str(exc),
-                registration_endpoint=registration_endpoint,
             )
             raise
         except ValueError as exc:
@@ -963,7 +991,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Dynamic registration error",
                 provider=cls.id,
                 error=str(exc),
-                registration_endpoint=registration_endpoint,
             )
             raise
 
@@ -982,8 +1009,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         logger_instance.info(
             "Registered OAuth client dynamically",
             provider=cls.id,
-            registration_endpoint=registration_endpoint,
-            client_id=client_id,
         )
 
         return DynamicRegistrationResult(

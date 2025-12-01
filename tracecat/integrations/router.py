@@ -122,6 +122,9 @@ async def oauth_callback(
             detail="OAuth 2.0 Authorization code grant is not supported for this provider",
         )
 
+    # Extract code_verifier before deleting state (needed for PKCE flows)
+    code_verifier = oauth_state_db.code_verifier
+
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
     await session.commit()
@@ -195,7 +198,9 @@ async def oauth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Provider configuration or credentials are not available",
         ) from exc
-    token_result = await provider.exchange_code_for_token(code, str(state))
+    token_result = await provider.exchange_code_for_token(
+        code, str(state), code_verifier
+    )
 
     # Store integration tokens for this user
     try:
@@ -420,7 +425,7 @@ async def connect_provider(
         await session.delete(expired_state)
     await session.commit()
 
-    # Create secure state in database
+    # Create secure state in database (without code_verifier initially)
     state_id = uuid.uuid4()
     expires_at = datetime.now(UTC) + timedelta(minutes=10)
     oauth_state = OAuthStateDB(
@@ -433,8 +438,20 @@ async def connect_provider(
     session.add(oauth_state)
     await session.commit()
 
+    # Generate authorization URL and get code_verifier if PKCE is used
     state = str(state_id)
-    auth_url = await provider.get_authorization_url(state)
+    auth_url, code_verifier = await provider.get_authorization_url(state)
+
+    # Store code_verifier if present (for PKCE flows)
+    if code_verifier:
+        oauth_state.code_verifier = code_verifier
+        await session.commit()
+
+    logger.info(
+        "Generated authorization URL",
+        provider=provider.id,
+        has_code_verifier=code_verifier is not None,
+    )
 
     return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
 
