@@ -1981,7 +1981,6 @@ export type ExpressionValidationResponse = {
  */
 export type FeatureFlag =
   | "git-sync"
-  | "agent-sandbox"
   | "agent-approvals"
   | "agent-presets"
   | "case-durations"

@@ -1,1 +1,0 @@
-"""EE tests package."""
