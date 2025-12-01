@@ -1,9 +1,13 @@
+import uuid
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
+    CaseDurationComputation,
     CaseDurationDefinitionCreate,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
@@ -493,6 +497,49 @@ async def test_list_records_returns_flat_duration_records(
     # Verify event references
     assert record.start_event_id is not None
     assert record.end_event_id is not None
+
+
+@pytest.mark.anyio
+async def test_list_records_preserves_missing_event_ids(
+    session: AsyncSession, svc_role
+) -> None:
+    """Ensure records keep None values when anchor events are missing."""
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    case = await cases_service.create_case(
+        CaseCreate(
+            summary="Synthetic duration without anchors",
+            description="Verify None anchors stay None",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+    )
+
+    started_at = datetime.now(tz=UTC)
+    ended_at = started_at + timedelta(minutes=5)
+
+    computation = CaseDurationComputation(
+        duration_id=uuid.uuid4(),
+        name="Synthetic duration",
+        description=None,
+        start_event_id=None,
+        end_event_id=None,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration=ended_at - started_at,
+    )
+
+    records = duration_service._format_records(
+        [case],
+        {case.id: [computation]},
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.start_event_id is None
+    assert record.end_event_id is None
 
 
 @pytest.mark.anyio

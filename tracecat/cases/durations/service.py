@@ -435,8 +435,16 @@ class CaseDurationService(BaseWorkspaceService):
                         ended_at=computation.ended_at,
                         # Duration as numeric seconds
                         duration_seconds=duration_seconds,
-                        start_event_id=str(computation.start_event_id),
-                        end_event_id=str(computation.end_event_id),
+                        start_event_id=(
+                            str(computation.start_event_id)
+                            if computation.start_event_id is not None
+                            else None
+                        ),
+                        end_event_id=(
+                            str(computation.end_event_id)
+                            if computation.end_event_id is not None
+                            else None
+                        ),
                     )
                 )
         return records
