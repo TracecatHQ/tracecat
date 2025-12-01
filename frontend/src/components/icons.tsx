@@ -691,6 +691,7 @@ export const providerIcons: Record<
   notion_mcp: (props) => <NotionIcon {...props} />,
   linear_mcp: (props) => <LinearIcon {...props} />,
   runreveal_mcp: (props) => <RunRevealIcon {...props} />,
+  secureannex_mcp: (props) => <SecureAnnexIcon {...props} />,
   github_mcp: ({ className, ...rest }) => (
     <div className={className}>
       <GitHubIcon {...rest} />
@@ -1381,6 +1382,25 @@ export function RunRevealIcon({ className, ...rest }: IconProps) {
       <path
         d="M54.9686 64.6772V0.677274H79.8853V39.6204C79.8853 53.4505 68.7191 64.6772 54.9686 64.6772Z"
         fill="#A13DF7"
+      />
+    </svg>
+  )
+}
+
+export function SecureAnnexIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="100%"
+      height="100%"
+      viewBox="0 0 128 128"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn(basicIconsCommon, className)}
+      {...rest}
+    >
+      <path
+        d="M39.0952 47.5685C42.3415 53.1474 50.0988 52.8835 54.41 51.0064C57.6636 48.7812 61.8374 47.7023 66.0031 48.3406C73.7329 49.5253 78.5032 56.1663 76.6579 63.1735C74.8122 70.181 67.0491 74.9014 59.319 73.7168C55.7896 73.1758 52.8782 71.4969 50.931 69.1654C45.2426 65.3145 37.7613 65.7082 32.068 67.1721L16 112H38.5607L45.9916 90.094H82.0084L89.3724 112H112L77.523 16H50.41L39.0952 47.5685Z"
+        fill="#3C6E71"
       />
     </svg>
   )

@@ -25,6 +25,7 @@ from tracecat.integrations.providers.microsoft import (
 )
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
+from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.servicenow import ServiceNowOAuthProvider
 from tracecat.integrations.schemas import ProviderKey
@@ -36,6 +37,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     LinearMCPProvider,
     NotionMCPProvider,
     RunRevealMCPProvider,
+    SecureAnnexMCPProvider,
     SentryMCPProvider,
     AzureManagementACProvider,
     AzureManagementCCProvider,
