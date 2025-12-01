@@ -94,7 +94,9 @@ async def main() -> None:
         logger.info("Initializing Sentry interceptor")
         app_env = config.TRACECAT__APP_ENV
         temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment = f"{app_env}-{temporal_namespace}"
+        sentry_environment: str = (
+            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
+        )
         sentry_sdk.init(
             dsn=sentry_dsn,
             environment=sentry_environment,
