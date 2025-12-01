@@ -17,20 +17,15 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.13.0
+    rev: v0.14.7
     hooks:
-      - id: ruff
+      - id: ruff-check
         args:
-          - check
           - --fix
           - --show-fixes
           - --verbose
-          - .
-        pass_filenames: false
       - id: ruff-format
-        args:
-          - .
-        pass_filenames: false
+        verbose: true
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:
