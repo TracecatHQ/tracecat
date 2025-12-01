@@ -20,9 +20,7 @@ servicenow_oauth_secret = RegistryOAuthSecret(
 """
 
 
-SERVICENOW_TABLE_API_DOCS_URL = (
-    "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/build/applications/concept/api-rest.html"
-)
+SERVICENOW_TABLE_API_DOCS_URL = "https://www.servicenow.com/docs/bundle/zurich-api-reference/page/build/applications/concept/api-rest.html"
 
 
 async def _request_table_api(
