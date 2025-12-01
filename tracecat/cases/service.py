@@ -1417,11 +1417,9 @@ class CaseTasksService(BaseWorkspaceService):
                 )
 
         # default_trigger_values change - validate against current workflow if it exists
-        if (
-            new_default_values := set_fields.pop("default_trigger_values", None)
-        ) is not None:
-            # Validate against current workflow if both exist
-            if task.workflow_id and new_default_values:
+        if "default_trigger_values" in params.model_fields_set:
+            new_default_values = set_fields.pop("default_trigger_values", None)
+            if new_default_values:
                 await self._validate_default_trigger_values(
                     task.workflow_id, new_default_values
                 )

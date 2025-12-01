@@ -1,7 +1,7 @@
 """default trigger values for case tasks
 
 Revision ID: 7b9dbaecb03a
-Revises: a81bc08c39a1
+Revises: 287584da65f6
 Create Date: 2025-11-30 19:05:06.209022
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7b9dbaecb03a"
-down_revision: str | None = "a81bc08c39a1"
+down_revision: str | None = "287584da65f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
