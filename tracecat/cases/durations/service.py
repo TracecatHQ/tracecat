@@ -21,6 +21,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
     CaseDurationRead,
+    CaseDurationRecord,
     CaseDurationUpdate,
 )
 from tracecat.db.models import Case, CaseDuration, CaseEvent
@@ -41,7 +42,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
 
-    async def list(self) -> list[CaseDurationDefinitionRead]:
+    async def list_definitions(self) -> list[CaseDurationDefinitionRead]:
         """Return all duration definitions configured for the workspace."""
 
         stmt = (
@@ -52,13 +53,15 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return [self._to_read_model(row) for row in result.scalars().all()]
 
-    async def get(self, duration_id: uuid.UUID) -> CaseDurationDefinitionRead:
+    async def get_definition(
+        self, duration_id: uuid.UUID
+    ) -> CaseDurationDefinitionRead:
         """Retrieve a single case duration definition."""
 
         entity = await self._get_definition_entity(duration_id)
         return self._to_read_model(entity)
 
-    async def create(
+    async def create_definition(
         self, params: CaseDurationDefinitionCreate
     ) -> CaseDurationDefinitionRead:
         """Create a new case duration definition."""
@@ -77,7 +80,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    async def update(
+    async def update_definition(
         self, duration_id: uuid.UUID, params: CaseDurationDefinitionUpdate
     ) -> CaseDurationDefinitionRead:
         """Update an existing case duration definition."""
@@ -117,7 +120,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    async def delete(self, duration_id: uuid.UUID) -> None:
+    async def delete_definition(self, duration_id: uuid.UUID) -> None:
         """Delete a case duration definition."""
 
         entity = await self._get_definition_entity(duration_id)
@@ -218,7 +221,7 @@ class CaseDurationService(BaseWorkspaceService):
             role=self.role,
         )
 
-    async def list(self, case: Case | uuid.UUID) -> list[CaseDurationRead]:
+    async def list_durations(self, case: Case | uuid.UUID) -> list[CaseDurationRead]:
         """List persisted case durations for a case."""
 
         case_obj = await self._resolve_case(case)
@@ -233,7 +236,7 @@ class CaseDurationService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return [self._to_read_model(row) for row in result.scalars().all()]
 
-    async def get(
+    async def get_duration(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID
     ) -> CaseDurationRead:
         """Retrieve a persisted case duration."""
@@ -242,13 +245,13 @@ class CaseDurationService(BaseWorkspaceService):
         entity = await self._get_case_duration_entity(duration_id, case_obj.id)
         return self._to_read_model(entity)
 
-    async def create(
+    async def create_duration(
         self, case: Case | uuid.UUID, params: CaseDurationCreate
     ) -> CaseDurationRead:
         """Create a persisted case duration record."""
 
         case_obj = await self._resolve_case(case)
-        await self.definitions.get(params.definition_id)
+        await self.definitions.get_definition(params.definition_id)
         await self._ensure_unique_case_duration(case_obj.id, params.definition_id)
 
         entity = CaseDuration(
@@ -266,7 +269,7 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    async def update(
+    async def update_duration(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID, params: CaseDurationUpdate
     ) -> CaseDurationRead:
         """Update a persisted case duration record."""
@@ -278,7 +281,7 @@ class CaseDurationService(BaseWorkspaceService):
             return self._to_read_model(entity)
 
         if (definition_id := updates.get("definition_id")) is not None:
-            await self.definitions.get(definition_id)
+            await self.definitions.get_definition(definition_id)
             await self._ensure_unique_case_duration(
                 case_obj.id, definition_id, exclude_id=entity.id
             )
@@ -299,7 +302,9 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    async def delete(self, case: Case | uuid.UUID, duration_id: uuid.UUID) -> None:
+    async def delete_duration(
+        self, case: Case | uuid.UUID, duration_id: uuid.UUID
+    ) -> None:
         """Delete a persisted case duration record."""
 
         case_obj = await self._resolve_case(case)
@@ -307,17 +312,141 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.delete(entity)
         await self.session.commit()
 
-    async def compute_for_case(
+    async def compute_duration(
         self, case: Case | uuid.UUID
     ) -> list[CaseDurationComputation]:
         """Compute all configured durations for a case using its events."""
 
         case_obj = await self._resolve_case(case)
-        definitions = await self.definitions.list()
+        definitions = await self.definitions.list_definitions()
         if not definitions:
             return []
 
         events = await self._list_case_events(case_obj)
+        return self._compute_durations_from_events(events, definitions)
+
+    async def compute_durations(
+        self, cases: Sequence[Case]
+    ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
+        """Compute durations for multiple cases efficiently.
+
+        Fetches definitions once and all events in a single query,
+        then computes durations for each case.
+
+        Args:
+            cases: Sequence of Case objects (must belong to workspace).
+
+        Returns:
+            Dict mapping case_id to list of computed durations.
+        """
+        if not cases:
+            return {}
+
+        definitions = await self.definitions.list_definitions()
+        if not definitions:
+            return {case.id: [] for case in cases}
+
+        # Fetch all events for all cases in one query
+        case_ids = [case.id for case in cases]
+        stmt = (
+            select(CaseEvent)
+            .where(
+                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.case_id.in_(case_ids),
+            )
+            .order_by(CaseEvent.case_id.asc(), CaseEvent.created_at.asc())
+        )
+        result = await self.session.execute(stmt)
+        all_events = list(result.scalars().all())
+
+        # Group events by case_id
+        events_by_case: dict[uuid.UUID, list[CaseEvent]] = {
+            case_id: [] for case_id in case_ids
+        }
+        for event in all_events:
+            events_by_case[event.case_id].append(event)
+
+        # Compute durations for each case
+        return {
+            case_id: self._compute_durations_from_events(events, definitions)
+            for case_id, events in events_by_case.items()
+        }
+
+    async def list_records(self, cases: Sequence[Case]) -> list[CaseDurationRecord]:
+        """List durations as flat records optimized for data visualization.
+
+        Returns a flat list of denormalized records suitable for upload to
+        analytics platforms like Grafana, Splunk, or data warehouses.
+
+        Each record contains:
+        - Case context (id, status, priority, severity, timestamps)
+        - Duration definition (name, description)
+        - Timing data (started_at, ended_at, duration_seconds)
+
+        Args:
+            cases: Sequence of Case objects (must belong to workspace).
+
+        Returns:
+            Flat list of duration records, one per (case, duration_definition) pair.
+        """
+        if not cases:
+            return []
+
+        durations_by_case = await self.compute_durations(cases)
+        return self._format_records(cases, durations_by_case)
+
+    def _format_records(
+        self,
+        cases: Sequence[Case],
+        durations_by_case: dict[uuid.UUID, list[CaseDurationComputation]],
+    ) -> list[CaseDurationRecord]:
+        """Format computed durations as flat records.
+
+        Pure formatting function that converts internal models to record format.
+        """
+        records: list[CaseDurationRecord] = []
+
+        for case in cases:
+            durations = durations_by_case.get(case.id, [])
+            for computation in durations:
+                if computation.duration is None:
+                    continue
+
+                duration_seconds = computation.duration.total_seconds()
+                records.append(
+                    CaseDurationRecord(
+                        # Case identifiers
+                        case_id=str(case.id),
+                        case_short_id=case.short_id,
+                        # Case timestamps as ISO strings
+                        case_created_at=case.created_at.isoformat(),
+                        case_updated_at=case.updated_at.isoformat(),
+                        # Case attributes
+                        case_summary=case.summary,
+                        case_status=case.status.value,
+                        case_priority=case.priority.value,
+                        case_severity=case.severity.value,
+                        # Duration definition info
+                        duration_id=str(computation.duration_id),
+                        duration_name=computation.name,
+                        duration_description=computation.description,
+                        # Duration timestamps as ISO strings
+                        started_at=computation.started_at,
+                        ended_at=computation.ended_at,
+                        # Duration as numeric seconds
+                        duration_seconds=duration_seconds,
+                        start_event_id=str(computation.start_event_id),
+                        end_event_id=str(computation.end_event_id),
+                    )
+                )
+        return records
+
+    def _compute_durations_from_events(
+        self,
+        events: Sequence[CaseEvent],
+        definitions: Sequence[CaseDurationDefinitionRead],
+    ) -> list[CaseDurationComputation]:
+        """Pure computation of durations from events and definitions."""
         results: list[CaseDurationComputation] = []
         for definition in definitions:
             start_match = self._find_matching_event(events, definition.start_anchor)
@@ -355,7 +484,7 @@ class CaseDurationService(BaseWorkspaceService):
         """Persist computed duration values for a case and return calculations."""
 
         case_obj = await self._resolve_case(case)
-        computations = await self.compute_for_case(case_obj)
+        computations = await self.compute_duration(case_obj)
 
         stmt = select(CaseDuration).where(
             CaseDuration.owner_id == self.workspace_id,
