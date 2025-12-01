@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import secrets
 from abc import ABC
 from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
@@ -399,8 +400,6 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
         # Manually generate PKCE parameters if enabled for this provider
         code_verifier = None
         if self._use_pkce():
-            import secrets
-
             # Generate code_verifier (43-128 characters, base64url encoded)
             code_verifier = secrets.token_urlsafe(32)  # Generates 43 characters
             # Generate code_challenge from verifier
@@ -417,10 +416,6 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
         self.logger.info(
             "Generated OAuth authorization URL",
             provider=self.id,
-            url=url,
-            additional_params={
-                k: v for k, v in additional_params.items() if k != "code_challenge"
-            },  # Don't log challenge
             has_code_verifier=code_verifier is not None,
             use_pkce=self._use_pkce(),
         )

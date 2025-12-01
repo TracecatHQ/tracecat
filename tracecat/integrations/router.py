@@ -447,11 +447,9 @@ async def connect_provider(
         oauth_state.code_verifier = code_verifier
         await session.commit()
 
-    # Debug: Log the authorization URL
     logger.info(
         "Generated authorization URL",
         provider=provider.id,
-        auth_url=auth_url,
         has_code_verifier=code_verifier is not None,
     )
 
