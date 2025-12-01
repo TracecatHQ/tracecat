@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
@@ -196,6 +197,7 @@ class BaseOAuthProvider(ABC):
             client_id=self.client_id,
             scopes=self.requested_scopes,
             grant_type=self.grant_type,
+            code_challenge_method=client_kwargs.get("code_challenge_method"),
         )
 
     @property
@@ -384,21 +386,62 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
         """Override to add provider-specific authorization parameters."""
         return {}
 
-    async def get_authorization_url(self, state: str) -> str:
-        """Get the OAuth authorization URL."""
+    async def get_authorization_url(self, state: str) -> tuple[str, str | None]:
+        """Get the OAuth authorization URL.
+
+        Returns:
+            Tuple of (authorization_url, code_verifier)
+            code_verifier is None if PKCE is not used
+        """
         # Build authorization URL with authlib
-        url, _ = self.client.create_authorization_url(
+        additional_params = self._get_additional_authorize_params()
+
+        # Manually generate PKCE parameters if enabled for this provider
+        code_verifier = None
+        if self._use_pkce():
+            import secrets
+
+            # Generate code_verifier (43-128 characters, base64url encoded)
+            code_verifier = secrets.token_urlsafe(32)  # Generates 43 characters
+            # Generate code_challenge from verifier
+            code_challenge = create_s256_code_challenge(code_verifier)
+            additional_params["code_challenge"] = code_challenge
+            additional_params["code_challenge_method"] = "S256"
+
+        url, auth_state = self.client.create_authorization_url(
             self.authorization_endpoint,
             state=state,
-            **self._get_additional_authorize_params(),
+            **additional_params,
         )
 
-        self.logger.info("Generated OAuth authorization URL", provider=self.id)
-        return url
+        self.logger.info(
+            "Generated OAuth authorization URL",
+            provider=self.id,
+            url=url,
+            additional_params={
+                k: v for k, v in additional_params.items() if k != "code_challenge"
+            },  # Don't log challenge
+            has_code_verifier=code_verifier is not None,
+            use_pkce=self._use_pkce(),
+        )
+        return url, code_verifier
 
-    async def exchange_code_for_token(self, code: str, state: str) -> TokenResponse:
-        """Exchange authorization code for access token."""
+    async def exchange_code_for_token(
+        self, code: str, state: str, code_verifier: str | None = None
+    ) -> TokenResponse:
+        """Exchange authorization code for access token.
+
+        Args:
+            code: Authorization code from OAuth provider
+            state: State parameter from authorization request
+            code_verifier: PKCE code verifier (required if PKCE was used)
+        """
         try:
+            # Build token request params
+            token_params = self._get_additional_token_params()
+            if code_verifier:
+                token_params["code_verifier"] = code_verifier
+
             # Exchange code for token using authlib
             token = cast(
                 dict[str, Any],
@@ -407,11 +450,15 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                     self.token_endpoint,
                     code=code,
                     state=state,
-                    **self._get_additional_token_params(),
+                    **token_params,
                 ),  # type: ignore
             )
 
-            self.logger.info("Successfully acquired OAuth token", provider=self.id)
+            self.logger.info(
+                "Successfully acquired OAuth token",
+                provider=self.id,
+                used_pkce=code_verifier is not None,
+            )
 
             # Convert authlib token response to our TokenResponse model
             return TokenResponse(
@@ -946,6 +993,13 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 registration_auth_method
             )
 
+        logger_instance.info(
+            "Attempting dynamic client registration",
+            provider=cls.id,
+            registration_endpoint=registration_endpoint,
+            redirect_uris=registration_payload["redirect_uris"],
+        )
+
         try:
             registration_response = await cls._submit_registration_request(
                 registration_endpoint, registration_payload
@@ -984,6 +1038,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             provider=cls.id,
             registration_endpoint=registration_endpoint,
             client_id=client_id,
+            registered_redirect_uris=registration_response.get("redirect_uris"),
         )
 
         return DynamicRegistrationResult(

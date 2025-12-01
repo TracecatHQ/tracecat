@@ -2023,6 +2023,11 @@ class OAuthStateDB(TimestampMixin, Base):
         nullable=False,
         doc="When this state expires",
     )
+    code_verifier: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="PKCE code verifier for OAuth 2.1 flows",
+    )
 
     # Relationships
     workspace: Mapped[Workspace] = relationship()
