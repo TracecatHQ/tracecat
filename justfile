@@ -39,7 +39,7 @@ lint-app:
 lint-fix-ui:
 	pnpm -C frontend check
 lint-fix-app:
-	ruff check . && ruff format .
+	ruff check . --fix && ruff format .
 
 lint: lint-ui lint-app
 lint-fix: lint-fix-ui lint-fix-app

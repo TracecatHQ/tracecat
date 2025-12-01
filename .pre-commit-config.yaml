@@ -21,12 +21,14 @@ repos:
     hooks:
       - id: ruff
         args:
+          - check
           - --fix
-          - --show-fixes # Show what files were fixed
-          - --verbose
-        exclude: ^alembic/versions/
+          - .
+        pass_filenames: false
       - id: ruff-format
-        verbose: true
+        args:
+          - .
+        pass_filenames: false
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.25.1
     hooks:
