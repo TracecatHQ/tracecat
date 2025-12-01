@@ -201,7 +201,11 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
 ).lower() in ("true", "1")
 """Disable eager activity execution for Temporal workflows."""
 
-# Secrets manager config
+# === Sentry config === #
+SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
+"""Override the Sentry environment. If not set, defaults to '{app_env}-{temporal_namespace}'."""
+
+# === Secrets manager config === #
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
     "0",  # Default to False
