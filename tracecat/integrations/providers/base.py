@@ -327,8 +327,6 @@ class BaseOAuthProvider(ABC):
         self.logger.info(
             "Registered OAuth client dynamically",
             provider=self.id,
-            registration_endpoint=self._registration_endpoint,
-            client_id=client_id,
         )
 
         return DynamicRegistrationResult(
@@ -470,7 +468,6 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                 "Error exchanging code for token",
                 provider=self.id,
                 error=str(e),
-                state=state,
             )
             raise
 
@@ -765,8 +762,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 self.logger.info(
                     "Discovered OAuth endpoints",
                     provider=self.id,
-                    authorization=auth_endpoint,
-                    token=token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=auth_endpoint,
@@ -782,8 +777,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 self.logger.info(
                     "Using fallback OAuth endpoints",
                     provider=self.id,
-                    authorization=self._fallback_auth_endpoint,
-                    token=self._fallback_token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=self._fallback_auth_endpoint,
@@ -810,8 +803,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     self.logger.info(
                         "Using configured OAuth endpoints",
                         provider=self.id,
-                        authorization=auth_endpoint,
-                        token=token_endpoint,
                     )
                     return OAuthDiscoveryResult(
                         authorization_endpoint=auth_endpoint,
@@ -824,7 +815,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Failed to discover OAuth endpoints",
                 provider=self.id,
                 error=str(e),
-                discovery_url=discovery_url,
             )
             raise ValueError(
                 f"Could not discover OAuth endpoints from {discovery_url} "
@@ -867,8 +857,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             logger_instance.info(
                 "Discovered OAuth endpoints",
                 provider=cls.id,
-                authorization=authorization_endpoint,
-                token=token_endpoint,
             )
             return OAuthDiscoveryResult(
                 authorization_endpoint=authorization_endpoint,
@@ -882,8 +870,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 logger_instance.info(
                     "Using fallback OAuth endpoints",
                     provider=cls.id,
-                    authorization=cls._fallback_auth_endpoint,
-                    token=cls._fallback_token_endpoint,
                 )
                 return OAuthDiscoveryResult(
                     authorization_endpoint=cls._fallback_auth_endpoint,
@@ -910,8 +896,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     logger_instance.info(
                         "Using configured OAuth endpoints",
                         provider=cls.id,
-                        authorization=auth_endpoint,
-                        token=token_endpoint,
                     )
                     return OAuthDiscoveryResult(
                         authorization_endpoint=auth_endpoint,
@@ -924,7 +908,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Failed to discover OAuth endpoints",
                 provider=cls.id,
                 error=str(e),
-                discovery_url=discovery_url,
             )
             raise ValueError(
                 f"Could not discover OAuth endpoints from {discovery_url} "
@@ -990,8 +973,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         logger_instance.info(
             "Attempting dynamic client registration",
             provider=cls.id,
-            registration_endpoint=registration_endpoint,
-            redirect_uris=registration_payload["redirect_uris"],
         )
 
         try:
@@ -1003,7 +984,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Dynamic registration failed",
                 provider=cls.id,
                 error=str(exc),
-                registration_endpoint=registration_endpoint,
             )
             raise
         except ValueError as exc:
@@ -1011,7 +991,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 "Dynamic registration error",
                 provider=cls.id,
                 error=str(exc),
-                registration_endpoint=registration_endpoint,
             )
             raise
 
@@ -1030,9 +1009,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         logger_instance.info(
             "Registered OAuth client dynamically",
             provider=cls.id,
-            registration_endpoint=registration_endpoint,
-            client_id=client_id,
-            registered_redirect_uris=registration_response.get("redirect_uris"),
         )
 
         return DynamicRegistrationResult(
