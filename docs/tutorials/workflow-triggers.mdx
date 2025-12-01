@@ -9,7 +9,7 @@ icon: bolt
 
 - If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
 - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
-  </Note>
+</Note>
 
 ## What you'll learn
 
@@ -101,6 +101,11 @@ To return an empty response with status code 200, set the query parameter `empty
 https://${WEBHOOK_URL}?empty_echo=true
 ```
 
+### Allowed webhook methods
+
+By default, only `POST` requests are allowed.
+To allow other methods, select the trigger action then configure `POST` and / or `GET` in the **Allowed HTTP Methods** section of the action panel.
+
 ### Vendor-specific webhooks
 
 <Note>
@@ -118,7 +123,7 @@ https://${WEBHOOK_URL}?vendor=okta
 
 Vendors currently supported:
 
-- `okta`
+- `okta`: must allow `GET` requests for verification.
 
 ### Pause or delete schedule
 
