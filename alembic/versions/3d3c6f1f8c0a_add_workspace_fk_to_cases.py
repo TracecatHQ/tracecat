@@ -20,6 +20,16 @@ fk_cases_owner_id_workspace = "fk_cases_owner_id_workspace"
 
 
 def upgrade() -> None:
+    # Remove orphaned cases before enforcing the workspace foreign key.
+    op.execute(
+        """
+        DELETE FROM cases
+        WHERE owner_id IS NOT NULL
+          AND owner_id NOT IN (SELECT id FROM workspace)
+          AND EXISTS (SELECT 1 FROM workspace)
+        """
+    )
+
     op.create_foreign_key(
         fk_cases_owner_id_workspace,
         "cases",
