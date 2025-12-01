@@ -195,7 +195,6 @@ class BaseOAuthProvider(ABC):
         self.logger.info(
             "OAuth provider initialized",
             provider=self.id,
-            client_id=self.client_id,
             scopes=self.requested_scopes,
             grant_type=self.grant_type,
             code_challenge_method=client_kwargs.get("code_challenge_method"),
