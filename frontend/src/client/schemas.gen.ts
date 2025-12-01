@@ -6375,7 +6375,6 @@ export const $FeatureFlag = {
   type: "string",
   enum: [
     "git-sync",
-    "agent-sandbox",
     "agent-approvals",
     "agent-presets",
     "case-durations",
