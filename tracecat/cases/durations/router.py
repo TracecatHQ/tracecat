@@ -41,7 +41,7 @@ async def list_case_duration_definitions(
 ) -> list[CaseDurationDefinitionRead]:
     """List all case duration definitions for the active workspace."""
     service = CaseDurationDefinitionService(session=session, role=role)
-    return await service.list()
+    return await service.list_definitions()
 
 
 @definitions_router.get("/{duration_id}", response_model=CaseDurationDefinitionRead)
@@ -54,7 +54,7 @@ async def get_case_duration_definition(
     """Retrieve a single case duration definition."""
     service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.get(duration_id)
+        return await service.get_definition(duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found",
@@ -81,7 +81,7 @@ async def create_case_duration_definition(
     """Create a new case duration definition."""
     service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.create(params)
+        return await service.create_definition(params)
     except TracecatValidationError as err:
         logger.warning(
             "Validation error creating case duration definition",
@@ -116,7 +116,7 @@ async def update_case_duration_definition(
     """Update an existing case duration definition."""
     service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        return await service.update(duration_id, params)
+        return await service.update_definition(duration_id, params)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found for update",
@@ -164,7 +164,7 @@ async def delete_case_duration_definition(
     """Delete a case duration definition."""
     service = CaseDurationDefinitionService(session=session, role=role)
     try:
-        await service.delete(duration_id)
+        await service.delete_definition(duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration definition not found for deletion",
@@ -187,7 +187,7 @@ async def list_case_durations(
     """List persisted case durations for the provided case."""
     service = CaseDurationService(session=session, role=role)
     try:
-        return await service.list(case_id)
+        return await service.list_durations(case_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case not found while listing durations",
@@ -211,7 +211,7 @@ async def get_case_duration(
     """Retrieve a persisted case duration."""
     service = CaseDurationService(session=session, role=role)
     try:
-        return await service.get(case_id, duration_id)
+        return await service.get_duration(case_id, duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration not found",
@@ -238,7 +238,7 @@ async def create_case_duration(
     """Create a persisted case duration."""
     service = CaseDurationService(session=session, role=role)
     try:
-        return await service.create(case_id, params)
+        return await service.create_duration(case_id, params)
     except TracecatValidationError as err:
         logger.warning(
             "Validation error creating case duration",
@@ -275,7 +275,7 @@ async def update_case_duration(
     """Update a persisted case duration."""
     service = CaseDurationService(session=session, role=role)
     try:
-        return await service.update(case_id, duration_id, params)
+        return await service.update_duration(case_id, duration_id, params)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration not found for update",
@@ -314,7 +314,7 @@ async def delete_case_duration(
     """Delete a persisted case duration."""
     service = CaseDurationService(session=session, role=role)
     try:
-        await service.delete(case_id, duration_id)
+        await service.delete_duration(case_id, duration_id)
     except TracecatNotFoundError as err:
         logger.warning(
             "Case duration not found for deletion",
