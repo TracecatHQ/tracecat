@@ -26,6 +26,7 @@ def upgrade() -> None:
         DELETE FROM cases
         WHERE owner_id IS NOT NULL
           AND owner_id NOT IN (SELECT id FROM workspace)
+          AND EXISTS (SELECT 1 FROM workspace)
         """
     )
 
