@@ -1,8 +1,10 @@
 """Unit tests for agent context history processing."""
 
+from typing import cast
 from unittest.mock import Mock, patch
 
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -193,10 +195,12 @@ def test_truncate_tool_returns_processor_no_truncation_needed():
     ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 1000):
-        result = truncate_tool_returns_processor(mock_ctx, messages)
+        result = truncate_tool_returns_processor(
+            mock_ctx, cast(list[ModelMessage], messages)
+        )
 
     assert len(result) == 1
-    assert result[0].parts[0].content == "short"
+    assert cast(ToolReturnPart, result[0].parts[0]).content == "short"
 
 
 def test_truncate_tool_returns_processor_truncates_large_output():
@@ -214,10 +218,12 @@ def test_truncate_tool_returns_processor_truncates_large_output():
     ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
-        result = truncate_tool_returns_processor(mock_ctx, messages)
+        result = truncate_tool_returns_processor(
+            mock_ctx, cast(list[ModelMessage], messages)
+        )
 
     assert len(result) == 1
-    truncated_content = result[0].parts[0].content
+    truncated_content = cast(str, cast(ToolReturnPart, result[0].parts[0]).content)
     assert len(truncated_content) < len(large_content)
     assert "truncated" in truncated_content
 
@@ -225,7 +231,9 @@ def test_truncate_tool_returns_processor_truncates_large_output():
 def test_truncate_tool_returns_processor_preserves_model_response():
     """Test that ModelResponse messages pass through unchanged."""
     mock_ctx = Mock()
-    messages = [ModelResponse(parts=[TextPart(content="A" * 10000)])]
+    messages: list[ModelMessage] = [
+        ModelResponse(parts=[TextPart(content="A" * 10000)])
+    ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
         result = truncate_tool_returns_processor(mock_ctx, messages)
@@ -249,10 +257,12 @@ def test_truncate_tool_returns_processor_truncates_large_dict():
     ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
-        result = truncate_tool_returns_processor(mock_ctx, messages)
+        result = truncate_tool_returns_processor(
+            mock_ctx, cast(list[ModelMessage], messages)
+        )
 
     assert len(result) == 1
-    truncated_content = result[0].parts[0].content
+    truncated_content = cast(ToolReturnPart, result[0].parts[0]).content
     # Content should now be a truncated string
     assert isinstance(truncated_content, str)
     assert "truncated" in truncated_content
@@ -275,10 +285,12 @@ def test_truncate_tool_returns_processor_truncates_large_list():
     ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 100):
-        result = truncate_tool_returns_processor(mock_ctx, messages)
+        result = truncate_tool_returns_processor(
+            mock_ctx, cast(list[ModelMessage], messages)
+        )
 
     assert len(result) == 1
-    truncated_content = result[0].parts[0].content
+    truncated_content = cast(ToolReturnPart, result[0].parts[0]).content
     # Content should now be a truncated string
     assert isinstance(truncated_content, str)
     assert "truncated" in truncated_content
@@ -299,11 +311,13 @@ def test_truncate_tool_returns_processor_small_dict_unchanged():
     ]
 
     with patch("tracecat.agent.context.TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 1000):
-        result = truncate_tool_returns_processor(mock_ctx, messages)
+        result = truncate_tool_returns_processor(
+            mock_ctx, cast(list[ModelMessage], messages)
+        )
 
     assert len(result) == 1
     # Content should remain as the original dict
-    assert result[0].parts[0].content == small_dict
+    assert cast(ToolReturnPart, result[0].parts[0]).content == small_dict
 
 
 # === Trim history processor tests ===
@@ -314,7 +328,7 @@ def test_trim_history_processor_under_limit():
     mock_ctx = Mock()
     mock_ctx.model.model_name = "test-model"
 
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="Hello")]),
         ModelResponse(parts=[TextPart(content="Hi there")]),
     ]
@@ -333,7 +347,7 @@ def test_trim_history_processor_trims_over_limit():
     mock_ctx.model.model_name = "test-model"
 
     # Create many messages to exceed a small limit
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content=f"Message {i}" * 100)])
         for i in range(20)
     ]
@@ -360,7 +374,7 @@ def test_trim_history_processor_safe_cut_avoids_tool_return():
     mock_ctx = Mock()
     mock_ctx.model.model_name = "test-model"
 
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="A" * 1000)]),
         ModelResponse(
             parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="call_1")]
@@ -391,7 +405,7 @@ def test_trim_history_processor_uses_default_limit():
     mock_ctx = Mock()
     mock_ctx.model.model_name = "unknown-model"
 
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="Hello")]),
     ]
 
@@ -409,7 +423,7 @@ def test_trim_history_processor_cleans_orphans_before_trimming():
     mock_ctx = Mock()
     mock_ctx.model.model_name = "test-model"
 
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="Hello")]),
         ModelResponse(
             parts=[ToolCallPart(tool_name="test", args={}, tool_call_id="orphan")]
