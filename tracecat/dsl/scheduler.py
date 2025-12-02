@@ -507,8 +507,11 @@ class DSLScheduler:
             return self.task_exceptions
         self.logger.info(
             "All tasks completed",
-            completed_tasks=list(self.completed_tasks),
             n_tasks=len(self.tasks),
+        )
+        self.logger.debug(
+            "All tasks completed (details)",
+            completed_tasks=list(self.completed_tasks),
         )
         return None
 
