@@ -890,6 +890,11 @@ async def update_mcp_integration(
         integration = await svc.update_mcp_integration(
             mcp_integration_id=mcp_integration_id, params=params
         )
+        if integration is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP integration not found",
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
