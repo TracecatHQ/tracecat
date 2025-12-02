@@ -288,18 +288,17 @@ class CasesService(BaseWorkspaceService):
             sort_attr = getattr(Case, sort_column)
 
         # Apply cursor filtering
+        # Note: Cursor always uses created_at for pagination stability regardless of sort column
+        # This means pagination position is based on created_at, while display order uses sort_attr
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
-            cursor_value = cursor_data.created_at
+            cursor_time = cursor_data.created_at
             cursor_id = uuid.UUID(cursor_data.id)
 
-            # Determine comparison operator based on sort direction and pagination direction
-            # For forward pagination (!reverse):
-            #   - ascending: get records after cursor (>)
-            #   - descending: get records before cursor (<)
-            # For backward pagination (reverse):
-            #   - ascending: get records before cursor (<)
-            #   - descending: get records after cursor (>)
+            # Cursor comparisons always use Case.created_at since that's what the cursor stores
+            # The sort direction determines how we navigate through the created_at timeline:
+            # - For ascending sort: we want newer records (higher created_at) when going forward
+            # - For descending sort: we want older records (lower created_at) when going forward
 
             if sort_direction == "asc":
                 # Ascending order
@@ -307,9 +306,9 @@ class CasesService(BaseWorkspaceService):
                     # Going backward: get records before cursor
                     stmt = stmt.where(
                         or_(
-                            sort_attr < cursor_value,
+                            Case.created_at < cursor_time,
                             and_(
-                                sort_attr == cursor_value,
+                                Case.created_at == cursor_time,
                                 Case.id < cursor_id,
                             ),
                         )
@@ -318,9 +317,9 @@ class CasesService(BaseWorkspaceService):
                     # Going forward: get records after cursor
                     stmt = stmt.where(
                         or_(
-                            sort_attr > cursor_value,
+                            Case.created_at > cursor_time,
                             and_(
-                                sort_attr == cursor_value,
+                                Case.created_at == cursor_time,
                                 Case.id > cursor_id,
                             ),
                         )
@@ -331,9 +330,9 @@ class CasesService(BaseWorkspaceService):
                     # Going backward: get records after cursor (in original order)
                     stmt = stmt.where(
                         or_(
-                            sort_attr > cursor_value,
+                            Case.created_at > cursor_time,
                             and_(
-                                sort_attr == cursor_value,
+                                Case.created_at == cursor_time,
                                 Case.id > cursor_id,
                             ),
                         )
@@ -342,9 +341,9 @@ class CasesService(BaseWorkspaceService):
                     # Going forward: get records before cursor (in original order)
                     stmt = stmt.where(
                         or_(
-                            sort_attr < cursor_value,
+                            Case.created_at < cursor_time,
                             and_(
-                                sort_attr == cursor_value,
+                                Case.created_at == cursor_time,
                                 Case.id < cursor_id,
                             ),
                         )
