@@ -42,6 +42,7 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
+import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -255,7 +256,12 @@ function TablesActions() {
 }
 
 function IntegrationsActions() {
-  return <CreateCustomProviderDialog />
+  return (
+    <div className="flex items-center gap-2">
+      <CreateCustomProviderDialog />
+      <MCPIntegrationDialog />
+    </div>
+  )
 }
 
 function CasesActions() {
