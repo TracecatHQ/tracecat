@@ -51,6 +51,12 @@ async def create_task(
 ) -> dict[str, Any]:
     """Create a new task for a case."""
 
+    # Validate that workflow_id is provided if default_trigger_values is set
+    if default_trigger_values and not workflow_id:
+        raise ValueError(
+            "workflow_id is required when default_trigger_values is provided"
+        )
+
     if priority:
         priority_enum = CasePriority(priority)
     if status:
@@ -179,6 +185,17 @@ async def update_task(
     params["default_trigger_values"] = default_trigger_values
 
     async with CaseTasksService.with_session() as service:
+        existing_task = await service.get_task(UUID(task_id))
+        effective_workflow_id = (
+            workflow_id if workflow_id is not None else existing_task.workflow_id
+        )
+
+        if default_trigger_values and not effective_workflow_id:
+            raise ValueError(
+                "workflow_id is required when default_trigger_values is provided. "
+                "Please set a workflow_id in this update or ensure the task already has one."
+            )
+
         task = await service.update_task(UUID(task_id), CaseTaskUpdate(**params))
 
     return CaseTaskRead.model_validate(task, from_attributes=True).model_dump(
