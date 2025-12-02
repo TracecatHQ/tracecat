@@ -2464,13 +2464,8 @@ export type JoinStrategy = "any" | "all"
 
 /**
  * Authentication type for MCP integrations.
- *
- * Supported types:
- * - OAUTH2: OAuth 2.1 (standard for HTTP MCP servers per MCP spec)
- * - CUSTOM: Custom authentication (for custom authentication)
- * - NONE: No authentication (for no authentication)
  */
-export type MCPAuthType = "oauth2" | "custom" | "none"
+export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
  * Request model for creating an MCP integration.
