@@ -1275,7 +1275,7 @@ class Case(RecordModel):
 
     __tablename__ = "case"
     __table_args__ = (
-        Index("idx_case_cursor_pagination", "owner_id", "created_at", "id"),
+        Index("ix_case_cursor_pagination", "owner_id", "created_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
