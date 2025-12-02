@@ -142,14 +142,17 @@ class AgentManagementService(BaseService):
             return None
 
     async def get_workspace_provider_credentials(
-        self, provider: str
+        self, provider: str, decrypted: bool = False
     ) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider at workspace level."""
+        """Get credentials for an AI provider at workspace level."""
         secret_name = self._get_workspace_credential_secret_name(provider)
         try:
             secret = await self.secrets_service.get_secret_by_name(secret_name)
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+            if decrypted:
+                secret_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+            else:
+                secret_keys = secret.keys
+            return {kv.key: kv.value.get_secret_value() for kv in secret_keys}
         except TracecatNotFoundError:
             return None
 
@@ -280,7 +283,7 @@ class AgentManagementService(BaseService):
         # Get credentials from appropriate scope
         if use_workspace_credentials:
             credentials = await self.get_workspace_provider_credentials(
-                preset_config.model_provider
+                preset_config.model_provider, decrypted=True
             )
         else:
             credentials = await self.get_provider_credentials(
