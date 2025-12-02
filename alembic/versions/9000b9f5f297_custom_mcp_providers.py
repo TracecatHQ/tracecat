@@ -1,7 +1,7 @@
 """custom mcp providers
 
 Revision ID: 9000b9f5f297
-Revises: 287584da65f6
+Revises: 51dc33f1322a
 Create Date: 2025-12-01 19:03:24.986522
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "9000b9f5f297"
-down_revision: str | None = "287584da65f6"
+down_revision: str | None = "51dc33f1322a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
