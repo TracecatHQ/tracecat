@@ -159,7 +159,7 @@ def _to_dict(instance: RecordModel) -> dict[str, Any]:
 
 
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
-    __tablename__ = "oauthaccount"
+    __tablename__ = "oauth_account"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id"), nullable=False
@@ -335,7 +335,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
 
 class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
-    __tablename__ = "accesstoken"
+    __tablename__ = "access_token"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -396,7 +396,7 @@ class BaseSecret(RecordModel):
 
 
 class OrganizationSecret(BaseSecret):
-    __tablename__ = "organizationsecret"
+    __tablename__ = "organization_secret"
     __table_args__ = (UniqueConstraint("name", "environment"),)
 
 
@@ -464,7 +464,7 @@ class WorkflowDefinition(RecordModel):
 
     """
 
-    __tablename__ = "workflowdefinition"
+    __tablename__ = "workflow_definition"
 
     id: Mapped[str] = mapped_column(
         String(64),
@@ -540,7 +540,7 @@ class WorkflowFolder(RecordModel):
 class WorkflowTag(Base):
     """Link table for workflows and tags with optional metadata."""
 
-    __tablename__ = "workflowtag"
+    __tablename__ = "workflow_tag"
     __table_args__ = (PrimaryKeyConstraint("tag_id", "workflow_id"),)
 
     tag_id: Mapped[uuid.UUID] = mapped_column(
@@ -878,7 +878,7 @@ class Action(RecordModel):
 class RegistryRepository(RecordModel):
     """A repository of templates and actions."""
 
-    __tablename__ = "registryrepository"
+    __tablename__ = "registry_repository"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True
@@ -922,7 +922,7 @@ class RegistryAction(RecordModel):
 
     """
 
-    __tablename__ = "registryaction"
+    __tablename__ = "registry_action"
     __table_args__ = (
         UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
     )
@@ -974,7 +974,7 @@ class RegistryAction(RecordModel):
     )
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("registryrepository.id", ondelete="CASCADE"),
+        ForeignKey("registry_repository.id", ondelete="CASCADE"),
         nullable=True,
     )
 
@@ -1045,7 +1045,7 @@ class Table(RecordModel):
 class TableColumn(TimestampMixin, Base):
     """Column definitions for tables."""
 
-    __tablename__ = "table_columns"
+    __tablename__ = "table_column"
     __table_args__ = (UniqueConstraint("table_id", "name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1080,8 +1080,8 @@ class TableColumn(TimestampMixin, Base):
 class CaseFields(TimestampMixin, Base):
     """A table of fields for a case."""
 
-    __tablename__ = "case_fields"
-    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_fields_owner"),)
+    __tablename__ = "case_field"
+    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_field_owner"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1107,7 +1107,7 @@ class CaseTagLink(Base):
 
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         primary_key=True,
     )
     tag_id: Mapped[uuid.UUID] = mapped_column(
@@ -1232,7 +1232,7 @@ class CaseDuration(RecordModel):
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
     )
     definition_id: Mapped[uuid.UUID] = mapped_column(
@@ -1273,9 +1273,9 @@ class CaseDuration(RecordModel):
 class Case(RecordModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
-    __tablename__ = "cases"
+    __tablename__ = "case"
     __table_args__ = (
-        Index("idx_case_cursor_pagination", "owner_id", "created_at", "id"),
+        Index("ix_case_cursor_pagination", "owner_id", "created_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1371,7 +1371,7 @@ class Case(RecordModel):
 class CaseComment(RecordModel):
     """A comment on a case."""
 
-    __tablename__ = "case_comments"
+    __tablename__ = "case_comment"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1396,7 +1396,7 @@ class CaseComment(RecordModel):
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -1433,7 +1433,7 @@ class CaseEvent(RecordModel):
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -1441,7 +1441,7 @@ class CaseEvent(RecordModel):
 
 
 class CaseTask(RecordModel):
-    __tablename__ = "case_tasks"
+    __tablename__ = "case_task"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1452,7 +1452,7 @@ class CaseTask(RecordModel):
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1765,7 +1765,7 @@ class CaseAttachment(TimestampMixin, Base):
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("cases.id", ondelete="CASCADE"),
+        ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
     )
     file_id: Mapped[uuid.UUID] = mapped_column(
