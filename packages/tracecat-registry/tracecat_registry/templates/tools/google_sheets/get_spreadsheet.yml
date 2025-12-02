@@ -8,7 +8,7 @@ definition:
   name: get_spreadsheet
   secrets:
     - type: oauth
-      provider_id: google
+      provider_id: google_sheets
       grant_type: client_credentials
       optional: true
   expects:
@@ -44,6 +44,6 @@ definition:
         url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.get_spreadsheet.result.data }}

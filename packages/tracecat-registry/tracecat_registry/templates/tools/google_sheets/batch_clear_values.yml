@@ -8,7 +8,7 @@ definition:
   name: batch_clear_values
   secrets:
     - type: oauth
-      provider_id: google
+      provider_id: google_sheets
       grant_type: client_credentials
       optional: true
   expects:
@@ -25,7 +25,7 @@ definition:
         url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values:batchClear
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
           Content-Type: application/json
         payload:
           ranges: ${{ inputs.ranges }}
