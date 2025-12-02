@@ -156,6 +156,7 @@ class CaseTaskRead(Schema):
     status: CaseTaskStatus
     assignee: UserRead | None = None
     workflow_id: WorkflowIDShort | None
+    default_trigger_values: dict[str, Any] | None = None
 
     @field_validator("workflow_id", mode="before")
     @classmethod
@@ -173,6 +174,7 @@ class CaseTaskCreate(Schema):
     status: CaseTaskStatus = Field(default=CaseTaskStatus.TODO)
     assignee_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
+    default_trigger_values: dict[str, Any] | None = Field(default=None)
 
 
 class CaseTaskUpdate(Schema):
@@ -182,6 +184,7 @@ class CaseTaskUpdate(Schema):
     status: CaseTaskStatus | None = Field(default=None)
     assignee_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
+    default_trigger_values: dict[str, Any] | None = Field(default=None)
 
 
 # Case Events

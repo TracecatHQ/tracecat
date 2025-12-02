@@ -670,6 +670,7 @@ async def list_tasks(
             workflow_id=WorkflowUUID.new(task.workflow_id).short()
             if task.workflow_id
             else None,
+            default_trigger_values=task.default_trigger_values,
         )
         for task in tasks
     ]
@@ -702,6 +703,7 @@ async def create_task(
             workflow_id=WorkflowUUID.new(task.workflow_id).short()
             if task.workflow_id
             else None,
+            default_trigger_values=task.default_trigger_values,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -747,6 +749,7 @@ async def update_task(
             workflow_id=WorkflowUUID.new(task.workflow_id).short()
             if task.workflow_id
             else None,
+            default_trigger_values=task.default_trigger_values,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(

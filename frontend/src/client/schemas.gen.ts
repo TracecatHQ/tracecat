@@ -4126,6 +4126,18 @@ export const $CaseTaskCreate = {
       ],
       title: "Workflow Id",
     },
+    default_trigger_values: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Trigger Values",
+    },
   },
   type: "object",
   required: ["title"],
@@ -4196,6 +4208,18 @@ export const $CaseTaskRead = {
         },
       ],
       title: "Workflow Id",
+    },
+    default_trigger_values: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Trigger Values",
     },
   },
   type: "object",
@@ -4294,6 +4318,18 @@ export const $CaseTaskUpdate = {
         },
       ],
       title: "Workflow Id",
+    },
+    default_trigger_values: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Trigger Values",
     },
   },
   type: "object",

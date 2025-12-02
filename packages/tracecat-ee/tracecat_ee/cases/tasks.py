@@ -44,8 +44,19 @@ async def create_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    default_trigger_values: Annotated[
+        dict[str, Any] | None,
+        Doc("The default trigger values for the task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Create a new task for a case."""
+
+    # Validate that workflow_id is provided if default_trigger_values is set
+    if default_trigger_values and not workflow_id:
+        raise ValueError(
+            "workflow_id is required when default_trigger_values is provided"
+        )
+
     if priority:
         priority_enum = CasePriority(priority)
     if status:
@@ -61,6 +72,7 @@ async def create_task(
                 status=status_enum,
                 assignee_id=UUID(assignee_id) if assignee_id else None,
                 workflow_id=workflow_id or None,
+                default_trigger_values=default_trigger_values,
             ),
         )
 
@@ -147,6 +159,10 @@ async def update_task(
         str | None,
         Doc("The ID of the workflow associated with this task."),
     ] = None,
+    default_trigger_values: Annotated[
+        dict[str, Any] | None,
+        Doc("The default trigger values for the task."),
+    ] = None,
 ) -> dict[str, Any]:
     """Update an existing case task."""
     params: dict[str, Any] = {}
@@ -166,8 +182,20 @@ async def update_task(
         params["assignee_id"] = UUID(assignee_id)
     if workflow_id is not None:
         params["workflow_id"] = workflow_id
+    params["default_trigger_values"] = default_trigger_values
 
     async with CaseTasksService.with_session() as service:
+        existing_task = await service.get_task(UUID(task_id))
+        effective_workflow_id = (
+            workflow_id if workflow_id is not None else existing_task.workflow_id
+        )
+
+        if default_trigger_values and not effective_workflow_id:
+            raise ValueError(
+                "workflow_id is required when default_trigger_values is provided. "
+                "Please set a workflow_id in this update or ensure the task already has one."
+            )
+
         task = await service.update_task(UUID(task_id), CaseTaskUpdate(**params))
 
     return CaseTaskRead.model_validate(task, from_attributes=True).model_dump(

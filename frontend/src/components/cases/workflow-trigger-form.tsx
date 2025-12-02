@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { PlayIcon, Plus, RotateCcw } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import {
   AlertDialogCancel,
@@ -41,7 +42,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -58,6 +58,7 @@ interface WorkflowTriggerFormProps {
   caseId: string
   caseFields: Record<string, unknown>
   groupCaseFields: boolean
+  defaultTriggerValues?: Record<string, unknown> | null
   onSubmit: (values: TriggerFormValues) => Promise<void>
   isSubmitting: boolean
 }
@@ -178,6 +179,7 @@ export function WorkflowTriggerForm({
   caseId,
   caseFields,
   groupCaseFields,
+  defaultTriggerValues,
   onSubmit,
   isSubmitting,
 }: WorkflowTriggerFormProps) {
@@ -251,8 +253,16 @@ export function WorkflowTriggerForm({
       }
     }
 
+    if (defaultTriggerValues) {
+      for (const [key, value] of Object.entries(defaultTriggerValues)) {
+        if (value !== undefined) {
+          defaults[key] = value
+        }
+      }
+    }
+
     return defaults
-  }, [schema, caseId, caseFields, groupCaseFields])
+  }, [schema, caseId, caseFields, groupCaseFields, defaultTriggerValues])
 
   useEffect(() => {
     form.reset(computedDefaults)
@@ -489,43 +499,42 @@ export function WorkflowTriggerForm({
                             }}
                           />
                         ) : fieldType === "object" || fieldType === "array" ? (
-                          <Textarea
-                            value={jsonDrafts[fieldName] ?? ""}
-                            onChange={(event) => {
-                              const value = event.target.value
-                              setJsonDrafts((prev) => ({
-                                ...prev,
-                                [fieldName]: value,
-                              }))
-                            }}
-                            onBlur={() => {
-                              const rawValue = jsonDrafts[fieldName] ?? ""
-                              if (!rawValue.trim()) {
-                                field.onChange(undefined)
-                                form.clearErrors(
-                                  fieldName as keyof TriggerFormValues
-                                )
-                                return
-                              }
-                              try {
-                                const parsed = JSON.parse(rawValue)
-                                field.onChange(parsed)
-                                form.clearErrors(
-                                  fieldName as keyof TriggerFormValues
-                                )
-                              } catch {
-                                form.setError(
-                                  fieldName as keyof TriggerFormValues,
-                                  {
-                                    type: "manual",
-                                    message: "Invalid JSON",
-                                  }
-                                )
-                              }
-                            }}
-                            className="font-mono text-xs"
-                            rows={4}
-                          />
+                          <div className="space-y-1">
+                            <CodeEditor
+                              value={jsonDrafts[fieldName] ?? ""}
+                              onChange={(value) => {
+                                setJsonDrafts((prev) => ({
+                                  ...prev,
+                                  [fieldName]: value,
+                                }))
+                                // Try to parse and update in real-time
+                                if (!value.trim()) {
+                                  field.onChange(undefined)
+                                  form.clearErrors(
+                                    fieldName as keyof TriggerFormValues
+                                  )
+                                  return
+                                }
+                                try {
+                                  const parsed = JSON.parse(value)
+                                  field.onChange(parsed)
+                                  form.clearErrors(
+                                    fieldName as keyof TriggerFormValues
+                                  )
+                                } catch {
+                                  form.setError(
+                                    fieldName as keyof TriggerFormValues,
+                                    {
+                                      type: "manual",
+                                      message: "Invalid JSON",
+                                    }
+                                  )
+                                }
+                              }}
+                              language="json"
+                              className="min-h-[100px]"
+                            />
+                          </div>
                         ) : (
                           <Input
                             value={

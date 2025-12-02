@@ -1478,6 +1478,11 @@ class CaseTask(RecordModel):
         ForeignKey("workflow.id", ondelete="SET NULL"),
         nullable=True,
     )
+    default_trigger_values: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="The default trigger values for the task.",
+    )
 
     case: Mapped[Case] = relationship("Case", back_populates="tasks")
     assignee: Mapped[User | None] = relationship("User", lazy="selectin")
