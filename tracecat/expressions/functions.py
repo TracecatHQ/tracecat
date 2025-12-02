@@ -215,11 +215,15 @@ def replace(x: str, old: str, new: str) -> str:
 
 
 def regex_extract(pattern: str, text: str) -> str | None:
-    """Extract first match of regex pattern from text."""
+    """Extract the first captured group from text; fallback to full match if none."""
     match = re.search(pattern, text)
-    if match:
-        return match.group(0)
-    return None
+    if not match:
+        return None
+    if match.lastindex:
+        for group in match.groups():
+            if group is not None:
+                return group
+    return match.group(0)
 
 
 def regex_match(pattern: str, text: str) -> bool:

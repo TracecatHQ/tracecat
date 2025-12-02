@@ -255,6 +255,15 @@ def test_to_datetime_invalid_date_string(input: str) -> None:
     [
         (r"\d+", "abc123def", "123"),
         (r"[a-z]+", "ABC123def", "def"),
+        (
+            r"eventId=(\d+)",
+            (
+                "https://example.com/regions/eu-west-1/organizations/"
+                "1111111111/deployments/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
+                "deployment?eventId=19759328"
+            ),
+            "19759328",
+        ),
         (r"test", "no match", None),
     ],
 )
