@@ -22,14 +22,8 @@ class OAuthGrantType(StrEnum):
 
 
 class MCPAuthType(StrEnum):
-    """Authentication type for MCP integrations.
+    """Authentication type for MCP integrations."""
 
-    Supported types:
-    - OAUTH2: OAuth 2.1 (standard for HTTP MCP servers per MCP spec)
-    - CUSTOM: Custom authentication (for custom authentication)
-    - NONE: No authentication (for no authentication)
-    """
-
-    OAUTH2 = "oauth2"
-    CUSTOM = "custom"
-    NONE = "none"
+    OAUTH2 = "OAUTH2"
+    CUSTOM = "CUSTOM"
+    NONE = "NONE"
