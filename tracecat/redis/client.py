@@ -218,7 +218,7 @@ class RedisClient:
         """Check if Redis connection is alive."""
         try:
             client = await self._get_client()
-            await client.ping()
+            await client.ping()  # pyright: ignore[reportGeneralTypeIssues]
             return True
         except Exception:
             return False

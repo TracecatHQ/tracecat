@@ -11,9 +11,11 @@ from tracecat.cases.durations import (
     CaseDurationDefinitionCreate,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
+)
+from tracecat.cases.durations.service import (
+    CaseDurationDefinitionService,
     CaseDurationService,
 )
-from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
