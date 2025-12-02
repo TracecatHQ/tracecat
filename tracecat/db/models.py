@@ -1081,7 +1081,7 @@ class CaseFields(TimestampMixin, Base):
     """A table of fields for a case."""
 
     __tablename__ = "case_field"
-    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_fields_owner"),)
+    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_field_owner"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
