@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Annotated, Any, Iterable, Literal, TypedDict
+from typing import Annotated, Any, Iterable, Literal
 
 import httpx
 from typing_extensions import Doc
@@ -26,13 +26,6 @@ splunk_secret = RegistrySecret(
 
 class SplunkKVStoreError(RuntimeError):
     """Raised when a Splunk KV Store operation fails."""
-
-
-class UploadCSVResult(TypedDict):
-    collection: str
-    mode: Literal["create", "append", "override"]
-    rows_processed: int
-    collection_created: bool
 
 
 def _iter_csv_rows(csv_text: str) -> Iterable[dict[str, str]]:
@@ -209,7 +202,7 @@ async def upload_csv_to_kv_collection(
     verify_ssl: Annotated[
         bool, Doc("Whether to verify SSL certificates when downloading and uploading.")
     ] = True,
-) -> UploadCSVResult:
+) -> dict[str, Any]:
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
