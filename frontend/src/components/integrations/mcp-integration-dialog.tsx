@@ -157,10 +157,8 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
-  const {
-    deleteMcpIntegration,
-    deleteMcpIntegrationIsPending,
-  } = useDeleteMcpIntegration(workspaceId)
+  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
+    useDeleteMcpIntegration(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
     useIntegrations(workspaceId)
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
@@ -589,8 +587,14 @@ export function MCPIntegrationDialog({
                     >
                       Cancel
                     </Button>
-                    <Button type="submit" className="gap-2" disabled={isPending}>
-                      {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    <Button
+                      type="submit"
+                      className="gap-2"
+                      disabled={isPending}
+                    >
+                      {isPending && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
                       {isEditMode ? "Update integration" : "Save integration"}
                     </Button>
                   </div>
@@ -600,7 +604,10 @@ export function MCPIntegrationDialog({
           </Form>
         )}
       </DialogContent>
-      <AlertDialog open={deleteDialogOpen} onOpenChange={handleDeleteDialogOpenChange}>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={handleDeleteDialogOpenChange}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete MCP Integration</AlertDialogTitle>
