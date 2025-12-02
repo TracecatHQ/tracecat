@@ -7849,9 +7849,14 @@ export const $JoinStrategy = {
 
 export const $MCPAuthType = {
   type: "string",
-  enum: ["OAUTH2", "CUSTOM", "NONE"],
+  enum: ["oauth2", "custom", "none"],
   title: "MCPAuthType",
-  description: "Authentication type for MCP integrations.",
+  description: `Authentication type for MCP integrations.
+
+Supported types:
+- OAUTH2: OAuth 2.1 (standard for HTTP MCP servers per MCP spec)
+- CUSTOM: Custom authentication (for custom authentication)
+- NONE: No authentication (for no authentication)`,
 } as const
 
 export const $MCPIntegrationCreate = {

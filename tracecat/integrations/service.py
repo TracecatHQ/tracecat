@@ -1117,13 +1117,13 @@ class IntegrationService(BaseWorkspaceService):
 
     async def update_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate
-    ) -> MCPIntegration | None:
+    ) -> MCPIntegration:
         """Update an MCP integration."""
         mcp_integration = await self.get_mcp_integration(
             mcp_integration_id=mcp_integration_id
         )
         if not mcp_integration:
-            return None
+            raise ValueError("MCP integration not found")
 
         # Validate OAuth integration if auth_type is being changed to oauth2
         if params.auth_type == MCPAuthType.OAUTH2:
