@@ -41,8 +41,8 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("version", sa.String(), nullable=False),
         sa.Column("origin", sa.String(), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="registryrepository_pkey"),
+        sa.UniqueConstraint("id", name="registryrepository_id_key"),
     )
     op.create_table(
         "registryaction",
@@ -77,10 +77,13 @@ def upgrade() -> None:
         sa.Column("options", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("repository_id", sa.UUID(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["repository_id"], ["registryrepository.id"], ondelete="CASCADE"
+            ["repository_id"],
+            ["registryrepository.id"],
+            ondelete="CASCADE",
+            name="registryaction_repository_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="registryaction_pkey"),
+        sa.UniqueConstraint("id", name="registryaction_id_key"),
         sa.UniqueConstraint(
             "namespace",
             "name",

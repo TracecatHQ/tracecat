@@ -40,8 +40,8 @@ def upgrade() -> None:
         sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("name", "owner_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="tables_pkey"),
+        sa.UniqueConstraint("name", "owner_id", name="tables_name_owner_id_key"),
     )
     op.create_index(op.f("ix_tables_id"), "tables", ["id"], unique=True)
     op.create_index(op.f("ix_tables_name"), "tables", ["name"], unique=False)
@@ -65,9 +65,14 @@ def upgrade() -> None:
         sa.Column("type", sa.String(), nullable=False),
         sa.Column("nullable", sa.Boolean(), nullable=False),
         sa.Column("default", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(["table_id"], ["tables.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("table_id", "name"),
+        sa.ForeignKeyConstraint(
+            ["table_id"],
+            ["tables.id"],
+            ondelete="CASCADE",
+            name="table_columns_table_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("id", name="table_columns_pkey"),
+        sa.UniqueConstraint("table_id", "name", name="table_columns_table_id_name_key"),
     )
     op.create_index(op.f("ix_table_columns_id"), "table_columns", ["id"], unique=True)
     op.create_index(

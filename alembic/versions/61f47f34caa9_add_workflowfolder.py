@@ -44,8 +44,13 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("path", sa.String(), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="workflow_folder_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="workflow_folder_pkey"),
         sa.UniqueConstraint("path", "owner_id", name="uq_workflow_folder_path_owner"),
     )
     op.create_index(

@@ -44,8 +44,13 @@ def upgrade() -> None:
         sa.Column("parent_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("last_edited_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("case_id", sa.UUID(), nullable=False),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="case_comments_case_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_comments_pkey"),
     )
     op.create_index(op.f("ix_case_comments_id"), "case_comments", ["id"], unique=True)
     # ### end Alembic commands ###

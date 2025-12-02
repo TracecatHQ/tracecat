@@ -106,8 +106,13 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="case_duration_definition_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_duration_definition_pkey"),
         sa.UniqueConstraint(
             "owner_id", "name", name="uq_case_duration_definition_owner_name"
         ),

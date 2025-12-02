@@ -41,9 +41,19 @@ def upgrade() -> None:
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("provider_id", sa.String(), nullable=False),
         sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["workspace_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("state"),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["user.id"],
+            ondelete="CASCADE",
+            name="oauth_state_user_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["workspace_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="oauth_state_workspace_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("state", name="oauth_state_pkey"),
     )
     op.create_index(
         "ix_oauth_state_expires_at", "oauth_state", ["expires_at"], unique=False

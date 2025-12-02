@@ -62,8 +62,13 @@ def upgrade() -> None:
             "model_settings", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
         sa.Column("retries", sa.Integer(), nullable=False),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="agent_preset_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="agent_preset_pkey"),
         sa.UniqueConstraint("owner_id", "slug", name="uq_agent_preset_owner_slug"),
     )
     op.create_index(op.f("ix_agent_preset_id"), "agent_preset", ["id"], unique=True)

@@ -46,18 +46,37 @@ def upgrade() -> None:
         sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("duration", sa.Interval(), nullable=True),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
-            ["definition_id"], ["case_duration_definition.id"], ondelete="CASCADE"
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="case_duration_case_id_fkey",
         ),
         sa.ForeignKeyConstraint(
-            ["end_event_id"], ["case_event.id"], ondelete="SET NULL"
+            ["definition_id"],
+            ["case_duration_definition.id"],
+            ondelete="CASCADE",
+            name="case_duration_definition_id_fkey",
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
-            ["start_event_id"], ["case_event.id"], ondelete="SET NULL"
+            ["end_event_id"],
+            ["case_event.id"],
+            ondelete="SET NULL",
+            name="case_duration_end_event_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="case_duration_owner_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["start_event_id"],
+            ["case_event.id"],
+            ondelete="SET NULL",
+            name="case_duration_start_event_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_duration_pkey"),
         sa.UniqueConstraint(
             "case_id", "definition_id", name="uq_case_duration_case_definition"
         ),

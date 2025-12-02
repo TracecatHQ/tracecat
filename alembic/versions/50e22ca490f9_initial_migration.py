@@ -51,7 +51,7 @@ def upgrade() -> None:
         sa.Column("action", sa.String(), nullable=True),
         sa.Column("context", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_pkey"),
     )
     op.create_index(op.f("ix_case_id"), "case", ["id"], unique=True)
     op.create_table(
@@ -76,7 +76,7 @@ def upgrade() -> None:
         sa.Column("case_id", sa.String(), nullable=False),
         sa.Column("initiator_role", sa.String(), nullable=False),
         sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="caseevent_pkey"),
     )
     op.create_index(op.f("ix_caseevent_id"), "caseevent", ["id"], unique=True)
     op.create_table(
@@ -85,7 +85,7 @@ def upgrade() -> None:
         sa.Column("resource_type", sa.String(), nullable=False),
         sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owner_type", sa.String(), nullable=False),
-        sa.PrimaryKeyConstraint("resource_id"),
+        sa.PrimaryKeyConstraint("resource_id", name="ownership_pkey"),
     )
     op.create_table(
         "udfspec",
@@ -112,7 +112,7 @@ def upgrade() -> None:
             "json_schema", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
         sa.Column("meta", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="udfspec_pkey"),
     )
     op.create_index(op.f("ix_udfspec_id"), "udfspec", ["id"], unique=True)
     op.create_table(
@@ -131,7 +131,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("settings", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="user_pkey"),
     )
     op.create_index(op.f("ix_user_email"), "user", ["email"], unique=True)
     op.create_table(
@@ -153,8 +153,8 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("settings", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="workspace_pkey"),
+        sa.UniqueConstraint("id", name="workspace_id_key"),
     )
     op.create_index(op.f("ix_workspace_name"), "workspace", ["name"], unique=True)
     op.create_table(
@@ -169,8 +169,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
+            name="accesstoken_user_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("token"),
+        sa.PrimaryKeyConstraint("token", name="accesstoken_pkey"),
     )
     op.create_index(
         op.f("ix_accesstoken_created_at"), "accesstoken", ["created_at"], unique=False
@@ -198,8 +199,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
+            name="caseaction_user_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="caseaction_pkey"),
     )
     op.create_index(op.f("ix_caseaction_id"), "caseaction", ["id"], unique=True)
     op.create_table(
@@ -225,8 +227,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
+            name="casecontext_user_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="casecontext_pkey"),
     )
     op.create_index(op.f("ix_casecontext_id"), "casecontext", ["id"], unique=True)
     op.create_table(
@@ -236,12 +239,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
+            name="membership_user_id_fkey",
         ),
         sa.ForeignKeyConstraint(
             ["workspace_id"],
             ["workspace.id"],
+            name="membership_workspace_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("user_id", "workspace_id"),
+        sa.PrimaryKeyConstraint("user_id", "workspace_id", name="membership_pkey"),
     )
     op.create_table(
         "oauthaccount",
@@ -256,8 +261,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
+            name="oauthaccount_user_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="oauthaccount_pkey"),
     )
     op.create_index(
         op.f("ix_oauthaccount_account_id"), "oauthaccount", ["account_id"], unique=False
@@ -287,8 +293,13 @@ def upgrade() -> None:
         sa.Column("encrypted_keys", sa.LargeBinary(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="secret_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="secret_pkey"),
     )
     op.create_index(op.f("ix_secret_id"), "secret", ["id"], unique=True)
     op.create_index(op.f("ix_secret_name"), "secret", ["name"], unique=False)
@@ -321,8 +332,13 @@ def upgrade() -> None:
         sa.Column("config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("icon_url", sa.String(), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=True),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="workflow_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="workflow_pkey"),
     )
     op.create_index(op.f("ix_workflow_id"), "workflow", ["id"], unique=True)
     op.create_table(
@@ -351,8 +367,13 @@ def upgrade() -> None:
             "control_flow", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
         sa.Column("workflow_id", sa.String(), nullable=True),
-        sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["workflow_id"],
+            ["workflow.id"],
+            ondelete="CASCADE",
+            name="action_workflow_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="action_pkey"),
     )
     op.create_index(op.f("ix_action_id"), "action", ["id"], unique=True)
     op.create_table(
@@ -380,8 +401,13 @@ def upgrade() -> None:
         sa.Column("start_at", sa.DateTime(), nullable=True),
         sa.Column("end_at", sa.DateTime(), nullable=True),
         sa.Column("workflow_id", sa.String(), nullable=True),
-        sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["workflow_id"],
+            ["workflow.id"],
+            ondelete="CASCADE",
+            name="schedule_workflow_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="schedule_pkey"),
     )
     op.create_index(op.f("ix_schedule_id"), "schedule", ["id"], unique=True)
     op.create_table(
@@ -405,8 +431,13 @@ def upgrade() -> None:
         sa.Column("method", sa.String(), nullable=False),
         sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("workflow_id", sa.String(), nullable=True),
-        sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["workflow_id"],
+            ["workflow.id"],
+            ondelete="CASCADE",
+            name="webhook_workflow_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="webhook_pkey"),
     )
     op.create_index(op.f("ix_webhook_id"), "webhook", ["id"], unique=True)
     op.create_table(
@@ -429,8 +460,13 @@ def upgrade() -> None:
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("workflow_id", sa.String(), nullable=True),
         sa.Column("content", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["workflow_id"],
+            ["workflow.id"],
+            ondelete="CASCADE",
+            name="workflowdefinition_workflow_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="workflowdefinition_pkey"),
     )
     op.create_index(
         op.f("ix_workflowdefinition_id"), "workflowdefinition", ["id"], unique=True

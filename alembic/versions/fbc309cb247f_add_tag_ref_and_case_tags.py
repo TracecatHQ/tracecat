@@ -28,9 +28,19 @@ def upgrade() -> None:
         "casetag",
         sa.Column("case_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tag_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["tag_id"], ["tag.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("case_id", "tag_id"),
+        sa.ForeignKeyConstraint(
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="casetag_case_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["tag_id"],
+            ["tag.id"],
+            ondelete="CASCADE",
+            name="casetag_tag_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("case_id", "tag_id", name="casetag_pkey"),
     )
 
     # Add ref column to tag table

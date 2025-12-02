@@ -27,9 +27,19 @@ def upgrade() -> None:
         "runbookcaselink",
         sa.Column("runbook_id", sa.UUID(), nullable=False),
         sa.Column("case_id", sa.UUID(), nullable=False),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["runbook_id"], ["runbook.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("runbook_id", "case_id"),
+        sa.ForeignKeyConstraint(
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="runbookcaselink_case_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["runbook_id"],
+            ["runbook.id"],
+            ondelete="CASCADE",
+            name="runbookcaselink_runbook_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("runbook_id", "case_id", name="runbookcaselink_pkey"),
     )
 
     # Add version column with default value

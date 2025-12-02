@@ -51,9 +51,19 @@ def upgrade() -> None:
         sa.Column(
             "provider_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="oauth_integration_owner_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["user.id"],
+            ondelete="CASCADE",
+            name="oauth_integration_user_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("id", name="oauth_integration_pkey"),
         sa.UniqueConstraint(
             "owner_id", "provider_id", name="uq_oauth_integration_owner_provider"
         ),

@@ -74,7 +74,7 @@ def upgrade() -> None:
         ),
         sa.Column("expires_at", sa.DateTime(), nullable=True),
         sa.Column("actor", sa.String(), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="interaction_pkey"),
     )
     op.create_index(op.f("ix_interaction_id"), "interaction", ["id"], unique=True)
     op.create_index(

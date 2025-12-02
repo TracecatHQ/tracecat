@@ -45,8 +45,10 @@ def upgrade() -> None:
         sa.Column("encrypted_keys", sa.LargeBinary(), nullable=False),
         sa.Column("environment", sa.String(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("name", "environment"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="organizationsecret_pkey"),
+        sa.UniqueConstraint(
+            "name", "environment", name="organizationsecret_name_environment_key"
+        ),
     )
     op.create_index(
         op.f("ix_organizationsecret_id"), "organizationsecret", ["id"], unique=True

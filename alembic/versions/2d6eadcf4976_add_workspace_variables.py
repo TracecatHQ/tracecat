@@ -44,9 +44,19 @@ def upgrade() -> None:
         sa.Column("environment", sa.String(), nullable=False),
         sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("owner_id", sa.UUID(), nullable=False),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("name", "environment", "owner_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="workspace_variable_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="workspace_variable_pkey"),
+        sa.UniqueConstraint(
+            "name",
+            "environment",
+            "owner_id",
+            name="workspace_variable_name_environment_owner_id_key",
+        ),
     )
     op.create_index(
         op.f("ix_workspace_variable_id"), "workspace_variable", ["id"], unique=True
