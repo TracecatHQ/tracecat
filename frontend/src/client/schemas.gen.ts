@@ -7847,6 +7847,243 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $MCPAuthType = {
+  type: "string",
+  enum: ["oauth2", "custom", "none"],
+  title: "MCPAuthType",
+  description: `Authentication type for MCP integrations.
+
+Supported types:
+- OAUTH2: OAuth 2.1 (standard for HTTP MCP servers per MCP spec)
+- CUSTOM: Custom authentication (for custom authentication)
+- NONE: No authentication (for no authentication)`,
+} as const
+
+export const $MCPIntegrationCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 3,
+      title: "Name",
+      description: "MCP integration name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description",
+    },
+    server_uri: {
+      type: "string",
+      title: "Server Uri",
+      description: "MCP server endpoint URL",
+    },
+    auth_type: {
+      $ref: "#/components/schemas/MCPAuthType",
+      description: "Authentication type",
+    },
+    oauth_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Integration Id",
+      description: "OAuth integration ID (required for oauth2 auth_type)",
+    },
+    custom_credentials: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Credentials",
+      description:
+        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    },
+  },
+  type: "object",
+  required: ["name", "server_uri", "auth_type"],
+  title: "MCPIntegrationCreate",
+  description: "Request model for creating an MCP integration.",
+} as const
+
+export const $MCPIntegrationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Owner Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    server_uri: {
+      type: "string",
+      title: "Server Uri",
+    },
+    auth_type: {
+      $ref: "#/components/schemas/MCPAuthType",
+    },
+    oauth_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Integration Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "name",
+    "description",
+    "slug",
+    "server_uri",
+    "auth_type",
+    "oauth_integration_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "MCPIntegrationRead",
+  description: "Response model for MCP integration.",
+} as const
+
+export const $MCPIntegrationUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 3,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    server_uri: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Server Uri",
+    },
+    auth_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPAuthType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    oauth_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Integration Id",
+    },
+    custom_credentials: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Credentials",
+      description:
+        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    },
+  },
+  type: "object",
+  title: "MCPIntegrationUpdate",
+  description: "Request model for updating an MCP integration.",
+} as const
+
 export const $MCPServerConfig = {
   properties: {
     url: {

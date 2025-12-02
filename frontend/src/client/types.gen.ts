@@ -2463,6 +2463,77 @@ export type InteractionType = "approval" | "response"
 export type JoinStrategy = "any" | "all"
 
 /**
+ * Authentication type for MCP integrations.
+ *
+ * Supported types:
+ * - OAUTH2: OAuth 2.1 (standard for HTTP MCP servers per MCP spec)
+ * - CUSTOM: Custom authentication (for custom authentication)
+ * - NONE: No authentication (for no authentication)
+ */
+export type MCPAuthType = "oauth2" | "custom" | "none"
+
+/**
+ * Request model for creating an MCP integration.
+ */
+export type MCPIntegrationCreate = {
+  /**
+   * MCP integration name
+   */
+  name: string
+  /**
+   * Optional description
+   */
+  description?: string | null
+  /**
+   * MCP server endpoint URL
+   */
+  server_uri: string
+  /**
+   * Authentication type
+   */
+  auth_type: MCPAuthType
+  /**
+   * OAuth integration ID (required for oauth2 auth_type)
+   */
+  oauth_integration_id?: string | null
+  /**
+   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   */
+  custom_credentials?: string | null
+}
+
+/**
+ * Response model for MCP integration.
+ */
+export type MCPIntegrationRead = {
+  id: string
+  owner_id: string
+  name: string
+  description: string | null
+  slug: string
+  server_uri: string
+  auth_type: MCPAuthType
+  oauth_integration_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request model for updating an MCP integration.
+ */
+export type MCPIntegrationUpdate = {
+  name?: string | null
+  description?: string | null
+  server_uri?: string | null
+  auth_type?: MCPAuthType | null
+  oauth_integration_id?: string | null
+  /**
+   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   */
+  custom_credentials?: string | null
+}
+
+/**
  * Configuration for an MCP server.
  */
 export type MCPServerConfig = {
@@ -6991,6 +7062,42 @@ export type ProvidersGetProviderData = {
 
 export type ProvidersGetProviderResponse = ProviderRead
 
+export type McpIntegrationsCreateMcpIntegrationData = {
+  requestBody: MCPIntegrationCreate
+  workspaceId: string
+}
+
+export type McpIntegrationsCreateMcpIntegrationResponse = MCPIntegrationRead
+
+export type McpIntegrationsListMcpIntegrationsData = {
+  workspaceId: string
+}
+
+export type McpIntegrationsListMcpIntegrationsResponse =
+  Array<MCPIntegrationRead>
+
+export type McpIntegrationsGetMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsGetMcpIntegrationResponse = MCPIntegrationRead
+
+export type McpIntegrationsUpdateMcpIntegrationData = {
+  mcpIntegrationId: string
+  requestBody: MCPIntegrationUpdate
+  workspaceId: string
+}
+
+export type McpIntegrationsUpdateMcpIntegrationResponse = MCPIntegrationRead
+
+export type McpIntegrationsDeleteMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
 export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
@@ -10107,6 +10214,75 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/mcp-integrations": {
+    post: {
+      req: McpIntegrationsCreateMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPIntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: McpIntegrationsListMcpIntegrationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<MCPIntegrationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/mcp-integrations/{mcp_integration_id}": {
+    get: {
+      req: McpIntegrationsGetMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: McpIntegrationsUpdateMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: McpIntegrationsDeleteMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

@@ -32,6 +32,9 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPIntegrationCreate,
+    MCPIntegrationRead,
+    MCPIntegrationUpdate,
     ProviderKey,
     ProviderRead,
     ProviderReadMinimal,
@@ -48,6 +51,9 @@ integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 providers_router = APIRouter(prefix="/providers", tags=["providers"])
 """Routes for managing static provider metadata."""
+
+mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
+"""Routes for managing MCP integrations."""
 
 
 @integrations_router.get("/callback")
@@ -757,3 +763,170 @@ async def get_provider(
         if issubclass(impl, AuthorizationCodeOAuthProvider)
         else None,
     )
+
+
+# MCP Integration endpoints
+
+
+@mcp_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_mcp_integration(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: MCPIntegrationCreate,
+) -> MCPIntegrationRead:
+    """Create a new MCP integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        mcp_integration = await svc.create_mcp_integration(params=params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return MCPIntegrationRead(
+        id=mcp_integration.id,
+        owner_id=mcp_integration.owner_id,
+        name=mcp_integration.name,
+        description=mcp_integration.description,
+        slug=mcp_integration.slug,
+        server_uri=mcp_integration.server_uri,
+        auth_type=mcp_integration.auth_type,
+        oauth_integration_id=mcp_integration.oauth_integration_id,
+        created_at=mcp_integration.created_at,
+        updated_at=mcp_integration.updated_at,
+    )
+
+
+@mcp_router.get("")
+async def list_mcp_integrations(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+) -> list[MCPIntegrationRead]:
+    """List all MCP integrations for the workspace."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integrations = await svc.list_mcp_integrations()
+
+    return [
+        MCPIntegrationRead(
+            id=integration.id,
+            owner_id=integration.owner_id,
+            name=integration.name,
+            description=integration.description,
+            slug=integration.slug,
+            server_uri=integration.server_uri,
+            auth_type=integration.auth_type,
+            oauth_integration_id=integration.oauth_integration_id,
+            created_at=integration.created_at,
+            updated_at=integration.updated_at,
+        )
+        for integration in integrations
+    ]
+
+
+@mcp_router.get("/{mcp_integration_id}")
+async def get_mcp_integration(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPIntegrationRead:
+    """Get an MCP integration by ID."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    return MCPIntegrationRead(
+        id=integration.id,
+        owner_id=integration.owner_id,
+        name=integration.name,
+        description=integration.description,
+        slug=integration.slug,
+        server_uri=integration.server_uri,
+        auth_type=integration.auth_type,
+        oauth_integration_id=integration.oauth_integration_id,
+        created_at=integration.created_at,
+        updated_at=integration.updated_at,
+    )
+
+
+@mcp_router.put("/{mcp_integration_id}")
+async def update_mcp_integration(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+    params: MCPIntegrationUpdate,
+) -> MCPIntegrationRead:
+    """Update an MCP integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        integration = await svc.update_mcp_integration(
+            mcp_integration_id=mcp_integration_id, params=params
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return MCPIntegrationRead(
+        id=integration.id,
+        owner_id=integration.owner_id,
+        name=integration.name,
+        description=integration.description,
+        slug=integration.slug,
+        server_uri=integration.server_uri,
+        auth_type=integration.auth_type,
+        oauth_integration_id=integration.oauth_integration_id,
+        created_at=integration.created_at,
+        updated_at=integration.updated_at,
+    )
+
+
+@mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mcp_integration(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> None:
+    """Delete an MCP integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    deleted = await svc.delete_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )

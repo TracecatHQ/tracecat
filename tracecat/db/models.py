@@ -57,7 +57,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.workspaces.schemas import WorkspaceSettings
@@ -2003,6 +2003,76 @@ class WorkspaceOAuthProvider(TimestampMixin, Base):
     owner: Mapped[Workspace] = relationship(
         "Workspace",
         back_populates="oauth_providers",
+    )
+
+
+MCP_AUTH_TYPE_ENUM = Enum(MCPAuthType, name="mcpauthtype")
+
+
+class MCPIntegration(TimestampMixin, Base):
+    """Store MCP integrations for a workspace."""
+
+    __tablename__ = "mcp_integration"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "slug", name="uq_mcp_integration_owner_slug"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique MCP integration identifier",
+    )
+    owner_id: Mapped[OwnerID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Workspace ID associated with this MCP integration",
+    )
+    name: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="Human readable name of the MCP integration",
+    )
+    description: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Optional description of the MCP integration",
+    )
+    slug: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="Slug of the MCP integration",
+    )
+    server_uri: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="URL of the MCP server",
+    )
+    auth_type: Mapped[MCPAuthType] = mapped_column(
+        MCP_AUTH_TYPE_ENUM,
+        nullable=False,
+        doc="Authentication type for the MCP integration",
+    )
+    oauth_integration_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("oauth_integration.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="OAuth integration associated with this MCP integration",
+    )
+    encrypted_headers: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Encrypted custom credentials (API key, bearer token, or JSON headers) for custom auth type",
+    )
+
+    oauth_integration: Mapped[OAuthIntegration | None] = relationship(
+        "OAuthIntegration",
+        uselist=False,
+        lazy="selectin",
     )
 
 

@@ -203,6 +203,16 @@ import type {
   IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
+  McpIntegrationsCreateMcpIntegrationData,
+  McpIntegrationsCreateMcpIntegrationResponse,
+  McpIntegrationsDeleteMcpIntegrationData,
+  McpIntegrationsDeleteMcpIntegrationResponse,
+  McpIntegrationsGetMcpIntegrationData,
+  McpIntegrationsGetMcpIntegrationResponse,
+  McpIntegrationsListMcpIntegrationsData,
+  McpIntegrationsListMcpIntegrationsResponse,
+  McpIntegrationsUpdateMcpIntegrationData,
+  McpIntegrationsUpdateMcpIntegrationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -6126,6 +6136,139 @@ export const providersGetProvider = (
     query: {
       workspace_id: data.workspaceId,
       grant_type: data.grantType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Mcp Integration
+ * Create a new MCP integration.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsCreateMcpIntegration = (
+  data: McpIntegrationsCreateMcpIntegrationData
+): CancelablePromise<McpIntegrationsCreateMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/mcp-integrations",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Mcp Integrations
+ * List all MCP integrations for the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsListMcpIntegrations = (
+  data: McpIntegrationsListMcpIntegrationsData
+): CancelablePromise<McpIntegrationsListMcpIntegrationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/mcp-integrations",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mcp Integration
+ * Get an MCP integration by ID.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsGetMcpIntegration = (
+  data: McpIntegrationsGetMcpIntegrationData
+): CancelablePromise<McpIntegrationsGetMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Mcp Integration
+ * Update an MCP integration.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsUpdateMcpIntegration = (
+  data: McpIntegrationsUpdateMcpIntegrationData
+): CancelablePromise<McpIntegrationsUpdateMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Mcp Integration
+ * Delete an MCP integration.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsDeleteMcpIntegration = (
+  data: McpIntegrationsDeleteMcpIntegrationData
+): CancelablePromise<McpIntegrationsDeleteMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
