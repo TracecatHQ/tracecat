@@ -165,8 +165,9 @@ class ChatService(BaseWorkspaceService):
                         actions=chat.tools,
                     )
         elif chat_entity is ChatEntity.AGENT_PRESET:
+            # Live chat uses workspace-level credentials
             async with agent_svc.with_preset_config(
-                preset_id=chat.entity_id
+                preset_id=chat.entity_id, use_workspace_credentials=True
             ) as preset_config:
                 config = replace(preset_config)
                 if not config.actions and chat.tools:

@@ -122,8 +122,8 @@ import {
   useChatReadiness,
   useIntegrations,
   useModelProviders,
-  useModelProvidersStatus,
   useRegistryActions,
+  useWorkspaceModelProvidersStatus,
 } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -719,7 +719,7 @@ function AgentPresetChatPane({
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const { providersStatus, isLoading: providersStatusLoading } =
-    useModelProvidersStatus()
+    useWorkspaceModelProvidersStatus(workspaceId)
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -825,16 +825,16 @@ function AgentPresetChatPane({
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
-              This agent uses organization credentials for{" "}
+              This agent uses workspace credentials for{" "}
               <span className="font-medium">{preset.model_provider}</span>.
               Configure them on the{" "}
               <Link
-                href={`/organization/settings/agent`}
+                href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                organization agent settings page
+                credentials page
               </Link>{" "}
               to enable chat.
             </p>

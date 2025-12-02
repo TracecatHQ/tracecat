@@ -5981,6 +5981,14 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentGetWorkspaceProvidersStatusData = {
+  workspaceId: string
+}
+
+export type AgentGetWorkspaceProvidersStatusResponse = {
+  [key: string]: boolean
+}
+
 export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
 }
@@ -8351,6 +8359,23 @@ export type $OpenApiTs = {
          */
         200: {
           [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/workspace/providers/status": {
+    get: {
+      req: AgentGetWorkspaceProvidersStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
         }
         /**
          * Validation Error

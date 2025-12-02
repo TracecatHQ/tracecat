@@ -14,6 +14,7 @@ import {
   type ActionUpdate,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
+  type AgentGetWorkspaceProvidersStatusResponse,
   type AgentListAgentSessionsData,
   type AgentListAgentSessionsResponse,
   type AgentListModelsResponse,
@@ -30,6 +31,7 @@ import {
   agentGetDefaultModel,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
+  agentGetWorkspaceProvidersStatus,
   agentListAgentSessions,
   agentListModels,
   agentListProviderCredentialConfigs,
@@ -4540,6 +4542,26 @@ export function useModelProvidersStatus() {
   } = useQuery<AgentGetProvidersStatusResponse>({
     queryKey: ["agent-providers-status"],
     queryFn: async () => await agentGetProvidersStatus(),
+  })
+
+  return {
+    providersStatus,
+    isLoading,
+    error,
+    refetch,
+  }
+}
+
+export function useWorkspaceModelProvidersStatus(workspaceId: string) {
+  const {
+    data: providersStatus,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentGetWorkspaceProvidersStatusResponse>({
+    queryKey: ["workspace-agent-providers-status", workspaceId],
+    queryFn: async () =>
+      await agentGetWorkspaceProvidersStatus({ workspaceId }),
   })
 
   return {
