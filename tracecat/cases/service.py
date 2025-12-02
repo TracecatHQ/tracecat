@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
+from pydantic import ValidationError
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import ProgrammingError
@@ -71,6 +72,10 @@ from tracecat.exceptions import (
     TracecatException,
     TracecatNotFoundError,
     TracecatValidationError,
+)
+from tracecat.expressions.expectations import (
+    ExpectedField,
+    create_expectation_model,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import (
@@ -1217,14 +1222,6 @@ class CaseTasksService(BaseWorkspaceService):
         # Skip validation if workflow has no expects schema
         if not workflow.expects:
             return
-
-        # Validate directly against the expects schema without using DSLInput
-        from pydantic import ValidationError
-
-        from tracecat.expressions.expectations import (
-            ExpectedField,
-            create_expectation_model,
-        )
 
         expects_schema = {
             field_name: ExpectedField.model_validate(field_schema)
