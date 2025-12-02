@@ -603,10 +603,10 @@ class TestMCPIntegrationValidation:
         non_existent_id = uuid.uuid4()
         update_params = MCPIntegrationUpdate(name="Updated Name")
 
-        with pytest.raises(ValueError, match="MCP integration not found"):
-            await integration_service.update_mcp_integration(
-                mcp_integration_id=non_existent_id, params=update_params
-            )
+        result = await integration_service.update_mcp_integration(
+            mcp_integration_id=non_existent_id, params=update_params
+        )
+        assert result is None
 
 
 @pytest.mark.anyio
