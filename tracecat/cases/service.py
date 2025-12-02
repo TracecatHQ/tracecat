@@ -709,7 +709,9 @@ class CaseFieldsService(CustomFieldsService):
     """
 
     service_name = "case_fields"
-    _table = CaseFields.__tablename__
+    # Hardcoded to preserve existing workspace-scoped table names
+    # (metadata table was renamed from case_fields to case_field)
+    _table = "case_fields"
     _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
 
     def _table_definition(self) -> sa.Table:
