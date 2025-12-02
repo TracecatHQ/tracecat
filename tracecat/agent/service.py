@@ -168,8 +168,12 @@ class AgentManagementService(BaseService):
 
     async def check_provider_credentials(self, provider: str) -> bool:
         """Check if credentials exist for a provider at organization level."""
-        credentials = await self.get_provider_credentials(provider)
-        return credentials is not None
+        secret_name = self._get_credential_secret_name(provider)
+        try:
+            await self.secrets_service.get_org_secret_by_name(secret_name)
+            return True
+        except TracecatNotFoundError:
+            return False
 
     async def get_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at organization level."""
@@ -181,8 +185,12 @@ class AgentManagementService(BaseService):
 
     async def check_workspace_provider_credentials(self, provider: str) -> bool:
         """Check if credentials exist for a provider at workspace level."""
-        credentials = await self.get_workspace_provider_credentials(provider)
-        return credentials is not None
+        secret_name = self._get_workspace_credential_secret_name(provider)
+        try:
+            await self.secrets_service.get_secret_by_name(secret_name)
+            return True
+        except TracecatNotFoundError:
+            return False
 
     async def get_workspace_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at workspace level."""
