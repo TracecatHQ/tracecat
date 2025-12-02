@@ -16,8 +16,10 @@ from pydantic_extra_types.domain import DomainStr
 # This regex aims to match domains (even within URLs)
 DOMAIN_REGEX = re.compile(
     r"""
-    # Negative lookbehind - don't match if preceded by :, /, or word char
-    (?<![:/\w])
+    # Negative lookbehind - don't match if preceded by :, /, word char, or +
+    # (+ prevents matching after subaddress in emails like user+tag@domain.com)
+    # Note: @ is allowed so we can extract domains from emails like user@domain.com
+    (?<![:/\w+])
     # Domain part - match at least one label + dot followed by TLD
     (?>                                  # Atomic group to prevent backtracking
         (?>                              # Atomic group for the repeating label + dot sequence
@@ -46,8 +48,9 @@ DOMAIN_REGEX = re.compile(
             )
         )*                               # Zero or more additional TLD components
     )
-    # Negative lookahead - don't match if followed by :, /, or word char
-    (?![:/\w])
+    # Negative lookahead - don't match if followed by :, /, word char, + or @
+    # (+ and @ prevent matching local parts of email addresses)
+    (?![:/\w+@])
 """,
     re.VERBOSE,
 )

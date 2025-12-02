@@ -46,6 +46,18 @@
 - id: domain_from_email
   text: "Domain extraction from email address: user@malicious-domain.com"
   expected: ["malicious-domain.com"]
+- id: domain_from_subaddressed_email
+  text: "Domain extraction from subaddressed email: user.name+tag123@example-corp.com"
+  expected: ["example-corp.com"]
+- id: domain_from_subaddressed_email_empty_tag
+  text: "Domain extraction from email with empty subaddress: user.name+@example-corp.com"
+  expected: ["example-corp.com"]
+- id: domain_from_multiple_subaddressed_emails
+  text: "Multiple subaddressed emails: john.doe+newsletter@acme-inc.com and jane.smith+alerts@acme-inc.com"
+  expected: ["acme-inc.com"]
+- id: domain_from_email_with_dotted_local_part
+  text: "Email with dotted local part: first.last@company.org"
+  expected: ["company.org"]
 - id: country_code_tlds
   text: "Country-code TLD: suspicious.cn, malware.ru, exploit.kr"
   expected: ["suspicious.cn", "malware.ru", "exploit.kr"]
