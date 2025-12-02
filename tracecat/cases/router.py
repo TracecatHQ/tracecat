@@ -108,8 +108,15 @@ async def list_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = Query(None, description="Field to order the cases by"),
+    sort: Literal["asc", "desc"] | None = Query(
+        None, description="Direction to sort (asc or desc)"
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
-    """List cases with cursor-based pagination and filtering."""
+    """List cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
 
     # Convert tag identifiers to IDs
@@ -156,6 +163,8 @@ async def list_cases(
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
+            order_by=order_by,
+            sort=sort,
         )
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")

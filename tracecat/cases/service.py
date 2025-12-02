@@ -183,6 +183,11 @@ class CasesService(BaseWorkspaceService):
         assignee_ids: Sequence[uuid.UUID] | None = None,
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
+        order_by: Literal[
+            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        ]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
@@ -193,7 +198,6 @@ class CasesService(BaseWorkspaceService):
             select(Case)
             .options(selectinload(Case.tags))
             .options(selectinload(Case.assignee))
-            .order_by(Case.created_at.desc(), Case.id.desc())
         )
 
         # Apply search term filter
@@ -266,32 +270,91 @@ class CasesService(BaseWorkspaceService):
         total_count = await self.session.scalar(count_stmt)
         total_estimate = int(total_count or 0)
 
+        # Determine sort column and direction
+        sort_column = order_by or "created_at"
+        sort_direction = sort or "desc"
+
+        # For "tasks", use a correlated subquery to count tasks; otherwise use Case attribute
+        if sort_column == "tasks":
+            task_count_expr = func.coalesce(
+                select(func.count())
+                .where(CaseTask.case_id == Case.id)
+                .correlate(Case)
+                .scalar_subquery(),
+                0,
+            )
+            sort_attr = task_count_expr
+        else:
+            sort_attr = getattr(Case, sort_column)
+
         # Apply cursor filtering
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
-            cursor_time = cursor_data.created_at
+            cursor_value = cursor_data.created_at
             cursor_id = uuid.UUID(cursor_data.id)
 
-            if params.reverse:
-                stmt = stmt.where(
-                    or_(
-                        Case.created_at > cursor_time,
-                        and_(
-                            Case.created_at == cursor_time,
-                            Case.id > cursor_id,
-                        ),
+            # Determine comparison operator based on sort direction and pagination direction
+            # For forward pagination (!reverse):
+            #   - ascending: get records after cursor (>)
+            #   - descending: get records before cursor (<)
+            # For backward pagination (reverse):
+            #   - ascending: get records before cursor (<)
+            #   - descending: get records after cursor (>)
+
+            if sort_direction == "asc":
+                # Ascending order
+                if params.reverse:
+                    # Going backward: get records before cursor
+                    stmt = stmt.where(
+                        or_(
+                            sort_attr < cursor_value,
+                            and_(
+                                sort_attr == cursor_value,
+                                Case.id < cursor_id,
+                            ),
+                        )
                     )
-                ).order_by(Case.created_at.asc(), Case.id.asc())
+                else:
+                    # Going forward: get records after cursor
+                    stmt = stmt.where(
+                        or_(
+                            sort_attr > cursor_value,
+                            and_(
+                                sort_attr == cursor_value,
+                                Case.id > cursor_id,
+                            ),
+                        )
+                    )
             else:
-                stmt = stmt.where(
-                    or_(
-                        Case.created_at < cursor_time,
-                        and_(
-                            Case.created_at == cursor_time,
-                            Case.id < cursor_id,
-                        ),
+                # Descending order
+                if params.reverse:
+                    # Going backward: get records after cursor (in original order)
+                    stmt = stmt.where(
+                        or_(
+                            sort_attr > cursor_value,
+                            and_(
+                                sort_attr == cursor_value,
+                                Case.id > cursor_id,
+                            ),
+                        )
                     )
-                )
+                else:
+                    # Going forward: get records before cursor (in original order)
+                    stmt = stmt.where(
+                        or_(
+                            sort_attr < cursor_value,
+                            and_(
+                                sort_attr == cursor_value,
+                                Case.id < cursor_id,
+                            ),
+                        )
+                    )
+
+        # Apply sorting based on user selection
+        if sort_direction == "asc":
+            stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
+        else:
+            stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)

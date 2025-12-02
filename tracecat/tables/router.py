@@ -1,6 +1,6 @@
 import csv
 from io import StringIO
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import orjson
@@ -344,8 +344,12 @@ async def list_rows(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
+    order_by: str | None = Query(default=None, description="Column name to order by"),
+    sort: Literal["asc", "desc"] | None = Query(
+        default=None, description="Sort direction (asc or desc)"
+    ),
 ) -> CursorPaginatedResponse[TableRowRead]:
-    """Get a row by ID."""
+    """List table rows with cursor-based pagination and sorting."""
     service = TablesService(session, role=role)
     try:
         table = await service.get_table(table_id)
@@ -361,7 +365,9 @@ async def list_rows(
         reverse=reverse,
     )
 
-    response = await service.list_rows_paginated(table, params)
+    response = await service.list_rows_paginated(
+        table, params, order_by=order_by, sort=sort
+    )
 
     # Convert the response items to TableRowRead format
     return CursorPaginatedResponse(

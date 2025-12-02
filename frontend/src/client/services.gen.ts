@@ -4043,13 +4043,15 @@ export const tablesDeleteColumn = (
 
 /**
  * List Rows
- * Get a row by ID.
+ * List table rows with cursor-based pagination and sorting.
  * @param data The data for the request.
  * @param data.tableId
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
+ * @param data.orderBy Column name to order by
+ * @param data.sort Sort direction (asc or desc)
  * @returns CursorPaginatedResponse_TableRowRead_ Successful Response
  * @throws ApiError
  */
@@ -4066,6 +4068,8 @@ export const tablesListRows = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      order_by: data.orderBy,
+      sort: data.sort,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -4253,7 +4257,7 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List cases with cursor-based pagination and filtering.
+ * List cases with cursor-based pagination, filtering, and sorting.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page
@@ -4265,6 +4269,8 @@ export const tablesImportCsv = (
  * @param data.severity Filter by case severity
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
+ * @param data.orderBy Field to order the cases by
+ * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -4284,6 +4290,8 @@ export const casesListCases = (
       severity: data.severity,
       assignee_id: data.assigneeId,
       tags: data.tags,
+      order_by: data.orderBy,
+      sort: data.sort,
       workspace_id: data.workspaceId,
     },
     errors: {

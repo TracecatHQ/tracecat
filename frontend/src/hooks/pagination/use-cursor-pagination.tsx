@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { ApiError } from "@/client"
 
 export interface CursorPaginationResponse<T> {
@@ -18,6 +18,13 @@ export interface CursorPaginationParams {
   limit?: number
   cursor?: string | null
   reverse?: boolean
+  orderBy?: string | null
+  sort?: "asc" | "desc" | null
+}
+
+export interface SortingState {
+  orderBy: string | null
+  sort: "asc" | "desc" | null
 }
 
 export interface UseCursorPaginationOptions<
@@ -54,6 +61,11 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     }
   )
 
+  const [sortingState, setSortingState] = useState<SortingState>({
+    orderBy: null,
+    sort: null,
+  })
+
   // Reset pagination when limit changes
   useEffect(() => {
     setPaginationState({
@@ -63,11 +75,22 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     })
   }, [limit])
 
+  // Reset pagination when sorting changes
+  useEffect(() => {
+    setPaginationState({
+      currentCursor: null,
+      cursors: [],
+      currentPage: 0,
+    })
+  }, [sortingState.orderBy, sortingState.sort])
+
   const queryParams: P = {
     workspaceId,
     limit,
     cursor: paginationState.currentCursor || null,
     reverse: false,
+    orderBy: sortingState.orderBy,
+    sort: sortingState.sort,
     ...(additionalParams || {}),
   } as P
 
@@ -75,7 +98,13 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     CursorPaginationResponse<T>,
     ApiError
   >({
-    queryKey: [...queryKey, limit, paginationState.currentCursor],
+    queryKey: [
+      ...queryKey,
+      limit,
+      paginationState.currentCursor,
+      sortingState.orderBy,
+      sortingState.sort,
+    ],
     queryFn: () => queryFn(queryParams),
     enabled: enabled && !!workspaceId,
   })
@@ -113,6 +142,18 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     })
   }
 
+  // Sorting control for server-side sorting
+  const setSorting = useCallback(
+    (columnId: string, direction: "asc" | "desc" | false) => {
+      if (direction === false) {
+        setSortingState({ orderBy: null, sort: null })
+      } else {
+        setSortingState({ orderBy: columnId, sort: direction })
+      }
+    },
+    []
+  )
+
   return {
     // Data
     data: data?.items || [],
@@ -124,6 +165,10 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     goToNextPage,
     goToPreviousPage,
     goToFirstPage,
+
+    // Sorting controls
+    setSorting,
+    sortingState,
 
     // Pagination state
     hasNextPage: data?.has_more || false,

@@ -27,6 +27,10 @@ export interface ServerSidePaginationProps {
   onPreviousPage: () => void
   onFirstPage: () => void
   onPageSizeChange: (pageSize: number) => void
+  onSortingChange?: (
+    columnId: string,
+    direction: "asc" | "desc" | false
+  ) => void
   isLoading?: boolean
 }
 

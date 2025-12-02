@@ -159,6 +159,7 @@ export function DataTable<TData, TValue>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     manualPagination: !!serverSidePagination,
+    manualSorting: !!serverSidePagination,
     pageCount: serverSidePagination ? -1 : undefined,
   })
 
@@ -174,6 +175,16 @@ export function DataTable<TData, TValue>({
     if (clearSelectionTrigger === undefined) return
     setRowSelection({})
   }, [clearSelectionTrigger])
+
+  // Notify parent of sorting changes for server-side pagination
+  React.useEffect(() => {
+    if (serverSidePagination?.onSortingChange && sorting.length > 0) {
+      const sort = sorting[0]
+      serverSidePagination.onSortingChange(sort.id, sort.desc ? "desc" : "asc")
+    } else if (serverSidePagination?.onSortingChange && sorting.length === 0) {
+      serverSidePagination.onSortingChange("", false)
+    }
+  }, [sorting])
 
   // Handle initial sync when data is first loaded
   const [hasData, setHasData] = React.useState(false)
