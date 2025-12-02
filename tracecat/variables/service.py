@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 
+from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
@@ -50,6 +52,36 @@ class VariablesService(BaseWorkspaceService):
 
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def get_variable_value(
+        self,
+        name: str,
+        key: str,
+        *,
+        environment: str | None = None,
+    ) -> Any | None:
+        """Return the value for a specific key in a workspace variable, if present."""
+        variables = await self.search_variables(
+            VariableSearch(names={name}, environment=environment)
+        )
+        for variable in variables:
+            if (value := variable.values.get(key)) is not None:
+                return value
+        return None
+
+    @classmethod
+    async def get_current_value(cls, name: str, key: str) -> Any | None:
+        """Lookup a variable value using the current role and run environment."""
+        role = ctx_role.get()
+        run_ctx = ctx_run.get()
+        environment = run_ctx.environment if run_ctx else None
+        try:
+            async with cls.with_session(role=role) as service:
+                return await service.get_variable_value(
+                    name, key, environment=environment
+                )
+        except TracecatAuthorizationError:
+            return None
 
     async def get_variable(self, variable_id: VariableID) -> WorkspaceVariable:
         statement = select(WorkspaceVariable).where(
