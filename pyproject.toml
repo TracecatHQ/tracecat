@@ -54,7 +54,7 @@ dependencies = [
     "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.22.0",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
-    "ray[default]==2.43.0",
+    "ray[default]==2.52.0",
     "redis[hiredis]>=5.0.0",
     "sentry-sdk==2.24.1",
     "sqlalchemy>=2.0.0,<3.0.0",
