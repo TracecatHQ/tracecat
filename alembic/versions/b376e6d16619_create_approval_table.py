@@ -66,8 +66,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["approved_by"],
             ["user.id"],
+            name="approval_approved_by_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="approval_pkey"),
         sa.UniqueConstraint(
             "owner_id",
             "session_id",

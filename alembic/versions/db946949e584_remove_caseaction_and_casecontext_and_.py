@@ -28,7 +28,12 @@ def upgrade() -> None:
     op.drop_table("casecontext")
     op.alter_column("caseevent", "case_id", existing_type=sa.VARCHAR(), nullable=True)
     op.create_foreign_key(
-        None, "caseevent", "case", ["case_id"], ["id"], ondelete="CASCADE"
+        "caseevent_case_id_fkey",
+        "caseevent",
+        "case",
+        ["case_id"],
+        ["id"],
+        ondelete="CASCADE",
     )
     op.drop_column("caseevent", "workflow_id")
     # ### end Alembic commands ###
@@ -40,7 +45,7 @@ def downgrade() -> None:
         "caseevent",
         sa.Column("workflow_id", sa.VARCHAR(), autoincrement=False, nullable=False),
     )
-    op.drop_constraint(None, "caseevent", type_="foreignkey")  # type: ignore
+    op.drop_constraint("caseevent_case_id_fkey", "caseevent", type_="foreignkey")
     op.alter_column("caseevent", "case_id", existing_type=sa.VARCHAR(), nullable=False)
     op.create_table(
         "casecontext",

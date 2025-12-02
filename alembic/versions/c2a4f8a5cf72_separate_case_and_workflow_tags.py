@@ -47,8 +47,13 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("ref", sa.String(), nullable=False),
         sa.Column("color", sa.String(), nullable=True),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="case_tag_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_tag_pkey"),
         sa.UniqueConstraint("name", "owner_id", name="uq_case_tag_name_owner"),
         sa.UniqueConstraint("ref", "owner_id", name="uq_case_tag_ref_owner"),
     )

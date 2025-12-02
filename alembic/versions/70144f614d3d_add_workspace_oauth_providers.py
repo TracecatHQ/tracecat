@@ -59,8 +59,13 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            ondelete="CASCADE",
+            name="oauth_provider_owner_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("id", name="oauth_provider_pkey"),
         sa.UniqueConstraint(
             "owner_id",
             "provider_id",

@@ -41,8 +41,13 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("entity_id", sa.UUID(), nullable=False),
         sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(["entity_id"], ["entity.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["entity_id"],
+            ["entity.id"],
+            ondelete="CASCADE",
+            name="entity_record_entity_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="entity_record_pkey"),
         sa.UniqueConstraint("id", name="uq_entity_record_id"),
     )
     op.create_index("idx_record_entity", "entity_record", ["entity_id"], unique=False)
@@ -74,12 +79,25 @@ def upgrade() -> None:
         sa.Column("case_id", sa.UUID(), nullable=False),
         sa.Column("entity_id", sa.UUID(), nullable=False),
         sa.Column("record_id", sa.UUID(), nullable=False),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["entity_id"], ["entity.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
-            ["record_id"], ["entity_record.id"], ondelete="CASCADE"
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="case_record_case_id_fkey",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["entity_id"],
+            ["entity.id"],
+            ondelete="CASCADE",
+            name="case_record_entity_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["record_id"],
+            ["entity_record.id"],
+            ondelete="CASCADE",
+            name="case_record_record_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_record_pkey"),
         sa.UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
     )
     op.create_index("idx_case_record_case", "case_record", ["case_id"], unique=False)

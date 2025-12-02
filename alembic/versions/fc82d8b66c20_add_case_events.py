@@ -71,8 +71,13 @@ def upgrade() -> None:
         sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("case_id", sa.UUID(), nullable=False),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="case_event_case_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_event_pkey"),
     )
     op.create_index(op.f("ix_case_event_id"), "case_event", ["id"], unique=True)
     # ### end Alembic commands ###

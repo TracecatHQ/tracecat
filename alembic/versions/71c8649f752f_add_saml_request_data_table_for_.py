@@ -32,7 +32,7 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="saml_request_data_pkey"),
     )
     # ### end Alembic commands ###
 

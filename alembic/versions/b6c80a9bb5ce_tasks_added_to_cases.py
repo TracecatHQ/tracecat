@@ -74,10 +74,25 @@ def upgrade() -> None:
         ),
         sa.Column("assignee_id", sa.UUID(), nullable=True),
         sa.Column("workflow_id", sa.UUID(), nullable=True),
-        sa.ForeignKeyConstraint(["assignee_id"], ["user.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["case_id"], ["cases.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["workflow_id"], ["workflow.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["assignee_id"],
+            ["user.id"],
+            ondelete="SET NULL",
+            name="case_tasks_assignee_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["case_id"],
+            ["cases.id"],
+            ondelete="CASCADE",
+            name="case_tasks_case_id_fkey",
+        ),
+        sa.ForeignKeyConstraint(
+            ["workflow_id"],
+            ["workflow.id"],
+            ondelete="SET NULL",
+            name="case_tasks_workflow_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="case_tasks_pkey"),
     )
     op.create_index(op.f("ix_case_tasks_id"), "case_tasks", ["id"], unique=True)
     op.sync_enum_values(  # type: ignore[attr-defined]

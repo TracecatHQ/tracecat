@@ -31,7 +31,9 @@ def upgrade() -> None:
     op.alter_column(
         "registryrepository", "origin", existing_type=sa.VARCHAR(), nullable=False
     )
-    op.create_unique_constraint(None, "registryrepository", ["origin"])
+    op.create_unique_constraint(
+        "registryrepository_origin_key", "registryrepository", ["origin"]
+    )
     op.drop_column("registryrepository", "version")
     # ### end Alembic commands ###
 
@@ -42,7 +44,9 @@ def downgrade() -> None:
         "registryrepository",
         sa.Column("version", sa.VARCHAR(), autoincrement=False, nullable=False),
     )
-    op.drop_constraint(None, "registryrepository", type_="unique")  # type: ignore
+    op.drop_constraint(
+        "registryrepository_origin_key", "registryrepository", type_="unique"
+    )
     op.alter_column(
         "registryrepository", "origin", existing_type=sa.VARCHAR(), nullable=True
     )

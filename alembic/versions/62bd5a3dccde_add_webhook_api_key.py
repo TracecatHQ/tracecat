@@ -46,9 +46,14 @@ def upgrade() -> None:
         sa.Column("last_used_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("revoked_by", sa.UUID(), nullable=True),
-        sa.ForeignKeyConstraint(["webhook_id"], ["webhook.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
-        sa.UniqueConstraint("webhook_id"),
+        sa.ForeignKeyConstraint(
+            ["webhook_id"],
+            ["webhook.id"],
+            ondelete="CASCADE",
+            name="webhook_api_key_webhook_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="webhook_api_key_pkey"),
+        sa.UniqueConstraint("webhook_id", name="webhook_api_key_webhook_id_key"),
     )
     op.create_index(
         op.f("ix_webhook_api_key_id"), "webhook_api_key", ["id"], unique=True

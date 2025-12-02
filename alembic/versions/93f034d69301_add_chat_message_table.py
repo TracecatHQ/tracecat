@@ -42,8 +42,13 @@ def upgrade() -> None:
         sa.Column("chat_id", sa.UUID(), nullable=False),
         sa.Column("kind", sa.String(), nullable=False),
         sa.Column("data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(["chat_id"], ["chat.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["chat_id"],
+            ["chat.id"],
+            ondelete="CASCADE",
+            name="chat_message_chat_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="chat_message_pkey"),
     )
     op.create_index(op.f("ix_chat_message_id"), "chat_message", ["id"], unique=True)
     op.drop_constraint("uq_runbook_alias_owner_id", "runbook", type_="unique")

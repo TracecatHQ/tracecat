@@ -44,8 +44,13 @@ def upgrade() -> None:
         sa.Column("entity_type", sa.String(), nullable=False),
         sa.Column("entity_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tools", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["user.id"],
+            ondelete="CASCADE",
+            name="chat_user_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("surrogate_id", name="chat_pkey"),
     )
     op.create_index(op.f("ix_chat_id"), "chat", ["id"], unique=True)
     # ### end Alembic commands ###

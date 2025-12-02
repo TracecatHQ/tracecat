@@ -43,7 +43,7 @@ def upgrade() -> None:
         sa.Column("value", sa.LargeBinary(), nullable=False),
         sa.Column("value_type", sa.String(), nullable=False),
         sa.Column("is_encrypted", sa.Boolean(), nullable=False),
-        sa.PrimaryKeyConstraint("surrogate_id"),
+        sa.PrimaryKeyConstraint("surrogate_id", name="organization_settings_pkey"),
     )
     op.create_index(
         op.f("ix_organization_settings_id"),
