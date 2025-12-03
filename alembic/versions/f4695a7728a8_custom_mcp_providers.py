@@ -1,8 +1,8 @@
 """custom mcp providers
 
-Revision ID: 9000b9f5f297
-Revises: 51dc33f1322a
-Create Date: 2025-12-01 19:03:24.986522
+Revision ID: f4695a7728a8
+Revises: d2eb2dcbb369
+Create Date: 2025-12-03 17:18:10.625213
 
 """
 
@@ -16,12 +16,12 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "9000b9f5f297"
-down_revision: str | None = "51dc33f1322a"
+revision: str = "f4695a7728a8"
+down_revision: str | None = "d2eb2dcbb369"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-
+# Mapping of OAuth provider_id to MCP server URIs
 MCP_PROVIDER_SERVER_URIS = {
     "sentry_mcp": "https://mcp.sentry.dev/mcp",
     "runreveal_mcp": "https://api.runreveal.com/mcp",
@@ -31,7 +31,7 @@ MCP_PROVIDER_SERVER_URIS = {
     "secureannex_mcp": "https://mcp.secureannex.com/mcp",
 }
 
-# Mapping of provider IDs to display names
+# Mapping of OAuth provider_id to display names
 MCP_PROVIDER_NAMES = {
     "sentry_mcp": "Sentry",
     "runreveal_mcp": "RunReveal",
@@ -42,34 +42,36 @@ MCP_PROVIDER_NAMES = {
 }
 
 
-def slugify(name: str) -> str:
-    """Convert a name to a URL-friendly slug."""
-    # Convert to lowercase and replace spaces/special chars with hyphens
-    slug = re.sub(r"[^\w\s-]", "", name.lower())
-    slug = re.sub(r"[-\s]+", "-", slug)
-    return slug.strip("-")
+def slugify(text: str) -> str:
+    """Convert text to a URL-friendly slug."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[-\s]+", "-", text)
+    return text
 
 
-def generate_unique_slug(connection, owner_id: uuid.UUID, base_slug: str) -> str:
-    """Generate a unique slug for an MCP integration."""
-    candidate = base_slug
-    suffix = 1
-
+def generate_unique_slug(
+    conn: sa.Connection,
+    mcp_integration_table: sa.Table,
+    base_slug: str,
+    owner_id: uuid.UUID,
+) -> str:
+    """Generate a unique slug for a workspace by appending numbers if needed."""
+    slug = base_slug
+    counter = 1
     while True:
-        result = connection.execute(
-            sa.text("""
-                SELECT COUNT(*)
-                FROM mcp_integration
-                WHERE owner_id = :owner_id AND slug = :slug
-            """),
-            {"owner_id": owner_id, "slug": candidate},
-        ).scalar()
-
-        if result == 0:
-            return candidate
-
-        candidate = f"{base_slug}-{suffix}"
-        suffix += 1
+        result = conn.execute(
+            sa.select(mcp_integration_table.c.id).where(
+                sa.and_(
+                    mcp_integration_table.c.owner_id == owner_id,
+                    mcp_integration_table.c.slug == slug,
+                )
+            )
+        ).first()
+        if result is None:
+            return slug
+        slug = f"{base_slug}-{counter}"
+        counter += 1
 
 
 def upgrade() -> None:
@@ -105,10 +107,18 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["oauth_integration_id"], ["oauth_integration.id"], ondelete="SET NULL"
+            ["oauth_integration_id"],
+            ["oauth_integration.id"],
+            name=op.f("fk_mcp_integration_oauth_integration_id_oauth_integration"),
+            ondelete="SET NULL",
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["workspace.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["workspace.id"],
+            name=op.f("fk_mcp_integration_owner_id_workspace"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_mcp_integration")),
         sa.UniqueConstraint("owner_id", "slug", name="uq_mcp_integration_owner_slug"),
     )
     op.create_index(
@@ -157,6 +167,7 @@ def upgrade() -> None:
                 "oauth_integration_id": id,
             },
         )
+    # ### end Alembic commands ###
 
 
 def downgrade() -> None:
