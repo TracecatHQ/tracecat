@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Copy sheet
+  description: Copy a sheet to another spreadsheet.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.sheets/copyTo
+  namespace: tools.google_sheets
+  name: copy_sheet
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Source spreadsheet ID.
+    sheet_id:
+      type: int
+      description: ID of the sheet to copy.
+    destination_spreadsheet_id:
+      type: str
+      description: Destination spreadsheet ID.
+  steps:
+    - ref: copy_sheet
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/sheets/${{ inputs.sheet_id }}:copyTo
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload:
+          destinationSpreadsheetId: ${{ inputs.destination_spreadsheet_id }}
+  returns: ${{ steps.copy_sheet.result.data }}

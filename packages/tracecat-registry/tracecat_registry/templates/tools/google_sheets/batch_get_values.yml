@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: Batch get values
+  description: Retrieve values from multiple ranges in a spreadsheet.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGet
+  namespace: tools.google_sheets
+  name: batch_get_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Spreadsheet ID to read from.
+    ranges:
+      type: list[str]
+      description: A1 notation ranges to retrieve.
+    major_dimension:
+      type: enum["ROWS", "COLUMNS"] | None
+      description: Orientation of the returned values.
+      default: null
+    value_render_option:
+      type: enum["FORMATTED_VALUE", "UNFORMATTED_VALUE", "FORMULA"] | None
+      description: How values should be rendered in the response.
+      default: null
+    date_time_render_option:
+      type: enum["SERIAL_NUMBER", "FORMATTED_STRING"] | None
+      description: How dates and times should be represented.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          ranges: ${{ inputs.ranges }}
+          major_dimension: ${{ inputs.major_dimension }}
+          value_render_option: ${{ inputs.value_render_option }}
+          date_time_render_option: ${{ inputs.date_time_render_option }}
+        script: |
+          def main(
+              ranges,
+              major_dimension,
+              value_render_option,
+              date_time_render_option,
+          ):
+              params = {"ranges": ranges}
+              if major_dimension:
+                  params["majorDimension"] = major_dimension
+              if value_render_option:
+                  params["valueRenderOption"] = value_render_option
+              if date_time_render_option:
+                  params["dateTimeRenderOption"] = date_time_render_option
+              return params
+    - ref: batch_get_values
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values:batchGet
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.batch_get_values.result.data }}

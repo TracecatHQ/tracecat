@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Batch update document
+  description: Apply multiple updates to a Google Doc in a single request.
+  display_group: Google Docs
+  doc_url: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/batchUpdate
+  namespace: tools.google_docs
+  name: batch_update_document
+  secrets:
+    - type: oauth
+      provider_id: google_docs
+      grant_type: client_credentials
+      optional: true
+  expects:
+    document_id:
+      type: str
+      description: ID of the document to update.
+    requests:
+      type: list[dict[str, Any]]
+      description: List of Docs API request objects to apply.
+    write_control:
+      type: dict[str, Any] | None
+      description: Optional write control configuration (e.g., requiredRevisionId).
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          requests: ${{ inputs.requests }}
+          write_control: ${{ inputs.write_control }}
+        script: |
+          def main(requests, write_control):
+              if not requests:
+                  raise ValueError("At least one request is required.")
+
+              payload = {"requests": requests}
+              if write_control:
+                  payload["writeControl"] = write_control
+              return payload
+    - ref: batch_update_document
+      action: core.http_request
+      args:
+        url: https://docs.googleapis.com/v1/documents/${{ FN.url_encode(inputs.document_id) }}:batchUpdate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.batch_update_document.result.data }}

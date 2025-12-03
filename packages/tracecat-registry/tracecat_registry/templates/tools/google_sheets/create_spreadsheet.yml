@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Create spreadsheet
+  description: Create a new Google Spreadsheet with an optional set of sheets.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/create
+  namespace: tools.google_sheets
+  name: create_spreadsheet
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    title:
+      type: str
+      description: Spreadsheet title.
+    sheet_titles:
+      type: list[str] | None
+      description: Optional list of sheet titles to create.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          title: ${{ inputs.title }}
+          sheet_titles: ${{ inputs.sheet_titles }}
+        script: |
+          def main(title, sheet_titles):
+              payload = {"properties": {"title": title}}
+              if sheet_titles:
+                  payload["sheets"] = [
+                      {"properties": {"title": sheet_title}} for sheet_title in sheet_titles
+                  ]
+              return payload
+    - ref: create_spreadsheet
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_spreadsheet.result.data }}

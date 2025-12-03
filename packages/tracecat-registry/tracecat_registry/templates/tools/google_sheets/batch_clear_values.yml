@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Batch clear values
+  description: Clear values from one or more ranges in a spreadsheet.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchClear
+  namespace: tools.google_sheets
+  name: batch_clear_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Spreadsheet ID to clear.
+    ranges:
+      type: list[str]
+      description: List of A1 notation ranges to clear.
+  steps:
+    - ref: batch_clear_values
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values:batchClear
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload:
+          ranges: ${{ inputs.ranges }}
+  returns: ${{ steps.batch_clear_values.result.data }}

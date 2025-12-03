@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Batch update values
+  description: Update cell values across multiple ranges in one request.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdate
+  namespace: tools.google_sheets
+  name: batch_update_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Spreadsheet ID to update.
+    updates:
+      type: list[dict[str, Any]]
+      description: List of updates with range, values, and optional major_dimension per entry.
+    value_input_option:
+      type: enum["RAW", "USER_ENTERED"]
+      description: How input data should be interpreted.
+      default: USER_ENTERED
+    include_values_in_response:
+      type: bool
+      description: Include the updated values in the response payload.
+      default: false
+    response_value_render_option:
+      type: enum["FORMATTED_VALUE", "UNFORMATTED_VALUE", "FORMULA"] | None
+      description: How updated values should be rendered in the response.
+      default: null
+    response_date_time_render_option:
+      type: enum["SERIAL_NUMBER", "FORMATTED_STRING"] | None
+      description: How dates and times should be represented in the response.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          updates: ${{ inputs.updates }}
+          value_input_option: ${{ inputs.value_input_option }}
+          include_values_in_response: ${{ inputs.include_values_in_response }}
+          response_value_render_option: ${{ inputs.response_value_render_option }}
+          response_date_time_render_option: ${{ inputs.response_date_time_render_option }}
+        script: |
+          def main(
+              updates,
+              value_input_option,
+              include_values_in_response,
+              response_value_render_option,
+              response_date_time_render_option,
+          ):
+              if not updates:
+                  raise ValueError("At least one update entry is required.")
+
+              data = []
+              for update in updates:
+                  entry = {
+                      "range": update.get("range"),
+                      "values": update.get("values"),
+                  }
+                  if not entry["range"] or entry["values"] is None:
+                      raise ValueError("Each update must include 'range' and 'values'.")
+                  major_dimension = update.get("major_dimension")
+                  if major_dimension:
+                      entry["majorDimension"] = major_dimension
+                  data.append(entry)
+
+              payload = {
+                  "valueInputOption": value_input_option,
+                  "data": data,
+              }
+              if include_values_in_response:
+                  payload["includeValuesInResponse"] = True
+              if response_value_render_option:
+                  payload["responseValueRenderOption"] = response_value_render_option
+              if response_date_time_render_option:
+                  payload["responseDateTimeRenderOption"] = response_date_time_render_option
+              return payload
+    - ref: batch_update_values
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values:batchUpdate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.batch_update_values.result.data }}

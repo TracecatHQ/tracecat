@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: Append values
+  description: Append rows to a Google Sheets range.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/append
+  namespace: tools.google_sheets
+  name: append_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Target spreadsheet ID.
+    range:
+      type: str
+      description: A1 notation range to append to.
+    values:
+      type: list[list[str | int | float | bool | None]]
+      description: Two-dimensional array of values to append.
+    value_input_option:
+      type: enum["RAW", "USER_ENTERED"]
+      description: How input data should be interpreted.
+      default: USER_ENTERED
+    insert_data_option:
+      type: enum["OVERWRITE", "INSERT_ROWS"]
+      description: How the input data should be inserted.
+      default: INSERT_ROWS
+    include_values_in_response:
+      type: bool
+      description: Include the appended values in the response payload.
+      default: false
+    major_dimension:
+      type: enum["ROWS", "COLUMNS"] | None
+      description: Orientation of the values array.
+      default: null
+  steps:
+    - ref: build_append_request
+      action: core.script.run_python
+      args:
+        inputs:
+          value_input_option: ${{ inputs.value_input_option }}
+          insert_data_option: ${{ inputs.insert_data_option }}
+          include_values_in_response: ${{ inputs.include_values_in_response }}
+          major_dimension: ${{ inputs.major_dimension }}
+          values: ${{ inputs.values }}
+          range: ${{ inputs.range }}
+        script: |
+          def main(
+              value_input_option,
+              insert_data_option,
+              include_values_in_response,
+              major_dimension,
+              values,
+              range,
+          ):
+              params = {"valueInputOption": value_input_option}
+              if insert_data_option:
+                  params["insertDataOption"] = insert_data_option
+              if include_values_in_response:
+                  params["includeValuesInResponse"] = True
+
+              payload = {"range": range, "values": values}
+              if major_dimension:
+                  payload["majorDimension"] = major_dimension
+
+              return {"params": params, "payload": payload}
+    - ref: append_values
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values/${{ FN.url_encode(inputs.range) }}:append
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        params: ${{ steps.build_append_request.result.params }}
+        payload: ${{ steps.build_append_request.result.payload }}
+  returns: ${{ steps.append_values.result.data }}

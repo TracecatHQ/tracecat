@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Create document
+  description: Create a new Google Doc.
+  display_group: Google Docs
+  doc_url: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/create
+  namespace: tools.google_docs
+  name: create_document
+  secrets:
+    - type: oauth
+      provider_id: google_docs
+      grant_type: client_credentials
+      optional: true
+  expects:
+    title:
+      type: str | None
+      description: Optional document title.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          title: ${{ inputs.title }}
+        script: |
+          def main(title):
+              payload = {}
+              if title:
+                  payload["title"] = title
+              return payload
+    - ref: create_document
+      action: core.http_request
+      args:
+        url: https://docs.googleapis.com/v1/documents
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_document.result.data }}

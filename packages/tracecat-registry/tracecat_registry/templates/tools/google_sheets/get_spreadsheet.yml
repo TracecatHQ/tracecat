@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get spreadsheet
+  description: Retrieve spreadsheet metadata and optional grid data.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get
+  namespace: tools.google_sheets
+  name: get_spreadsheet
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: Spreadsheet ID to fetch.
+    ranges:
+      type: list[str] | None
+      description: Optional A1 notation ranges to include.
+      default: null
+    include_grid_data:
+      type: bool
+      description: Return grid data along with metadata.
+      default: false
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          ranges: ${{ inputs.ranges }}
+          include_grid_data: ${{ inputs.include_grid_data }}
+        script: |
+          def main(ranges, include_grid_data):
+              params = {}
+              if ranges:
+                  params["ranges"] = ranges
+              if include_grid_data:
+                  params["includeGridData"] = True
+              return params
+    - ref: get_spreadsheet
+      action: core.http_request
+      args:
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_spreadsheet.result.data }}

@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Get document
+  description: Retrieve a Google Doc with optional suggestions view mode.
+  display_group: Google Docs
+  doc_url: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/get
+  namespace: tools.google_docs
+  name: get_document
+  secrets:
+    - type: oauth
+      provider_id: google_docs
+      grant_type: client_credentials
+      optional: true
+  expects:
+    document_id:
+      type: str
+      description: ID of the document to fetch.
+    suggestions_view_mode:
+      type: enum["DEFAULT_FOR_FIELD", "SUGGESTIONS_INLINE", "PREVIEW_WITHOUT_SUGGESTIONS"] | None
+      description: How to display suggestions in the response.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          suggestions_view_mode: ${{ inputs.suggestions_view_mode }}
+        script: |
+          def main(suggestions_view_mode):
+              params = {}
+              if suggestions_view_mode:
+                  params["suggestionsViewMode"] = suggestions_view_mode
+              return params
+    - ref: get_document
+      action: core.http_request
+      args:
+        url: https://docs.googleapis.com/v1/documents/${{ FN.url_encode(inputs.document_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_document.result.data }}

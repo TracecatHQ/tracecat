@@ -23,6 +23,16 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 DEFAULT_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
+GOOGLE_API_SETUP_STEPS = [
+    "Create or select a Google Cloud project",
+    "Create a service account and grant it required IAM roles",
+    "Generate a JSON key for the service account and download it",
+    "Paste the entire JSON key into the Client Secret field in Tracecat",
+    "Provide the service account email as the Client ID (or leave blank to auto-detect)",
+    "Configure OAuth scopes matching the APIs you plan to call",
+    "For domain-wide delegation, add a 'subject' field to the JSON with the delegated user email",
+]
+
 
 class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
     """Google OAuth provider using service account credentials."""
@@ -37,22 +47,10 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
         ),
         requires_config=True,
         enabled=True,
-        setup_steps=[
-            "Create or select a Google Cloud project",
-            "Create a service account and grant it required IAM roles",
-            "Generate a JSON key for the service account and download it",
-            "Paste the entire JSON key into the Client Secret field in Tracecat",
-            "Provide the service account email as the Client ID (or leave blank to auto-detect)",
-            "Configure OAuth scopes matching the APIs you plan to call",
-            "For domain-wide delegation, add a 'subject' field to the JSON with the delegated user email",
-        ],
-        api_docs_url=(
-            "https://developers.google.com/identity/protocols/oauth2/service-account"
-        ),
-        setup_guide_url="https://cloud.google.com/iam/docs/keys-create-delete#creating",
-        troubleshooting_url=(
-            "https://cloud.google.com/iam/docs/service-accounts-best-practices"
-        ),
+        setup_steps=GOOGLE_API_SETUP_STEPS,
+        api_docs_url="https://cloud.google.com/docs/authentication",
+        setup_guide_url="https://developers.google.com/identity/protocols/oauth2/service-account",
+        troubleshooting_url="https://cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys",
     )
     default_authorization_endpoint: ClassVar[str] = GOOGLE_AUTH_URL
     default_token_endpoint: ClassVar[str] = GOOGLE_TOKEN_URL

@@ -608,6 +608,29 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <AzureLogAnalyticsIcon {...rest} />
       </div>
     ),
+    "tools.google_sheets": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <GoogleSheetsIcon
+          className={cn("size-full", iconClassName)}
+          {...rest}
+        />
+      </div>
+    ),
+    "tools.google_docs": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <GoogleDocsIcon className={cn("size-full", iconClassName)} {...rest} />
+      </div>
+    ),
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
@@ -671,6 +694,16 @@ export const providerIcons: Record<
   google: ({ className, ...rest }) => (
     <div className={className}>
       <GoogleIcon {...rest} />
+    </div>
+  ),
+  google_docs: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleDocsIcon {...rest} />
+    </div>
+  ),
+  google_sheets: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleSheetsIcon {...rest} />
     </div>
   ),
   github: ({ className, ...rest }) => (
@@ -964,6 +997,116 @@ export function OllamaIcon({ className, ...rest }: IconProps) {
       <path
         d="M478.153 364.982C469.755 367.25 462.276 373.502 458.291 381.717L455.717 386.989L455.778 394.345C455.778 401.211 455.901 402.069 457.862 406.911C460.56 413.777 463.257 418.007 468.222 422.85C476.743 431.309 486.367 433.516 499.241 430.145C506.658 428.183 514.075 421.93 517.631 414.635C520.696 408.444 521.431 403.969 520.451 396.919C518.183 380.797 508.742 369.089 494.704 364.982C490.597 363.756 482.628 363.756 478.153 364.982Z"
         fill="black"
+      />
+    </svg>
+  )
+}
+
+export function GoogleSheetsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47.333 65.083"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <linearGradient
+          id="sheets-gradient"
+          x1="50.0053945%"
+          y1="8.58610612%"
+          x2="50.0053945%"
+          y2="100.013939%"
+        >
+          <stop stopColor="#263238" stopOpacity="0.2" offset="0%" />
+          <stop stopColor="#263238" stopOpacity="0.02" offset="100%" />
+        </linearGradient>
+        <radialGradient
+          id="sheets-radial"
+          cx="3.16804688%"
+          cy="2.71744318%"
+          fx="3.16804688%"
+          fy="2.71744318%"
+          r="161.248516%"
+          gradientTransform="translate(0.031680,0.027174),scale(1.000000,0.727273),translate(-0.031680,-0.027174)"
+        >
+          <stop stopColor="#FFFFFF" stopOpacity="0.1" offset="0%" />
+          <stop stopColor="#FFFFFF" stopOpacity="0" offset="100%" />
+        </radialGradient>
+      </defs>
+      <path
+        d="M29.583 0L4.438 0C1.997 0 0 1.997 0 4.438v56.208c0 2.441 1.997 4.438 4.438 4.438h38.458c2.441 0 4.438-1.997 4.438-4.438V17.75L29.583 0z"
+        fill="#0F9D58"
+      />
+      <path
+        d="M11.833 31.802v21.448h23.667V31.802H11.833zm10.354 18.49h-7.396v-3.698h7.396v3.698zm0-5.917h-7.396v-3.698h7.396v3.698zm0-5.917h-7.396v-3.698h7.396v3.698zm10.354 18.49h-7.396v-3.698h7.396v3.698zm0-5.917h-7.396v-3.698h7.396v3.698zm0-5.917h-7.396v-3.698h7.396v3.698z"
+        fill="#F1F1F1"
+      />
+      <polygon
+        points="30.881 16.452 47.333 32.9 47.333 17.75"
+        fill="url(#sheets-gradient)"
+      />
+      <path d="M29.583 0L36.979 10.354 47.333 17.75 29.583 0z" fill="#87CEAC" />
+      <path
+        d="M29.583 0L4.438 0C1.997 0 0 1.997 0 4.438v56.208c0 2.441 1.997 4.438 4.438 4.438h38.458c2.441 0 4.438-1.997 4.438-4.438V17.75L29.583 0z"
+        fill="url(#sheets-radial)"
+      />
+    </svg>
+  )
+}
+
+export function GoogleDocsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47 65"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <linearGradient
+          id="docs-gradient"
+          x1="50.0053945%"
+          y1="8.58610612%"
+          x2="50.0053945%"
+          y2="100.013939%"
+        >
+          <stop stopColor="#1A237E" stopOpacity="0.2" offset="0%" />
+          <stop stopColor="#1A237E" stopOpacity="0.02" offset="100%" />
+        </linearGradient>
+        <radialGradient
+          id="docs-radial"
+          cx="3.16804688%"
+          cy="2.71744318%"
+          fx="3.16804688%"
+          fy="2.71744318%"
+          r="161.248516%"
+          gradientTransform="translate(0.031680,0.027174),scale(1.000000,0.723077),translate(-0.031680,-0.027174)"
+        >
+          <stop stopColor="#FFFFFF" stopOpacity="0.1" offset="0%" />
+          <stop stopColor="#FFFFFF" stopOpacity="0" offset="100%" />
+        </radialGradient>
+      </defs>
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="#4285F4"
+      />
+      <polygon
+        points="30.664 16.431 47 32.858 47 17.727"
+        fill="url(#docs-gradient)"
+      />
+      <path
+        d="M11.75 47.273h23.5v-2.955H11.75v2.955zm0 5.909h17.625v-2.955H11.75v2.955zm0-20.682v2.955h23.5V32.5H11.75zm0 8.864h23.5v-2.955H11.75v2.955z"
+        fill="#F1F1F1"
+      />
+      <path d="M29.375 0L36.719 10.341 47 17.727 29.375 0z" fill="#A1C2FA" />
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="url(#docs-radial)"
       />
     </svg>
   )
