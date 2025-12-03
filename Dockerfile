@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.9.7-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.9.15-python3.12-bookworm-slim
 
 ENV HOST=0.0.0.0
 ENV PORT=8000

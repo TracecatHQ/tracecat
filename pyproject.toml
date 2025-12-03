@@ -64,7 +64,7 @@ dependencies = [
     "tomli==2.2.1",
     "tracecat-ee",
     "tracecat-registry",
-    "uv==0.9.7",
+    "uv==0.9.15",
     "uvicorn>=0.33.0,<0.34",
     "virtualenv==20.27.0",
     # This is required until https://github.com/ray-project/ray/issues/54134 is released.
