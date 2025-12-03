@@ -8,12 +8,12 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
 # Install required apt packages (this now creates ALL cache directories)
-COPY scripts/install-packages.sh .
+COPY docker/scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
 
-COPY scripts/auto-update.sh ./auto-update.sh
+COPY docker/scripts/auto-update.sh ./auto-update.sh
 RUN chmod +x auto-update.sh && \
     ./auto-update.sh && \
     rm auto-update.sh
@@ -72,9 +72,8 @@ COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
 # Copy the entrypoint script and health check script
-COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
-RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
+COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Install the project with EE features
 RUN --mount=type=cache,target=/root/.cache/uv \

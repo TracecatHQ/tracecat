@@ -5,7 +5,7 @@ ENV HOST=0.0.0.0
 ENV PORT=8000
 
 # Install packages
-COPY scripts/install-packages.sh .
+COPY docker/scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
@@ -42,9 +42,8 @@ COPY ./LICENSE /app/LICENSE
 COPY ./alembic.ini /app/alembic.ini
 COPY ./alembic /app/alembic
 
-COPY scripts/entrypoint.sh /app/entrypoint.sh
-COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
-RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
+COPY docker/scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Materialize the venv while reusing the warmed cache for faster dev rebuilds.
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
