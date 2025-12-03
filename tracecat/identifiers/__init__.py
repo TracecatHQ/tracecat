@@ -57,11 +57,11 @@ from tracecat.identifiers.workflow import (
 
 UserID = uuid.UUID
 WorkspaceID = uuid.UUID
-OwnerID = uuid.UUID
-"""Owner identifier type. This is UUID because we use UUID(0) for the organization.
+OrganizationID = uuid.UUID
+"""Organization identifier type. Uses a sentinel UUID for the default organization."""
 
-Owners can be Workspaces or the Organization.
-"""
+OwnerID = uuid.UUID
+"""Generic owner identifier for Ownership model. Can be UserID, WorkspaceID, or OrganizationID."""
 
 SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
 VariableID = uuid.UUID
@@ -96,6 +96,8 @@ __all__ = [
     "ScheduleID",
     "UserID",
     "WorkspaceID",
+    "OrganizationID",
+    "OwnerID",
     "TagID",
     "WorkflowTagID",
     "CaseTagID",
