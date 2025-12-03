@@ -44,15 +44,16 @@ apt-get install -y --no-install-recommends \
   libnl-route-3-dev
 
 # Build and install nsjail from source
+# Use git clone instead of the release tarball so the submodule init step in the
+# Makefile can run without failing on a missing .git directory.
 echo "Building nsjail v${NSJAIL_VERSION}..."
 NSJAIL_DIR="/tmp/nsjail-${NSJAIL_VERSION}"
-curl -fsSL "https://github.com/google/nsjail/archive/refs/tags/${NSJAIL_VERSION}.tar.gz" -o /tmp/nsjail.tar.gz
-tar -xzf /tmp/nsjail.tar.gz -C /tmp
+git clone --depth 1 --recurse-submodules --branch "${NSJAIL_VERSION}" https://github.com/google/nsjail.git "${NSJAIL_DIR}"
 cd "${NSJAIL_DIR}"
 make -j"$(nproc)"
 install -m 0755 nsjail /usr/local/bin/nsjail
 cd /
-rm -rf "${NSJAIL_DIR}" /tmp/nsjail.tar.gz
+rm -rf "${NSJAIL_DIR}"
 
 # Verify nsjail installation
 if ! nsjail --version; then
