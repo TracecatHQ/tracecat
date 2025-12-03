@@ -205,7 +205,7 @@ def create_app(**kwargs) -> FastAPI:
         root_path=config.TRACECAT__API_ROOT_PATH,
         **kwargs,
     )
-    app.logger = logger  # type: ignore
+    app.logger = logger  # pyright: ignore[reportAttributeAccessIssue]
 
     # Routers
     app.include_router(webhook_router)
@@ -316,11 +316,11 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore  # type: ignore
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(
         FastAPIUsersException,
-        fastapi_users_auth_exception_handler,  # type: ignore
+        fastapi_users_auth_exception_handler,  # pyright: ignore[reportArgumentType]
     )
 
     # Middleware

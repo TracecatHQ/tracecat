@@ -5,7 +5,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
@@ -370,7 +370,7 @@ async def login(
     )
 
     try:
-        headers = info["headers"]
+        headers = cast(list[tuple[str, str]], info["headers"])
         redirect_url = next(v for k, v in headers if k == "Location")
     except (KeyError, StopIteration) as e:
         logger.error(f"Redirect URL not found: {e}")
@@ -389,7 +389,7 @@ async def sso_acs(
     saml_response: str = Form(..., alias="SAMLResponse"),
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
-    strategy: AuthBackendStrategyDep,
+    strategy: AuthBackendStrategyDep,  # pyright: ignore[reportMissingTypeArgument]
     client: Annotated[Saml2Client, Depends(create_saml_client)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
     role: ServiceRole,

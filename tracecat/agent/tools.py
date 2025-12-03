@@ -202,7 +202,7 @@ async def create_tool_from_registry(
         raise ValueError(f"Action '{action_name}' has no description")
 
     # Set function signature and annotations
-    tool_func.__signature__ = sig.signature
+    setattr(tool_func, "__signature__", sig.signature)
     tool_func.__annotations__ = sig.annotations
 
     # Generate Google-style docstring, excluding fixed args
@@ -294,7 +294,7 @@ async def build_agent_tools(
     actions: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
-) -> BuildToolsResult:
+) -> BuildToolsResult[Any]:
     """Build tools from a list of actions."""
     if not actions:
         return BuildToolsResult(
@@ -601,8 +601,8 @@ class SimpleToolExecutor(ToolExecutor):
                 tool_name, fixed_args=args, service=svc
             )
 
-        # Execute the tool function
-        result = await tool.function(**args)  # type: ignore
+        # Execute the tool function (pass None for ctx since we're calling directly)
+        result = await tool.function(None, **args)  # pyright: ignore[reportArgumentType, reportCallIssue]
         return result
 
 

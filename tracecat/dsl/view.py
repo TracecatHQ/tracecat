@@ -38,7 +38,7 @@ class TSObject(BaseModel):
     - You must serialize with `by_alias=True` to get the camelCase keys.
     """
 
-    model_config: ConfigDict = ConfigDict(
+    model_config = ConfigDict(
         extra="allow",
         alias_generator=to_camel,
         populate_by_name=True,
@@ -82,14 +82,14 @@ class RFNode[T: (UDFNodeData | TriggerNodeData)](TSObject):
 class TriggerNode(RFNode[TriggerNodeData]):
     """React Flow Graph Trigger Node."""
 
-    type: Literal["trigger"] = Field(default="trigger", frozen=True)
+    type: Literal["trigger"] = Field(default="trigger", frozen=True)  # pyright: ignore[reportIncompatibleVariableOverride]
     data: TriggerNodeData = Field(default_factory=TriggerNodeData)
 
 
 class UDFNode(RFNode[UDFNodeData]):
     """React Flow Graph Trigger Node."""
 
-    type: Literal["udf"] = Field(default="udf", frozen=True)
+    type: Literal["udf"] = Field(default="udf", frozen=True)  # pyright: ignore[reportIncompatibleVariableOverride]
     data: UDFNodeData
 
 
@@ -132,7 +132,7 @@ class RFGraph(TSObject):
     Has a bunch of helper methods to manipulate the graph.
     """
 
-    nodes: list[RFNode] = Field(default_factory=list)
+    nodes: list[TriggerNode | UDFNode] = Field(default_factory=list)
     edges: list[RFEdge] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -172,7 +172,7 @@ class RFGraph(TSObject):
         return triggers[0]
 
     @cached_property
-    def node_map(self) -> dict[str, RFNode]:
+    def node_map(self) -> dict[str, TriggerNode | UDFNode]:
         return {node.id: node for node in self.nodes}
 
     @cached_property
@@ -243,9 +243,9 @@ class RFGraph(TSObject):
         return RFGraph.model_validate(initial_data)
 
 
-def _is_trigger_node(node: RFNode) -> TypeGuard[TriggerNode]:
+def _is_trigger_node(node: TriggerNode | UDFNode) -> TypeGuard[TriggerNode]:
     return node.type == "trigger"
 
 
-def _is_udf_node(node: RFNode) -> TypeGuard[UDFNode]:
+def _is_udf_node(node: TriggerNode | UDFNode) -> TypeGuard[UDFNode]:
     return node.type == "udf"

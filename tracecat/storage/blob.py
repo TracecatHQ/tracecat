@@ -210,7 +210,7 @@ async def upload_file(
             if content_type:
                 kwargs["ContentType"] = content_type
 
-            await s3_client.put_object(**kwargs)
+            await s3_client.put_object(**kwargs)  # pyright: ignore[reportArgumentType]
             logger.info(
                 "File uploaded successfully",
                 key=key,

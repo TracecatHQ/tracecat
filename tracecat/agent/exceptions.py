@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from typing import Any
 
 
 class ConversationNotFoundError(RuntimeError):
@@ -17,7 +18,7 @@ class AgentRunError(RuntimeError):
         self,
         exc_cls: type[Exception],
         exc_msg: str,
-        message_history: list[dict] | None = None,
+        message_history: list[dict[str, Any]] | None = None,
         deps: object | None = None,
     ):
         self.exc_cls = exc_cls

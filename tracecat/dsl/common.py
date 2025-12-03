@@ -51,6 +51,7 @@ from tracecat.dsl.view import (
     RFGraph,
     RFNode,
     TriggerNode,
+    TriggerNodeData,
     UDFNode,
     UDFNodeData,
 )
@@ -102,7 +103,7 @@ class DSLInput(BaseModel):
     """
 
     # Using this for backwards compatibility of existing workflow definitions
-    model_config: ConfigDict = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore")
     title: str
     description: str
     entrypoint: DSLEntrypoint
@@ -361,13 +362,13 @@ class DSLInput(BaseModel):
         return adj
 
     @staticmethod
-    def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
+    def from_yaml(path: str | Path | SpooledTemporaryFile[bytes]) -> DSLInput:
         """Read a DSL definition from a YAML file."""
         # Handle binaryIO
         if isinstance(path, str | Path):
             with Path(path).open("r") as f:
                 yaml_str = f.read()
-        elif isinstance(path, SpooledTemporaryFile):
+        elif isinstance(path, SpooledTemporaryFile):  # pyright: ignore[reportArgumentType]
             yaml_str = path.read().decode()
         else:
             raise TracecatDSLError(f"Invalid file/path type {type(path)}")
@@ -392,7 +393,7 @@ class DSLInput(BaseModel):
         """
 
         # Create nodes and edges
-        nodes: list[RFNode] = [trigger_node]
+        nodes: list[TriggerNode | UDFNode] = [trigger_node]
         edges: list[RFEdge] = []
         try:
             for action in self.actions:

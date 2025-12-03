@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import os
 from collections.abc import Callable
+from typing import Any
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio import workflow
@@ -68,8 +69,8 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-def get_activities() -> list[Callable]:
-    activities: list[Callable] = [
+def get_activities() -> list[Callable[..., Any]]:
+    activities: list[Callable[..., Any]] = [
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),

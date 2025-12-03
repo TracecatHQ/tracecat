@@ -1012,7 +1012,7 @@ class DSLScheduler:
         self,
         task: Task,
         stmt: ActionStatement,
-        parent_action_context: dict[str, TaskResult],
+        parent_action_context: dict[str, TaskResult[Any, Any]],
         parent_stream_id: StreamID,
         gather_args: GatherArgs,
         gather_ref: str,
@@ -1114,9 +1114,9 @@ class DSLScheduler:
         await self._execute(parent_gather, stmt)
         await self._queue_tasks(parent_gather)
 
-    def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
+    def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult[Any, Any]]:
         context = self.get_context(stream_id)
-        return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
+        return cast(dict[str, TaskResult[Any, Any]], context[ExprContext.ACTIONS])
 
     def build_stream_aware_context(
         self, task: ActionStatement, stream_id: StreamID

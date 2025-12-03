@@ -107,7 +107,7 @@ async def _authenticate_service(
         role_params["user_id"] = user_id
     if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None:
         role_params["workspace_id"] = ws_id
-    return Role(**role_params)
+    return Role(**role_params)  # pyright: ignore[reportArgumentType]
 
 
 @contextmanager
@@ -118,7 +118,7 @@ def TemporaryRole(
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)  # type: ignore
+    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)  # pyright: ignore[reportArgumentType]
     ctx_role.set(temp_role)
     try:
         yield temp_role

@@ -90,7 +90,7 @@ class CaseFieldReadMinimal(CustomFieldRead):
     """Minimal read model for a case field."""
 
     @classmethod
-    def from_sa(
+    def from_sa(  # pyright: ignore[reportIncompatibleMethodOverride]
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
@@ -468,7 +468,31 @@ type CaseEventVariant = Annotated[
 ]
 
 
-class CaseEventRead(RootModel, Schema):
+class CaseEventRead(  # pyright: ignore[reportUnsafeMultipleInheritance, reportIncompatibleMethodOverride]
+    RootModel[
+        CreatedEventRead
+        | ClosedEventRead
+        | ReopenedEventRead
+        | CaseViewedEventRead
+        | UpdatedEventRead
+        | StatusChangedEventRead
+        | PriorityChangedEventRead
+        | SeverityChangedEventRead
+        | FieldChangedEventRead
+        | AssigneeChangedEventRead
+        | AttachmentCreatedEventRead
+        | AttachmentDeletedEventRead
+        | TagAddedEventRead
+        | TagRemovedEventRead
+        | PayloadChangedEventRead
+        | TaskCreatedEventRead
+        | TaskStatusChangedEventRead
+        | TaskPriorityChangedEventRead
+        | TaskWorkflowChangedEventRead
+        | TaskDeletedEventRead
+        | TaskAssigneeChangedEventRead
+    ]
+):
     """Base read model for all event types."""
 
     model_config = ConfigDict(from_attributes=True)

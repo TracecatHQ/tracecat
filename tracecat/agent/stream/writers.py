@@ -27,7 +27,9 @@ class HasStreamWriter(Protocol):
     stream_writer: StreamWriter
 
 
-class BroadcastStreamWriter(StreamWriter):
+class BroadcastStreamWriter:
+    """A stream writer that broadcasts events to multiple writers."""
+
     def __init__(self, writers: list[StreamWriter]):
         self.writers = writers
         # Create a queue for each writer
@@ -138,7 +140,9 @@ class AgentStreamWriter:
             await self.stream.append(event)
 
 
-class HttpStreamWriter(StreamWriter):
+class HttpStreamWriter:
+    """A stream writer that writes events to an HTTP endpoint."""
+
     def __init__(self, url: str = "https://localhost:1234/stream"):
         self.url = url
         self._ensure_secure_url()

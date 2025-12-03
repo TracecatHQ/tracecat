@@ -38,14 +38,14 @@ def create_app(**kwargs) -> FastAPI:
         root_path="/api/executor",
         **kwargs,
     )
-    app.logger = logger  # type: ignore
+    app.logger = logger  # pyright: ignore[reportAttributeAccessIssue]
 
     # Routers
     app.include_router(executor_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # pyright: ignore[reportArgumentType]
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)
