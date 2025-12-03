@@ -56,11 +56,13 @@ cd /
 rm -rf "${NSJAIL_DIR}"
 
 # Verify nsjail installation
-if ! nsjail --version; then
+if ! nsjail --help >/tmp/nsjail_help.txt 2>&1; then
     echo "ERROR: Failed to install nsjail"
+    cat /tmp/nsjail_help.txt
     exit 1
 fi
-echo "nsjail installed successfully"
+echo "nsjail installed successfully: $(head -n 1 /tmp/nsjail_help.txt)"
+rm -f /tmp/nsjail_help.txt
 
 # Create sandbox directories
 echo "Creating sandbox directories..."
