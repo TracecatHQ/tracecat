@@ -219,13 +219,14 @@ async def test_cooperative_timing_overhead():
 
     # Time without cooperative (multiple runs for stability)
     sync_times = []
+    sync_result: list[int] = []
     for _ in range(3):
         start = time.perf_counter()
         sync_result = list(items)
         sync_times.append(time.perf_counter() - start)
     # Time with cooperative (delay=0) (multiple runs for stability)
     async_times = []
-    async_result = []
+    async_result: list[int] = []
     for _ in range(3):
         start = time.perf_counter()
         temp_result = []

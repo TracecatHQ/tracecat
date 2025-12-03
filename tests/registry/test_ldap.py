@@ -104,6 +104,7 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
 
     # Retry connection and OU creation with backoff - container may still be initializing
     max_retries = 5
+    conn: ldap3.Connection | None = None
     for attempt in range(max_retries):
         try:
             conn = ldap3.Connection(
@@ -118,6 +119,8 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
             if attempt == max_retries - 1:
                 raise
             time.sleep(1)
+
+    assert conn is not None, "Failed to establish LDAP connection"
     user_dn = f"cn=Tracecat,{users_dn}"
     if conn.search(user_dn, "(objectClass=*)"):
         conn.delete(user_dn)
