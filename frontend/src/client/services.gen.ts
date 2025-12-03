@@ -4269,7 +4269,7 @@ export const tablesImportCsv = (
  * @param data.severity Filter by case severity
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.orderBy Column name to order by (e.g. summary, created_at, priority). Default: created_at
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
@@ -4337,7 +4337,7 @@ export const casesCreateCase = (
  * @param data.severity Filter by case severity
  * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @param data.limit Maximum number of cases to return
- * @param data.orderBy Column name to order by
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.startTime Return cases created at or after this timestamp
  * @param data.endTime Return cases created at or before this timestamp

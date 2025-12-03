@@ -6475,9 +6475,16 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
-   * Column name to order by (e.g. summary, created_at, priority). Default: created_at
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
    */
-  orderBy?: string | null
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | "tasks"
+    | null
   /**
    * Filter by case priority
    */
@@ -6528,9 +6535,15 @@ export type CasesSearchCasesData = {
    */
   limit?: number | null
   /**
-   * Column name to order by
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
    */
-  orderBy?: string | null
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | null
   /**
    * Filter by case priority
    */

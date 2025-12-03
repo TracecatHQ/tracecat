@@ -108,9 +108,12 @@ async def list_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
-    order_by: str | None = Query(
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = Query(
         None,
-        description="Column name to order by (e.g. summary, created_at, priority). Default: created_at",
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
@@ -177,7 +180,7 @@ async def list_cases(
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
         raise HTTPException(
-            status_code=500,
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
     return cases
@@ -202,7 +205,11 @@ async def search_cases(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
     limit: int | None = Query(None, description="Maximum number of cases to return"),
-    order_by: str | None = Query(None, description="Column name to order by"),
+    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+    | None = Query(
+        None,
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at",
+    ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
