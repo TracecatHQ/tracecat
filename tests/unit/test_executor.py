@@ -438,7 +438,7 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
 ):
     """Test that the executor can run a UDF with OAuth secrets in a secret expression."""
 
-    session, db_repo_id = db_session_with_repo
+    session, _db_repo_id = db_session_with_repo
 
     from tracecat import config
 
@@ -458,12 +458,6 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
         refresh_token=None,
         expires_in=3600,
     )
-
-    # # 2. Register UDFs including the OAuth one
-    # repo = Repository()
-
-    # # Sanity check: Verify the OAuth UDF is registered
-    # assert "core.transform.reshape" in repo
 
     # 4. Create and run the action
     input = RunActionInput(
