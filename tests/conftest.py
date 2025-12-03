@@ -415,7 +415,7 @@ async def db_session_with_repo(test_role):
     async with RegistryReposService.with_session(role=test_role) as svc:
         db_repo = await svc.create_repository(
             RegistryRepositoryCreate(
-                origin="git+ssh://git@github.com/TracecatHQ/dummy-repo.git"
+                origin=f"git+ssh://git@github.com/TracecatHQ/dummy-repo-{uuid.uuid4().hex[:8]}.git"
             )
         )
         try:

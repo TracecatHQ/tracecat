@@ -87,6 +87,20 @@ def get_runtime_env() -> str:
     return getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
 
 
+def _infer_grant_type_from_token_name(token_name: str) -> OAuthGrantType | None:
+    """Infer the OAuth grant type from the token name suffix.
+
+    Token names follow the pattern: <PREFIX>_USER_TOKEN or <PREFIX>_SERVICE_TOKEN
+    - USER_TOKEN -> authorization_code
+    - SERVICE_TOKEN -> client_credentials
+    """
+    if token_name.endswith("_USER_TOKEN"):
+        return OAuthGrantType.AUTHORIZATION_CODE
+    elif token_name.endswith("_SERVICE_TOKEN"):
+        return OAuthGrantType.CLIENT_CREDENTIALS
+    return None
+
+
 async def get_action_secrets(
     secret_exprs: Set[str],
     action_secrets: Set[RegistrySecretType],
@@ -119,6 +133,24 @@ async def get_action_secrets(
         else:
             required_basic_secrets.add(secret.name)
 
+    # Parse OAuth secrets from expressions (e.g., "microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN")
+    # These are user-specified OAuth secrets in action args, not declared by the action itself
+    args_oauth_token_names: dict[ProviderKey, str] = {}
+    for expr in args_oauth_secrets:
+        # expr format: "<provider_id>_oauth.<TOKEN_NAME>"
+        name, token_name = expr.split(".", 1)
+        provider_id = name.removesuffix("_oauth")
+        grant_type = _infer_grant_type_from_token_name(token_name)
+        if grant_type is None:
+            logger.warning(
+                "Could not infer grant type from token name, skipping",
+                expr=expr,
+                token_name=token_name,
+            )
+            continue
+        key = ProviderKey(id=provider_id, grant_type=grant_type)
+        args_oauth_token_names[key] = token_name
+
     # Get secrets to fetch
     all_basic_secrets = (
         required_basic_secrets | args_basic_secrets | optional_basic_secrets
@@ -128,6 +160,7 @@ async def get_action_secrets(
         required_basic_secrets=required_basic_secrets,
         optional_basic_secrets=optional_basic_secrets,
         oauth_provider_ids=oauth_secrets,
+        args_oauth_token_names=args_oauth_token_names,
         args_secrets=args_secrets,
         secrets_to_fetch=all_basic_secrets,
     )
@@ -141,12 +174,15 @@ async def get_action_secrets(
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
 
-    # Get oauth integrations
-    if oauth_secrets:
+    # Get oauth integrations (from both action-declared secrets and expression-based secrets)
+    all_oauth_provider_keys = Set(oauth_secrets.keys()) | Set(
+        args_oauth_token_names.keys()
+    )
+    if all_oauth_provider_keys:
         try:
             async with IntegrationService.with_session() as service:
                 oauth_integrations = await service.list_integrations(
-                    provider_keys=Set(oauth_secrets.keys())
+                    provider_keys=all_oauth_provider_keys
                 )
                 fetched_keys: Set[ProviderKey] = Set()
                 for integration in oauth_integrations:
@@ -158,14 +194,18 @@ async def get_action_secrets(
                     await service.refresh_token_if_needed(integration)
                     try:
                         if access_token := await service.get_access_token(integration):
-                            secret = oauth_secrets[provider_key]
                             # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]
                             # NOTE: We are overriding the provider_id key here assuming its unique
                             # <prefix> is the provider_id in uppercase.
                             provider_secrets = secrets.setdefault(
                                 f"{integration.provider_id}_oauth", {}
                             )
-                            provider_secrets[secret.token_name] = (
+                            # Determine token_name from either action-declared secrets or expression-based secrets
+                            if provider_key in oauth_secrets:
+                                token_name = oauth_secrets[provider_key].token_name
+                            else:
+                                token_name = args_oauth_token_names[provider_key]
+                            provider_secrets[token_name] = (
                                 access_token.get_secret_value()
                             )
                     except Exception as e:
@@ -174,12 +214,16 @@ async def get_action_secrets(
                             error=e,
                             integration=integration,
                         )
-                missing_keys = Set(oauth_secrets.keys()) - fetched_keys
-                if missing_keys:
+                # Only check for missing required secrets from action-declared secrets
+                # Expression-based secrets are user-provided and we don't enforce requirements on them
+                missing_action_keys = Set(oauth_secrets.keys()) - fetched_keys
+                if missing_action_keys:
                     missing_required = [
-                        key for key in missing_keys if not oauth_secrets[key].optional
+                        key
+                        for key in missing_action_keys
+                        if not oauth_secrets[key].optional
                     ]
-                    optional_missing = Set(missing_keys) - Set(missing_required)
+                    optional_missing = Set(missing_action_keys) - Set(missing_required)
                     if optional_missing:
                         logger.info(
                             "Optional OAuth integrations not configured",
@@ -202,6 +246,19 @@ async def get_action_secrets(
                                 for key in missing_required
                             ],
                         )
+                # Log if expression-based OAuth secrets were not found
+                missing_expr_keys = Set(args_oauth_token_names.keys()) - fetched_keys
+                if missing_expr_keys:
+                    logger.warning(
+                        "OAuth integrations from expressions not found",
+                        providers=[
+                            {
+                                "provider_id": key.id,
+                                "grant_type": key.grant_type.value,
+                            }
+                            for key in missing_expr_keys
+                        ],
+                    )
         except TracecatCredentialsError:
             raise
         except Exception as e:
