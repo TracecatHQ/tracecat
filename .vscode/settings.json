@@ -1,12 +1,14 @@
 {
-  "python.testing.pytestArgs": ["tests"],
-  "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true,
-  "yaml.schemas": {
-    "https://json.schemastore.org/yamllint.json": "playbooks/*.yml"
-  },
-  "python.analysis.extraPaths": ["./registry"],
-  "biome.configurationPath": "./frontend/biome.json",
-  "biome.enabled": true,
-  "biome.lsp.bin": "./frontend/node_modules/.bin/biome"
+	"python.testing.pytestArgs": ["tests"],
+	"python.testing.unittestEnabled": false,
+	"python.testing.pytestEnabled": true,
+	"python.analysis.extraPaths": ["./registry"],
+	"biome.configurationPath": "./frontend/biome.json",
+	"biome.enabled": true,
+	"biome.lsp.bin": "./frontend/node_modules/.bin/biome",
+	"cursorpyright.analysis.typeCheckingMode": "standard",
+	"cursorpyright.analysis.autoImportCompletions": true,
+	"cursorpyright.analysis.diagnosticMode": "workspace",
+	"cursorpyright.analysis.logLevel": "Information",
+	"cursorpyright.analysis.exclude": ["**/.*"]
 }
