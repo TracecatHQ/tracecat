@@ -216,6 +216,7 @@ async def run_template_action(
     logger.trace(
         "Validating template action arguments", expects=defn.expects, args=args
     )
+    validated_args: dict[str, Any] = {}
     if defn.expects:
         validated_args = action.validate_args(args=args)
 

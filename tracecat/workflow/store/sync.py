@@ -6,6 +6,7 @@ import asyncio
 import base64
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 import yaml
 from github.GithubException import GithubException
@@ -240,6 +241,7 @@ class WorkflowSyncService(BaseWorkspaceService):
         diagnostics: list[PullDiagnostic] = []
 
         for file_path, content in content_map.items():
+            yaml_data: dict[str, Any] | None = None
             try:
                 # Parse YAML content
                 yaml_data = yaml.safe_load(content)

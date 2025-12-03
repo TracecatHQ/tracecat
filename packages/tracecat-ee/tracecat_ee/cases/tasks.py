@@ -57,6 +57,8 @@ async def create_task(
             "workflow_id is required when default_trigger_values is provided"
         )
 
+    priority_enum: CasePriority = CasePriority.UNKNOWN
+    status_enum: CaseTaskStatus = CaseTaskStatus.TODO
     if priority:
         priority_enum = CasePriority(priority)
     if status:

@@ -227,6 +227,7 @@ async def run_python(
         raise PythonScriptValidationError(error_message)
 
     in_pyodide_env = False
+    eval_code_async: Any = None
     try:
         from pyodide import eval_code_async  # type: ignore
 
@@ -299,6 +300,10 @@ __result  # Return the result
         sys.stdout = stdout_capture
         sys.stderr = stderr_capture
 
+        if eval_code_async is None:
+            raise RuntimeError(
+                "eval_code_async should be available in pyodide environment"
+            )
         try:
             script_result = await asyncio.wait_for(
                 eval_code_async(execution_code, globals=script_globals),

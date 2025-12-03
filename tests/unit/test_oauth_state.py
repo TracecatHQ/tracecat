@@ -37,9 +37,9 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     """Mock OAuth provider for testing."""
 
     id: ClassVar[str] = "mock_oauth_state_provider"
-    _authorization_endpoint: ClassVar[str] = "https://mock.provider/oauth/authorize"
-    _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
-    config_model: ClassVar[type[BaseModel]] = MockProviderConfig
+    _authorization_endpoint: ClassVar[str] = "https://mock.provider/oauth/authorize"  # type: ignore[assignment]
+    _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"  # type: ignore[assignment]
+    config_model: ClassVar[type[BaseModel]] = MockProviderConfig  # type: ignore[assignment]
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
     )

@@ -25,6 +25,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
@@ -390,6 +391,7 @@ async def commit_workflow(
     # Tier 1: DSLInput validation
     # Verify that the workflow DSL is structurally sound
     construction_errors: list[ValidationResult] = []
+    dsl: DSLInput | None = None
     try:
         # Convert the workflow into a WorkflowDefinition
         # XXX: When we commit from the workflow, we have action IDs
@@ -423,6 +425,8 @@ async def commit_workflow(
             errors=construction_errors,
         )
 
+    if dsl is None:
+        raise ValueError("dsl should be defined if no construction errors")
     # When we're here, we've verified that the workflow DSL is structurally sound
     # Now, we have to ensure that the arguments are sound
 
