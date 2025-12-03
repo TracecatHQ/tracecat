@@ -575,6 +575,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         </svg>
       </div>
     ),
+    "tools.servicenow": createIconRenderer(ServiceNowIcon),
     "tools.slack": createIconRenderer(SlackIcon),
     "tools.slack_blocks": createIconRenderer(SlackIcon),
     "ai.openai": createIconRenderer(OpenAIIcon),
@@ -675,6 +676,11 @@ export const providerIcons: Record<
   github: ({ className, ...rest }) => (
     <div className={className}>
       <GitHubIcon {...rest} />
+    </div>
+  ),
+  servicenow: ({ className, ...rest }) => (
+    <div className={className}>
+      <ServiceNowIcon {...rest} />
     </div>
   ),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
@@ -788,6 +794,24 @@ export function SlackIcon({ className, ...rest }: IconProps) {
         <path
           d="m0 1553.2c-.1 135.3 109.5 245.1 244.8 245.2 135.3-.1 244.9-109.9 244.8-245.2v-245.2h-244.8c-135.3.1-244.9 109.9-244.8 245.2zm652.7 0v654c-.2 135.3 109.4 245.1 244.7 245.3 135.3-.1 244.9-109.9 244.8-245.2v-653.9c.2-135.3-109.4-245.1-244.7-245.3-135.4 0-244.9 109.8-244.8 245.1 0 0 0 .1 0 0"
           fill="#e01e5a"
+        />
+      </g>
+    </svg>
+  )
+}
+
+export function ServiceNowIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="94 4.5 17 17"
+      className={className}
+      {...rest}
+    >
+      <g clipRule="evenodd" fillRule="evenodd">
+        <path
+          d="m102.8 5.762c-4.2 0-7.5 3.3-7.5 7.5 0 2.2 0.9 4.2 2.3 5.6 0.5 0.5 1.4 0.5 2 0.1 0.8-0.7 2-1.1 3.2-1.1 1.3 0 2.3 0.4 3.2 1.1 0.6 0.5 1.4 0.4 2-0.2 1.4-1.4 2.3-3.3 2.3-5.5-0.1-4.1-3.4-7.5-7.5-7.5m-0.1 11.4c-2.3 0-3.8-1.7-3.8-3.8s1.5-3.8 3.8-3.8 3.8 1.7 3.8 3.8-1.5 3.8-3.8 3.8"
+          fill="#81b5a1"
         />
       </g>
     </svg>
