@@ -185,7 +185,7 @@ export function NewCredentialsDialog({
                             key={`${field.id}.${index}`}
                             className="flex w-full items-center gap-2"
                           >
-                            <FormControl>
+                            <FormControl className="flex-1">
                               <Input
                                 id={`key-${index}`}
                                 className="text-sm"
@@ -198,7 +198,7 @@ export function NewCredentialsDialog({
                                 placeholder="Key"
                               />
                             </FormControl>
-                            <FormControl>
+                            <FormControl className="flex-1">
                               <Input
                                 id={`value-${index}`}
                                 className="text-sm"
