@@ -274,7 +274,12 @@ class CasesService(BaseWorkspaceService):
         sort_column = order_by or "created_at"
         sort_direction = sort or "desc"
 
-        # For "tasks", use a correlated subquery to count tasks; otherwise use Case attribute
+        # Map computed properties to their underlying columns
+        if sort_column == "short_id":
+            sort_column = "case_number"
+
+        # Validate and get sort attribute
+        # For "tasks", use a correlated subquery to count tasks; otherwise use Case column
         if sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
@@ -360,13 +365,19 @@ class CasesService(BaseWorkspaceService):
                         )
 
         # Apply sorting: (sort_col, id) for stable pagination
-        # Use id as tie-breaker since it's always unique
-        if sort_direction == "asc":
-            stmt = stmt.order_by(sort_attr.asc(), Case.created_at.asc(), Case.id.asc())
+        # Use id as tie-breaker unless we're already sorting by id
+        if sort_column == "id":
+            # No tie-breaker needed when sorting by id (already unique)
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_attr.asc())
+            else:
+                stmt = stmt.order_by(sort_attr.desc())
         else:
-            stmt = stmt.order_by(
-                sort_attr.desc(), Case.created_at.desc(), Case.id.desc()
-            )
+            # Add id as tie-breaker for non-unique columns
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
+            else:
+                stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)

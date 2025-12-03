@@ -369,10 +369,18 @@ async def list_rows(
         response = await service.list_rows_paginated(
             table, params, order_by=order_by, sort=sort
         )
+    except ValueError as e:
+        logger.warning(f"Invalid request for list rows: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to list rows: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve rows",
         ) from e
 
