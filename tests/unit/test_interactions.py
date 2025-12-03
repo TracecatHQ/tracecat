@@ -3,6 +3,7 @@ import os
 import uuid
 from contextlib import contextmanager
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from temporalio.client import Client
@@ -100,8 +101,6 @@ async def test_workflow_interaction(
     wf_exec_id = generate_test_exec_id(test_name) + str(uuid.uuid4())
     run_args = DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-
-    from typing import Any
 
     wf_handle: Any = None
     try:
