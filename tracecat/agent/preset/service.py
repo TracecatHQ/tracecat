@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import uuid
 from collections.abc import Sequence
 from typing import cast
@@ -11,12 +13,16 @@ from sqlalchemy import func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
-from tracecat.db.models import AgentPreset, RegistryAction
+from tracecat.db.models import (
+    AgentPreset,
+    OAuthIntegration,
+    RegistryAction,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.integrations.providers.base import MCPAuthProvider
-from tracecat.integrations.schemas import ProviderKey
+from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService
 
 
@@ -156,25 +162,31 @@ class AgentPresetService(BaseWorkspaceService):
         return await self.get_agent_config_by_slug(slug or "")
 
     async def _validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
-        """Validate MCP OAuth integration provider IDs for the workspace."""
-        mcp_integrations_set = set(mcp_integrations)
+        """Validate MCP integration IDs for the workspace."""
+        if not mcp_integrations:
+            return
+
+        # Convert string IDs to UUIDs for validation
+        mcp_integration_ids = set()
+        for mcp_id in mcp_integrations:
+            try:
+                mcp_integration_ids.add(uuid.UUID(mcp_id))
+            except ValueError as err:
+                raise TracecatValidationError(
+                    f"Invalid MCP integration ID format: {mcp_id}"
+                ) from err
+
         integrations_service = IntegrationService(self.session, role=self.role)
-        integrations = await integrations_service.list_integrations()
-        available_provider_ids = {
-            integration.provider_id for integration in integrations
+        available_mcp_integrations = await integrations_service.list_mcp_integrations()
+        available_mcp_integration_ids = {
+            mcp_integration.id for mcp_integration in available_mcp_integrations
         }
-        if missing_integrations := mcp_integrations_set - available_provider_ids:
+
+        # Check if all requested IDs exist
+        if missing_ids := mcp_integration_ids - available_mcp_integration_ids:
+            missing_str = sorted(str(id) for id in missing_ids)
             raise TracecatValidationError(
-                f"{len(missing_integrations)} MCP integrations were not found in this workspace: {sorted(missing_integrations)}"
-            )
-        # Verify that each provider is actually an MCP provider
-        # MCP providers follow the naming convention of ending with "_mcp"
-        non_mcp_providers = [
-            pid for pid in mcp_integrations_set if not pid.endswith("_mcp")
-        ]
-        if non_mcp_providers:
-            raise TracecatValidationError(
-                f"Providers are not MCP providers: {sorted(non_mcp_providers)}"
+                f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
             )
 
     async def _resolve_mcp_integrations(
@@ -185,50 +197,173 @@ class AgentPresetService(BaseWorkspaceService):
             return None
 
         integrations_service = IntegrationService(self.session, role=self.role)
-        integrations = await integrations_service.list_integrations()
-        by_provider = {
-            integration.provider_id: integration for integration in integrations
+        available_mcp_integrations = await integrations_service.list_mcp_integrations()
+        by_id = {
+            mcp_integration.id: mcp_integration
+            for mcp_integration in available_mcp_integrations
         }
+
+        # Get encryption key for decrypting custom credentials
+        try:
+            encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+        except KeyError as err:
+            raise TracecatValidationError(
+                "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
+            ) from err
 
         # Collect all matching integrations in preset order
         mcp_servers = []
-        for provider_id in mcp_integrations:
-            if provider_id not in by_provider:
-                continue
-
-            integration = by_provider[provider_id]
-            provider_key = ProviderKey(
-                id=integration.provider_id, grant_type=integration.grant_type
-            )
-            provider_impl = await integrations_service.resolve_provider_impl(
-                provider_key=provider_key
-            )
-            if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
-                raise TracecatValidationError(
-                    f"Provider {integration.provider_id!r} is not a valid MCP provider"
-                )
-
-            await integrations_service.refresh_token_if_needed(integration)
-            access_token = await integrations_service.get_access_token(integration)
-            if not access_token:
+        for mcp_id_str in mcp_integrations:
+            try:
+                mcp_integration_id = uuid.UUID(mcp_id_str)
+            except ValueError:
                 logger.warning(
-                    "Skipping MCP integration %r: no access token (likely disconnected)",
-                    integration.provider_id,
+                    "Invalid MCP integration ID format, skipping: %r",
+                    mcp_id_str,
                     extra={
                         "workspace_id": str(self.workspace_id),
-                        "provider_id": integration.provider_id,
-                        "integration_status": integration.status,
+                        "mcp_id": mcp_id_str,
                     },
                 )
                 continue
 
-            token_type = integration.token_type or "Bearer"
+            if mcp_integration_id not in by_id:
+                logger.warning(
+                    "MCP integration not found, skipping: %r",
+                    mcp_integration_id,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration_id),
+                    },
+                )
+                continue
+
+            mcp_integration = by_id[mcp_integration_id]
+            headers: dict[str, str] = {}
+
+            # Resolve headers based on auth type
+            if mcp_integration.auth_type == MCPAuthType.OAUTH2:
+                # OAuth2: Get access token from linked OAuth integration
+                if not mcp_integration.oauth_integration_id:
+                    logger.warning(
+                        "MCP integration %r has OAUTH2 auth type but no oauth_integration_id",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+
+                # Get OAuth integration by ID
+                stmt = select(OAuthIntegration).where(
+                    OAuthIntegration.id == mcp_integration.oauth_integration_id,
+                    OAuthIntegration.owner_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                oauth_integration = result.scalars().first()
+                if not oauth_integration:
+                    logger.warning(
+                        "OAuth integration not found for MCP integration %r",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                            "oauth_integration_id": str(
+                                mcp_integration.oauth_integration_id
+                            ),
+                        },
+                    )
+                    continue
+
+                await integrations_service.refresh_token_if_needed(oauth_integration)
+                access_token = await integrations_service.get_access_token(
+                    oauth_integration
+                )
+                if not access_token:
+                    logger.warning(
+                        "No access token for MCP integration %r (likely disconnected)",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                            "integration_status": oauth_integration.status,
+                        },
+                    )
+                    continue
+
+                token_type = oauth_integration.token_type or "Bearer"
+                headers["Authorization"] = (
+                    f"{token_type} {access_token.get_secret_value()}"
+                )
+
+            elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
+                # CUSTOM: Decrypt and parse custom credentials (JSON string with headers)
+                if not mcp_integration.encrypted_headers:
+                    logger.warning(
+                        "MCP integration %r has CUSTOM auth type but no encrypted_headers",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+
+                try:
+                    decrypted_bytes = decrypt_value(
+                        mcp_integration.encrypted_headers, key=encryption_key
+                    )
+                    custom_credentials_str = decrypted_bytes.decode("utf-8")
+                    custom_headers = json.loads(custom_credentials_str)
+
+                    if not isinstance(custom_headers, dict):
+                        logger.warning(
+                            "Custom credentials for MCP integration %r must be a JSON object",
+                            mcp_integration.name,
+                            extra={
+                                "workspace_id": str(self.workspace_id),
+                                "mcp_integration_id": str(mcp_integration.id),
+                            },
+                        )
+                        continue
+
+                    # Merge custom headers (e.g., {"Authorization": "Bearer ...", "X-API-Key": "..."})
+                    headers.update(custom_headers)
+
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(
+                        "Failed to parse custom credentials for MCP integration %r: %s",
+                        mcp_integration.name,
+                        str(e),
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+
+            elif mcp_integration.auth_type == MCPAuthType.NONE:
+                pass
+
+            else:
+                logger.warning(
+                    "Unknown auth type for MCP integration %r: %s",
+                    mcp_integration.name,
+                    mcp_integration.auth_type,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration.id),
+                        "auth_type": str(mcp_integration.auth_type),
+                    },
+                )
+                continue
+
+            # Build MCP server config
             mcp_servers.append(
                 {
-                    "url": provider_impl.mcp_server_uri,
-                    "headers": {
-                        "Authorization": f"{token_type} {access_token.get_secret_value()}"
-                    },
+                    "url": mcp_integration.server_uri,
+                    "headers": headers,
                 }
             )
 

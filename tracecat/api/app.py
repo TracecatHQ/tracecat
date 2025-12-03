@@ -51,7 +51,11 @@ from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
-from tracecat.integrations.router import integrations_router, providers_router
+from tracecat.integrations.router import (
+    integrations_router,
+    mcp_router,
+    providers_router,
+)
 from tracecat.logger import logger
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
@@ -242,6 +246,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
+    app.include_router(mcp_router)
     app.include_router(feature_flags_router)
     app.include_router(
         vcs_router,

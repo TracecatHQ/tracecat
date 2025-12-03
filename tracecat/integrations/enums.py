@@ -19,3 +19,11 @@ class OAuthGrantType(StrEnum):
     """Authorization code grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.1"""
     CLIENT_CREDENTIALS = "client_credentials"
     """Client credentials grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4"""
+
+
+class MCPAuthType(StrEnum):
+    """Authentication type for MCP integrations."""
+
+    OAUTH2 = "OAUTH2"
+    CUSTOM = "CUSTOM"
+    NONE = "NONE"

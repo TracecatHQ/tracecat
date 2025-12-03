@@ -10,10 +10,16 @@ from datetime import datetime
 from typing import Any, Self, TypedDict
 from urllib.parse import urlparse
 
-from pydantic import UUID4, BaseModel, Field, SecretStr, field_validator
+from pydantic import (
+    UUID4,
+    BaseModel,
+    Field,
+    SecretStr,
+    field_validator,
+)
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 
 
 # Pydantic models for API responses
@@ -345,3 +351,92 @@ class ProviderRead(BaseModel):
     token_endpoint_help: str | list[str] | None = None
     # Only applicable to AuthorizationCodeOAuthProvider
     redirect_uri: str | None = None
+
+
+class MCPIntegrationCreate(BaseModel):
+    """Request model for creating an MCP integration."""
+
+    name: str = Field(
+        ..., min_length=3, max_length=255, description="MCP integration name"
+    )
+    description: str | None = Field(
+        default=None, max_length=512, description="Optional description"
+    )
+    server_uri: str = Field(..., description="MCP server endpoint URL")
+    auth_type: MCPAuthType = Field(..., description="Authentication type")
+    oauth_integration_id: uuid.UUID | None = Field(
+        default=None, description="OAuth integration ID (required for oauth2 auth_type)"
+    )
+    custom_credentials: SecretStr | None = Field(
+        default=None,
+        description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    )
+
+    @field_validator("server_uri", mode="before")
+    @classmethod
+    def _validate_server_uri(cls, value: str | None) -> str | None:
+        """Validate and sanitize MCP server URI."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            return None
+
+        # Validate it's a valid URL
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("Server URI must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Server URI must use HTTP or HTTPS")
+
+        return value
+
+
+class MCPIntegrationUpdate(BaseModel):
+    """Request model for updating an MCP integration."""
+
+    name: str | None = Field(default=None, min_length=3, max_length=255)
+    description: str | None = Field(default=None, max_length=512)
+    server_uri: str | None = None
+    auth_type: MCPAuthType | None = None
+    oauth_integration_id: uuid.UUID | None = None
+    custom_credentials: SecretStr | None = Field(
+        default=None,
+        description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    )
+
+    @field_validator("server_uri", mode="before")
+    @classmethod
+    def _validate_server_uri(cls, value: str | None) -> str | None:
+        """Validate and sanitize MCP server URI."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            return None
+
+        # Validate it's a valid URL
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("Server URI must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Server URI must use HTTP or HTTPS")
+
+        return value
+
+
+class MCPIntegrationRead(BaseModel):
+    """Response model for MCP integration."""
+
+    id: UUID4
+    owner_id: UUID4
+    name: str
+    description: str | None
+    slug: str
+    server_uri: str
+    auth_type: MCPAuthType
+    oauth_integration_id: UUID4 | None
+    created_at: datetime
+    updated_at: datetime
