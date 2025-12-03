@@ -291,7 +291,6 @@ class CasesService(BaseWorkspaceService):
         # The cursor stores (sort_column, sort_value, created_at, id) for proper pagination
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
-            cursor_time = cursor_data.created_at
             cursor_id = uuid.UUID(cursor_data.id)
 
             # Check if cursor was created with the same sort column (for proper pagination)
@@ -306,16 +305,12 @@ class CasesService(BaseWorkspaceService):
                 if sort_column == "tasks":
                     sort_filter_col = task_count_expr
                     sort_cursor_value = cursor_sort_value  # Integer comparison
-                elif sort_column == "created_at":
-                    # Special case: when sorting by created_at, use cursor_time (datetime) instead of string
-                    sort_filter_col = Case.created_at
-                    sort_cursor_value = cursor_time  # Datetime comparison
                 else:
                     sort_filter_col = getattr(Case, sort_column)
-                    sort_cursor_value = cursor_sort_value  # String/enum comparison
+                    sort_cursor_value = cursor_sort_value
 
-                # Composite filtering: (sort_col, created_at, id) matches ORDER BY
-                # This ensures consistent pagination when sorting by any column
+                # Composite filtering: (sort_col, id) matches ORDER BY
+                # Use id as tie-breaker since it's always unique
                 if sort_direction == "asc":
                     if params.reverse:
                         # Going backward: get records before cursor in sort order
@@ -324,11 +319,6 @@ class CasesService(BaseWorkspaceService):
                                 sort_filter_col < sort_cursor_value,
                                 and_(
                                     sort_filter_col == sort_cursor_value,
-                                    Case.created_at < cursor_time,
-                                ),
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.created_at == cursor_time,
                                     Case.id < cursor_id,
                                 ),
                             )
@@ -340,11 +330,6 @@ class CasesService(BaseWorkspaceService):
                                 sort_filter_col > sort_cursor_value,
                                 and_(
                                     sort_filter_col == sort_cursor_value,
-                                    Case.created_at > cursor_time,
-                                ),
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.created_at == cursor_time,
                                     Case.id > cursor_id,
                                 ),
                             )
@@ -358,11 +343,6 @@ class CasesService(BaseWorkspaceService):
                                 sort_filter_col > sort_cursor_value,
                                 and_(
                                     sort_filter_col == sort_cursor_value,
-                                    Case.created_at > cursor_time,
-                                ),
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.created_at == cursor_time,
                                     Case.id > cursor_id,
                                 ),
                             )
@@ -374,63 +354,13 @@ class CasesService(BaseWorkspaceService):
                                 sort_filter_col < sort_cursor_value,
                                 and_(
                                     sort_filter_col == sort_cursor_value,
-                                    Case.created_at < cursor_time,
-                                ),
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.created_at == cursor_time,
-                                    Case.id < cursor_id,
-                                ),
-                            )
-                        )
-            else:
-                # Fallback: cursor doesn't have sort value or sort column changed
-                # Use created_at-based filtering (backward compatibility)
-                if sort_direction == "asc":
-                    if params.reverse:
-                        stmt = stmt.where(
-                            or_(
-                                Case.created_at < cursor_time,
-                                and_(
-                                    Case.created_at == cursor_time,
-                                    Case.id < cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        stmt = stmt.where(
-                            or_(
-                                Case.created_at > cursor_time,
-                                and_(
-                                    Case.created_at == cursor_time,
-                                    Case.id > cursor_id,
-                                ),
-                            )
-                        )
-                else:
-                    if params.reverse:
-                        stmt = stmt.where(
-                            or_(
-                                Case.created_at > cursor_time,
-                                and_(
-                                    Case.created_at == cursor_time,
-                                    Case.id > cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        stmt = stmt.where(
-                            or_(
-                                Case.created_at < cursor_time,
-                                and_(
-                                    Case.created_at == cursor_time,
                                     Case.id < cursor_id,
                                 ),
                             )
                         )
 
-        # Apply sorting: (sort_col, created_at, id) for stable pagination
-        # Always include created_at as tie-breaker to match WHERE clause structure
+        # Apply sorting: (sort_col, id) for stable pagination
+        # Use id as tie-breaker since it's always unique
         if sort_direction == "asc":
             stmt = stmt.order_by(sort_attr.asc(), Case.created_at.asc(), Case.id.asc())
         else:
@@ -447,36 +377,8 @@ class CasesService(BaseWorkspaceService):
         has_more = len(all_cases) > params.limit
         cases = all_cases[: params.limit] if has_more else all_cases
 
-        # Generate cursors
-        next_cursor = None
-        prev_cursor = None
-        has_previous = params.cursor is not None
-
-        if has_more and cases:
-            last_case = cases[-1]
-            next_cursor = paginator.encode_cursor(last_case.created_at, last_case.id)
-
-        if params.cursor and cases:
-            first_case = cases[0]
-            # For reverse pagination, swap the cursor meaning
-            if params.reverse:
-                next_cursor = paginator.encode_cursor(
-                    first_case.created_at, first_case.id
-                )
-            else:
-                prev_cursor = paginator.encode_cursor(
-                    first_case.created_at, first_case.id
-                )
-
         # Fetch task counts for all cases in one query (needed for cursor generation if sorting by tasks)
         task_counts = await self.get_task_counts([case.id for case in cases])
-
-        # Helper to get sort value for a case (needed for cursor generation)
-        def get_sort_value(case: Case) -> str | int | float | None:
-            if sort_column == "tasks":
-                counts = task_counts.get(case.id, {"total": 0})
-                return counts.get("total", 0)
-            return getattr(case, sort_column, None)
 
         # Generate cursors with sort column info for proper pagination
         next_cursor = None
@@ -485,29 +387,36 @@ class CasesService(BaseWorkspaceService):
 
         if has_more and cases:
             last_case = cases[-1]
+            sort_value = (
+                task_counts.get(last_case.id, {}).get("total", 0)
+                if sort_column == "tasks"
+                else getattr(last_case, sort_column, None)
+            )
             next_cursor = paginator.encode_cursor(
-                last_case.created_at,
                 last_case.id,
                 sort_column=sort_column,
-                sort_value=get_sort_value(last_case),
+                sort_value=sort_value,
             )
 
         if params.cursor and cases:
             first_case = cases[0]
+            sort_value = (
+                task_counts.get(first_case.id, {}).get("total", 0)
+                if sort_column == "tasks"
+                else getattr(first_case, sort_column, None)
+            )
             # For reverse pagination, swap the cursor meaning
             if params.reverse:
                 next_cursor = paginator.encode_cursor(
-                    first_case.created_at,
                     first_case.id,
                     sort_column=sort_column,
-                    sort_value=get_sort_value(first_case),
+                    sort_value=sort_value,
                 )
             else:
                 prev_cursor = paginator.encode_cursor(
-                    first_case.created_at,
                     first_case.id,
                     sort_column=sort_column,
-                    sort_value=get_sort_value(first_case),
+                    sort_value=sort_value,
                 )
 
         # Convert to CaseReadMinimal objects with tags

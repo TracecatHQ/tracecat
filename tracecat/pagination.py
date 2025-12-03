@@ -7,7 +7,7 @@ from typing import TypeVar
 from uuid import UUID
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 T = TypeVar("T")
@@ -41,15 +41,29 @@ class CursorPaginatedResponse[T](BaseModel):
 class CursorData(BaseModel):
     """Internal structure for cursor data."""
 
-    created_at: datetime
     id: str
     sort_column: str | None = Field(
         default=None, description="Column name being sorted (for sort-aware pagination)"
     )
-    sort_value: str | int | float | None = Field(
+    sort_value: datetime | str | int | float | None = Field(
         default=None,
         description="Serialized value of sort column for the cursor row",
     )
+
+    @field_validator("sort_value", mode="before")
+    @classmethod
+    def parse_datetime_string(
+        cls, v: str | int | float | None
+    ) -> datetime | str | int | float | None:
+        """Try to parse ISO datetime strings back to datetime objects."""
+        if isinstance(v, str):
+            try:
+                # Attempt to parse as ISO datetime
+                return datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                # Not a datetime string, return as-is
+                return v
+        return v
 
 
 class BaseCursorPaginator:
@@ -60,29 +74,20 @@ class BaseCursorPaginator:
 
     @staticmethod
     def encode_cursor(
-        created_at: datetime,
         id: UUID | str,
         sort_column: str | None = None,
         sort_value: str | int | float | datetime | None = None,
     ) -> str:
         """Encode a cursor from timestamp and ID, optionally with sort column info.
-
         Args:
-            created_at: The created_at timestamp of the row (always required for tie-breaking)
-            id: The row ID (always required for uniqueness)
-            sort_column: Optional name of the column being sorted (e.g., "priority", "severity")
-            sort_value: Optional value of the sort column for this row. If datetime, will be serialized to ISO string.
+            id: The row ID (used as tie-breaker for stable pagination)
+            sort_column: Optional name of the column being sorted (e.g., "priority", "severity", "created_at")
+            sort_value: Optional value of the sort column. Should be datetime for datetime columns.
         """
-        # Convert datetime sort values to ISO string for JSON serialization
-        serialized_sort_value = sort_value
-        if isinstance(sort_value, datetime):
-            serialized_sort_value = sort_value.isoformat()
-
         cursor_data = CursorData(
-            created_at=created_at,
             id=str(id),
             sort_column=sort_column,
-            sort_value=serialized_sort_value,
+            sort_value=sort_value,
         )
         json_str = cursor_data.model_dump_json()
         return base64.urlsafe_b64encode(json_str.encode()).decode()

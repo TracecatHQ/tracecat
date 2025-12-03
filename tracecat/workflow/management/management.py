@@ -275,13 +275,17 @@ class WorkflowsManagementService(BaseService):
             if has_more:
                 last_workflow = items[-1][0]  # Get the workflow from the tuple
                 next_cursor = paginator.encode_cursor(
-                    last_workflow.created_at, last_workflow.id
+                    last_workflow.id,
+                    sort_column="created_at",
+                    sort_value=last_workflow.created_at,
                 )
 
             if params.cursor:
                 first_workflow = items[0][0]  # Get the workflow from the tuple
                 prev_cursor = paginator.encode_cursor(
-                    first_workflow.created_at, first_workflow.id
+                    first_workflow.id,
+                    sort_column="created_at",
+                    sort_value=first_workflow.created_at,
                 )
 
         # If we were doing reverse pagination, swap the cursors and reverse items
