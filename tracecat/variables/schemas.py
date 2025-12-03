@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from tracecat.db.models import WorkspaceVariable
-from tracecat.identifiers import OwnerID, VariableID
+from tracecat.identifiers import VariableID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 VariableName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
@@ -69,7 +69,7 @@ class VariableRead(BaseModel):
     values: dict[str, Any]
     environment: str
     tags: dict[str, str] | None
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     created_at: datetime
     updated_at: datetime
 
@@ -82,7 +82,7 @@ class VariableRead(BaseModel):
             values=obj.values,
             environment=obj.environment,
             tags=obj.tags,
-            owner_id=obj.owner_id,
+            workspace_id=obj.workspace_id,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )

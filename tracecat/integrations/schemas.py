@@ -431,7 +431,7 @@ class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
     id: UUID4
-    owner_id: UUID4
+    workspace_id: UUID4
     name: str
     description: str | None
     slug: str

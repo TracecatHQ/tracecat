@@ -12,6 +12,7 @@ from tracecat.identifiers import SecretID
 from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
+    OrganizationSecretRead,
     SecretCreate,
     SecretRead,
     SecretReadMinimal,
@@ -225,7 +226,7 @@ async def get_org_secret_by_name(
     session: AsyncDBSession,
     secret_name: str,
     environment: str | None = Query(None),
-) -> SecretRead:
+) -> OrganizationSecretRead:
     """Get an organization secret by name."""
     service = SecretsService(session, role=role)
     try:
@@ -235,7 +236,7 @@ async def get_org_secret_by_name(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Organization secret not found",
         ) from e
-    return SecretRead.from_database(secret)
+    return OrganizationSecretRead.from_database(secret)
 
 
 @org_router.post("", status_code=status.HTTP_201_CREATED)

@@ -226,7 +226,7 @@ export type AgentPresetRead = {
   mcp_integrations?: Array<string> | null
   retries?: number
   id: string
-  owner_id: string
+  workspace_id: string
   name: string
   slug: string
   created_at: string
@@ -238,7 +238,7 @@ export type AgentPresetRead = {
  */
 export type AgentPresetReadMinimal = {
   id: string
-  owner_id: string
+  workspace_id: string
   name: string
   slug: string
   description: string | null
@@ -2053,7 +2053,7 @@ export type FolderDirectoryItem = {
   id: string
   name: string
   path: string
-  owner_id: string
+  workspace_id: string
   created_at: string
   updated_at: string
   type: "folder"
@@ -2502,7 +2502,7 @@ export type MCPIntegrationCreate = {
  */
 export type MCPIntegrationRead = {
   id: string
-  owner_id: string
+  workspace_id: string
   name: string
   description: string | null
   slug: string
@@ -2666,6 +2666,24 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Read schema for organization-scoped secrets.
+ */
+export type OrganizationSecretRead = {
+  id: string
+  type: SecretType
+  name: string
+  description?: string | null
+  encrypted_keys: Blob | File
+  environment: string
+  tags?: {
+    [key: string]: string
+  } | null
+  created_at: string
+  updated_at: string
+  organization_id: string
 }
 
 export type OutputType =
@@ -3545,7 +3563,7 @@ export type status2 = "online" | "offline"
 
 export type ScheduleRead = {
   id: string
-  owner_id: string
+  workspace_id: string
   created_at: string
   updated_at: string
   workflow_id: string
@@ -3619,6 +3637,9 @@ export type SecretKeyValue = {
   value: string
 }
 
+/**
+ * Read schema for workspace-scoped secrets.
+ */
 export type SecretRead = {
   id: string
   type: SecretType
@@ -3629,9 +3650,9 @@ export type SecretRead = {
   tags?: {
     [key: string]: string
   } | null
-  owner_id: string
   created_at: string
   updated_at: string
+  workspace_id: string
 }
 
 export type SecretReadMinimal = {
@@ -4700,7 +4721,7 @@ export type VariableRead = {
   tags: {
     [key: string]: string
   } | null
-  owner_id: string
+  workspace_id: string
   created_at: string
   updated_at: string
 }
@@ -4854,7 +4875,7 @@ export type status3 = "success" | "failure"
 export type WorkflowDefinitionRead = {
   id: string
   workflow_id: string | null
-  owner_id: string
+  workspace_id: string
   version: number
   content?: {
     [key: string]: unknown
@@ -5159,7 +5180,7 @@ export type WorkflowFolderRead = {
   id: string
   name: string
   path: string
-  owner_id: string
+  workspace_id: string
   created_at: string
   updated_at: string
 }
@@ -5183,7 +5204,7 @@ export type WorkflowRead = {
   object: {
     [key: string]: unknown
   } | null
-  owner_id: string
+  workspace_id: string
   version?: number | null
   webhook: WebhookRead
   schedules: Array<ScheduleRead>
@@ -5271,7 +5292,7 @@ export type WorkflowUpdate = {
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
-  owner_id?: string
+  organization_id?: string
 }
 
 export type WorkspaceMember = {
@@ -5302,7 +5323,7 @@ export type WorkspaceRead = {
   id: string
   name: string
   settings?: WorkspaceSettingsRead | null
-  owner_id: string
+  organization_id: string
 }
 
 export type WorkspaceReadMinimal = {
@@ -6299,7 +6320,8 @@ export type OrganizationSecretsGetOrgSecretByNameData = {
   secretName: string
 }
 
-export type OrganizationSecretsGetOrgSecretByNameResponse = SecretRead
+export type OrganizationSecretsGetOrgSecretByNameResponse =
+  OrganizationSecretRead
 
 export type OrganizationSecretsUpdateOrgSecretByIdData = {
   requestBody: SecretUpdate
@@ -9028,7 +9050,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: SecretRead
+        200: OrganizationSecretRead
         /**
          * Validation Error
          */

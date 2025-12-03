@@ -117,7 +117,7 @@ async def create_workspace(
     service = WorkspaceService(session, role=role)
     try:
         workspace = await service.create_workspace(
-            params.name, owner_id=params.owner_id
+            params.name, organization_id=params.organization_id
         )
     except TracecatAuthorizationError as e:
         logger.warning(
@@ -167,7 +167,7 @@ async def get_workspace(
         id=workspace.id,
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings),
-        owner_id=workspace.owner_id,
+        organization_id=workspace.organization_id,
     )
 
 

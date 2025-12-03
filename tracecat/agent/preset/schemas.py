@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
-from tracecat.identifiers import OwnerID
+from tracecat.identifiers import WorkspaceID
 
 
 class AgentPresetBase(Schema):
@@ -57,7 +57,7 @@ class AgentPresetReadMinimal(Schema):
     """Minimal API model for reading agent presets in list endpoints."""
 
     id: uuid.UUID
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     name: str
     slug: str
     description: str | None
@@ -69,7 +69,7 @@ class AgentPresetRead(AgentPresetBase):
     """API model for reading agent presets."""
 
     id: uuid.UUID
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     name: str
     slug: str
     created_at: datetime

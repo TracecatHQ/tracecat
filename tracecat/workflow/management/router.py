@@ -291,7 +291,7 @@ async def get_workflow(
         expects_schema = None
     return WorkflowRead(
         id=WorkflowUUID.new(workflow.id).short(),
-        owner_id=workflow.owner_id,
+        workspace_id=workflow.workspace_id,
         title=workflow.title,
         description=workflow.description,
         status=workflow.status,
@@ -589,7 +589,7 @@ async def create_webhook(
         )
 
     webhook = Webhook(
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         methods=cast(list[str], params.methods),
         workflow_id=workflow_id,
         status=params.status,
@@ -640,7 +640,7 @@ async def update_webhook(
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     result = await session.execute(
         select(Workflow).where(
-            Workflow.owner_id == role.workspace_id,
+            Workflow.workspace_id == role.workspace_id,
             Workflow.id == workflow_id,
         )
     )
@@ -690,14 +690,14 @@ async def generate_webhook_api_key(
     api_key = webhook.api_key
     if api_key is None:
         api_key = WebhookApiKey(
-            owner_id=role.workspace_id,
+            workspace_id=role.workspace_id,
             webhook_id=webhook.id,
             hashed=generated.hashed,
             salt=generated.salt_b64,
             preview=preview,
         )
     else:
-        api_key.owner_id = role.workspace_id
+        api_key.workspace_id = role.workspace_id
         api_key.hashed = generated.hashed
         api_key.salt = generated.salt_b64
         api_key.preview = preview

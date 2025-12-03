@@ -13,8 +13,8 @@ from pydantic import (
     field_validator,
 )
 
-from tracecat.db.models import BaseSecret
-from tracecat.identifiers import OwnerID, SecretID
+from tracecat.db.models import OrganizationSecret, Secret
+from tracecat.identifiers import OrganizationID, SecretID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType
 
@@ -123,7 +123,7 @@ class SecretSearch(BaseModel):
     names: set[str] | None = None
     ids: set[SecretID] | None = None
     environment: str
-    owner_ids: set[UUID] | None = None
+    workspace_ids: set[UUID] | None = None
     types: set[SecretType] | None = None
 
 
@@ -136,7 +136,9 @@ class SecretReadMinimal(BaseModel):
     environment: str
 
 
-class SecretRead(BaseModel):
+class SecretReadBase(BaseModel):
+    """Base read schema for secrets."""
+
     id: str
     type: SecretType
     name: str
@@ -144,19 +146,45 @@ class SecretRead(BaseModel):
     encrypted_keys: bytes
     environment: str
     tags: dict[str, str] | None = None
-    owner_id: OwnerID
     created_at: datetime
     updated_at: datetime
 
+
+class SecretRead(SecretReadBase):
+    """Read schema for workspace-scoped secrets."""
+
+    workspace_id: WorkspaceID
+
     @staticmethod
-    def from_database(obj: BaseSecret) -> SecretRead:
+    def from_database(obj: Secret) -> SecretRead:
         return SecretRead(
             id=obj.id,
             type=SecretType(obj.type),
             name=obj.name,
             description=obj.description,
             environment=obj.environment,
-            owner_id=obj.owner_id,
+            workspace_id=obj.workspace_id,
+            created_at=obj.created_at,
+            updated_at=obj.updated_at,
+            encrypted_keys=obj.encrypted_keys,
+            tags=obj.tags,
+        )
+
+
+class OrganizationSecretRead(SecretReadBase):
+    """Read schema for organization-scoped secrets."""
+
+    organization_id: OrganizationID
+
+    @staticmethod
+    def from_database(obj: OrganizationSecret) -> OrganizationSecretRead:
+        return OrganizationSecretRead(
+            id=obj.id,
+            type=SecretType(obj.type),
+            name=obj.name,
+            description=obj.description,
+            environment=obj.environment,
+            organization_id=obj.organization_id,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
             encrypted_keys=obj.encrypted_keys,
