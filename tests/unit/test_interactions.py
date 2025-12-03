@@ -101,6 +101,9 @@ async def test_workflow_interaction(
     run_args = DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
+    from typing import Any
+
+    wf_handle: Any = None
     try:
         async with test_worker_factory(temporal_client, task_queue=queue):
             wf_handle = await temporal_client.start_workflow(
@@ -155,8 +158,9 @@ async def test_workflow_interaction(
             assert exec_result["interaction"] == {"incoming": "test"}
             assert exec_result["interaction_id"] == str(interaction_id)
     except Exception:
-        try:
-            await wf_handle.terminate(reason="Test complete")
-        except Exception:
-            pass
+        if wf_handle is not None:
+            try:
+                await wf_handle.terminate(reason="Test complete")
+            except Exception:
+                pass
         raise

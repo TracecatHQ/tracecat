@@ -209,6 +209,7 @@ def db() -> Iterator[None]:
         """
     )
 
+    test_engine: Any = None
     try:
         with default_engine.connect() as conn:
             # Terminate existing connections
@@ -224,7 +225,8 @@ def db() -> Iterator[None]:
             Base.metadata.create_all(conn)
         yield
     finally:
-        test_engine.dispose()
+        if test_engine is not None:
+            test_engine.dispose()
         # # Cleanup - reconnect to system db to drop test db
         with default_engine.begin() as conn:
             conn.execute(termination_query)

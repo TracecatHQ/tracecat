@@ -220,6 +220,7 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.name == "Updated MCP"
         assert updated.description == "Updated description"
         assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
@@ -246,6 +247,7 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.name == created.name  # Unchanged
         assert updated.description == "Updated description"
         assert updated.server_uri == created.server_uri  # Unchanged
@@ -304,6 +306,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
         assert updated.oauth_integration_id == oauth_integration.id
         assert updated.encrypted_headers is None
@@ -331,6 +334,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
         assert updated.encrypted_headers is not None
         # OAuth integration ID should still be set but not used
@@ -355,6 +359,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.NONE
         assert updated.encrypted_headers is None
 
@@ -380,6 +385,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
         assert updated.encrypted_headers is not None
         assert updated.encrypted_headers != old_encrypted_headers
@@ -416,6 +422,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.oauth_integration_id == oauth_integration2.id
 
 
@@ -801,10 +808,10 @@ class TestMCPProviderOAuth:
 
         # Create a dummy MCP provider for testing
         class DummyMCPProvider(MCPAuthProvider):
-            id = "dummy_mcp"
-            mcp_server_uri = "https://dummy.example/mcp"
-            scopes: ProviderScopes = ProviderScopes(default=[])
-            metadata: ProviderMetadata = ProviderMetadata(
+            id: str = "dummy_mcp"  # type: ignore[assignment]
+            mcp_server_uri: str = "https://dummy.example/mcp"  # type: ignore[assignment]
+            scopes: ProviderScopes = ProviderScopes(default=[])  # type: ignore[assignment]
+            metadata: ProviderMetadata = ProviderMetadata(  # type: ignore[assignment]
                 id="dummy_mcp",
                 name="Dummy MCP",
                 description="Dummy MCP provider for tests",

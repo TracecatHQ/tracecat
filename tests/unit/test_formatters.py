@@ -281,6 +281,7 @@ class TestXML:
 
     def test_simple_format(self, simple_data):
         """Test XML formatting with simple data."""
+        result: str = ""
         try:
             result = _format_xml(simple_data)
             root = ET.fromstring(result)

@@ -45,12 +45,14 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_r
         tags={},
     )
 
-    mocker.patch.object(AuthSandbox, "_get_secrets", return_value=[mock_secret])
+    mock_get_secrets = mocker.patch.object(
+        AuthSandbox, "_get_secrets", return_value=[mock_secret]
+    )
 
     async with AuthSandbox(secrets=["my_secret"]) as sandbox:
         assert sandbox.secrets == {"my_secret": {"SECRET_KEY": "my_secret_key"}}
 
-    AuthSandbox._get_secrets.assert_called_once()
+    mock_get_secrets.assert_called_once()
 
 
 @pytest.mark.anyio
