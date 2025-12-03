@@ -45,11 +45,11 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     """Mock OAuth provider for testing."""
 
     id: ClassVar[str] = "mock_provider"
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str] = (  # type: ignore[assignment]
         "https://mock.provider/oauth/authorize"
     )
-    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
-    config_model: ClassVar[type[BaseModel]] = MockProviderConfig
+    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"  # type: ignore[assignment]
+    config_model: ClassVar[type[BaseModel]] = MockProviderConfig  # type: ignore[assignment]
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
     )
@@ -89,11 +89,11 @@ class MockCCOAuthProvider(ClientCredentialsOAuthProvider):
     """Mock OAuth provider for client credentials testing."""
 
     id: ClassVar[str] = "mock_cc_provider"
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str] = (  # type: ignore[assignment]
         "https://mock.provider/oauth/authorize"
     )
-    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
-    config_model: ClassVar[type[BaseModel]] = MockProviderConfig
+    default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"  # type: ignore[assignment]
+    config_model: ClassVar[type[BaseModel]] = MockProviderConfig  # type: ignore[assignment]
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
     )

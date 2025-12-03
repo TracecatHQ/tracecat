@@ -70,7 +70,7 @@ class BuildToolDefsResult(BaseModel):
 
 
 class RequestStreamArgs(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     role: Role
     messages: list[ModelMessage]
     model_settings: ModelSettings | None
@@ -80,7 +80,7 @@ class RequestStreamArgs(BaseModel):
 
 
 class EventStreamHandlerArgs(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     serialized_run_context: Any
     event: AgentStreamEvent
 

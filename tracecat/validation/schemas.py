@@ -50,10 +50,17 @@ class ValidationResultType(StrEnum):
 class BaseValidationResult(BaseModel):
     """Base class for validation results."""
 
-    type: ValidationResultType
+    # NOTE:
+    # `type` and `detail` are intentionally typed as `Any` here so that
+    # subclasses can narrow them (e.g. to `Literal[...]` or a concrete
+    # TypedDict) without triggering Pyright's
+    # `reportIncompatibleVariableOverride` diagnostics. Callers should use the
+    # concrete subclasses (e.g. `ExprValidationResult`, `SecretValidationResult`)
+    # where precise typing is required.
+    type: Any
     status: Literal["success", "error"]
     msg: str = ""
-    detail: list[ValidationDetail] | None = None
+    detail: Any | None = None
     ref: str | None = None
 
     def __hash__(self) -> int:
@@ -63,13 +70,19 @@ class BaseValidationResult(BaseModel):
         return hash((self.status, self.msg, detail))
 
 
-class DSLValidationResult(BaseValidationResult):
+class DetailedValidationResult(BaseValidationResult):
+    """Base class for validation results with structured details."""
+
+    detail: list[ValidationDetail] | None = None
+
+
+class DSLValidationResult(DetailedValidationResult):
     """Result of validating a generic input."""
 
     type: Literal[ValidationResultType.DSL] = ValidationResultType.DSL
 
 
-class ActionValidationResult(BaseValidationResult):
+class ActionValidationResult(DetailedValidationResult):
     """Result of validating a registry action's arguments."""
 
     type: Literal[ValidationResultType.ACTION] = ValidationResultType.ACTION
@@ -77,15 +90,20 @@ class ActionValidationResult(BaseValidationResult):
     validated_args: Mapping[str, Any] | None = None
 
 
-class ExprValidationResult(BaseValidationResult):
-    """Result of visiting an expression node."""
+class ExprBaseValidationResult(DetailedValidationResult):
+    """Base class for expression validation results."""
 
-    type: Literal[ValidationResultType.EXPRESSION] = ValidationResultType.EXPRESSION
     expression: str | None = None
     expression_type: ExprType
 
 
-class TemplateActionExprValidationResult(ExprValidationResult):
+class ExprValidationResult(ExprBaseValidationResult):
+    """Result of visiting an expression node."""
+
+    type: Literal[ValidationResultType.EXPRESSION] = ValidationResultType.EXPRESSION
+
+
+class TemplateActionExprValidationResult(ExprBaseValidationResult):
     """Result of visiting an expression node."""
 
     type: Literal[ValidationResultType.ACTION_TEMPLATE] = (

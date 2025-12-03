@@ -98,7 +98,7 @@ def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def no_retry_wait() -> Generator[None, None, None]:
-    retry_controller = RedisClient.xadd.retry
+    retry_controller = RedisClient.xadd.retry  # type: ignore[attr-defined]
     original_wait = retry_controller.wait
     retry_controller.wait = tenacity.wait.wait_fixed(0)
     try:

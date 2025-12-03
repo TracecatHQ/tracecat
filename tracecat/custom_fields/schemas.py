@@ -30,9 +30,11 @@ class CustomFieldRead(Schema):
         field_schema: dict[str, Any] | None = None,
     ) -> Self:
         raw_type = column["type"]
+        sql_type: SqlType
         if isinstance(raw_type, SqlType):
             sql_type = raw_type
         else:
+            type_str: str
             if isinstance(raw_type, str):
                 type_str = raw_type.upper()
             else:
@@ -44,7 +46,7 @@ class CustomFieldRead(Schema):
                         else "TIMESTAMP WITHOUT TIME ZONE"
                     )
             if type_str == "BIGINT":
-                type_str = SqlType.INTEGER
+                sql_type = SqlType.INTEGER
             elif type_str == "TIMESTAMP WITH TIME ZONE":
                 sql_type = SqlType.TIMESTAMPTZ
             elif type_str in {"TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP"}:

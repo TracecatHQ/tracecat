@@ -1,6 +1,7 @@
 """Service for managing user integrations with external services."""
 
 import os
+import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import cast
@@ -11,9 +12,9 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select
 
-from tracecat.db.models import OAuthIntegration, WorkspaceOAuthProvider
+from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
 from tracecat.identifiers import UserID
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -24,6 +25,8 @@ from tracecat.integrations.providers.base import (
 )
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
+    MCPIntegrationCreate,
+    MCPIntegrationUpdate,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -399,7 +402,6 @@ class IntegrationService(BaseWorkspaceService):
                 user_id=user_id,
                 provider=provider_key,
             )
-            return integration
         else:
             # Create new integration
             integration = OAuthIntegration(
@@ -440,7 +442,11 @@ class IntegrationService(BaseWorkspaceService):
                 user_id=user_id,
                 provider=provider_key,
             )
-            return integration
+        # Auto-create MCP integration for MCP providers when properly connected
+        await self._auto_create_mcp_integration_if_needed(
+            integration=integration, provider_key=provider_key
+        )
+        return integration
 
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
@@ -933,3 +939,264 @@ class IntegrationService(BaseWorkspaceService):
     def parse_scopes(self, scopes: str | None) -> list[str] | None:
         """Parse a space-separated string of scopes into a list of scopes."""
         return scopes.split(" ") if scopes else None
+
+    async def _auto_create_mcp_integration_if_needed(
+        self,
+        *,
+        integration: OAuthIntegration,
+        provider_key: ProviderKey,
+    ) -> None:
+        """Auto-create MCP integration for MCP OAuth providers.
+
+        When an OAuth integration is created/updated for an MCP provider,
+        automatically create or update the corresponding MCPIntegration record.
+        Only creates MCP integration if the OAuth integration is properly connected
+        (has access tokens).
+        """
+        # Check if integration is properly connected (has access tokens)
+        if not is_set(integration.encrypted_access_token):
+            return
+
+        # Check if provider is an MCP provider
+        provider_impl = await self.resolve_provider_impl(provider_key=provider_key)
+        if provider_impl is None:
+            return
+
+        is_mcp_provider = issubclass(provider_impl, MCPAuthProvider)
+        if not is_mcp_provider:
+            return
+
+        # Check if MCP integration already exists for this OAuth integration
+        existing_mcp = await self.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.oauth_integration_id == integration.id,
+                MCPIntegration.owner_id == self.workspace_id,
+            )
+        )
+        mcp_integration = existing_mcp.scalars().first()
+
+        if mcp_integration is None:
+            # Create new MCP integration
+            metadata = provider_impl.metadata
+
+            # Clean up name: remove " MCP" suffix (e.g., "GitHub MCP" -> "GitHub")
+            clean_name = metadata.name
+            if clean_name.endswith(" MCP"):
+                clean_name = clean_name[:-4]  # Remove " MCP"
+
+            slug = await self._generate_mcp_integration_slug(name=clean_name)
+
+            mcp_integration = MCPIntegration(
+                owner_id=self.workspace_id,
+                name=clean_name,
+                description=metadata.description,
+                slug=slug,
+                server_uri=provider_impl.mcp_server_uri,
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+            )
+            self.session.add(mcp_integration)
+            await self.session.commit()
+            await self.session.refresh(mcp_integration)
+
+            self.logger.info(
+                "Auto-created MCP integration for MCP provider",
+                mcp_integration_id=mcp_integration.id,
+                provider=provider_key.id,
+                oauth_integration_id=integration.id,
+            )
+        else:
+            # Update existing MCP integration to ensure it references the OAuth integration
+            if mcp_integration.oauth_integration_id != integration.id:
+                mcp_integration.oauth_integration_id = integration.id
+                self.session.add(mcp_integration)
+                await self.session.commit()
+
+                self.logger.info(
+                    "Updated MCP integration OAuth reference",
+                    mcp_integration_id=mcp_integration.id,
+                    oauth_integration_id=integration.id,
+                )
+
+    async def _generate_mcp_integration_slug(
+        self, *, name: str, requested_slug: str | None = None
+    ) -> str:
+        """Generate a unique slug for an MCP integration."""
+        base_source = requested_slug or name
+        slug = slugify(base_source, separator="-") or uuid4().hex[:8]
+
+        candidate = slug
+        suffix = 1
+        while await self._mcp_integration_slug_taken(candidate):
+            candidate = f"{slug}-{suffix}"
+            suffix += 1
+        return candidate
+
+    async def _mcp_integration_slug_taken(self, slug: str) -> bool:
+        """Check if an MCP integration slug is already taken."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.owner_id == self.workspace_id,
+            MCPIntegration.slug == slug,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().first() is not None
+
+    async def create_mcp_integration(
+        self, *, params: MCPIntegrationCreate
+    ) -> MCPIntegration:
+        """Create a new MCP integration."""
+        # Validate OAuth integration if auth_type is oauth2
+        if params.auth_type == MCPAuthType.OAUTH2:
+            if not params.oauth_integration_id:
+                raise ValueError(
+                    "oauth_integration_id is required for OAuth 2.0 authentication"
+                )
+            # Verify OAuth integration exists and belongs to workspace
+            oauth_integration = await self.session.get(
+                OAuthIntegration, params.oauth_integration_id
+            )
+            if not oauth_integration or oauth_integration.owner_id != self.workspace_id:
+                raise ValueError(
+                    "OAuth integration not found or does not belong to workspace"
+                )
+
+        slug = await self._generate_mcp_integration_slug(name=params.name)
+
+        # Encrypt custom credentials if provided (for CUSTOM auth type)
+        encrypted_custom_credentials = None
+        if params.auth_type == MCPAuthType.CUSTOM and params.custom_credentials:
+            encrypted_custom_credentials = self._encrypt_token(
+                params.custom_credentials.get_secret_value()
+            )
+
+        mcp_integration = MCPIntegration(
+            owner_id=self.workspace_id,
+            name=params.name.strip(),
+            description=params.description.strip() if params.description else None,
+            slug=slug,
+            server_uri=params.server_uri.strip(),
+            auth_type=params.auth_type,
+            oauth_integration_id=params.oauth_integration_id,
+            encrypted_headers=encrypted_custom_credentials,  # Reuse field for custom credentials
+        )
+
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        self.logger.info(
+            "Created MCP integration",
+            mcp_integration_id=mcp_integration.id,
+            name=params.name,
+            auth_type=params.auth_type,
+        )
+
+        return mcp_integration
+
+    async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
+        """List all MCP integrations for the workspace."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.owner_id == self.workspace_id
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    async def get_mcp_integration(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> MCPIntegration | None:
+        """Get an MCP integration by ID."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.id == mcp_integration_id,
+            MCPIntegration.owner_id == self.workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().first()
+
+    async def update_mcp_integration(
+        self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate
+    ) -> MCPIntegration | None:
+        """Update an MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if not mcp_integration:
+            return None
+
+        # Validate OAuth integration if auth_type is being changed to oauth2
+        if params.auth_type == MCPAuthType.OAUTH2:
+            if params.oauth_integration_id:
+                oauth_integration = await self.session.get(
+                    OAuthIntegration, params.oauth_integration_id
+                )
+                if (
+                    not oauth_integration
+                    or oauth_integration.owner_id != self.workspace_id
+                ):
+                    raise ValueError(
+                        "OAuth integration not found or does not belong to workspace"
+                    )
+            elif mcp_integration.auth_type != MCPAuthType.OAUTH2:
+                raise ValueError(
+                    "oauth_integration_id is required for OAuth 2.0 authentication"
+                )
+
+        # Update fields
+        if params.name is not None:
+            if params.name.strip() != mcp_integration.name:
+                mcp_integration.name = params.name.strip()
+                mcp_integration.slug = await self._generate_mcp_integration_slug(
+                    name=params.name
+                )
+        if params.description is not None:
+            mcp_integration.description = (
+                params.description.strip() if params.description else None
+            )
+        if params.server_uri is not None:
+            mcp_integration.server_uri = params.server_uri.strip()
+        if params.auth_type is not None:
+            mcp_integration.auth_type = params.auth_type
+        if params.oauth_integration_id is not None:
+            mcp_integration.oauth_integration_id = params.oauth_integration_id
+
+        # Handle custom credentials encryption/update (for CUSTOM auth type)
+        if params.custom_credentials is not None:
+            if params.custom_credentials.get_secret_value():
+                mcp_integration.encrypted_headers = self._encrypt_token(
+                    params.custom_credentials.get_secret_value()
+                )
+            else:
+                # Empty string means clear the credentials
+                mcp_integration.encrypted_headers = None
+        elif params.auth_type is not None and params.auth_type != MCPAuthType.CUSTOM:
+            # If changing away from CUSTOM, clear the credentials
+            mcp_integration.encrypted_headers = None
+
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        self.logger.info(
+            "Updated MCP integration",
+            mcp_integration_id=mcp_integration.id,
+        )
+
+        return mcp_integration
+
+    async def delete_mcp_integration(self, *, mcp_integration_id: uuid.UUID) -> bool:
+        """Delete an MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if not mcp_integration:
+            return False
+
+        await self.session.delete(mcp_integration)
+        await self.session.commit()
+
+        self.logger.info(
+            "Deleted MCP integration",
+            mcp_integration_id=mcp_integration_id,
+            workspace_id=self.workspace_id,
+        )
+
+        return True

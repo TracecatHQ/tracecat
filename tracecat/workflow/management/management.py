@@ -422,6 +422,7 @@ class WorkflowsManagementService(BaseService):
         """Create a new workflow from a Tracecat DSL data object."""
 
         construction_errors: list[DSLValidationResult] = []
+        dsl: DSLInput | None = None
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
@@ -446,6 +447,8 @@ class WorkflowsManagementService(BaseService):
                 errors=[ValidationResult.new(e) for e in construction_errors]
             )
 
+        if dsl is None:
+            raise ValueError("dsl should be defined if no construction errors")
         if not skip_secret_validation:
             if val_errors := await validate_dsl(session=self.session, dsl=dsl):
                 self.logger.info("Validation errors", errors=val_errors)
@@ -641,8 +644,8 @@ class WorkflowsManagementService(BaseService):
             if action.id not in orphaned_action_ids:
                 continue
             await self.session.delete(action)
+            self.logger.info(f"Deleted orphaned action: {action.title}")
         await self.session.commit()
-        self.logger.info(f"Deleted orphaned action: {action.title}")
 
     @staticmethod
     @activity.defn

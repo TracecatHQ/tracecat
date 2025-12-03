@@ -43,7 +43,10 @@ from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue, SecretRead
 from tracecat.validation.common import get_validators
-from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
+from tracecat.validation.schemas import (
+    ExprBaseValidationResult,
+    ValidationDetail,
+)
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 
@@ -1123,7 +1126,7 @@ def test_parser_error():
 
 
 def assert_validation_result(
-    res: ExprValidationResult,
+    res: ExprBaseValidationResult,
     *,
     type: ExprType,
     status: Literal["success", "error"],
