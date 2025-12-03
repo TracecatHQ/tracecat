@@ -93,7 +93,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at,
             )
-            .where(Workflow.owner_id == self.role.workspace_id)
+            .where(Workflow.workspace_id == self.role.workspace_id)
             .outerjoin(
                 latest_defn_subq,
                 cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
@@ -178,7 +178,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at.label("defn_created_at"),
             )
-            .where(Workflow.owner_id == self.role.workspace_id)
+            .where(Workflow.workspace_id == self.role.workspace_id)
             .outerjoin(
                 latest_defn_subq,
                 cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
@@ -301,7 +301,7 @@ class WorkflowsManagementService(BaseService):
         statement = (
             select(Workflow)
             .where(
-                Workflow.owner_id == self.role.workspace_id,
+                Workflow.workspace_id == self.role.workspace_id,
                 Workflow.id == workflow_id,
             )
             .options(
@@ -315,7 +315,7 @@ class WorkflowsManagementService(BaseService):
 
     async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
         statement = select(Workflow.id).where(
-            Workflow.owner_id == self.role.workspace_id,
+            Workflow.workspace_id == self.role.workspace_id,
             Workflow.alias == alias,
         )
         result = await self.session.execute(statement)
@@ -326,7 +326,7 @@ class WorkflowsManagementService(BaseService):
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
-            Workflow.owner_id == self.role.workspace_id,
+            Workflow.workspace_id == self.role.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -346,7 +346,7 @@ class WorkflowsManagementService(BaseService):
         before the database cascade deletion occurs.
         """
         statement = select(Workflow).where(
-            Workflow.owner_id == self.role.workspace_id,
+            Workflow.workspace_id == self.role.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -389,7 +389,7 @@ class WorkflowsManagementService(BaseService):
         description = params.description or f"New workflow created {now}"
 
         workflow = Workflow(
-            title=title, description=description, owner_id=self.role.workspace_id
+            title=title, description=description, workspace_id=self.role.workspace_id
         )
         # When we create a workflow, we automatically create a webhook
         # Add the Workflow to the session first to generate an ID
@@ -399,7 +399,7 @@ class WorkflowsManagementService(BaseService):
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
-            owner_id=self.role.workspace_id,
+            workspace_id=self.role.workspace_id,
             # workflow_id=workflow.id,
         )
         webhook.workflow = workflow
@@ -560,7 +560,7 @@ class WorkflowsManagementService(BaseService):
         workflow_kwargs = {
             "title": dsl.title,
             "description": dsl.description,
-            "owner_id": self.role.workspace_id,
+            "workspace_id": self.role.workspace_id,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "expects": entrypoint.get("expects"),
@@ -580,7 +580,7 @@ class WorkflowsManagementService(BaseService):
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
-            owner_id=self.role.workspace_id,
+            workspace_id=self.role.workspace_id,
             workflow_id=workflow.id,
         )
         self.session.add(webhook)
@@ -598,7 +598,7 @@ class WorkflowsManagementService(BaseService):
                 join_strategy=act_stmt.join_strategy,
             )
             new_action = Action(
-                owner_id=self.role.workspace_id,
+                workspace_id=self.role.workspace_id,
                 workflow_id=workflow.id,
                 type=act_stmt.action,
                 inputs=yaml.dump(act_stmt.args),

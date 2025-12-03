@@ -36,7 +36,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         stmt = (
             select(AgentPreset)
-            .where(AgentPreset.owner_id == self.workspace_id)
+            .where(AgentPreset.workspace_id == self.workspace_id)
             .order_by(AgentPreset.created_at.desc())
         )
         result = await self.session.execute(stmt)
@@ -54,7 +54,7 @@ class AgentPresetService(BaseWorkspaceService):
         if params.mcp_integrations:
             await self._validate_mcp_integrations(params.mcp_integrations)
         preset = AgentPreset(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             slug=slug,
             name=params.name,
             description=params.description,
@@ -258,7 +258,7 @@ class AgentPresetService(BaseWorkspaceService):
                 # Get OAuth integration by ID
                 stmt = select(OAuthIntegration).where(
                     OAuthIntegration.id == mcp_integration.oauth_integration_id,
-                    OAuthIntegration.owner_id == self.workspace_id,
+                    OAuthIntegration.workspace_id == self.workspace_id,
                 )
                 result = await self.session.execute(stmt)
                 oauth_integration = result.scalars().first()
@@ -387,7 +387,7 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError("Agent preset slug cannot be empty")
 
         stmt = select(AgentPreset).where(
-            AgentPreset.owner_id == self.workspace_id,
+            AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
         )
         if exclude_id is not None:
@@ -403,7 +403,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
         stmt = select(AgentPreset).where(
-            AgentPreset.owner_id == self.workspace_id,
+            AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.id == preset_id,
         )
         result = await self.session.execute(stmt)
@@ -412,7 +412,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
         stmt = select(AgentPreset).where(
-            AgentPreset.owner_id == self.workspace_id,
+            AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
         )
         result = await self.session.execute(stmt)

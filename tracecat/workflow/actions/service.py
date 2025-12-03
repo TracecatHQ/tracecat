@@ -15,7 +15,7 @@ class WorkflowActionService(BaseWorkspaceService):
 
     async def list_actions(self, workflow_id: WorkflowID) -> Sequence[Action]:
         statement = select(Action).where(
-            Action.owner_id == self.workspace_id,
+            Action.workspace_id == self.workspace_id,
             Action.workflow_id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -25,7 +25,7 @@ class WorkflowActionService(BaseWorkspaceService):
         self, action_id: ActionID, workflow_id: WorkflowID
     ) -> Action | None:
         statement = select(Action).where(
-            Action.owner_id == self.workspace_id,
+            Action.workspace_id == self.workspace_id,
             Action.id == action_id,
             Action.workflow_id == workflow_id,
         )
@@ -34,7 +34,7 @@ class WorkflowActionService(BaseWorkspaceService):
 
     async def create_action(self, params: ActionCreate) -> Action:
         action = Action(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
             type=params.type,
             title=params.title,

@@ -157,7 +157,7 @@ class SettingsService(BaseService):
         else:
             value = value_bytes
         setting = OrganizationSetting(
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             key=params.key,
             value_type=params.value_type,
             value=value,

@@ -11,7 +11,7 @@ async def get_webhook(
     workflow_id: WorkflowID,
 ) -> Webhook | None:
     statement = select(Webhook).where(
-        Webhook.owner_id == workspace_id,
+        Webhook.workspace_id == workspace_id,
         Webhook.workflow_id == workflow_id,
     )
     result = await session.execute(statement)

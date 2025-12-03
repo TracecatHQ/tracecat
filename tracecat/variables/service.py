@@ -27,7 +27,7 @@ class VariablesService(BaseWorkspaceService):
         self, *, environment: str | None = None
     ) -> Sequence[WorkspaceVariable]:
         statement = select(WorkspaceVariable).where(
-            WorkspaceVariable.owner_id == self.workspace_id
+            WorkspaceVariable.workspace_id == self.workspace_id
         )
         if environment is not None:
             statement = statement.where(WorkspaceVariable.environment == environment)
@@ -38,7 +38,7 @@ class VariablesService(BaseWorkspaceService):
         self, params: VariableSearch
     ) -> Sequence[WorkspaceVariable]:
         statement = select(WorkspaceVariable).where(
-            WorkspaceVariable.owner_id == self.workspace_id
+            WorkspaceVariable.workspace_id == self.workspace_id
         )
 
         if params.environment is not None:
@@ -85,7 +85,7 @@ class VariablesService(BaseWorkspaceService):
 
     async def get_variable(self, variable_id: VariableID) -> WorkspaceVariable:
         statement = select(WorkspaceVariable).where(
-            WorkspaceVariable.owner_id == self.workspace_id,
+            WorkspaceVariable.workspace_id == self.workspace_id,
             WorkspaceVariable.id == variable_id,
         )
         result = await self.session.execute(statement)
@@ -114,7 +114,7 @@ class VariablesService(BaseWorkspaceService):
         self, name: str, *, environment: str | None = None
     ) -> WorkspaceVariable:
         statement = select(WorkspaceVariable).where(
-            WorkspaceVariable.owner_id == self.workspace_id,
+            WorkspaceVariable.workspace_id == self.workspace_id,
             WorkspaceVariable.name == name,
         )
         if environment is not None:
@@ -151,7 +151,7 @@ class VariablesService(BaseWorkspaceService):
                 "Workspace ID is required to create a workspace variable"
             )
         variable = WorkspaceVariable(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             name=params.name,
             description=params.description,
             values=dict(params.values),

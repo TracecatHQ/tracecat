@@ -288,7 +288,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         existing_file = await self.session.execute(
             select(File).where(
                 File.sha256 == sha256,
-                File.owner_id == self.workspace_id,
+                File.workspace_id == self.workspace_id,
             )
         )
         file = existing_file.scalars().first()
@@ -297,7 +297,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         if not file:
             # Create new file record
             file = File(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 sha256=sha256,
                 name=validation_result.filename,
                 content_type=validation_result.content_type,

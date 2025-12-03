@@ -76,7 +76,7 @@ class WorkflowFolderService(BaseService):
         folder = WorkflowFolder(
             name=name,
             path=full_path,
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
         )
         self.session.add(folder)
         if commit:
@@ -96,7 +96,7 @@ class WorkflowFolderService(BaseService):
             The folder or None if not found
         """
         statement = select(WorkflowFolder).where(
-            WorkflowFolder.owner_id == self.workspace_id,
+            WorkflowFolder.workspace_id == self.workspace_id,
             WorkflowFolder.id == folder_id,
         )
         result = await self.session.execute(statement)
@@ -116,7 +116,7 @@ class WorkflowFolderService(BaseService):
             path += "/"
 
         statement = select(WorkflowFolder).where(
-            WorkflowFolder.owner_id == self.workspace_id,
+            WorkflowFolder.workspace_id == self.workspace_id,
             WorkflowFolder.path == path,
         )
         result = await self.session.execute(statement)
@@ -135,7 +135,7 @@ class WorkflowFolderService(BaseService):
         # Base statement selecting folders for the current workspace
 
         statement = select(WorkflowFolder).where(
-            WorkflowFolder.owner_id == self.workspace_id,
+            WorkflowFolder.workspace_id == self.workspace_id,
             WorkflowFolder.path.like(f"{parent_path}%"),
         )
 
@@ -157,7 +157,7 @@ class WorkflowFolderService(BaseService):
             List of workflows in the folder
         """
         statement = select(Workflow).where(
-            Workflow.owner_id == self.workspace_id,
+            Workflow.workspace_id == self.workspace_id,
             Workflow.folder_id == folder_id,
         )
         result = await self.session.execute(statement)
@@ -177,7 +177,7 @@ class WorkflowFolderService(BaseService):
         """
         # Update the workflow
         statement = select(Workflow).where(
-            Workflow.owner_id == self.workspace_id,
+            Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -347,7 +347,7 @@ class WorkflowFolderService(BaseService):
             for descendant in descendants:
                 # Delete workflows in each subfolder
                 statement = select(Workflow).where(
-                    Workflow.owner_id == self.workspace_id,
+                    Workflow.workspace_id == self.workspace_id,
                     Workflow.folder_id == descendant.id,
                 )
                 result = await self.session.execute(statement)
@@ -361,7 +361,8 @@ class WorkflowFolderService(BaseService):
 
             # Delete workflows in the main folder
             statement = select(Workflow).where(
-                Workflow.owner_id == self.workspace_id, Workflow.folder_id == folder.id
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.folder_id == folder.id,
             )
             result = await self.session.execute(statement)
             workflows = result.scalars().all()
@@ -389,7 +390,7 @@ class WorkflowFolderService(BaseService):
         statement = (
             select(WorkflowFolder)
             .where(
-                WorkflowFolder.owner_id == self.workspace_id,
+                WorkflowFolder.workspace_id == self.workspace_id,
                 or_(
                     WorkflowFolder.path.startswith(root_path),
                     WorkflowFolder.path == root_path,
@@ -407,7 +408,7 @@ class WorkflowFolderService(BaseService):
             select(func.count())
             .select_from(WorkflowFolder)
             .where(
-                WorkflowFolder.owner_id == self.workspace_id,
+                WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path == path,
             )
         )
@@ -424,7 +425,7 @@ class WorkflowFolderService(BaseService):
             select(func.count())
             .select_from(WorkflowFolder)
             .where(
-                WorkflowFolder.owner_id == self.workspace_id,
+                WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(path),
                 WorkflowFolder.path != path,
             )
@@ -438,7 +439,7 @@ class WorkflowFolderService(BaseService):
             select(func.count())
             .select_from(Workflow)
             .where(
-                Workflow.owner_id == self.workspace_id,
+                Workflow.workspace_id == self.workspace_id,
                 Workflow.folder_id == folder_id,
             )
         )
@@ -452,7 +453,7 @@ class WorkflowFolderService(BaseService):
             path += "/"
 
         statement = select(WorkflowFolder).where(
-            WorkflowFolder.owner_id == self.workspace_id,
+            WorkflowFolder.workspace_id == self.workspace_id,
             WorkflowFolder.path.startswith(path),
             WorkflowFolder.path != path,
         )
@@ -499,7 +500,7 @@ class WorkflowFolderService(BaseService):
                 WorkflowDefinition.created_at,
             )
             .where(
-                Workflow.owner_id == self.workspace_id,
+                Workflow.workspace_id == self.workspace_id,
                 Workflow.folder_id == folder_id,
             )
             .outerjoin(
@@ -527,7 +528,7 @@ class WorkflowFolderService(BaseService):
         if path == "/":
             # Get root-level folders
             folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.owner_id == self.workspace_id,
+                WorkflowFolder.workspace_id == self.workspace_id,
                 func.length(WorkflowFolder.path)
                 - func.length(func.replace(WorkflowFolder.path, "/", ""))
                 == 2,  # folders with exactly two slashes
@@ -537,7 +538,7 @@ class WorkflowFolderService(BaseService):
         else:
             # Get direct child folders
             folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.owner_id == self.workspace_id,
+                WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(path),
                 WorkflowFolder.path != path,
                 ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
@@ -561,7 +562,7 @@ class WorkflowFolderService(BaseService):
                     id=folder.id,
                     name=folder.name,
                     path=folder.path,
-                    owner_id=folder.owner_id,
+                    workspace_id=folder.workspace_id,
                     created_at=folder.created_at,
                     updated_at=folder.updated_at,
                 )

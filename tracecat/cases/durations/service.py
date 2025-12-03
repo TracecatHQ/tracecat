@@ -47,7 +47,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
 
         stmt = (
             select(CaseDurationDefinitionDB)
-            .where(CaseDurationDefinitionDB.owner_id == self.workspace_id)
+            .where(CaseDurationDefinitionDB.workspace_id == self.workspace_id)
             .order_by(CaseDurationDefinitionDB.created_at.asc())
         )
         result = await self.session.execute(stmt)
@@ -69,7 +69,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         await self._ensure_unique_name(params.name)
 
         entity = CaseDurationDefinitionDB(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             name=params.name,
             description=params.description,
             **self._anchor_attributes(params.start_anchor, "start"),
@@ -132,7 +132,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     ) -> CaseDurationDefinitionDB:
         stmt = select(CaseDurationDefinitionDB).where(
             CaseDurationDefinitionDB.id == duration_id,
-            CaseDurationDefinitionDB.owner_id == self.workspace_id,
+            CaseDurationDefinitionDB.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
         entity = result.scalars().first()
@@ -146,7 +146,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         self, name: str, *, exclude_id: uuid.UUID | None = None
     ) -> None:
         stmt = select(CaseDurationDefinitionDB.id).where(
-            CaseDurationDefinitionDB.owner_id == self.workspace_id,
+            CaseDurationDefinitionDB.workspace_id == self.workspace_id,
             CaseDurationDefinitionDB.name == name,
         )
         if exclude_id is not None:
@@ -228,7 +228,7 @@ class CaseDurationService(BaseWorkspaceService):
         stmt = (
             select(CaseDuration)
             .where(
-                CaseDuration.owner_id == self.workspace_id,
+                CaseDuration.workspace_id == self.workspace_id,
                 CaseDuration.case_id == case_obj.id,
             )
             .order_by(CaseDuration.created_at.asc())
@@ -255,7 +255,7 @@ class CaseDurationService(BaseWorkspaceService):
         await self._ensure_unique_case_duration(case_obj.id, params.definition_id)
 
         entity = CaseDuration(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             case_id=case_obj.id,
             definition_id=params.definition_id,
             start_event_id=params.start_event_id,
@@ -351,7 +351,7 @@ class CaseDurationService(BaseWorkspaceService):
         stmt = (
             select(CaseEvent)
             .where(
-                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.workspace_id == self.workspace_id,
                 CaseEvent.case_id.in_(case_ids),
             )
             .order_by(CaseEvent.case_id.asc(), CaseEvent.created_at.asc())
@@ -495,7 +495,7 @@ class CaseDurationService(BaseWorkspaceService):
         computations = await self.compute_duration(case_obj)
 
         stmt = select(CaseDuration).where(
-            CaseDuration.owner_id == self.workspace_id,
+            CaseDuration.workspace_id == self.workspace_id,
             CaseDuration.case_id == case_obj.id,
         )
         existing_result = await self.session.execute(stmt)
@@ -509,7 +509,7 @@ class CaseDurationService(BaseWorkspaceService):
             entity = existing_by_definition.get(computation.duration_id)
             if entity is None:
                 entity = CaseDuration(
-                    owner_id=self.workspace_id,
+                    workspace_id=self.workspace_id,
                     case_id=case_obj.id,
                     definition_id=computation.duration_id,
                 )
@@ -536,7 +536,7 @@ class CaseDurationService(BaseWorkspaceService):
         exclude_id: uuid.UUID | None = None,
     ) -> None:
         stmt = select(CaseDuration.id).where(
-            CaseDuration.owner_id == self.workspace_id,
+            CaseDuration.workspace_id == self.workspace_id,
             CaseDuration.case_id == case_id,
             CaseDuration.definition_id == definition_id,
         )
@@ -553,7 +553,7 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> CaseDuration:
         stmt = select(CaseDuration).where(
             CaseDuration.id == duration_id,
-            CaseDuration.owner_id == self.workspace_id,
+            CaseDuration.workspace_id == self.workspace_id,
             CaseDuration.case_id == case_id,
         )
         result = await self.session.execute(stmt)
@@ -566,7 +566,7 @@ class CaseDurationService(BaseWorkspaceService):
 
     async def _resolve_case(self, case: Case | uuid.UUID) -> Case:
         if isinstance(case, Case):
-            if case.owner_id != self.workspace_id:
+            if case.workspace_id != self.workspace_id:
                 raise TracecatNotFoundError(
                     "Case does not belong to the active workspace"
                 )
@@ -574,7 +574,7 @@ class CaseDurationService(BaseWorkspaceService):
 
         stmt = select(Case).where(
             Case.id == case,
-            Case.owner_id == self.workspace_id,
+            Case.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
         resolved = result.scalars().first()
@@ -587,7 +587,7 @@ class CaseDurationService(BaseWorkspaceService):
             select(CaseEvent)
             .where(
                 CaseEvent.case_id == case.id,
-                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.workspace_id == self.workspace_id,
             )
             .order_by(CaseEvent.created_at.asc())
         )
