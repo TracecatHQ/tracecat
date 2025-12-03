@@ -220,6 +220,7 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.name == "Updated MCP"
         assert updated.description == "Updated description"
         assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
@@ -246,6 +247,7 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.name == created.name  # Unchanged
         assert updated.description == "Updated description"
         assert updated.server_uri == created.server_uri  # Unchanged
@@ -304,6 +306,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
         assert updated.oauth_integration_id == oauth_integration.id
         assert updated.encrypted_headers is None
@@ -331,6 +334,7 @@ class TestMCPIntegrationAuthTypeSwapping:
             mcp_integration_id=created.id, params=update_params
         )
 
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
         assert updated.encrypted_headers is not None
         # OAuth integration ID should still be set but not used
@@ -354,7 +358,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
-
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.NONE
         assert updated.encrypted_headers is None
 
@@ -379,7 +383,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
-
+        assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
         assert updated.encrypted_headers is not None
         assert updated.encrypted_headers != old_encrypted_headers
@@ -415,7 +419,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
-
+        assert updated is not None
         assert updated.oauth_integration_id == oauth_integration2.id
 
 
