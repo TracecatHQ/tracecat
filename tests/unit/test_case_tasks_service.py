@@ -60,7 +60,7 @@ async def test_workflow(
     """Create a test workflow in the database for workflow_id foreign key constraint."""
     workflow = Workflow(
         title="test-workflow-for-tasks",
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         description="Test workflow for case tasks testing",
         status="active",
         entrypoint=None,
@@ -95,7 +95,7 @@ class TestCaseTasksService:
         assert created_task.priority == task_create_params.priority
         assert created_task.status == task_create_params.status
         assert created_task.case_id == test_case.id
-        assert created_task.owner_id == case_tasks_service.workspace_id
+        assert created_task.workspace_id == case_tasks_service.workspace_id
 
         # Retrieve task
         retrieved_task = await case_tasks_service.get_task(created_task.id)

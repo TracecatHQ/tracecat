@@ -18,7 +18,7 @@ async def test_schedule_start_end_are_timezone_aware(session: AsyncSession) -> N
     end_at = datetime(2025, 1, 1, 13, 0, tzinfo=timezone(timedelta(hours=2)))
 
     schedule = Schedule(
-        owner_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
         workflow_id=None,
         start_at=start_at,
         end_at=end_at,

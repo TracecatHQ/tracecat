@@ -35,7 +35,7 @@ class TestToDict:
         """Test _to_dict returns basic fields and excludes ignored fields."""
         # Create a WorkspaceVariable instance
         var = WorkspaceVariable(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_var",
             description="Test variable",
             values={"key": "value"},
@@ -48,7 +48,7 @@ class TestToDict:
 
         # Should include these fields
         assert "id" in result
-        assert "owner_id" in result
+        assert "workspace_id" in result
         assert "name" in result
         assert "description" in result
         assert "values" in result
@@ -64,7 +64,7 @@ class TestToDict:
         assert result["description"] == "Test variable"
         assert result["values"] == {"key": "value"}
         assert result["environment"] == "default"
-        assert result["owner_id"] == svc_workspace.id
+        assert result["workspace_id"] == svc_workspace.id
 
     async def test_to_dict_excludes_relationships(
         self, session: AsyncSession, svc_workspace: Workspace
@@ -72,7 +72,7 @@ class TestToDict:
         """Test _to_dict excludes relationship fields (they're not columns)."""
         # Create a workflow with a workspace relationship
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -82,8 +82,8 @@ class TestToDict:
 
         result = _to_dict(workflow)
 
-        # Should not include relationship fields like 'owner', 'actions', etc.
-        assert "owner" not in result
+        # Should not include relationship fields like 'workspace', 'actions', etc.
+        assert "workspace" not in result
         assert "actions" not in result
         assert "definitions" not in result
         assert "webhook" not in result
@@ -92,7 +92,7 @@ class TestToDict:
 
         # Should include column fields
         assert "id" in result
-        assert "owner_id" in result
+        assert "workspace_id" in result
         assert "title" in result
         assert "description" in result
 
@@ -102,7 +102,7 @@ class TestToDict:
         """Test _to_dict handles nullable fields correctly."""
         # Create a workflow with some null fields
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -133,7 +133,7 @@ class TestToDict:
         object_data = {"nodes": [], "edges": []}
 
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -160,7 +160,7 @@ class TestToDict:
         """Test _to_dict handles enum fields correctly."""
         # Create a case with enum fields
         case = Case(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             summary="Test Case",
             description="Test description",
             priority=CasePriority.HIGH,
@@ -186,7 +186,7 @@ class TestToDict:
         """Test _to_dict handles binary fields correctly."""
         # Create a secret with encrypted_keys (LargeBinary)
         secret = Secret(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_secret",
             type="custom",
             encrypted_keys=b"encrypted_data",
@@ -208,7 +208,7 @@ class TestToDict:
         """Test _to_dict includes foreign key column values."""
         # Create a webhook linked to a workflow
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -217,7 +217,7 @@ class TestToDict:
         await session.flush()
 
         webhook = Webhook(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             workflow_id=workflow.id,
             status="offline",
         )
@@ -238,7 +238,7 @@ class TestToDict:
         """Test _to_dict includes fields with default values."""
         # Create an Action with default values
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -247,7 +247,7 @@ class TestToDict:
         await session.flush()
 
         action = Action(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             workflow_id=workflow.id,
             type="core.http_request",
             title="Test Action",
@@ -273,7 +273,7 @@ class TestToDict:
     ) -> None:
         """Test _to_dict includes timestamp fields from TimestampMixin."""
         var = WorkspaceVariable(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_var",
             description="Test variable",
             values={},
@@ -295,7 +295,7 @@ class TestToDict:
     ) -> None:
         """Test _to_dict handles UUID fields correctly."""
         var = WorkspaceVariable(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_var",
             description="Test variable",
             values={},
@@ -309,16 +309,16 @@ class TestToDict:
         # UUID fields should be included
         assert "id" in result
         assert isinstance(result["id"], uuid.UUID)
-        assert "owner_id" in result
-        assert isinstance(result["owner_id"], uuid.UUID)
-        assert result["owner_id"] == svc_workspace.id
+        assert "workspace_id" in result
+        assert isinstance(result["workspace_id"], uuid.UUID)
+        assert result["workspace_id"] == svc_workspace.id
 
     async def test_to_dict_idempotent(
         self, session: AsyncSession, svc_workspace: Workspace
     ) -> None:
         """Test _to_dict returns the same result when called multiple times."""
         var = WorkspaceVariable(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_var",
             description="Test variable",
             values={"key": "value"},
@@ -340,7 +340,7 @@ class TestToDict:
     ) -> None:
         """Test RecordModel.to_dict() instance method calls _to_dict."""
         var = WorkspaceVariable(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_var",
             description="Test variable",
             values={"key": "value"},
@@ -365,7 +365,7 @@ class TestToDict:
     ) -> None:
         """Test _to_dict handles empty JSONB defaults correctly."""
         workflow = Workflow(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             title="Test Workflow",
             description="Test description",
             status="offline",
@@ -388,7 +388,7 @@ class TestToDict:
     ) -> None:
         """Test _to_dict handles JSONB tags field correctly."""
         secret = Secret(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_secret",
             type="custom",
             encrypted_keys=b"encrypted_data",
@@ -409,7 +409,7 @@ class TestToDict:
     ) -> None:
         """Test _to_dict handles null tags field correctly."""
         secret = Secret(
-            owner_id=svc_workspace.id,
+            workspace_id=svc_workspace.id,
             name="test_secret",
             type="custom",
             encrypted_keys=b"encrypted_data",

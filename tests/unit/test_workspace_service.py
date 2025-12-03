@@ -26,7 +26,7 @@ async def svc_workspace(session: AsyncSession) -> Workspace:
     """Create a workspace for testing."""
 
     workspace = Workspace(
-        name="test-workspace", owner_id=config.TRACECAT__DEFAULT_ORG_ID
+        name="test-workspace", organization_id=config.TRACECAT__DEFAULT_ORG_ID
     )
     session.add(workspace)
     await session.commit()
@@ -85,7 +85,7 @@ class TestWorkspaceService:
         assert workspace is not None
         assert workspace.id == svc_workspace.id
         assert workspace.name == svc_workspace.name
-        assert workspace.owner_id == svc_workspace.owner_id
+        assert workspace.organization_id == svc_workspace.organization_id
         # Verify settings are preserved through validation
         assert workspace.settings is not None
 

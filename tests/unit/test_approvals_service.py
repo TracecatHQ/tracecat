@@ -72,7 +72,7 @@ class TestApprovalService:
         assert created.tool_name == approval_create_params.tool_name
         assert created.tool_call_args == approval_create_params.tool_call_args
         assert created.status == ApprovalStatus.PENDING
-        assert created.owner_id == approvals_service.workspace_id
+        assert created.workspace_id == approvals_service.workspace_id
         assert created.approved_by is None
         assert created.approved_at is None
 
@@ -306,7 +306,7 @@ class TestApprovalService:
         approvals_service: ApprovalService,
         approval_create_params: ApprovalCreate,
     ) -> None:
-        """Test that creating duplicate (owner_id, session_id, tool_call_id) raises error."""
+        """Test that creating duplicate (workspace_id, session_id, tool_call_id) raises error."""
         # Create first approval
         await approvals_service.create_approval(approval_create_params)
 

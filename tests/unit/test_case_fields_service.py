@@ -34,7 +34,7 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
     """Create a test case for use in field tests."""
     # Create a case directly using SQLAlchemy
     case = Case(
-        owner_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
+        workspace_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
         summary="Test Case for Fields",
         description="This is a test case for testing fields",
         status=CaseStatus.NEW,
@@ -373,7 +373,7 @@ class TestCaseFieldsService:
         # Initialize workspace and create definition with schema
         await case_fields_service.initialize_workspace_schema()
         definition = CaseFields(
-            owner_id=case_fields_service.workspace_id,
+            workspace_id=case_fields_service.workspace_id,
             schema={
                 "field_to_delete": {"type": "TEXT"},
                 "field_to_keep": {"type": "INTEGER"},

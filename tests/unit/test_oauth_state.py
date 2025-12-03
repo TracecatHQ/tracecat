@@ -270,7 +270,7 @@ class TestOAuthState:
         # Create a second workspace for the "wrong workspace" test
         wrong_workspace = Workspace(
             name="wrong-test-workspace",
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
         )
         session.add(wrong_workspace)
         await session.commit()

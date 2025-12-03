@@ -29,7 +29,7 @@ async def registry_repository(
 ) -> RegistryRepository:
     """Create a test registry repository."""
     repo = RegistryRepository(
-        owner_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         origin="test",
     )
     session.add(repo)
@@ -45,7 +45,7 @@ async def registry_actions(
     """Create test registry actions."""
     actions = [
         RegistryAction(
-            owner_id=registry_repository.owner_id,
+            organization_id=registry_repository.organization_id,
             repository_id=registry_repository.id,
             name="test_action",
             namespace="tools.test",
@@ -55,7 +55,7 @@ async def registry_actions(
             interface={},
         ),
         RegistryAction(
-            owner_id=registry_repository.owner_id,
+            organization_id=registry_repository.organization_id,
             repository_id=registry_repository.id,
             name="another_action",
             namespace="tools.test",
@@ -65,7 +65,7 @@ async def registry_actions(
             interface={},
         ),
         RegistryAction(
-            owner_id=registry_repository.owner_id,
+            organization_id=registry_repository.organization_id,
             repository_id=registry_repository.id,
             name="http_request",
             namespace="core",
@@ -122,7 +122,7 @@ class TestAgentPresetService:
         assert (
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
-        assert created_preset.owner_id == agent_preset_service.workspace_id
+        assert created_preset.workspace_id == agent_preset_service.workspace_id
 
         # Retrieve by ID
         retrieved_preset = await agent_preset_service.get_preset(created_preset.id)

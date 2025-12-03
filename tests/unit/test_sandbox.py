@@ -36,7 +36,7 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_r
 
     mock_secret = BaseSecret(
         name="my_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             mock_secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         ),
@@ -220,7 +220,7 @@ async def test_auth_sandbox_optional_secrets(
     # Create mock secrets
     required_secret = BaseSecret(
         name="required_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             [SecretKeyValue(key="REQ_KEY", value=SecretStr("required_value"))],
             key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
@@ -289,7 +289,7 @@ async def test_auth_sandbox_all_secrets_present(
     # Create mock secrets for both required and optional
     required_secret = BaseSecret(
         name="required_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             [
                 SecretKeyValue(key="REQ_KEY1", value=SecretStr("required_value1")),
@@ -304,7 +304,7 @@ async def test_auth_sandbox_all_secrets_present(
 
     optional_secret = BaseSecret(
         name="optional_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             [SecretKeyValue(key="OPT_KEY", value=SecretStr("optional_value"))],
             key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
@@ -361,7 +361,7 @@ async def test_auth_sandbox_optional_secret_with_all_keys(
     # Create mock optional secret with all keys
     optional_secret = BaseSecret(
         name="optional_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             [
                 SecretKeyValue(key="REQUIRED_KEY1", value=SecretStr("required_value1")),
@@ -431,7 +431,7 @@ async def test_auth_sandbox_optional_secret_missing_optional_key(
     # Create mock optional secret with only required keys
     partial_optional_secret = BaseSecret(
         name="optional_secret",
-        owner_id=role.workspace_id,
+        workspace_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             [
                 SecretKeyValue(key="REQUIRED_KEY1", value=SecretStr("required_value1")),

@@ -447,7 +447,7 @@ def test_evaluate_templated_secret(test_role: Role):
             secret = Secret(
                 id=f"secret_{uuid.uuid4().hex}",
                 name=secret_name,
-                owner_id=uuid.uuid4(),
+                workspace_id=uuid.uuid4(),
                 # Explicitly set the concrete secret type so enums can be resolved during serialization.
                 type=SecretType.CUSTOM.value,
                 # Ensure the environment matches the default API environment to mimic production payloads.

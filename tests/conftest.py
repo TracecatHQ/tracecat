@@ -433,7 +433,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     """Service test fixture. Create a function scoped test workspace."""
     workspace = Workspace(
         name="test-workspace",
-        owner_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
     session.add(workspace)
     await session.commit()

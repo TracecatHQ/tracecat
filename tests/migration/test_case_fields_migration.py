@@ -20,7 +20,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 # Constants
 PUBLIC_SCHEMA = "public"
 TABLE_NAME = "case_fields"
-BASE_COLUMNS = {"id", "case_id", "created_at", "updated_at", "owner_id"}
+BASE_COLUMNS = {"id", "case_id", "created_at", "updated_at", "workspace_id"}
 MIGRATION_REVISION = "b4d8b2f2c9dd"
 PREVIOUS_REVISION = "a6c2d9e7f5b1"
 SCHEMA_PREFIX = "custom_fields_"
@@ -179,7 +179,7 @@ def test_db():
                     """
                     CREATE TABLE cases (
                         id UUID PRIMARY KEY,
-                        owner_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                        workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
                         summary VARCHAR NOT NULL,
                         description TEXT NOT NULL,
                         status VARCHAR NOT NULL,
@@ -192,14 +192,14 @@ def test_db():
                 )
             )
 
-            # Create case_fields table in pre-migration state (with owner_id)
+            # Create case_fields table in pre-migration state (with workspace_id)
             conn.execute(
                 text(
                     """
                     CREATE TABLE case_fields (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                         case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-                        owner_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                        workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     )
@@ -263,7 +263,7 @@ def sample_data(test_db: str) -> dict[str, list[uuid.UUID]]:
         conn.execute(
             text(
                 """
-                INSERT INTO cases (id, owner_id, summary, description, status, priority, severity)
+                INSERT INTO cases (id, workspace_id, summary, description, status, priority, severity)
                 VALUES
                     (:id1, :ws1_id, 'Case 1', 'Desc 1', 'NEW', 'MEDIUM', 'LOW'),
                     (:id2, :ws1_id, 'Case 2', 'Desc 2', 'IN_PROGRESS', 'HIGH', 'MEDIUM'),
@@ -283,7 +283,7 @@ def sample_data(test_db: str) -> dict[str, list[uuid.UUID]]:
         conn.execute(
             text(
                 """
-                INSERT INTO case_fields (id, case_id, owner_id)
+                INSERT INTO case_fields (id, case_id, workspace_id)
                 VALUES
                     (gen_random_uuid(), :case1, :ws1_id),
                     (gen_random_uuid(), :case2, :ws1_id),
@@ -388,8 +388,8 @@ class TestCaseFieldsMigrationUpgrade:
                     assert "updated_at" in columns, (
                         f"updated_at column missing in {schema_name}"
                     )
-                    assert "owner_id" not in columns, (
-                        f"owner_id should NOT be in workspace table {schema_name}"
+                    assert "workspace_id" not in columns, (
+                        f"workspace_id should NOT be in workspace table {schema_name}"
                     )
         finally:
             engine.dispose()
@@ -442,7 +442,7 @@ class TestCaseFieldsMigrationUpgrade:
                     # Count rows in original public table for this workspace
                     public_result = conn.execute(
                         text(
-                            f"SELECT COUNT(*) FROM {PUBLIC_SCHEMA}.{TABLE_NAME} WHERE owner_id = :ws_id"
+                            f"SELECT COUNT(*) FROM {PUBLIC_SCHEMA}.{TABLE_NAME} WHERE workspace_id = :ws_id"
                         ),
                         {"ws_id": workspace_id},
                     )
@@ -496,7 +496,7 @@ class TestCaseFieldsMigrationUpgrade:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO cases (id, owner_id, summary, description, status, priority, severity)
+                        INSERT INTO cases (id, workspace_id, summary, description, status, priority, severity)
                         VALUES (:id, :ws_id, 'Test Case', 'Desc', 'NEW', 'MEDIUM', 'LOW')
                         """
                     ),
@@ -519,7 +519,7 @@ class TestCaseFieldsMigrationUpgrade:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO case_fields (id, case_id, owner_id, custom_field1, custom_field2, custom_field3)
+                        INSERT INTO case_fields (id, case_id, workspace_id, custom_field1, custom_field2, custom_field3)
                         VALUES (gen_random_uuid(), :case_id, :ws_id, 'test value', 42, true)
                         """
                     ),
@@ -624,7 +624,7 @@ class TestCaseFieldsMigrationDowngrade:
                 for workspace_id in workspace_ids[:2]:
                     result = conn.execute(
                         text(
-                            f"SELECT COUNT(*) FROM {PUBLIC_SCHEMA}.{TABLE_NAME} WHERE owner_id = :ws_id"
+                            f"SELECT COUNT(*) FROM {PUBLIC_SCHEMA}.{TABLE_NAME} WHERE workspace_id = :ws_id"
                         ),
                         {"ws_id": workspace_id},
                     )
@@ -708,7 +708,7 @@ class TestCaseFieldsMigrationDowngrade:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO cases (id, owner_id, summary, description, status, priority, severity)
+                        INSERT INTO cases (id, workspace_id, summary, description, status, priority, severity)
                         VALUES (:id, :ws_id, 'Case', 'Desc', 'NEW', 'LOW', 'LOW')
                         """
                     ),
@@ -728,7 +728,7 @@ class TestCaseFieldsMigrationDowngrade:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO case_fields (id, case_id, owner_id, custom_field_text, custom_field_int)
+                        INSERT INTO case_fields (id, case_id, workspace_id, custom_field_text, custom_field_int)
                         VALUES (gen_random_uuid(), :case_id, :ws_id, 'abc', 7)
                         """
                     ),
@@ -758,7 +758,7 @@ class TestCaseFieldsMigrationDowngrade:
                 row = conn.execute(
                     text(
                         f"""
-                        SELECT custom_field_text, custom_field_int, owner_id
+                        SELECT custom_field_text, custom_field_int, workspace_id
                         FROM {PUBLIC_SCHEMA}.{TABLE_NAME}
                         WHERE case_id = :case_id
                         """

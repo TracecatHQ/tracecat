@@ -451,7 +451,7 @@ async def test_agent_workflow_with_preset_config(
 
     # Create a minimal registry action so preset actions validation passes
     repo = RegistryRepository(
-        owner_id=svc_role.workspace_id,
+        workspace_id=svc_role.workspace_id,
         origin="test-agent-preset-repo",
     )
     session.add(repo)
@@ -459,7 +459,7 @@ async def test_agent_workflow_with_preset_config(
     await session.refresh(repo)
 
     registry_action = RegistryAction(
-        owner_id=svc_role.workspace_id,
+        workspace_id=svc_role.workspace_id,
         repository_id=repo.id,
         name="http_request",
         namespace="core",

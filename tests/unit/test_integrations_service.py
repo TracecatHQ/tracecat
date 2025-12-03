@@ -338,7 +338,7 @@ class TestIntegrationService:
 
         # Verify workspace-level integration
         assert workspace_integration.user_id is None
-        assert workspace_integration.owner_id == integration_service.workspace_id
+        assert workspace_integration.workspace_id == integration_service.workspace_id
 
         # Note: Testing actual user_id insertion requires foreign key setup with user table,
         # but the method signature and parameter handling is covered
@@ -1124,7 +1124,7 @@ class TestIntegrationService:
         )
 
         insecure_integration = OAuthIntegration(
-            owner_id=integration_service.workspace_id,
+            workspace_id=integration_service.workspace_id,
             provider_id=provider_key.id,
             grant_type=provider_key.grant_type,
             user_id=None,

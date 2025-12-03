@@ -272,7 +272,7 @@ class TestCaseFieldsIntegration:
         # Create a new case object to test get_fields
         deleted_case = Case(
             id=case_id,
-            owner_id=case_fields_service.workspace_id,
+            workspace_id=case_fields_service.workspace_id,
             summary="",
             description="",
             status=CaseStatus.NEW,

@@ -23,7 +23,7 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         description="Test workflow description",
         status="online",
         version=1,
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         entrypoint="action-1",
         expects={"input": {"type": "string"}},
         returns=None,
@@ -43,7 +43,7 @@ def mock_action(test_workspace: Workspace, mock_workflow: Workflow) -> Action:
     """Create a mock action DB object."""
     action = Action(
         id="act-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         workflow_id=mock_workflow.id,
         type="core.http_request",
         title="Test Action",

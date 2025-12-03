@@ -330,7 +330,7 @@ class TestWorkflowImportService:
         assert action1.description == "Transforms test data"
         assert action1.type == "core.transform.transform"
         assert action1.workflow_id == workflow_id
-        assert action1.owner_id == import_service.workspace_id
+        assert action1.workspace_id == import_service.workspace_id
 
         # Verify inputs are YAML serialized
         import yaml
@@ -525,7 +525,9 @@ class TestWorkflowImportService:
         assert len(result.diagnostics) == 1
 
         # Verify NO workflows were imported (atomic rollback)
-        stmt = select(Workflow).where(Workflow.owner_id == import_service.workspace_id)
+        stmt = select(Workflow).where(
+            Workflow.workspace_id == import_service.workspace_id
+        )
         result = await session.execute(stmt)
         workflows = result.scalars().all()
         assert len(workflows) == 0  # Nothing should be imported
@@ -617,7 +619,7 @@ class TestWorkflowImportService:
         )
 
         # Verify tags in database
-        stmt = select(Tag).where(Tag.owner_id == import_service.workspace_id)
+        stmt = select(Tag).where(Tag.workspace_id == import_service.workspace_id)
         result = await session.execute(stmt)
         tags = result.scalars().all()
 

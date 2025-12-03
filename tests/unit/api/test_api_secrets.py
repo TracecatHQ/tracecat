@@ -23,7 +23,7 @@ def mock_secret(test_workspace: Workspace) -> Secret:
     """Create a mock secret DB object."""
     secret = Secret(
         id="secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         name="test_secret",
         type=SecretType.CUSTOM,
         description="Test secret description",
@@ -337,7 +337,7 @@ def mock_org_secret(mock_org_id: uuid.UUID) -> Secret:
     """Create a mock organization secret DB object."""
     secret = Secret(
         id="secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        owner_id=mock_org_id,
+        organization_id=mock_org_id,
         name="org_secret",
         type=SecretType.CUSTOM,
         description="Organization secret description",
