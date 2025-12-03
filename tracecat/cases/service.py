@@ -287,73 +287,156 @@ class CasesService(BaseWorkspaceService):
         else:
             sort_attr = getattr(Case, sort_column)
 
-        # Apply cursor filtering
-        # Note: Cursor always uses created_at for pagination stability regardless of sort column
-        # This means pagination position is based on created_at, while display order uses sort_attr
+        # Apply cursor-based pagination with sort-column-aware filtering
+        # The cursor stores (sort_column, sort_value, created_at, id) for proper pagination
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
             cursor_time = cursor_data.created_at
             cursor_id = uuid.UUID(cursor_data.id)
 
-            # Cursor comparisons always use Case.created_at since that's what the cursor stores
-            # The sort direction determines how we navigate through the created_at timeline:
-            # - For ascending sort: we want newer records (higher created_at) when going forward
-            # - For descending sort: we want older records (lower created_at) when going forward
+            # Check if cursor was created with the same sort column (for proper pagination)
+            cursor_sort_value = cursor_data.sort_value
+            cursor_has_sort_value = (
+                cursor_data.sort_column == sort_column and cursor_sort_value is not None
+            )
 
-            if sort_direction == "asc":
-                # Ascending order
-                if params.reverse:
-                    # Going backward: get records before cursor
-                    stmt = stmt.where(
-                        or_(
-                            Case.created_at < cursor_time,
-                            and_(
-                                Case.created_at == cursor_time,
-                                Case.id < cursor_id,
-                            ),
-                        )
-                    )
+            if cursor_has_sort_value:
+                # Use sort column value for cursor filtering (proper pagination)
+                # For "tasks" column, we need to compare against the task count subquery
+                if sort_column == "tasks":
+                    sort_filter_col = task_count_expr
+                    sort_cursor_value = cursor_sort_value  # Integer comparison
+                elif sort_column == "created_at":
+                    # Special case: when sorting by created_at, use cursor_time (datetime) instead of string
+                    sort_filter_col = Case.created_at
+                    sort_cursor_value = cursor_time  # Datetime comparison
                 else:
-                    # Going forward: get records after cursor
-                    stmt = stmt.where(
-                        or_(
-                            Case.created_at > cursor_time,
-                            and_(
-                                Case.created_at == cursor_time,
-                                Case.id > cursor_id,
-                            ),
+                    sort_filter_col = getattr(Case, sort_column)
+                    sort_cursor_value = cursor_sort_value  # String/enum comparison
+
+                # Composite filtering: (sort_col, created_at, id) matches ORDER BY
+                # This ensures consistent pagination when sorting by any column
+                if sort_direction == "asc":
+                    if params.reverse:
+                        # Going backward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col < sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at < cursor_time,
+                                ),
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at == cursor_time,
+                                    Case.id < cursor_id,
+                                ),
+                            )
                         )
-                    )
+                    else:
+                        # Going forward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col > sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at > cursor_time,
+                                ),
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at == cursor_time,
+                                    Case.id > cursor_id,
+                                ),
+                            )
+                        )
+                else:
+                    # Descending order
+                    if params.reverse:
+                        # Going backward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col > sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at > cursor_time,
+                                ),
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at == cursor_time,
+                                    Case.id > cursor_id,
+                                ),
+                            )
+                        )
+                    else:
+                        # Going forward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col < sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at < cursor_time,
+                                ),
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.created_at == cursor_time,
+                                    Case.id < cursor_id,
+                                ),
+                            )
+                        )
             else:
-                # Descending order
-                if params.reverse:
-                    # Going backward: get records after cursor (in original order)
-                    stmt = stmt.where(
-                        or_(
-                            Case.created_at > cursor_time,
-                            and_(
-                                Case.created_at == cursor_time,
-                                Case.id > cursor_id,
-                            ),
+                # Fallback: cursor doesn't have sort value or sort column changed
+                # Use created_at-based filtering (backward compatibility)
+                if sort_direction == "asc":
+                    if params.reverse:
+                        stmt = stmt.where(
+                            or_(
+                                Case.created_at < cursor_time,
+                                and_(
+                                    Case.created_at == cursor_time,
+                                    Case.id < cursor_id,
+                                ),
+                            )
                         )
-                    )
+                    else:
+                        stmt = stmt.where(
+                            or_(
+                                Case.created_at > cursor_time,
+                                and_(
+                                    Case.created_at == cursor_time,
+                                    Case.id > cursor_id,
+                                ),
+                            )
+                        )
                 else:
-                    # Going forward: get records before cursor (in original order)
-                    stmt = stmt.where(
-                        or_(
-                            Case.created_at < cursor_time,
-                            and_(
-                                Case.created_at == cursor_time,
-                                Case.id < cursor_id,
-                            ),
+                    if params.reverse:
+                        stmt = stmt.where(
+                            or_(
+                                Case.created_at > cursor_time,
+                                and_(
+                                    Case.created_at == cursor_time,
+                                    Case.id > cursor_id,
+                                ),
+                            )
                         )
-                    )
+                    else:
+                        stmt = stmt.where(
+                            or_(
+                                Case.created_at < cursor_time,
+                                and_(
+                                    Case.created_at == cursor_time,
+                                    Case.id < cursor_id,
+                                ),
+                            )
+                        )
 
-        # Apply sorting based on user selection
+        # Apply sorting: (sort_col, created_at, id) for stable pagination
+        # Always include created_at as tie-breaker to match WHERE clause structure
         if sort_direction == "asc":
-            stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
+            stmt = stmt.order_by(sort_attr.asc(), Case.created_at.asc(), Case.id.asc())
         else:
-            stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
+            stmt = stmt.order_by(
+                sort_attr.desc(), Case.created_at.desc(), Case.id.desc()
+            )
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
@@ -385,8 +468,47 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
-        # Fetch task counts for all cases in one query
+        # Fetch task counts for all cases in one query (needed for cursor generation if sorting by tasks)
         task_counts = await self.get_task_counts([case.id for case in cases])
+
+        # Helper to get sort value for a case (needed for cursor generation)
+        def get_sort_value(case: Case) -> str | int | float | None:
+            if sort_column == "tasks":
+                counts = task_counts.get(case.id, {"total": 0})
+                return counts.get("total", 0)
+            return getattr(case, sort_column, None)
+
+        # Generate cursors with sort column info for proper pagination
+        next_cursor = None
+        prev_cursor = None
+        has_previous = params.cursor is not None
+
+        if has_more and cases:
+            last_case = cases[-1]
+            next_cursor = paginator.encode_cursor(
+                last_case.created_at,
+                last_case.id,
+                sort_column=sort_column,
+                sort_value=get_sort_value(last_case),
+            )
+
+        if params.cursor and cases:
+            first_case = cases[0]
+            # For reverse pagination, swap the cursor meaning
+            if params.reverse:
+                next_cursor = paginator.encode_cursor(
+                    first_case.created_at,
+                    first_case.id,
+                    sort_column=sort_column,
+                    sort_value=get_sort_value(first_case),
+                )
+            else:
+                prev_cursor = paginator.encode_cursor(
+                    first_case.created_at,
+                    first_case.id,
+                    sort_column=sort_column,
+                    sort_value=get_sort_value(first_case),
+                )
 
         # Convert to CaseReadMinimal objects with tags
         case_items = []

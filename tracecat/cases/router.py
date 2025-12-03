@@ -169,7 +169,7 @@ async def list_cases(
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
         raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=HTTP_400_BAD_REQUEST,
             detail="Failed to retrieve cases",
         ) from e
     return cases

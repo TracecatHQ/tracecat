@@ -43,6 +43,13 @@ class CursorData(BaseModel):
 
     created_at: datetime
     id: str
+    sort_column: str | None = Field(
+        default=None, description="Column name being sorted (for sort-aware pagination)"
+    )
+    sort_value: str | int | float | None = Field(
+        default=None,
+        description="Serialized value of sort column for the cursor row",
+    )
 
 
 class BaseCursorPaginator:
@@ -52,9 +59,31 @@ class BaseCursorPaginator:
         self.session = session
 
     @staticmethod
-    def encode_cursor(created_at: datetime, id: UUID | str) -> str:
-        """Encode a cursor from timestamp and ID."""
-        cursor_data = CursorData(created_at=created_at, id=str(id))
+    def encode_cursor(
+        created_at: datetime,
+        id: UUID | str,
+        sort_column: str | None = None,
+        sort_value: str | int | float | datetime | None = None,
+    ) -> str:
+        """Encode a cursor from timestamp and ID, optionally with sort column info.
+
+        Args:
+            created_at: The created_at timestamp of the row (always required for tie-breaking)
+            id: The row ID (always required for uniqueness)
+            sort_column: Optional name of the column being sorted (e.g., "priority", "severity")
+            sort_value: Optional value of the sort column for this row. If datetime, will be serialized to ISO string.
+        """
+        # Convert datetime sort values to ISO string for JSON serialization
+        serialized_sort_value = sort_value
+        if isinstance(sort_value, datetime):
+            serialized_sort_value = sort_value.isoformat()
+
+        cursor_data = CursorData(
+            created_at=created_at,
+            id=str(id),
+            sort_column=sort_column,
+            sort_value=serialized_sort_value,
+        )
         json_str = cursor_data.model_dump_json()
         return base64.urlsafe_b64encode(json_str.encode()).decode()
 

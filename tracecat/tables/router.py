@@ -365,9 +365,16 @@ async def list_rows(
         reverse=reverse,
     )
 
-    response = await service.list_rows_paginated(
-        table, params, order_by=order_by, sort=sort
-    )
+    try:
+        response = await service.list_rows_paginated(
+            table, params, order_by=order_by, sort=sort
+        )
+    except Exception as e:
+        logger.error(f"Failed to list rows: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to retrieve rows",
+        ) from e
 
     # Convert the response items to TableRowRead format
     return CursorPaginatedResponse(
