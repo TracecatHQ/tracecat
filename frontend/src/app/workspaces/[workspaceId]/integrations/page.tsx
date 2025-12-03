@@ -63,9 +63,6 @@ export default function IntegrationsPage() {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedMcpIntegrationId, setSelectedMcpIntegrationId] = useState<
-    string | null
-  >(null)
 
   const { integrations, providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
@@ -123,7 +120,7 @@ export default function IntegrationsPage() {
         })) ?? []
 
     return [...oauthItems, ...mcpItems]
-  }, [providers, mcpIntegrations])
+  }, [providers, mcpIntegrations, integrations])
 
   const filteredIntegrations = useMemo(() => {
     const filtered = allIntegrations.filter((item) => {
@@ -177,7 +174,7 @@ export default function IntegrationsPage() {
         `/workspaces/${workspaceId}/integrations/${item.id}?tab=overview&grant_type=${item.grant_type}`
       )
     } else if (item.type === "mcp") {
-      setSelectedMcpIntegrationId(item.id)
+      router.push(`/workspaces/${workspaceId}/integrations/mcp/${item.id}`)
     }
   }
 
@@ -292,16 +289,7 @@ export default function IntegrationsPage() {
           </div>
         </Card>
       )}
-      <MCPIntegrationDialog
-        mcpIntegrationId={selectedMcpIntegrationId}
-        open={Boolean(selectedMcpIntegrationId)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedMcpIntegrationId(null)
-          }
-        }}
-        hideTrigger
-      />
+      <MCPIntegrationDialog hideTrigger />
     </div>
   )
 }
