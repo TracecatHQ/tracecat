@@ -50,28 +50,26 @@ def slugify(text: str) -> str:
     return text
 
 
-def generate_unique_slug(
-    conn: sa.Connection,
-    mcp_integration_table: sa.Table,
-    base_slug: str,
-    owner_id: uuid.UUID,
-) -> str:
-    """Generate a unique slug for a workspace by appending numbers if needed."""
-    slug = base_slug
-    counter = 1
+def generate_unique_slug(connection, owner_id: uuid.UUID, base_slug: str) -> str:
+    """Generate a unique slug for an MCP integration."""
+    candidate = base_slug
+    suffix = 1
+
     while True:
-        result = conn.execute(
-            sa.select(mcp_integration_table.c.id).where(
-                sa.and_(
-                    mcp_integration_table.c.owner_id == owner_id,
-                    mcp_integration_table.c.slug == slug,
-                )
-            )
-        ).first()
-        if result is None:
-            return slug
-        slug = f"{base_slug}-{counter}"
-        counter += 1
+        result = connection.execute(
+            sa.text("""
+                SELECT COUNT(*)
+                FROM mcp_integration
+                WHERE owner_id = :owner_id AND slug = :slug
+            """),
+            {"owner_id": owner_id, "slug": candidate},
+        ).scalar()
+
+        if result == 0:
+            return candidate
+
+        candidate = f"{base_slug}-{suffix}"
+        suffix += 1
 
 
 def upgrade() -> None:
