@@ -431,6 +431,62 @@ async def test_executor_can_run_udf_with_oauth(
     )
 
 
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_executor_can_run_udf_with_oauth_in_secret_expression(
+    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that the executor can run a UDF with OAuth secrets in a secret expression."""
+
+    session, db_repo_id = db_session_with_repo
+
+    from tracecat import config
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    # Test OAuth token value
+    oauth_token_value = "__TEST_UDF_OAUTH_TOKEN_VALUE__"
+
+    # 1. Create OAuth integration
+    svc = IntegrationService(session, role=test_role)
+    await svc.store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        ),
+        access_token=SecretStr(oauth_token_value),
+        refresh_token=None,
+        expires_in=3600,
+    )
+
+    # # 2. Register UDFs including the OAuth one
+    # repo = Repository()
+
+    # # Sanity check: Verify the OAuth UDF is registered
+    # assert "core.transform.reshape" in repo
+
+    # 4. Create and run the action
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="core.transform.reshape",
+            args={
+                "value": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}",
+            },
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    result = await run_action_from_input(input, test_role)
+
+    # Assert - the UDF returns the OAuth token value
+    assert result == oauth_token_value, (
+        f"OAuth token from UDF mismatch. Expected {oauth_token_value}, got {result}"
+    )
+
+
 async def mock_action(input: Any, **kwargs):
     """Mock action that simulates some async work"""
     await asyncio.sleep(0.1)
