@@ -25,7 +25,7 @@ definition:
     - ref: copy_sheet
       action: core.http_request
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/sheets/${{ FN.url_encode(inputs.sheet_id) }}:copyTo
+        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/sheets/${{ inputs.sheet_id }}:copyTo
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
