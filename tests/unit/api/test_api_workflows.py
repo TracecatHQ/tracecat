@@ -46,7 +46,7 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
 def mock_webhook(test_workspace: Workspace, mock_workflow: Workflow) -> Webhook:
     """Create a mock webhook DB object."""
     return Webhook(
-        id="wh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaac"),
         workspace_id=test_workspace.id,
         workflow_id=mock_workflow.id,
         status="online",
@@ -504,7 +504,7 @@ async def test_get_workflow_with_relationships(
             updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
         mock_action = Action(
-            id="act-12345678901234567890123456789012",
+            id=uuid.UUID("12345678-1234-4123-8123-123456789012"),
             type="webhook",
             title="Test Action",
             description="Test action description",
@@ -518,7 +518,7 @@ async def test_get_workflow_with_relationships(
             updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
         mock_schedule = Schedule(
-            id="sch-12345678901234567890123456789012",
+            id=uuid.UUID("12345678-1234-4123-8123-123456789013"),
             status="online",
             workspace_id=test_workspace.id,
             workflow_id=mock_workflow.id,
@@ -553,9 +553,9 @@ async def test_get_workflow_with_relationships(
 
         # Verify relationships are properly serialized
         assert "actions" in data
-        assert "act-12345678901234567890123456789012" in data["actions"]
+        assert "12345678-1234-4123-8123-123456789012" in data["actions"]
         assert (
-            data["actions"]["act-12345678901234567890123456789012"]["title"]
+            data["actions"]["12345678-1234-4123-8123-123456789012"]["title"]
             == "Test Action"
         )
 

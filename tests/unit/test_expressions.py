@@ -445,7 +445,7 @@ def test_evaluate_templated_secret(test_role: Role):
         # Mock workflow getter from API side
         for secret_name, secret_keys in TEST_SECRETS.items():
             secret = Secret(
-                id=f"secret_{uuid.uuid4().hex}",
+                id=uuid.uuid4(),
                 name=secret_name,
                 workspace_id=uuid.uuid4(),
                 # Explicitly set the concrete secret type so enums can be resolved during serialization.

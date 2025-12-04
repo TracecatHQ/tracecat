@@ -42,7 +42,7 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
 def mock_action(test_workspace: Workspace, mock_workflow: Workflow) -> Action:
     """Create a mock action DB object."""
     action = Action(
-        id="act-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaab"),
         workspace_id=test_workspace.id,
         workflow_id=mock_workflow.id,
         type="core.http_request",
@@ -167,7 +167,7 @@ async def test_get_action_not_found(
         mock_get.return_value = None
 
         workflow_id = str(mock_workflow.id)
-        fake_action_id = "act-00000000000000000000000000000000"
+        fake_action_id = "00000000-0000-4000-8000-000000000000"
 
         response = client.get(
             f"/actions/{fake_action_id}",
@@ -193,7 +193,7 @@ async def test_update_action_not_found(
         mock_get.return_value = None
 
         workflow_id = str(mock_workflow.id)
-        fake_action_id = "act-00000000000000000000000000000000"
+        fake_action_id = "00000000-0000-4000-8000-000000000000"
 
         response = client.post(
             f"/actions/{fake_action_id}",
