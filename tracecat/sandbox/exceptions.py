@@ -15,3 +15,7 @@ class SandboxExecutionError(SandboxError):
 
 class PackageInstallError(SandboxError):
     """Package installation failed."""
+
+
+class SandboxValidationError(SandboxError):
+    """Input validation failed for sandbox configuration."""

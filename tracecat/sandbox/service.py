@@ -23,7 +23,7 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
-from tracecat.sandbox.wrapper import INSTALL_SCRIPT_TEMPLATE, WRAPPER_SCRIPT
+from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
 
 class SandboxService:
@@ -67,20 +67,31 @@ class SandboxService:
             # Clean up job directory
             shutil.rmtree(job_dir, ignore_errors=True)
 
-    def _compute_cache_key(self, dependencies: list[str]) -> str:
-        """Compute a cache key from dependencies.
+    def _compute_cache_key(
+        self, dependencies: list[str], workspace_id: str | None = None
+    ) -> str:
+        """Compute a cache key from dependencies and optional workspace ID.
 
-        The key is a SHA256 hash of the sorted, normalized dependencies.
+        The key is a SHA256 hash of the sorted, normalized dependencies,
+        optionally scoped to a workspace for multi-tenant isolation.
 
         Args:
             dependencies: List of package specifications.
+            workspace_id: Optional workspace ID for multi-tenant cache isolation.
+                When provided, packages installed by one workspace cannot be
+                reused by another, preventing potential supply chain attacks.
 
         Returns:
             16-character hexadecimal cache key.
         """
         normalized = sorted(dep.lower().strip() for dep in dependencies)
-        hash_input = "\n".join(normalized).encode()
-        return hashlib.sha256(hash_input).hexdigest()[:16]
+        # Include workspace ID in hash for multi-tenant isolation
+        # This prevents cross-workspace package cache poisoning
+        if workspace_id:
+            hash_input = f"{workspace_id}\n" + "\n".join(normalized)
+        else:
+            hash_input = "\n".join(normalized)
+        return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
     async def _install_packages(
         self,
@@ -107,10 +118,16 @@ class SandboxService:
         cache_dir.mkdir(exist_ok=True)
         (cache_dir / "site-packages").mkdir(exist_ok=True)
 
-        # Create install script
-        install_script = INSTALL_SCRIPT_TEMPLATE.format(dependencies=dependencies)
+        # Write dependencies to secure JSON file (prevents code injection)
+        # SECURITY: Never interpolate user-provided dependency strings into Python code
+        deps_path = job_dir / "dependencies.json"
+        deps_path.write_text(json.dumps(dependencies))
+        deps_path.chmod(0o600)
+
+        # Write static install script
         install_path = job_dir / "install.py"
-        install_path.write_text(install_script)
+        install_path.write_text(INSTALL_SCRIPT)
+        install_path.chmod(0o600)
 
         logger.info(
             "Installing packages",
@@ -169,14 +186,17 @@ class SandboxService:
         # Write user script
         script_path = job_dir / "script.py"
         script_path.write_text(script)
+        script_path.chmod(0o600)
 
         # Write inputs
         inputs_path = job_dir / "inputs.json"
         inputs_path.write_text(json.dumps(inputs or {}))
+        inputs_path.chmod(0o600)
 
         # Write wrapper script
         wrapper_path = job_dir / "wrapper.py"
         wrapper_path.write_text(WRAPPER_SCRIPT)
+        wrapper_path.chmod(0o600)
 
     async def run_python(
         self,
@@ -186,6 +206,7 @@ class SandboxService:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        workspace_id: str | None = None,
     ) -> Any:
         """Execute a Python script in the nsjail sandbox.
 
@@ -200,6 +221,9 @@ class SandboxService:
             timeout_seconds: Maximum execution time (default from config).
             allow_network: Whether to allow network access during execution.
             env_vars: Environment variables to set in the sandbox.
+            workspace_id: Optional workspace ID for multi-tenant cache isolation.
+                When provided, package caches are scoped to the workspace,
+                preventing cross-workspace package poisoning attacks.
 
         Returns:
             The return value of the script's main function.
@@ -217,7 +241,7 @@ class SandboxService:
 
             # Phase 1: Install packages if needed
             if dependencies:
-                cache_key = self._compute_cache_key(dependencies)
+                cache_key = self._compute_cache_key(dependencies, workspace_id)
                 cached_path = self.package_cache / cache_key / "site-packages"
 
                 if not cached_path.exists():

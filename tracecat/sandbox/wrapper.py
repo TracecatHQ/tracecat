@@ -91,12 +91,30 @@ if __name__ == "__main__":
     main()
 '''
 
-# Install script template for package installation phase
-INSTALL_SCRIPT_TEMPLATE = """
+# Install script for package installation phase
+# SECURITY: Dependencies are read from a JSON file to prevent code injection
+# via malicious package names. Never interpolate user input into this script.
+INSTALL_SCRIPT = """
+import json
 import subprocess
 import sys
+from pathlib import Path
 
-deps = {dependencies!r}
+# Read dependencies from secure JSON file (written with 0o600 permissions)
+deps_path = Path("/work/dependencies.json")
+if not deps_path.exists():
+    print("No dependencies.json found", file=sys.stderr)
+    sys.exit(1)
+
+deps = json.loads(deps_path.read_text())
+if not isinstance(deps, list):
+    print("dependencies.json must contain a list", file=sys.stderr)
+    sys.exit(1)
+
+if not deps:
+    print("No dependencies to install")
+    sys.exit(0)
+
 result = subprocess.run(
     ["uv", "pip", "install", "--target", "/cache/site-packages", "--python", sys.executable] + deps,
     capture_output=True,

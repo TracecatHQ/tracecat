@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -15,11 +16,78 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import SandboxTimeoutError
+from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
 from tracecat.sandbox.types import SandboxConfig, SandboxResult
 
 if TYPE_CHECKING:
     pass
+
+# Valid environment variable name pattern (POSIX compliant)
+_ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Valid cache key pattern (SHA256 hex string)
+_CACHE_KEY_PATTERN = re.compile(r"^[a-f0-9]+$")
+
+# Minimal base environment for sandboxed processes
+SANDBOX_BASE_ENV = {
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+    "HOME": "/tmp",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+}
+
+
+def _validate_env_key(key: str) -> None:
+    """Validate environment variable key is safe for protobuf config.
+
+    Args:
+        key: Environment variable name to validate.
+
+    Raises:
+        SandboxValidationError: If key contains invalid characters.
+    """
+    if not _ENV_VAR_KEY_PATTERN.match(key):
+        raise SandboxValidationError(
+            f"Invalid environment variable key: {key!r}. "
+            "Keys must match pattern [A-Za-z_][A-Za-z0-9_]*"
+        )
+
+
+def _validate_path(path: Path, name: str) -> None:
+    """Validate path is safe for protobuf config interpolation.
+
+    Args:
+        path: Path to validate.
+        name: Human-readable name for error messages.
+
+    Raises:
+        SandboxValidationError: If path contains dangerous characters.
+    """
+    path_str = str(path)
+    # Characters that could break protobuf text format parsing
+    dangerous_chars = {'"', "'", "\n", "\r", "\\", "{", "}"}
+    found_chars = [c for c in dangerous_chars if c in path_str]
+    if found_chars:
+        raise SandboxValidationError(
+            f"Invalid {name} path: contains dangerous characters {found_chars!r}"
+        )
+
+
+def _validate_cache_key(cache_key: str) -> None:
+    """Validate cache key is a safe hex string.
+
+    Args:
+        cache_key: Cache key to validate (expected to be SHA256 hex).
+
+    Raises:
+        SandboxValidationError: If cache key is not a valid hex string.
+    """
+    if not _CACHE_KEY_PATTERN.match(cache_key):
+        raise SandboxValidationError(
+            f"Invalid cache_key: {cache_key!r}. Must be a lowercase hex string."
+        )
 
 
 class NsjailExecutor:
@@ -63,7 +131,16 @@ class NsjailExecutor:
 
         Returns:
             nsjail protobuf configuration as a string.
+
+        Raises:
+            SandboxValidationError: If any input contains dangerous characters.
         """
+        # Validate inputs to prevent injection into protobuf config
+        _validate_path(job_dir, "job_dir")
+        _validate_path(self.rootfs, "rootfs")
+        if cache_key:
+            _validate_cache_key(cache_key)
+
         # Determine if network should be enabled
         # - Install phase: always enabled for package downloads
         # - Execute phase: per config.network_enabled
@@ -73,6 +150,7 @@ class NsjailExecutor:
             'name: "python_sandbox"',
             "mode: ONCE",
             'hostname: "sandbox"',
+            "keep_env: false",
             "",
             "# Namespace isolation",
             f"clone_newnet: {'false' if network_enabled else 'true'}",
@@ -117,8 +195,13 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                # Bind mount /proc from host instead of creating new procfs
-                # (new procfs mount fails in Docker due to masked paths in /proc)
+                # Bind mount /proc from host (read-only) instead of creating new procfs.
+                # New procfs mount fails in Docker due to masked paths in /proc.
+                # SECURITY NOTE: This exposes host process info to the sandbox. Mitigation:
+                # - Mount is read-only
+                # - Scripts run as unprivileged UID 1000
+                # - PID namespace isolation limits visibility of sandbox processes
+                # - hidepid=2 cannot be used with bind mounts
                 'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
             ]
         )
@@ -167,31 +250,6 @@ class NsjailExecutor:
             ]
         )
 
-        # Environment variables
-        lines.extend(
-            [
-                "",
-                "# Environment variables",
-                'envar: "PATH=/usr/local/bin:/usr/bin:/bin"',
-                'envar: "HOME=/tmp"',
-                'envar: "PYTHONDONTWRITEBYTECODE=1"',
-                'envar: "PYTHONUNBUFFERED=1"',
-            ]
-        )
-
-        if phase == "install":
-            lines.append('envar: "UV_CACHE_DIR=/uv-cache"')
-        else:
-            if cache_key:
-                cache_path = self.package_cache / cache_key / "site-packages"
-                if cache_path.exists():
-                    lines.append('envar: "PYTHONPATH=/packages"')
-            # Add user-provided environment variables
-            for key, value in config.env_vars.items():
-                # Escape double quotes in values
-                escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-                lines.append(f'envar: "{key}={escaped}"')
-
         # Execution settings - script path must be in exec_bin for config file mode
         script_path = f"/work/{script_name}"
         lines.extend(
@@ -204,6 +262,28 @@ class NsjailExecutor:
         )
 
         return "\n".join(lines)
+
+    def _build_env_map(
+        self,
+        config: SandboxConfig,
+        phase: Literal["install", "execute"],
+        cache_key: str | None = None,
+    ) -> dict[str, str]:
+        """Construct a sanitized environment for the nsjail process."""
+        env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
+
+        if phase == "install":
+            env_map["UV_CACHE_DIR"] = "/uv-cache"
+        elif cache_key:
+            cache_path = self.package_cache / cache_key / "site-packages"
+            if cache_path.exists():
+                env_map["PYTHONPATH"] = "/packages"
+
+        for key, value in config.env_vars.items():
+            _validate_env_key(key)
+            env_map[key] = value
+
+        return env_map
 
     async def execute(
         self,
@@ -233,12 +313,19 @@ class NsjailExecutor:
         # Write config to job directory
         config_path = job_dir / "nsjail.cfg"
         config_path.write_text(nsjail_config)
+        config_path.chmod(0o600)
+
+        env_map = self._build_env_map(config, "execute", cache_key)
+        env_args: list[str] = []
+        for key in env_map:
+            env_args.extend(["--env", key])
 
         # Build nsjail command - script is in config, no args after --
         cmd = [
             str(self.nsjail_path),
             "--config",
             str(config_path),
+            *env_args,
         ]
 
         logger.debug(
@@ -248,14 +335,15 @@ class NsjailExecutor:
             cache_key=cache_key,
         )
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(job_dir),
-            )
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(job_dir),
+            env=env_map,
+        )
 
+        try:
             # Wait with timeout (add buffer for nsjail overhead)
             timeout = config.resources.timeout_seconds + 10
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -270,6 +358,14 @@ class NsjailExecutor:
             raise SandboxTimeoutError(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
             ) from e
+
+        finally:
+            # Defense-in-depth: Clean up config file to avoid leaving artifacts
+            # Job dir cleanup will also handle this, but early removal is safer
+            try:
+                config_path.unlink(missing_ok=True)
+            except OSError:
+                pass  # Best effort cleanup
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -354,12 +450,19 @@ class NsjailExecutor:
         # Write config to job directory
         config_path = job_dir / "nsjail.cfg"
         config_path.write_text(nsjail_config)
+        config_path.chmod(0o600)
+
+        env_map = self._build_env_map(config, "install", cache_key)
+        env_args: list[str] = []
+        for key in env_map:
+            env_args.extend(["--env", key])
 
         # Build nsjail command - script is in config
         cmd = [
             str(self.nsjail_path),
             "--config",
             str(config_path),
+            *env_args,
         ]
 
         start_time = time.time()
@@ -371,14 +474,15 @@ class NsjailExecutor:
             cache_key=cache_key,
         )
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(job_dir),
-            )
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(job_dir),
+            env=env_map,
+        )
 
+        try:
             timeout = timeout_seconds + 30  # Extra buffer for package downloads
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(),
@@ -391,6 +495,13 @@ class NsjailExecutor:
             raise SandboxTimeoutError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e
+
+        finally:
+            # Defense-in-depth: Clean up config file to avoid leaving artifacts
+            try:
+                config_path.unlink(missing_ok=True)
+            except OSError:
+                pass  # Best effort cleanup
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = stdout_bytes.decode("utf-8", errors="replace")
