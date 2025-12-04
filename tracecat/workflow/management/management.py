@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -210,29 +211,47 @@ class WorkflowsManagementService(BaseService):
         # Apply cursor filter manually for complex queries
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
-            cursor_time = cursor_data.created_at
-            cursor_id = cursor_data.id
+            cursor_id = uuid.UUID(cursor_data.id)
 
-            if params.reverse:
-                stmt = stmt.where(
-                    sa.or_(
-                        Workflow.created_at > cursor_time,
-                        sa.and_(
-                            Workflow.created_at == cursor_time,
-                            Workflow.id > cursor_id,
-                        ),
+            # Extract the sort value (created_at timestamp) from cursor
+            cursor_sort_value = cursor_data.sort_value
+            cursor_has_sort_value = (
+                cursor_data.sort_column == "created_at"
+                and cursor_sort_value is not None
+            )
+
+            if cursor_has_sort_value:
+                # Workflows are sorted by created_at DESC (see line 260)
+                # Descending order logic:
+                if params.reverse:
+                    # Going backward: get records after cursor in sort order
+                    stmt = stmt.where(
+                        sa.or_(
+                            Workflow.created_at > cursor_sort_value,
+                            sa.and_(
+                                Workflow.created_at == cursor_sort_value,
+                                Workflow.id > cursor_id,
+                            ),
+                        )
                     )
-                )
+                else:
+                    # Going forward: get records before cursor in sort order
+                    stmt = stmt.where(
+                        sa.or_(
+                            Workflow.created_at < cursor_sort_value,
+                            sa.and_(
+                                Workflow.created_at == cursor_sort_value,
+                                Workflow.id < cursor_id,
+                            ),
+                        )
+                    )
             else:
-                stmt = stmt.where(
-                    sa.or_(
-                        Workflow.created_at < cursor_time,
-                        sa.and_(
-                            Workflow.created_at == cursor_time,
-                            Workflow.id < cursor_id,
-                        ),
-                    )
-                )
+                # Fallback for old-format cursors or cursors without sort value
+                # Use ID-only filtering to maintain backward compatibility
+                if params.reverse:
+                    stmt = stmt.where(Workflow.id > cursor_id)
+                else:
+                    stmt = stmt.where(Workflow.id < cursor_id)
 
         # Apply ordering
         if params.reverse:
