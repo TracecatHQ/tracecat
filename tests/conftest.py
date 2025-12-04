@@ -461,6 +461,21 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         yield workspace
     finally:
         logger.debug("Cleaning up test workspace")
+        # Clean up workspace from global session (postgres database) first
+        try:
+            async with get_async_session_context_manager() as global_cleanup_session:
+                result = await global_cleanup_session.execute(
+                    select(Workspace).where(Workspace.id == workspace.id)
+                )
+                global_workspace = result.scalar_one_or_none()
+                if global_workspace:
+                    await global_cleanup_session.delete(global_workspace)
+                    await global_cleanup_session.commit()
+                    logger.debug("Cleaned up workspace from global session")
+        except Exception as e:
+            logger.error(f"Error cleaning up workspace from global session: {e}")
+
+        # Clean up workspace from test session
         try:
             if session.is_active:
                 # Reset transaction state in case it was aborted
