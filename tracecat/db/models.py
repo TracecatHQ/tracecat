@@ -55,7 +55,13 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.identifiers import OwnerID, action, id_factory
+from tracecat.identifiers import (
+    OrganizationID,
+    OwnerID,
+    WorkspaceID,
+    action,
+    id_factory,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
@@ -107,13 +113,12 @@ class TimestampMixin:
 
 
 class RecordModel(TimestampMixin, Base):
-    """Declarative base for workspace-owned resources."""
+    """Base class for all record models - provides surrogate key and timestamps."""
 
     __abstract__ = True
     __serialization_exclude__ = {"surrogate_id"}
 
     surrogate_id: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
-    owner_id: Mapped[OwnerID] = mapped_column(UUID, nullable=False)
 
     def __repr__(self) -> str:
         """Return a string representation showing all mapped attributes."""
@@ -160,6 +165,31 @@ class RecordModel(TimestampMixin, Base):
                 when_used="always",  # use "always" if you also want model_dump(mode="python") to convert
             ),
         )
+
+
+class OrganizationModel(RecordModel):
+    """Base class for organization-scoped resources.
+
+    Used for resources that belong to an organization (e.g., Workspace, OrganizationSecret).
+    The organization_id references the organization's sentinel UUID.
+    """
+
+    __abstract__ = True
+
+    organization_id: Mapped[OrganizationID] = mapped_column(UUID, nullable=False)
+
+
+class WorkspaceModel(RecordModel):
+    """Base class for workspace-owned resources.
+
+    Used for resources that belong to a specific workspace (e.g., Workflow, Case, Secret).
+    """
+
+    __abstract__ = True
+
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
 
 
 def _to_dict(instance: RecordModel) -> dict[str, Any]:
@@ -227,9 +257,10 @@ class Ownership(Base):
     owner_type: Mapped[str] = mapped_column(String, nullable=False)
 
 
-class Workspace(RecordModel):
-    __tablename__ = "workspace"
+class Workspace(OrganizationModel):
+    """A workspace belonging to an organization."""
 
+    __tablename__ = "workspace"
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -249,57 +280,57 @@ class Workspace(RecordModel):
     )
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     cases: Mapped[list[Case]] = relationship(
         "Case",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     secrets: Mapped[list[Secret]] = relationship(
         "Secret",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     variables: Mapped[list[WorkspaceVariable]] = relationship(
         "WorkspaceVariable",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     workflow_tags: Mapped[list[Tag]] = relationship(
         "Tag",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     case_tags: Mapped[list[CaseTag]] = relationship(
         "CaseTag",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     agent_presets: Mapped[list[AgentPreset]] = relationship(
         "AgentPreset",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     case_duration_definitions: Mapped[list[CaseDurationDefinition]] = relationship(
         "CaseDurationDefinition",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete-orphan",
     )
     folders: Mapped[list[WorkflowFolder]] = relationship(
         "WorkflowFolder",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     integrations: Mapped[list[OAuthIntegration]] = relationship(
         "OAuthIntegration",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
     oauth_providers: Mapped[list[WorkspaceOAuthProvider]] = relationship(
         "WorkspaceOAuthProvider",
-        back_populates="owner",
+        back_populates="workspace",
         cascade="all, delete",
     )
 
@@ -381,7 +412,7 @@ class SAMLRequestData(Base):
     )
 
 
-class BaseSecret(RecordModel):
+class BaseSecret(Base):
     """Base attributes shared across organization and workspace secrets."""
 
     __abstract__ = True
@@ -408,30 +439,31 @@ class BaseSecret(RecordModel):
         return f"{self.__class__.__name__}(id={self.id}, name={self.name}, environment={self.environment})"
 
 
-class OrganizationSecret(BaseSecret):
+class OrganizationSecret(OrganizationModel, BaseSecret):
     __tablename__ = "organization_secret"
     __table_args__ = (UniqueConstraint("name", "environment"),)
 
 
-class Secret(BaseSecret):
+class Secret(WorkspaceModel, BaseSecret):
     """Workspace secrets."""
 
     __tablename__ = "secret"
-    __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
+    __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
 
-    owner_id: Mapped[OwnerID] = mapped_column(
+    # Workspace-scoped secret - add workspace_id since BaseSecret doesn't have ownership
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
     )
-    owner: Mapped[Workspace | None] = relationship(back_populates="secrets")
+    workspace: Mapped[Workspace | None] = relationship(back_populates="secrets")
 
 
-class WorkspaceVariable(RecordModel):
+class WorkspaceVariable(WorkspaceModel):
     __tablename__ = "workspace_variable"
-    __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
+    __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
 
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
     )
@@ -452,10 +484,10 @@ class WorkspaceVariable(RecordModel):
     )
     tags: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
 
-    owner: Mapped[Workspace] = relationship(back_populates="variables")
+    workspace: Mapped[Workspace] = relationship(back_populates="variables")
 
 
-class WorkflowDefinition(RecordModel):
+class WorkflowDefinition(WorkspaceModel):
     """A workflow definition.
 
     This is the underlying representation/snapshot of a workflow in the system, which
@@ -496,7 +528,7 @@ class WorkflowDefinition(RecordModel):
     workflow: Mapped[Workflow] = relationship(back_populates="definitions")
 
 
-class WorkflowFolder(RecordModel):
+class WorkflowFolder(WorkspaceModel):
     """Folder for organizing workflows.
 
     Uses materialized path pattern for hierarchical structure.
@@ -506,10 +538,12 @@ class WorkflowFolder(RecordModel):
 
     __tablename__ = "workflow_folder"
     __table_args__ = (
-        UniqueConstraint("path", "owner_id", name="uq_workflow_folder_path_owner"),
+        UniqueConstraint(
+            "path", "workspace_id", name="uq_workflow_folder_path_workspace"
+        ),
     )
 
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -526,7 +560,7 @@ class WorkflowFolder(RecordModel):
         String, index=True, nullable=False, doc="Full materialized path: /parent/child/"
     )
 
-    owner: Mapped[Workspace] = relationship(back_populates="folders")
+    workspace: Mapped[Workspace] = relationship(back_populates="folders")
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow", back_populates="folder", cascade="all, delete-orphan"
     )
@@ -568,7 +602,7 @@ class WorkflowTag(Base):
     )
 
 
-class Workflow(RecordModel):
+class Workflow(WorkspaceModel):
     """The workflow state.
 
     Notes
@@ -585,7 +619,9 @@ class Workflow(RecordModel):
 
     __tablename__ = "workflow"
     __table_args__ = (
-        UniqueConstraint("alias", "owner_id", name="uq_workflow_alias_owner_id"),
+        UniqueConstraint(
+            "alias", "workspace_id", name="uq_workflow_alias_workspace_id"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -631,7 +667,7 @@ class Workflow(RecordModel):
         doc="Workflow alias or ID for the workflow to run when this fails.",
     )
     icon_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -642,7 +678,7 @@ class Workflow(RecordModel):
         nullable=True,
     )
 
-    owner: Mapped[Workspace] = relationship(back_populates="workflows")
+    workspace: Mapped[Workspace] = relationship(back_populates="workflows")
     folder: Mapped[WorkflowFolder | None] = relationship(back_populates="workflows")
     actions: Mapped[list[Action]] = relationship(
         "Action",
@@ -675,7 +711,7 @@ class Workflow(RecordModel):
     )
 
 
-class WebhookApiKey(RecordModel):
+class WebhookApiKey(WorkspaceModel):
     __tablename__ = "webhook_api_key"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -705,7 +741,7 @@ class WebhookApiKey(RecordModel):
     webhook: Mapped[Webhook | None] = relationship(back_populates="api_key")
 
 
-class Webhook(RecordModel):
+class Webhook(WorkspaceModel):
     __tablename__ = "webhook"
 
     id: Mapped[str] = mapped_column(
@@ -781,7 +817,7 @@ class Webhook(RecordModel):
         return self.api_key.revoked_at if self.api_key else None
 
 
-class Schedule(RecordModel):
+class Schedule(WorkspaceModel):
     __tablename__ = "schedule"
 
     id: Mapped[str] = mapped_column(
@@ -826,7 +862,7 @@ class Schedule(RecordModel):
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
 
 
-class Action(RecordModel):
+class Action(WorkspaceModel):
     """The workspace action state."""
 
     __tablename__ = "action"
@@ -888,11 +924,10 @@ class Action(RecordModel):
         return action.ref(self.title)
 
 
-class RegistryRepository(RecordModel):
+class RegistryRepository(OrganizationModel):
     """A repository of templates and actions."""
 
     __tablename__ = "registry_repository"
-
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True
     )
@@ -922,7 +957,7 @@ class RegistryRepository(RecordModel):
     )
 
 
-class RegistryAction(RecordModel):
+class RegistryAction(OrganizationModel):
     """A registry action.
 
 
@@ -939,7 +974,6 @@ class RegistryAction(RecordModel):
     __table_args__ = (
         UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
     )
-
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True
     )
@@ -998,11 +1032,10 @@ class RegistryAction(RecordModel):
         return f"{self.namespace}.{self.name}"
 
 
-class OrganizationSetting(RecordModel):
+class OrganizationSetting(OrganizationModel):
     """An organization setting."""
 
     __tablename__ = "organization_settings"
-
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -1032,11 +1065,11 @@ class OrganizationSetting(RecordModel):
     )
 
 
-class Table(RecordModel):
+class Table(WorkspaceModel):
     """Metadata for lookup tables."""
 
     __tablename__ = "tables"
-    __table_args__ = (UniqueConstraint("owner_id", "name"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1094,7 +1127,7 @@ class CaseFields(TimestampMixin, Base):
     """A table of fields for a case."""
 
     __tablename__ = "case_field"
-    __table_args__ = (UniqueConstraint("owner_id", name="uq_case_field_owner"),)
+    __table_args__ = (UniqueConstraint("workspace_id", name="uq_case_field_workspace"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1104,7 +1137,7 @@ class CaseFields(TimestampMixin, Base):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=False,
@@ -1130,13 +1163,13 @@ class CaseTagLink(Base):
     )
 
 
-class CaseTag(RecordModel):
+class CaseTag(WorkspaceModel):
     """A tag for organizing and filtering cases."""
 
     __tablename__ = "case_tag"
     __table_args__ = (
-        UniqueConstraint("name", "owner_id", name="uq_case_tag_name_owner"),
-        UniqueConstraint("ref", "owner_id", name="uq_case_tag_ref_owner"),
+        UniqueConstraint("name", "workspace_id", name="uq_case_tag_name_workspace"),
+        UniqueConstraint("ref", "workspace_id", name="uq_case_tag_ref_workspace"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1146,7 +1179,7 @@ class CaseTag(RecordModel):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -1155,7 +1188,7 @@ class CaseTag(RecordModel):
     ref: Mapped[str] = mapped_column(String, nullable=False, index=True)
     color: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    owner: Mapped[Workspace] = relationship(back_populates="case_tags")
+    workspace: Mapped[Workspace] = relationship(back_populates="case_tags")
     cases: Mapped[list[Case]] = relationship(
         "Case",
         back_populates="tags",
@@ -1163,15 +1196,15 @@ class CaseTag(RecordModel):
     )
 
 
-class CaseDurationDefinition(RecordModel):
+class CaseDurationDefinition(WorkspaceModel):
     """Workspace-defined case duration metric anchored on case events."""
 
     __tablename__ = "case_duration_definition"
     __table_args__ = (
         UniqueConstraint(
-            "owner_id",
+            "workspace_id",
             "name",
-            name="uq_case_duration_definition_owner_name",
+            name="uq_case_duration_definition_workspace_name",
         ),
     )
 
@@ -1182,7 +1215,7 @@ class CaseDurationDefinition(RecordModel):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -1210,7 +1243,9 @@ class CaseDurationDefinition(RecordModel):
         default=CaseDurationAnchorSelection.FIRST, nullable=False
     )
 
-    owner: Mapped[Workspace] = relationship(back_populates="case_duration_definitions")
+    workspace: Mapped[Workspace] = relationship(
+        back_populates="case_duration_definitions"
+    )
     case_durations: Mapped[list[CaseDuration]] = relationship(
         "CaseDuration",
         back_populates="definition",
@@ -1219,7 +1254,7 @@ class CaseDurationDefinition(RecordModel):
     )
 
 
-class CaseDuration(RecordModel):
+class CaseDuration(WorkspaceModel):
     """Computed duration values for a case tied to a duration definition."""
 
     __tablename__ = "case_duration"
@@ -1238,7 +1273,7 @@ class CaseDuration(RecordModel):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -1283,12 +1318,12 @@ class CaseDuration(RecordModel):
     )
 
 
-class Case(RecordModel):
+class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__ = "case"
     __table_args__ = (
-        Index("ix_case_cursor_pagination", "owner_id", "created_at", "id"),
+        Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1326,7 +1361,7 @@ class Case(RecordModel):
         nullable=True,
         doc="Additional data payload for the case",
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=False,
@@ -1363,7 +1398,7 @@ class Case(RecordModel):
         back_populates="assigned_cases",
         lazy="selectin",
     )
-    owner: Mapped[Workspace] = relationship("Workspace", back_populates="cases")
+    workspace: Mapped[Workspace] = relationship("Workspace", back_populates="cases")
     tags: Mapped[list[CaseTag]] = relationship(
         "CaseTag",
         secondary=CaseTagLink.__table__,
@@ -1381,7 +1416,7 @@ class Case(RecordModel):
         return f"CASE-{self.case_number:04d}"
 
 
-class CaseComment(RecordModel):
+class CaseComment(WorkspaceModel):
     """A comment on a case."""
 
     __tablename__ = "case_comment"
@@ -1416,7 +1451,7 @@ class CaseComment(RecordModel):
     case: Mapped[Case] = relationship("Case", back_populates="comments")
 
 
-class CaseEvent(RecordModel):
+class CaseEvent(WorkspaceModel):
     """A activity record for a case.
 
     Uses a tagged union pattern where the 'type' field indicates the kind of activity,
@@ -1453,7 +1488,7 @@ class CaseEvent(RecordModel):
     case: Mapped[Case] = relationship("Case", back_populates="events")
 
 
-class CaseTask(RecordModel):
+class CaseTask(WorkspaceModel):
     __tablename__ = "case_task"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1502,7 +1537,7 @@ class CaseTask(RecordModel):
     workflow: Mapped[Workflow | None] = relationship("Workflow", lazy="selectin")
 
 
-class Interaction(RecordModel):
+class Interaction(WorkspaceModel):
     """Database model for storing workflow interaction state.
 
     This table stores the state of interactions within workflows, allowing us
@@ -1550,16 +1585,16 @@ class Interaction(RecordModel):
     )
 
 
-class Approval(RecordModel):
+class Approval(WorkspaceModel):
     """Database model for storing agent tool approval state."""
 
     __tablename__ = "approval"
     __table_args__ = (
         UniqueConstraint(
-            "owner_id",
+            "workspace_id",
             "session_id",
             "tool_call_id",
-            name="uq_approval_owner_session_tool",
+            name="uq_approval_workspace_session_tool",
         ),
     )
 
@@ -1622,12 +1657,12 @@ class Approval(RecordModel):
     )
 
 
-class AgentPreset(RecordModel):
+class AgentPreset(WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
     __tablename__ = "agent_preset"
     __table_args__ = (
-        UniqueConstraint("owner_id", "slug", name="uq_agent_preset_owner_slug"),
+        UniqueConstraint("workspace_id", "slug", name="uq_agent_preset_workspace_slug"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1638,7 +1673,7 @@ class AgentPreset(RecordModel):
         index=True,
         doc="Unique agent preset identifier",
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -1702,7 +1737,7 @@ class AgentPreset(RecordModel):
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
 
-    owner: Mapped[Workspace | None] = relationship(back_populates="agent_presets")
+    workspace: Mapped[Workspace | None] = relationship(back_populates="agent_presets")
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="agent_preset",
@@ -1710,7 +1745,7 @@ class AgentPreset(RecordModel):
     )
 
 
-class File(RecordModel):
+class File(WorkspaceModel):
     """A file entity with content-addressable storage using SHA256."""
 
     __tablename__ = "file"
@@ -1813,11 +1848,11 @@ class OAuthIntegration(TimestampMixin, Base):
     __tablename__ = "oauth_integration"
     __table_args__ = (
         UniqueConstraint(
-            "owner_id",
+            "workspace_id",
             "provider_id",
             "user_id",
             "grant_type",
-            name="uq_oauth_integration_owner_provider_user_flow",
+            name="uq_oauth_integration_workspace_provider_user_flow",
         ),
     )
 
@@ -1829,8 +1864,8 @@ class OAuthIntegration(TimestampMixin, Base):
         unique=True,
         index=True,
     )
-    # Owner (workspace)
-    owner_id: Mapped[OwnerID] = mapped_column(
+    # Workspace
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -1899,7 +1934,9 @@ class OAuthIntegration(TimestampMixin, Base):
 
     # Relationships
     user: Mapped[User | None] = relationship("User")
-    owner: Mapped[Workspace] = relationship("Workspace", back_populates="integrations")
+    workspace: Mapped[Workspace] = relationship(
+        "Workspace", back_populates="integrations"
+    )
 
     @property
     def is_expired(self) -> bool:
@@ -1942,10 +1979,10 @@ class WorkspaceOAuthProvider(TimestampMixin, Base):
     __tablename__ = "oauth_provider"
     __table_args__ = (
         UniqueConstraint(
-            "owner_id",
+            "workspace_id",
             "provider_id",
             "grant_type",
-            name="uq_oauth_provider_owner_provider_grant_type",
+            name="uq_oauth_provider_workspace_provider_grant_type",
         ),
     )
 
@@ -1957,7 +1994,7 @@ class WorkspaceOAuthProvider(TimestampMixin, Base):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[uuid.UUID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=False,
@@ -2000,7 +2037,7 @@ class WorkspaceOAuthProvider(TimestampMixin, Base):
         doc="Default OAuth scopes requested by this provider",
     )
 
-    owner: Mapped[Workspace] = relationship(
+    workspace: Mapped[Workspace] = relationship(
         "Workspace",
         back_populates="oauth_providers",
     )
@@ -2014,7 +2051,9 @@ class MCPIntegration(TimestampMixin, Base):
 
     __tablename__ = "mcp_integration"
     __table_args__ = (
-        UniqueConstraint("owner_id", "slug", name="uq_mcp_integration_owner_slug"),
+        UniqueConstraint(
+            "workspace_id", "slug", name="uq_mcp_integration_workspace_slug"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2026,7 +2065,7 @@ class MCPIntegration(TimestampMixin, Base):
         index=True,
         doc="Unique MCP integration identifier",
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=False,
@@ -2122,7 +2161,7 @@ class OAuthStateDB(TimestampMixin, Base):
     user: Mapped[User] = relationship()
 
 
-class Chat(RecordModel):
+class Chat(WorkspaceModel):
     """A chat between a user and an AI agent."""
 
     __tablename__ = "chat"
@@ -2187,7 +2226,7 @@ class Chat(RecordModel):
     )
 
 
-class ChatMessage(RecordModel):
+class ChatMessage(WorkspaceModel):
     """A message in a chat."""
 
     __tablename__ = "chat_message"
@@ -2215,13 +2254,13 @@ class ChatMessage(RecordModel):
     chat: Mapped[Chat] = relationship("Chat", back_populates="messages")
 
 
-class Tag(RecordModel):
+class Tag(WorkspaceModel):
     """A workflow tag for organizing and filtering workflows."""
 
     __tablename__ = "tag"
     __table_args__ = (
-        UniqueConstraint("name", "owner_id", name="uq_tag_name_owner"),
-        UniqueConstraint("ref", "owner_id", name="uq_tag_ref_owner"),
+        UniqueConstraint("name", "workspace_id", name="uq_tag_name_workspace"),
+        UniqueConstraint("ref", "workspace_id", name="uq_tag_ref_workspace"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2231,7 +2270,7 @@ class Tag(RecordModel):
         unique=True,
         index=True,
     )
-    owner_id: Mapped[OwnerID] = mapped_column(
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
@@ -2245,7 +2284,7 @@ class Tag(RecordModel):
     )
     color: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    owner: Mapped[Workspace] = relationship(back_populates="workflow_tags")
+    workspace: Mapped[Workspace] = relationship(back_populates="workflow_tags")
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow",
         secondary=WorkflowTag.__table__,

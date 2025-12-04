@@ -189,14 +189,14 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the workspace ID is invalid
         """
-        statement = select(Table).where(Table.owner_id == self.ws_uuid)
+        statement = select(Table).where(Table.workspace_id == self.ws_uuid)
         result = await self.session.execute(statement)
         return result.scalars().all()
 
     async def get_table(self, table_id: TableID) -> Table:
         """Get a lookup table by ID."""
         statement = select(Table).where(
-            Table.owner_id == self.ws_uuid,
+            Table.workspace_id == self.ws_uuid,
             Table.id == table_id,
         )
         result = await self.session.execute(statement)
@@ -243,7 +243,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
-            Table.owner_id == self.ws_uuid,
+            Table.workspace_id == self.ws_uuid,
             Table.name == sanitized_name,
         )
         result = await self.session.execute(statement)
@@ -306,7 +306,7 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.run_sync(new_table.create)
 
         # Create metadata entry
-        table = Table(owner_id=self.ws_uuid, name=table_name)
+        table = Table(workspace_id=self.ws_uuid, name=table_name)
         self.session.add(table)
         await self.session.flush()
 

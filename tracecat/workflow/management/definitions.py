@@ -19,7 +19,7 @@ class WorkflowDefinitionsService(BaseService):
         self, workflow_id: WorkflowID, *, version: int | None = None
     ) -> WorkflowDefinition | None:
         statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == self.role.workspace_id,
+            WorkflowDefinition.workspace_id == self.role.workspace_id,
             WorkflowDefinition.workflow_id == workflow_id,
         )
         if version:
@@ -35,7 +35,7 @@ class WorkflowDefinitionsService(BaseService):
         self, workflow_id: WorkflowID | None = None
     ) -> list[WorkflowDefinition]:
         statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == self.role.workspace_id,
+            WorkflowDefinition.workspace_id == self.role.workspace_id,
         )
         if workflow_id:
             statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
@@ -54,7 +54,7 @@ class WorkflowDefinitionsService(BaseService):
         statement = (
             select(WorkflowDefinition)
             .where(
-                WorkflowDefinition.owner_id == self.role.workspace_id,
+                WorkflowDefinition.workspace_id == self.role.workspace_id,
                 WorkflowDefinition.workflow_id == workflow_id,
             )
             .order_by(WorkflowDefinition.version.desc())
@@ -64,7 +64,7 @@ class WorkflowDefinitionsService(BaseService):
 
         version = latest_defn.version + 1 if latest_defn else 1
         defn = WorkflowDefinition(
-            owner_id=self.role.workspace_id,
+            workspace_id=self.role.workspace_id,
             workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,

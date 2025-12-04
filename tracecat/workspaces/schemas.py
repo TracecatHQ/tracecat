@@ -9,7 +9,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import OwnerID, UserID, WorkspaceID
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # === Workspace === #
 
@@ -93,7 +93,7 @@ class WorkspaceSettingsUpdate(Schema):
 class WorkspaceCreate(Schema):
     name: str = Field(..., min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
-    owner_id: OwnerID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
+    organization_id: OrganizationID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
 
 
 class WorkspaceUpdate(Schema):
@@ -124,7 +124,7 @@ class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
     settings: WorkspaceSettingsRead | None = None
-    owner_id: OwnerID
+    organization_id: OrganizationID
 
 
 WorkspaceSettingsRead.model_rebuild()

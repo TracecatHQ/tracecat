@@ -86,7 +86,7 @@ class TestCaseEventsService:
         assert created_event.case_id == test_case.id
         assert created_event.type == CaseEventType.CASE_CREATED
         assert created_event.user_id == case_events_service.role.user_id
-        assert created_event.owner_id == case_events_service.workspace_id
+        assert created_event.workspace_id == case_events_service.workspace_id
         assert created_event.data is not None
 
     async def test_create_status_changed_event(

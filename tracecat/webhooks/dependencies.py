@@ -168,7 +168,7 @@ async def validate_incoming_webhook(
         ctx_role.set(
             Role(
                 type="service",
-                workspace_id=webhook.owner_id,
+                workspace_id=webhook.workspace_id,
                 service_id="tracecat-runner",
             )
         )

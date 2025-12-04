@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.models import Schedule
+from tracecat import config
+from tracecat.db.models import Schedule, Workspace
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -14,11 +15,20 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.mark.anyio
 async def test_schedule_start_end_are_timezone_aware(session: AsyncSession) -> None:
     """Persist and reload Schedule.start_at / end_at with timezone info."""
+    # Create workspace in the same session to ensure it's visible
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="test-schedule-workspace",
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+    session.add(workspace)
+    await session.flush()
+
     start_at = datetime(2025, 1, 1, 12, 0, tzinfo=timezone(timedelta(hours=-5)))
     end_at = datetime(2025, 1, 1, 13, 0, tzinfo=timezone(timedelta(hours=2)))
 
     schedule = Schedule(
-        owner_id=uuid.uuid4(),
+        workspace_id=workspace.id,
         workflow_id=None,
         start_at=start_at,
         end_at=end_at,

@@ -3747,7 +3747,7 @@ export const organizationSecretsCreateOrgSecret = (
  * @param data The data for the request.
  * @param data.secretName
  * @param data.environment
- * @returns SecretRead Successful Response
+ * @returns OrganizationSecretRead Successful Response
  * @throws ApiError
  */
 export const organizationSecretsGetOrgSecretByName = (

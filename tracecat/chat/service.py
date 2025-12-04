@@ -70,7 +70,7 @@ class ChatService(BaseWorkspaceService):
             user_id=self.role.user_id,
             entity_type=entity_type,
             entity_id=entity_id,
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             tools=tools or get_default_tools(entity_type),
             agent_preset_id=agent_preset_id,
         )
@@ -356,7 +356,7 @@ class ChatService(BaseWorkspaceService):
         """Get a chat by ID, ensuring it belongs to the current workspace."""
         stmt = select(Chat).where(
             Chat.id == chat_id,
-            Chat.owner_id == self.workspace_id,
+            Chat.workspace_id == self.workspace_id,
         )
         if with_messages:
             stmt = stmt.options(selectinload(Chat.messages))
@@ -373,7 +373,7 @@ class ChatService(BaseWorkspaceService):
     ) -> Sequence[Chat]:
         """List chats for the current workspace with optional entity filtering."""
 
-        stmt = select(Chat).where(Chat.owner_id == self.role.workspace_id)
+        stmt = select(Chat).where(Chat.workspace_id == self.role.workspace_id)
         if user_id:
             stmt = stmt.where(Chat.user_id == user_id)
 
@@ -433,7 +433,7 @@ class ChatService(BaseWorkspaceService):
         db_message = DBChatMessage(
             chat_id=chat_id,
             kind=kind.value,
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             data=ModelMessageTA.dump_python(message, mode="json"),
         )
 
@@ -465,7 +465,7 @@ class ChatService(BaseWorkspaceService):
             DBChatMessage(
                 chat_id=chat_id,
                 kind=kind.value,
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 data=ModelMessageTA.dump_python(message, mode="json"),
             )
             for message in messages
@@ -494,7 +494,7 @@ class ChatService(BaseWorkspaceService):
             select(DBChatMessage)
             .where(
                 DBChatMessage.chat_id == chat_id,
-                DBChatMessage.owner_id == self.workspace_id,
+                DBChatMessage.workspace_id == self.workspace_id,
             )
             .order_by(DBChatMessage.created_at.asc())
         )

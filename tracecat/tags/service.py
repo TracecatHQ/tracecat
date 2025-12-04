@@ -17,7 +17,7 @@ class TagsService(BaseService):
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
-        statement = select(Tag).where(Tag.owner_id == workspace_id)
+        statement = select(Tag).where(Tag.workspace_id == workspace_id)
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -26,7 +26,7 @@ class TagsService(BaseService):
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
         statement = select(Tag).where(
-            Tag.owner_id == workspace_id,
+            Tag.workspace_id == workspace_id,
             Tag.id == tag_id,
         )
         result = await self.session.execute(statement)
@@ -38,7 +38,7 @@ class TagsService(BaseService):
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
         statement = select(Tag).where(
-            Tag.owner_id == workspace_id,
+            Tag.workspace_id == workspace_id,
             Tag.ref == ref,
         )
         result = await self.session.execute(statement)
@@ -68,12 +68,12 @@ class TagsService(BaseService):
 
         # Check if ref already exists
         existing = await self.session.execute(
-            select(Tag).where(Tag.ref == ref, Tag.owner_id == workspace_id)
+            select(Tag).where(Tag.ref == ref, Tag.workspace_id == workspace_id)
         )
         if existing.one_or_none():
             raise ValueError(f"Tag with slug '{ref}' already exists")
 
-        db_tag = Tag(name=tag.name, ref=ref, owner_id=workspace_id, color=tag.color)
+        db_tag = Tag(name=tag.name, ref=ref, workspace_id=workspace_id, color=tag.color)
         self.session.add(db_tag)
         await self.session.commit()
         return db_tag

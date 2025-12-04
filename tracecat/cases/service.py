@@ -159,7 +159,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
     ) -> Sequence[Case]:
-        statement = select(Case).where(Case.owner_id == self.workspace_id)
+        statement = select(Case).where(Case.workspace_id == self.workspace_id)
         if limit is not None:
             statement = statement.limit(limit)
         if order_by is not None:
@@ -186,7 +186,7 @@ class CasesService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
-        filters: list[Any] = [Case.owner_id == self.workspace_id]
+        filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
         # Base query - eagerly load tags and assignee
         stmt = (
@@ -401,7 +401,7 @@ class CasesService(BaseWorkspaceService):
         """
         statement = (
             select(Case)
-            .where(Case.owner_id == self.workspace_id)
+            .where(Case.workspace_id == self.workspace_id)
             .options(selectinload(Case.tags))
         )
 
@@ -492,7 +492,7 @@ class CasesService(BaseWorkspaceService):
         statement = (
             select(Case)
             .where(
-                Case.owner_id == self.workspace_id,
+                Case.workspace_id == self.workspace_id,
                 Case.id == case_id,
             )
             .options(selectinload(Case.tags))
@@ -531,7 +531,7 @@ class CasesService(BaseWorkspaceService):
             now = datetime.now(UTC)
             # Create the base case first
             case = Case(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 summary=params.summary,
                 description=params.description,
                 priority=params.priority,
@@ -719,7 +719,7 @@ class CaseFieldsService(CustomFieldsService):
     # Hardcoded to preserve existing workspace-scoped table names
     # (metadata table was renamed from case_fields to case_field)
     _table = "case_fields"
-    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "owner_id"}
+    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "workspace_id"}
 
     def _table_definition(self) -> sa.Table:
         """Return the SQLAlchemy Table definition for the case_fields workspace table."""
@@ -756,7 +756,7 @@ class CaseFieldsService(CustomFieldsService):
         Returns a dict mapping field_id -> {type, options (only for SELECT/MULTI_SELECT)}
         """
         stmt = sa.select(CaseFields.schema).where(
-            CaseFields.owner_id == self.workspace_id
+            CaseFields.workspace_id == self.workspace_id
         )
         result = await self.session.execute(stmt)
         schema = result.scalar_one_or_none()
@@ -771,12 +771,12 @@ class CaseFieldsService(CustomFieldsService):
             field_id: The field name/id
             field_def: The field definition dict {type, options (for SELECT/MULTI_SELECT only)} or None to remove
         """
-        stmt = sa.select(CaseFields).where(CaseFields.owner_id == self.workspace_id)
+        stmt = sa.select(CaseFields).where(CaseFields.workspace_id == self.workspace_id)
         result = await self.session.execute(stmt)
         definition = result.scalar_one_or_none()
 
         if definition is None:
-            definition = CaseFields(owner_id=self.workspace_id, schema={})
+            definition = CaseFields(workspace_id=self.workspace_id, schema={})
             self.session.add(definition)
             await self.session.flush()
 
@@ -883,10 +883,10 @@ class CaseFieldsService(CustomFieldsService):
             Dictionary containing the updated row data
 
         Raises:
-            TracecatException: If the case has no owner or if field operations fail
+            TracecatException: If the case has no workspace or if field operations fail
             TracecatNotFoundError: If the row is not found after ensuring it exists
         """
-        if case.owner_id is None:
+        if case.workspace_id is None:
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
             )
@@ -942,7 +942,7 @@ class CaseCommentsService(BaseWorkspaceService):
             The comment if found, None otherwise
         """
         statement = select(CaseComment).where(
-            CaseComment.owner_id == self.workspace_id,
+            CaseComment.workspace_id == self.workspace_id,
             CaseComment.id == comment_id,
         )
 
@@ -994,7 +994,7 @@ class CaseCommentsService(BaseWorkspaceService):
             The created comment
         """
         comment = CaseComment(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             case_id=case.id,
             content=params.content,
             parent_id=params.parent_id,
@@ -1091,7 +1091,7 @@ class CaseEventsService(BaseWorkspaceService):
         """
 
         db_event = CaseEvent(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             case_id=case.id,
             type=event.type,
             data=event.model_dump(exclude={"type"}, mode="json"),
@@ -1116,7 +1116,7 @@ class CaseEventsService(BaseWorkspaceService):
         stmt = (
             select(CaseEvent)
             .where(
-                CaseEvent.owner_id == self.workspace_id,
+                CaseEvent.workspace_id == self.workspace_id,
                 CaseEvent.case_id == case.id,
                 CaseEvent.type == CaseEventType.CASE_VIEWED,
                 CaseEvent.user_id == self.role.user_id,
@@ -1155,7 +1155,7 @@ class CaseTasksService(BaseWorkspaceService):
         statement = (
             select(CaseTask)
             .where(
-                CaseTask.owner_id == self.workspace_id,
+                CaseTask.workspace_id == self.workspace_id,
                 CaseTask.case_id == case_id,
             )
             .order_by(
@@ -1179,7 +1179,7 @@ class CaseTasksService(BaseWorkspaceService):
             TracecatNotFoundError: If the task is not found
         """
         statement = select(CaseTask).where(
-            CaseTask.owner_id == self.workspace_id,
+            CaseTask.workspace_id == self.workspace_id,
             CaseTask.id == task_id,
         )
         result = await self.session.execute(statement)
@@ -1210,7 +1210,7 @@ class CaseTasksService(BaseWorkspaceService):
             )
         # Fetch workflow
         stmt = select(Workflow).where(
-            Workflow.owner_id == self.workspace_id,
+            Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(stmt)
@@ -1253,7 +1253,7 @@ class CaseTasksService(BaseWorkspaceService):
             TracecatNotFoundError: If the case is not found in the current workspace
         """
         statement = select(Case).where(
-            Case.owner_id == self.workspace_id,
+            Case.workspace_id == self.workspace_id,
             Case.id == case_id,
         )
         result = await self.session.execute(statement)
@@ -1272,7 +1272,7 @@ class CaseTasksService(BaseWorkspaceService):
             )
 
         task = CaseTask(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             case_id=case_id,
             title=params.title,
             description=params.description,
@@ -1322,7 +1322,7 @@ class CaseTasksService(BaseWorkspaceService):
 
         # Load case for event context
         statement = select(Case).where(
-            Case.owner_id == self.workspace_id,
+            Case.workspace_id == self.workspace_id,
             Case.id == task.case_id,
         )
         result = await self.session.execute(statement)
@@ -1455,7 +1455,7 @@ class CaseTasksService(BaseWorkspaceService):
 
         # Load case for event context
         statement = select(Case).where(
-            Case.owner_id == self.workspace_id,
+            Case.workspace_id == self.workspace_id,
             Case.id == task.case_id,
         )
         result = await self.session.execute(statement)

@@ -20,7 +20,7 @@ from tracecat.pagination import CursorPaginatedResponse
 def mock_case(test_workspace: Workspace) -> Case:
     """Create a mock case DB object."""
     case = Case(
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         summary="Test Case Summary",
         description="Test case description with details",
         priority=CasePriority.MEDIUM,
@@ -46,7 +46,7 @@ def mock_case_tag(test_workspace: Workspace) -> CaseTag:
         name="incident",
         ref="incident",  # Changed from slug to ref
         color="#FF0000",
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
     )

@@ -1,7 +1,10 @@
 """Tests for ApprovalManager and Temporal activities."""
 
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from pydantic_ai.messages import ToolCallPart
@@ -30,6 +33,26 @@ pytestmark = pytest.mark.usefixtures("db")
 def mock_session_id() -> uuid.UUID:
     """Return a fixed session ID for testing."""
     return uuid.uuid4()
+
+
+@pytest.fixture
+def patched_approval_service(session: AsyncSession, svc_role: Role):
+    """Fixture that patches ApprovalService.with_session to use the test session.
+
+    This is needed because the test session uses SAVEPOINT isolation, so the
+    workspace created in the test is not visible to new database connections.
+    By patching with_session, we ensure the ApprovalService uses the same
+    session and can see the workspace.
+    """
+
+    @asynccontextmanager
+    async def mock_with_session(
+        role: Role | None = None,
+    ) -> AsyncGenerator[ApprovalService, None]:
+        yield ApprovalService(session, role=role or svc_role)
+
+    with patch.object(ApprovalService, "with_session", mock_with_session):
+        yield
 
 
 @pytest.fixture
@@ -230,6 +253,7 @@ class TestApprovalManager:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("patched_approval_service")
 class TestRecordApprovalRequestsActivity:
     async def test_record_new_approvals(
         self,

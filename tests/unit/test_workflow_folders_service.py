@@ -38,7 +38,7 @@ async def workflow_id(
     # Create a test workflow
     workflow = Workflow(
         title="test-workflow",
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         description="Test workflow for folders testing",
         status="active",
         entrypoint=None,
@@ -69,7 +69,7 @@ class TestWorkflowFolderService:
         )
         assert created_folder.name == folder_create_params.name
         assert created_folder.path == f"/{folder_create_params.name}/"
-        assert created_folder.owner_id == folder_service.workspace_id
+        assert created_folder.workspace_id == folder_service.workspace_id
 
         # Retrieve folder by ID
         retrieved_folder = await folder_service.get_folder(created_folder.id)

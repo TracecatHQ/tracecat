@@ -81,7 +81,7 @@ class IntegrationService(BaseWorkspaceService):
             return True
 
         statement = select(WorkspaceOAuthProvider).where(
-            WorkspaceOAuthProvider.owner_id == self.workspace_id,
+            WorkspaceOAuthProvider.workspace_id == self.workspace_id,
             WorkspaceOAuthProvider.provider_id == provider_id,
             WorkspaceOAuthProvider.grant_type == grant_type,
         )
@@ -107,7 +107,7 @@ class IntegrationService(BaseWorkspaceService):
     async def list_custom_providers(self) -> Sequence[WorkspaceOAuthProvider]:
         """List all custom OAuth providers for the current workspace."""
         statement = select(WorkspaceOAuthProvider).where(
-            WorkspaceOAuthProvider.owner_id == self.workspace_id
+            WorkspaceOAuthProvider.workspace_id == self.workspace_id
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -117,7 +117,7 @@ class IntegrationService(BaseWorkspaceService):
     ) -> WorkspaceOAuthProvider | None:
         """Fetch a custom provider definition for the workspace."""
         statement = select(WorkspaceOAuthProvider).where(
-            WorkspaceOAuthProvider.owner_id == self.workspace_id,
+            WorkspaceOAuthProvider.workspace_id == self.workspace_id,
             WorkspaceOAuthProvider.provider_id == provider_key.id,
             WorkspaceOAuthProvider.grant_type == provider_key.grant_type,
         )
@@ -200,7 +200,7 @@ class IntegrationService(BaseWorkspaceService):
         scopes = self._normalize_scopes(params.scopes)
 
         provider = WorkspaceOAuthProvider(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             provider_id=provider_id,
             name=params.name.strip(),
             description=params.description,
@@ -265,7 +265,7 @@ class IntegrationService(BaseWorkspaceService):
         """Get a user's integration for a specific provider."""
 
         statement = select(OAuthIntegration).where(
-            OAuthIntegration.owner_id == self.workspace_id,
+            OAuthIntegration.workspace_id == self.workspace_id,
             OAuthIntegration.provider_id == provider_key.id,
             OAuthIntegration.grant_type == provider_key.grant_type,
         )
@@ -279,7 +279,7 @@ class IntegrationService(BaseWorkspaceService):
     ) -> Sequence[OAuthIntegration]:
         """List all integrations for a workspace, optionally filtered by providers."""
         statement = select(OAuthIntegration).where(
-            OAuthIntegration.owner_id == self.workspace_id
+            OAuthIntegration.workspace_id == self.workspace_id
         )
         if provider_keys:
             # Create conditions for each provider (provider_id + grant_type combination)
@@ -405,7 +405,7 @@ class IntegrationService(BaseWorkspaceService):
         else:
             # Create new integration
             integration = OAuthIntegration(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 user_id=user_id,
                 provider_id=provider_key.id,
                 grant_type=provider_key.grant_type,
@@ -806,7 +806,7 @@ class IntegrationService(BaseWorkspaceService):
             # Create new integration record with just client credentials
             # Access tokens will be added later during OAuth flow
             integration = OAuthIntegration(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 provider_id=provider_key.id,
                 grant_type=provider_key.grant_type,
                 encrypted_client_id=self.encrypt_client_credential(client_id)
@@ -970,7 +970,7 @@ class IntegrationService(BaseWorkspaceService):
         existing_mcp = await self.session.execute(
             select(MCPIntegration).where(
                 MCPIntegration.oauth_integration_id == integration.id,
-                MCPIntegration.owner_id == self.workspace_id,
+                MCPIntegration.workspace_id == self.workspace_id,
             )
         )
         mcp_integration = existing_mcp.scalars().first()
@@ -987,7 +987,7 @@ class IntegrationService(BaseWorkspaceService):
             slug = await self._generate_mcp_integration_slug(name=clean_name)
 
             mcp_integration = MCPIntegration(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 name=clean_name,
                 description=metadata.description,
                 slug=slug,
@@ -1035,7 +1035,7 @@ class IntegrationService(BaseWorkspaceService):
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
         statement = select(MCPIntegration).where(
-            MCPIntegration.owner_id == self.workspace_id,
+            MCPIntegration.workspace_id == self.workspace_id,
             MCPIntegration.slug == slug,
         )
         result = await self.session.execute(statement)
@@ -1055,7 +1055,10 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration = await self.session.get(
                 OAuthIntegration, params.oauth_integration_id
             )
-            if not oauth_integration or oauth_integration.owner_id != self.workspace_id:
+            if (
+                not oauth_integration
+                or oauth_integration.workspace_id != self.workspace_id
+            ):
                 raise ValueError(
                     "OAuth integration not found or does not belong to workspace"
                 )
@@ -1070,7 +1073,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
         mcp_integration = MCPIntegration(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
@@ -1096,7 +1099,7 @@ class IntegrationService(BaseWorkspaceService):
     async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
         """List all MCP integrations for the workspace."""
         statement = select(MCPIntegration).where(
-            MCPIntegration.owner_id == self.workspace_id
+            MCPIntegration.workspace_id == self.workspace_id
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -1107,7 +1110,7 @@ class IntegrationService(BaseWorkspaceService):
         """Get an MCP integration by ID."""
         statement = select(MCPIntegration).where(
             MCPIntegration.id == mcp_integration_id,
-            MCPIntegration.owner_id == self.workspace_id,
+            MCPIntegration.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(statement)
         return result.scalars().first()
@@ -1130,7 +1133,7 @@ class IntegrationService(BaseWorkspaceService):
                 )
                 if (
                     not oauth_integration
-                    or oauth_integration.owner_id != self.workspace_id
+                    or oauth_integration.workspace_id != self.workspace_id
                 ):
                     raise ValueError(
                         "OAuth integration not found or does not belong to workspace"

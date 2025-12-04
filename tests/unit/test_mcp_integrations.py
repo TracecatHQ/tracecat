@@ -649,7 +649,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         # Create workspace 2
         workspace2 = Workspace(
             name="test-workspace-2",
-            owner_id=svc_role.user_id,
+            organization_id=svc_role.user_id,
         )
         session.add(workspace2)
         await session.flush()
@@ -701,7 +701,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         # Create workspace 2
         workspace2 = Workspace(
             name="test-workspace-2",
-            owner_id=svc_role.user_id,
+            organization_id=svc_role.user_id,
         )
         session.add(workspace2)
         await session.flush()

@@ -13,7 +13,7 @@ from tracecat.authz.enums import OwnerType, WorkspaceRole
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Membership, Ownership, User, Workspace
 from tracecat.exceptions import TracecatException, TracecatManagementError
-from tracecat.identifiers import OwnerID, UserID, WorkspaceID
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 
@@ -68,14 +68,14 @@ class WorkspaceService(BaseService):
         self,
         name: str,
         *,
-        owner_id: OwnerID = config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id: OrganizationID = config.TRACECAT__DEFAULT_ORG_ID,
         override_id: UUID4 | None = None,
         users: list[User] | None = None,
     ) -> Workspace:
         """Create a new workspace."""
         kwargs = {
             "name": name,
-            "owner_id": owner_id,
+            "organization_id": organization_id,
             # Workspace model defines the relationship as "members"
             "members": users or [],
         }
@@ -89,7 +89,7 @@ class WorkspaceService(BaseService):
         ownership = Ownership(
             resource_id=str(workspace.id),
             resource_type="workspace",
-            owner_id=owner_id,
+            owner_id=organization_id,
             owner_type=OwnerType.USER.value,
         )
         self.session.add(ownership)

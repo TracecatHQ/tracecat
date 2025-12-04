@@ -469,7 +469,7 @@ class WorkflowImportService(BaseWorkspaceService):
             raise TracecatAuthorizationError("Workspace ID is required")
 
         stmt = select(Tag).where(
-            Tag.owner_id == self.workspace_id, Tag.name == tag_name
+            Tag.workspace_id == self.workspace_id, Tag.name == tag_name
         )
         result = await self.session.execute(stmt)
         tag = result.scalars().first()
@@ -480,7 +480,7 @@ class WorkflowImportService(BaseWorkspaceService):
                 name=tag_name,
                 ref=tag_name.lower().replace(" ", "-"),
                 color=self._generate_tag_color(),
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
             )
             self.session.add(tag)
 
@@ -501,7 +501,7 @@ class WorkflowImportService(BaseWorkspaceService):
                 join_strategy=act_stmt.join_strategy,
             )
             new_action = Action(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 workflow_id=workflow_id,
                 type=act_stmt.action,
                 inputs=yaml.dump(act_stmt.args),

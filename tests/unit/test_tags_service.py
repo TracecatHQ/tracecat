@@ -45,7 +45,7 @@ async def workflow_id(
     # Create a test workflow
     workflow = Workflow(
         title="test-workflow",
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         description="Test workflow for tags testing",
         status="active",
         entrypoint=None,
@@ -72,7 +72,7 @@ class TestTagsService:
         created_tag = await tags_service.create_tag(tag_create_params)
         assert created_tag.name == tag_create_params.name
         assert created_tag.color == tag_create_params.color
-        assert created_tag.owner_id == tags_service.role.workspace_id
+        assert created_tag.workspace_id == tags_service.role.workspace_id
 
         # Retrieve tag
         retrieved_tag = await tags_service.get_tag(created_tag.id)

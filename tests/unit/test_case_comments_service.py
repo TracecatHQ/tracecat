@@ -95,7 +95,7 @@ class TestCaseCommentsService:
         assert created_comment.parent_id == comment_create_params.parent_id
         assert created_comment.case_id == test_case.id
         assert created_comment.user_id == case_comments_service.role.user_id
-        assert created_comment.owner_id == case_comments_service.workspace_id
+        assert created_comment.workspace_id == case_comments_service.workspace_id
 
         # Retrieve comment
         retrieved_comment = await case_comments_service.get_comment(created_comment.id)

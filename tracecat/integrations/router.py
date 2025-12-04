@@ -792,7 +792,7 @@ async def create_mcp_integration(
 
     return MCPIntegrationRead(
         id=mcp_integration.id,
-        owner_id=mcp_integration.owner_id,
+        workspace_id=mcp_integration.workspace_id,
         name=mcp_integration.name,
         description=mcp_integration.description,
         slug=mcp_integration.slug,
@@ -822,7 +822,7 @@ async def list_mcp_integrations(
     return [
         MCPIntegrationRead(
             id=integration.id,
-            owner_id=integration.owner_id,
+            workspace_id=integration.workspace_id,
             name=integration.name,
             description=integration.description,
             slug=integration.slug,
@@ -859,7 +859,7 @@ async def get_mcp_integration(
 
     return MCPIntegrationRead(
         id=integration.id,
-        owner_id=integration.owner_id,
+        workspace_id=integration.workspace_id,
         name=integration.name,
         description=integration.description,
         slug=integration.slug,
@@ -903,7 +903,7 @@ async def update_mcp_integration(
 
     return MCPIntegrationRead(
         id=integration.id,
-        owner_id=integration.owner_id,
+        workspace_id=integration.workspace_id,
         name=integration.name,
         description=integration.description,
         slug=integration.slug,

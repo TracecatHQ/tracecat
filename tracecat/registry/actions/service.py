@@ -87,7 +87,7 @@ class RegistryActionsService(BaseService):
             ) from None
 
         statement = select(RegistryAction).where(
-            RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryAction.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
         )
@@ -100,7 +100,7 @@ class RegistryActionsService(BaseService):
     async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
         """Get actions by name."""
         statement = select(RegistryAction).where(
-            RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryAction.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
             func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
                 action_names
             ),
@@ -111,7 +111,7 @@ class RegistryActionsService(BaseService):
     async def create_action(
         self,
         params: RegistryActionCreate,
-        owner_id: UUID4 = config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id: UUID4 = config.TRACECAT__DEFAULT_ORG_ID,
         *,
         commit: bool = True,
     ) -> RegistryAction:
@@ -134,7 +134,7 @@ class RegistryActionsService(BaseService):
             interface = params.interface
 
         action = RegistryAction(
-            owner_id=owner_id,
+            organization_id=organization_id,
             interface=to_jsonable_python(interface),
             **params.model_dump(exclude={"interface"}),
         )

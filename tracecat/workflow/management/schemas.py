@@ -13,7 +13,7 @@ from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers import OwnerID, WorkspaceID
+from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
@@ -29,7 +29,7 @@ class WorkflowRead(Schema):
     status: str
     actions: dict[str, ActionRead]
     object: dict[str, Any] | None  # React Flow object
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     version: int | None = None
     webhook: WebhookRead
     schedules: list[ScheduleRead]
@@ -53,7 +53,7 @@ class WorkflowDefinitionRead(Schema):
 
     id: str
     workflow_id: WorkflowUUID | None
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     version: int
     content: dict[str, Any] | None = None
     created_at: datetime
@@ -152,7 +152,7 @@ class ExternalWorkflowDefinition(BaseModel):
         description=(
             "If provided, can only be restored in the same workspace (TBD)."
             "Otherwise, can be added to any workspace."
-            "This will be set to `owner_id`"
+            "This will be set to `workspace_id`"
         ),
     )
     workflow_id: WorkflowUUID | None = Field(
@@ -173,7 +173,7 @@ class ExternalWorkflowDefinition(BaseModel):
     @staticmethod
     def from_database(defn: WorkflowDefinition) -> ExternalWorkflowDefinition:
         return ExternalWorkflowDefinition(
-            workspace_id=defn.owner_id,
+            workspace_id=defn.workspace_id,
             workflow_id=WorkflowUUID.new(defn.workflow_id),
             created_at=defn.created_at,
             updated_at=defn.updated_at,

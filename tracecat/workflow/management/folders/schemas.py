@@ -11,7 +11,7 @@ class WorkflowFolderRead(BaseModel):
     id: uuid.UUID
     name: str
     path: str
-    owner_id: uuid.UUID
+    workspace_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 

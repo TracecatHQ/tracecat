@@ -103,7 +103,7 @@ class SecretsService(BaseService):
     ) -> Sequence[Secret]:
         """List all workspace secrets."""
 
-        statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
+        statement = select(Secret).where(Secret.workspace_id == self.role.workspace_id)
         if types:
             statement = statement.where(Secret.type.in_(types))
         result = await self.session.execute(statement)
@@ -113,7 +113,7 @@ class SecretsService(BaseService):
         """Get a workspace secret by ID."""
 
         statement = select(Secret).where(
-            Secret.owner_id == self.role.workspace_id,
+            Secret.workspace_id == self.role.workspace_id,
             Secret.id == secret_id,
         )
         result = await self.session.execute(statement)
@@ -123,7 +123,7 @@ class SecretsService(BaseService):
             logger.error(
                 "Multiple secrets found",
                 secret_id=secret_id,
-                owner_id=self.role.workspace_id,
+                workspace_id=self.role.workspace_id,
             )
             raise TracecatNotFoundError(
                 "Multiple secrets found when searching by ID"
@@ -132,7 +132,7 @@ class SecretsService(BaseService):
             logger.error(
                 "Secret not found",
                 secret_id=secret_id,
-                owner_id=self.role.workspace_id,
+                workspace_id=self.role.workspace_id,
             )
             raise TracecatNotFoundError(
                 "Secret not found when searching by ID. Please check that the ID was correctly input."
@@ -157,7 +157,7 @@ class SecretsService(BaseService):
         """
 
         statement = select(Secret).where(
-            Secret.owner_id == self.role.workspace_id,
+            Secret.workspace_id == self.role.workspace_id,
             Secret.name == secret_name,
         )
         if environment:
@@ -178,13 +178,13 @@ class SecretsService(BaseService):
 
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
-        owner_id = self.role.workspace_id
-        if owner_id is None:
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
             raise TracecatAuthorizationError(
                 "Workspace ID is required to create a secret in a workspace"
             )
         secret = Secret(
-            owner_id=owner_id,
+            workspace_id=workspace_id,
             name=params.name,
             type=params.type,
             description=params.description,
@@ -210,12 +210,12 @@ class SecretsService(BaseService):
         if not any((params.ids, params.names, params.environment)):
             return []
 
-        owner_id = self.role.workspace_id
-        if owner_id is None:
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
             raise TracecatAuthorizationError(
                 "Workspace ID is required to search secrets"
             )
-        stmt = select(Secret).where(Secret.owner_id == owner_id)
+        stmt = select(Secret).where(Secret.workspace_id == workspace_id)
         fields = params.model_dump(exclude_unset=True)
         self.logger.info("Searching secrets", set_fields=fields)
 
@@ -237,7 +237,7 @@ class SecretsService(BaseService):
         """List all organization secrets."""
 
         stmt = select(OrganizationSecret).where(
-            OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID
+            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID
         )
         if types:
             stmt = stmt.where(OrganizationSecret.type.in_(types))
@@ -248,7 +248,7 @@ class SecretsService(BaseService):
         """Get an organization secret by ID."""
 
         statement = select(OrganizationSecret).where(
-            OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
+            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
             OrganizationSecret.id == secret_id,
         )
         result = await self.session.execute(statement)
@@ -262,7 +262,7 @@ class SecretsService(BaseService):
         """Retrieve an organization-wide secret by its name."""
         environment = environment or DEFAULT_SECRETS_ENVIRONMENT
         statement = select(OrganizationSecret).where(
-            OrganizationSecret.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
+            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
             OrganizationSecret.name == secret_name,
             OrganizationSecret.environment == environment,
         )
@@ -283,7 +283,7 @@ class SecretsService(BaseService):
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
         secret = OrganizationSecret(
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             name=params.name,
             type=params.type,
             description=params.description,

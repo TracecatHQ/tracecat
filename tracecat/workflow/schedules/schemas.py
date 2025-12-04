@@ -6,13 +6,13 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.auth.types import Role
 from tracecat.core.schemas import Schema
-from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
+from tracecat.identifiers import ScheduleID, WorkflowID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID
 
 
 class ScheduleRead(Schema):
     id: ScheduleID
-    owner_id: OwnerID
+    workspace_id: WorkspaceID
     created_at: datetime
     updated_at: datetime
     workflow_id: WorkflowID

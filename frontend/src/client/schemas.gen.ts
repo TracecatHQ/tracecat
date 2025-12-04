@@ -1032,10 +1032,10 @@ export const $AgentPresetRead = {
       format: "uuid",
       title: "Id",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     name: {
       type: "string",
@@ -1061,7 +1061,7 @@ export const $AgentPresetRead = {
     "model_name",
     "model_provider",
     "id",
-    "owner_id",
+    "workspace_id",
     "name",
     "slug",
     "created_at",
@@ -1078,10 +1078,10 @@ export const $AgentPresetReadMinimal = {
       format: "uuid",
       title: "Id",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     name: {
       type: "string",
@@ -1116,7 +1116,7 @@ export const $AgentPresetReadMinimal = {
   type: "object",
   required: [
     "id",
-    "owner_id",
+    "workspace_id",
     "name",
     "slug",
     "description",
@@ -6682,10 +6682,10 @@ export const $FolderDirectoryItem = {
       type: "string",
       title: "Path",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     created_at: {
       type: "string",
@@ -6712,7 +6712,7 @@ export const $FolderDirectoryItem = {
     "id",
     "name",
     "path",
-    "owner_id",
+    "workspace_id",
     "created_at",
     "updated_at",
     "type",
@@ -7927,10 +7927,10 @@ export const $MCPIntegrationRead = {
       format: "uuid4",
       title: "Id",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid4",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     name: {
       type: "string",
@@ -7984,7 +7984,7 @@ export const $MCPIntegrationRead = {
   type: "object",
   required: [
     "id",
-    "owner_id",
+    "workspace_id",
     "name",
     "description",
     "slug",
@@ -8534,6 +8534,84 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $OrganizationSecretRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SecretType",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    encrypted_keys: {
+      type: "string",
+      format: "binary",
+      title: "Encrypted Keys",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "name",
+    "encrypted_keys",
+    "environment",
+    "created_at",
+    "updated_at",
+    "organization_id",
+  ],
+  title: "OrganizationSecretRead",
+  description: "Read schema for organization-scoped secrets.",
 } as const
 
 export const $OutputType = {
@@ -11003,10 +11081,10 @@ export const $ScheduleRead = {
       pattern: "sch-[0-9a-f]{32}",
       title: "Id",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     created_at: {
       type: "string",
@@ -11113,7 +11191,7 @@ export const $ScheduleRead = {
   type: "object",
   required: [
     "id",
-    "owner_id",
+    "workspace_id",
     "created_at",
     "updated_at",
     "workflow_id",
@@ -11411,11 +11489,6 @@ export const $SecretRead = {
       ],
       title: "Tags",
     },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -11426,6 +11499,11 @@ export const $SecretRead = {
       format: "date-time",
       title: "Updated At",
     },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
   },
   type: "object",
   required: [
@@ -11434,11 +11512,12 @@ export const $SecretRead = {
     "name",
     "encrypted_keys",
     "environment",
-    "owner_id",
     "created_at",
     "updated_at",
+    "workspace_id",
   ],
   title: "SecretRead",
+  description: "Read schema for workspace-scoped secrets.",
 } as const
 
 export const $SecretReadMinimal = {
@@ -14864,10 +14943,10 @@ export const $VariableRead = {
       ],
       title: "Tags",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     created_at: {
       type: "string",
@@ -14888,7 +14967,7 @@ export const $VariableRead = {
     "values",
     "environment",
     "tags",
-    "owner_id",
+    "workspace_id",
     "created_at",
     "updated_at",
   ],
@@ -15442,10 +15521,10 @@ export const $WorkflowDefinitionRead = {
       ],
       title: "Workflow Id",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     version: {
       type: "integer",
@@ -15478,7 +15557,7 @@ export const $WorkflowDefinitionRead = {
   required: [
     "id",
     "workflow_id",
-    "owner_id",
+    "workspace_id",
     "version",
     "created_at",
     "updated_at",
@@ -16454,10 +16533,10 @@ export const $WorkflowFolderRead = {
       type: "string",
       title: "Path",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     created_at: {
       type: "string",
@@ -16471,7 +16550,7 @@ export const $WorkflowFolderRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "path", "owner_id", "created_at", "updated_at"],
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
   title: "WorkflowFolderRead",
 } as const
 
@@ -16549,10 +16628,10 @@ export const $WorkflowRead = {
       ],
       title: "Object",
     },
-    owner_id: {
+    workspace_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Workspace Id",
     },
     version: {
       anyOf: [
@@ -16656,7 +16735,7 @@ export const $WorkflowRead = {
     "status",
     "actions",
     "object",
-    "owner_id",
+    "workspace_id",
     "webhook",
     "schedules",
     "entrypoint",
@@ -17018,10 +17097,10 @@ export const $WorkspaceCreate = {
         },
       ],
     },
-    owner_id: {
+    organization_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Organization Id",
       default: "00000000-0000-0000-0000-000000000000",
     },
   },
@@ -17159,14 +17238,14 @@ export const $WorkspaceRead = {
         },
       ],
     },
-    owner_id: {
+    organization_id: {
       type: "string",
       format: "uuid",
-      title: "Owner Id",
+      title: "Organization Id",
     },
   },
   type: "object",
-  required: ["id", "name", "owner_id"],
+  required: ["id", "name", "organization_id"],
   title: "WorkspaceRead",
 } as const
 

@@ -125,7 +125,7 @@ async def search_schedules(
     role: WorkspaceUserRole, session: AsyncDBSession, params: ScheduleSearch
 ) -> list[ScheduleRead]:
     """**[WORK IN PROGRESS]** Search for schedules."""
-    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
+    statement = select(Schedule).where(Schedule.workspace_id == role.workspace_id)
     results = await session.execute(statement)
     schedules = results.scalars().all()
     return ScheduleRead.list_adapter().validate_python(schedules)

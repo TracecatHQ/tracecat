@@ -77,7 +77,7 @@ class TestCasesService:
         assert created_case.status == case_create_params.status
         assert created_case.priority == case_create_params.priority
         assert created_case.severity == case_create_params.severity
-        assert created_case.owner_id == cases_service.workspace_id
+        assert created_case.workspace_id == cases_service.workspace_id
 
         # Retrieve case
         retrieved_case = await cases_service.get_case(created_case.id)

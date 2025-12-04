@@ -51,7 +51,7 @@ class RegistryReposService(BaseService):
     ) -> RegistryRepository:
         """Create a new registry repository."""
         repository = RegistryRepository(
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID, origin=params.origin
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID, origin=params.origin
         )
         self.session.add(repository)
         await self.session.commit()

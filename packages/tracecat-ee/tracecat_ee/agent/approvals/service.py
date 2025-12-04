@@ -112,7 +112,7 @@ class ApprovalService(BaseWorkspaceService):
     async def create_approval(self, params: ApprovalCreate) -> Approval:
         """Create a single approval record."""
         approval = Approval(
-            owner_id=self.workspace_id,
+            workspace_id=self.workspace_id,
             session_id=params.session_id,
             tool_call_id=params.tool_call_id,
             tool_name=params.tool_name,
@@ -134,7 +134,7 @@ class ApprovalService(BaseWorkspaceService):
         records: list[Approval] = []
         for params in approvals:
             approval = Approval(
-                owner_id=self.workspace_id,
+                workspace_id=self.workspace_id,
                 session_id=params.session_id,
                 tool_call_id=params.tool_call_id,
                 tool_name=params.tool_name,
@@ -154,7 +154,7 @@ class ApprovalService(BaseWorkspaceService):
     async def get_approval(self, approval_id: uuid.UUID) -> Approval:
         """Get a single approval by ID."""
         statement = select(Approval).where(
-            Approval.owner_id == self.workspace_id,
+            Approval.workspace_id == self.workspace_id,
             Approval.id == approval_id,
         )
         result = await self.session.execute(statement)
@@ -168,7 +168,7 @@ class ApprovalService(BaseWorkspaceService):
     ) -> Approval | None:
         """Get approval by session ID and tool call ID."""
         statement = select(Approval).where(
-            Approval.owner_id == self.workspace_id,
+            Approval.workspace_id == self.workspace_id,
             Approval.session_id == session_id,
             Approval.tool_call_id == tool_call_id,
         )
@@ -180,7 +180,7 @@ class ApprovalService(BaseWorkspaceService):
     ) -> Sequence[Approval]:
         """List all approvals for a given session."""
         statement = select(Approval).where(
-            Approval.owner_id == self.workspace_id,
+            Approval.workspace_id == self.workspace_id,
             Approval.session_id == session_id,
         )
         result = await self.session.execute(statement)
@@ -214,7 +214,7 @@ class ApprovalService(BaseWorkspaceService):
             select(Approval, User)
             .outerjoin(User, Approval.approved_by == User.id)
             .where(
-                Approval.owner_id == self.workspace_id,
+                Approval.workspace_id == self.workspace_id,
                 Approval.session_id.in_(session_ids),
             )
         )

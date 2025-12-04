@@ -24,7 +24,7 @@ def mock_table(test_workspace: Workspace) -> Table:
     """Create a mock table DB object."""
     table = Table(
         id=uuid.UUID("ffffffff-ffff-4fff-ffff-ffffffffffff"),
-        owner_id=test_workspace.id,
+        workspace_id=test_workspace.id,
         name="test_table",
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),

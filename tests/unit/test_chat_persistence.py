@@ -48,7 +48,7 @@ async def test_append_message(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=["tool1", "tool2"],
     )
     session.add(chat)
@@ -68,7 +68,7 @@ async def test_append_message(
     assert db_message is not None
     assert db_message.chat_id == chat.id
     assert db_message.kind == MessageKind.CHAT_MESSAGE.value
-    assert db_message.owner_id == svc_workspace.id
+    assert db_message.workspace_id == svc_workspace.id
     assert "Hello, AI!" in str(db_message.data)
 
 
@@ -82,7 +82,7 @@ async def test_append_messages_batch(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -126,7 +126,7 @@ async def test_append_messages_empty_list(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -157,7 +157,7 @@ async def test_list_messages(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -206,7 +206,7 @@ async def test_get_chat_messages(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -250,7 +250,7 @@ async def test_chat_message_from_db(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -286,7 +286,7 @@ async def test_get_chat_messages_empty_chat(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -319,7 +319,7 @@ async def test_list_messages_ordering(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -357,7 +357,7 @@ async def test_mixed_message_types(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)
@@ -393,7 +393,7 @@ async def test_list_messages_filtered_by_kind(
         user_id=test_user.id,
         entity_type="case",
         entity_id=uuid.uuid4(),
-        owner_id=svc_workspace.id,
+        workspace_id=svc_workspace.id,
         tools=[],
     )
     session.add(chat)

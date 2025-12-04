@@ -23,7 +23,7 @@ def mock_workspace_data() -> Workspace:
         id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         name="Test Workspace",
         settings={},
-        owner_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
@@ -88,12 +88,12 @@ async def test_create_workspace_success(
         MockService.return_value = mock_svc
 
         # Make request
-        owner_id = str(uuid.uuid4())
+        organization_id = str(uuid.uuid4())
         response = client.post(
             "/workspaces",
             json={
                 "name": "New Workspace",
-                "owner_id": owner_id,
+                "organization_id": organization_id,
             },
         )
 
@@ -117,12 +117,12 @@ async def test_create_workspace_conflict(
         MockService.return_value = mock_svc
 
         # Make request
-        owner_id = str(uuid.uuid4())
+        organization_id = str(uuid.uuid4())
         response = client.post(
             "/workspaces",
             json={
                 "name": "Duplicate Workspace",
-                "owner_id": owner_id,
+                "organization_id": organization_id,
             },
         )
 

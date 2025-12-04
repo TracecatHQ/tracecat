@@ -47,7 +47,9 @@ class WorkflowSchedulesService(BaseService):
         list[Schedule]
             A list of Schedule objects representing the schedules for the specified workflow, or all schedules if no workflow ID is provided.
         """
-        statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
+        statement = select(Schedule).where(
+            Schedule.workspace_id == self.role.workspace_id
+        )
         if workflow_id is not None:
             statement = statement.where(Schedule.workflow_id == workflow_id)
         result = await self.session.execute(statement)
@@ -76,11 +78,11 @@ class WorkflowSchedulesService(BaseService):
             If there is an error creating the schedule.
 
         """
-        owner_id = self.role.workspace_id
-        if owner_id is None:
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
         schedule = Schedule(
-            owner_id=owner_id,
+            workspace_id=workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
             inputs=params.inputs or {},
             every=params.every,
@@ -170,7 +172,7 @@ class WorkflowSchedulesService(BaseService):
         """
         result = await self.session.execute(
             select(Schedule).where(
-                Schedule.owner_id == self.role.workspace_id,
+                Schedule.workspace_id == self.role.workspace_id,
                 Schedule.id == schedule_id,
             )
         )
@@ -307,7 +309,7 @@ class WorkflowSchedulesService(BaseService):
                 schedule = await service.get_schedule(input.schedule_id)
                 return ScheduleRead(
                     id=schedule.id,
-                    owner_id=schedule.owner_id,
+                    workspace_id=schedule.workspace_id,
                     created_at=schedule.created_at,
                     updated_at=schedule.updated_at,
                     workflow_id=WorkflowUUID.new(schedule.workflow_id),
