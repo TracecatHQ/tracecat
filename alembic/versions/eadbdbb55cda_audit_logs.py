@@ -1,7 +1,7 @@
 """audit logs
 
 Revision ID: eadbdbb55cda
-Revises: a1b2c3d4e5f6
+Revises: 0fd1f09cd98b
 Create Date: 2025-12-04 17:07:35.178333
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "eadbdbb55cda"
-down_revision: str | None = "a1b2c3d4e5f6"
+down_revision: str | None = "0fd1f09cd98b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -61,7 +61,6 @@ def upgrade() -> None:
             server_default=sa.text("'SUCCESS'"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_event")),
-        sa.UniqueConstraint("id", name=op.f("uq_audit_event_id")),
     )
     op.create_index(
         "ix_audit_event_actor",

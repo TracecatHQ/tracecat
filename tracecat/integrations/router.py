@@ -149,103 +149,103 @@ async def oauth_callback(
         else None
     )
 
-    try:
-        if provider_impl.metadata.requires_config:
-            if integration is None or provider_config is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Provider is not configured for this workspace",
-                )
-            provider = await provider_impl.instantiate(config=provider_config)
-        else:
-            provider = await provider_impl.instantiate(config=provider_config)
-            if (integration is None or provider_config is None) and provider.client_id:
-                await svc.store_provider_config(
-                    provider_key=key,
-                    client_id=provider.client_id,
-                    client_secret=SecretStr(provider.client_secret)
-                    if provider.client_secret
-                    else None,
-                    authorization_endpoint=provider.authorization_endpoint,
-                    token_endpoint=provider.token_endpoint,
-                    requested_scopes=provider.requested_scopes,
-                )
-    except InsecureOAuthEndpointError as exc:
-        logger.warning(
-            "Rejected insecure OAuth endpoint during OAuth callback",
-            provider=provider_impl.id,
-            grant_type=provider_impl.grant_type,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
-        # Log sanitized error details without exposing implementation
-        error_msg = str(exc)
-        if isinstance(exc, httpx.HTTPError):
-            error_type = "network_error"
-        elif isinstance(exc, RuntimeError):
-            error_type = "runtime_error"
-        elif isinstance(exc, KeyError):
-            error_type = "configuration_error"
-        else:
-            error_type = "validation_error"
-
-        logger.error(
-            "Failed to instantiate OAuth provider",
-            provider=provider_impl.id,
-            grant_type=provider_impl.grant_type,
-            error_type=error_type,
-            # Sanitize error message to avoid exposing sensitive details
-            error=error_msg[:200] if error_msg else "Unknown error",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Provider configuration or credentials are not available",
-        ) from exc
-    token_result = await provider.exchange_code_for_token(
-        code, str(state), code_verifier
-    )
-
-    # Store integration tokens for this user
-    try:
-        await svc.store_integration(
-            user_id=role.user_id,
-            provider_key=key,
-            access_token=token_result.access_token,
-            refresh_token=token_result.refresh_token,
-            expires_in=token_result.expires_in,
-            scope=token_result.scope,
-            authorization_endpoint=provider.authorization_endpoint,
-            token_endpoint=provider.token_endpoint,
-        )
-    except InsecureOAuthEndpointError as exc:
-        logger.warning(
-            "Rejected insecure OAuth endpoint when storing integration",
-            provider=key.id,
-            grant_type=key.grant_type,
-            workspace_id=role.workspace_id,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Provider returned insecure OAuth endpoints",
-        ) from exc
-
-    # Get the integration after storing to get its ID
-    stored_integration = await svc.get_integration(provider_key=key)
-
-    logger.info("Returning OAuth callback", status="connected", provider=key.id)
-
-    # Log audit event for successful OAuth connection
+    # Log audit event for OAuth connection - wrap all operations
     async with AuditLogger(
         resource_type="integration",
         action="connect",
-        resource_id=stored_integration.id if stored_integration else None,
         session=session,
     ) as audit_log:
+        try:
+            if provider_impl.metadata.requires_config:
+                if integration is None or provider_config is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Provider is not configured for this workspace",
+                    )
+                provider = await provider_impl.instantiate(config=provider_config)
+            else:
+                provider = await provider_impl.instantiate(config=provider_config)
+                if (
+                    integration is None or provider_config is None
+                ) and provider.client_id:
+                    await svc.store_provider_config(
+                        provider_key=key,
+                        client_id=provider.client_id,
+                        client_secret=SecretStr(provider.client_secret)
+                        if provider.client_secret
+                        else None,
+                        authorization_endpoint=provider.authorization_endpoint,
+                        token_endpoint=provider.token_endpoint,
+                        requested_scopes=provider.requested_scopes,
+                    )
+        except InsecureOAuthEndpointError as exc:
+            logger.warning(
+                "Rejected insecure OAuth endpoint during OAuth callback",
+                provider=provider_impl.id,
+                grant_type=provider_impl.grant_type,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+            # Log sanitized error details without exposing implementation
+            error_msg = str(exc)
+            if isinstance(exc, httpx.HTTPError):
+                error_type = "network_error"
+            elif isinstance(exc, RuntimeError):
+                error_type = "runtime_error"
+            elif isinstance(exc, KeyError):
+                error_type = "configuration_error"
+            else:
+                error_type = "validation_error"
+
+            logger.error(
+                "Failed to instantiate OAuth provider",
+                provider=provider_impl.id,
+                grant_type=provider_impl.grant_type,
+                error_type=error_type,
+                # Sanitize error message to avoid exposing sensitive details
+                error=error_msg[:200] if error_msg else "Unknown error",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Provider configuration or credentials are not available",
+            ) from exc
+
+        token_result = await provider.exchange_code_for_token(
+            code, str(state), code_verifier
+        )
+
+        # Store integration tokens for this user
+        try:
+            await svc.store_integration(
+                user_id=role.user_id,
+                provider_key=key,
+                access_token=token_result.access_token,
+                refresh_token=token_result.refresh_token,
+                expires_in=token_result.expires_in,
+                scope=token_result.scope,
+                authorization_endpoint=provider.authorization_endpoint,
+                token_endpoint=provider.token_endpoint,
+            )
+        except InsecureOAuthEndpointError as exc:
+            logger.warning(
+                "Rejected insecure OAuth endpoint when storing integration",
+                provider=key.id,
+                grant_type=key.grant_type,
+                workspace_id=role.workspace_id,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Provider returned insecure OAuth endpoints",
+            ) from exc
+
+        # Get the integration after storing to get its ID
+        stored_integration = await svc.get_integration(provider_key=key)
+
         if stored_integration:
             audit_log.set_resource(stored_integration.id)
         # Connection is already successful at this point

@@ -62,8 +62,17 @@ async def audit_buffer_worker(
         except asyncio.CancelledError:
             return
 
-    while True:
-        event = await _BUFFER.get()
-        pending.append(event)
-        if flush_task is None:
-            flush_task = asyncio.create_task(flush_after_delay())
+    try:
+        while True:
+            event = await _BUFFER.get()
+            pending.append(event)
+            if flush_task is None:
+                flush_task = asyncio.create_task(flush_after_delay())
+    except asyncio.CancelledError:
+        logger.info("Audit buffer worker shutting down, flushing pending events")
+        # Cancel the flush task to prevent it from running
+        if flush_task and not flush_task.done():
+            flush_task.cancel()
+        # Flush any pending events before shutdown
+        await flush()
+        raise
