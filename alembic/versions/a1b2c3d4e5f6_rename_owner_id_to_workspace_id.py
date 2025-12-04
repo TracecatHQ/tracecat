@@ -123,6 +123,141 @@ INDEX_TO_RENAME = [
     ("ix_case_field_owner_id", "ix_case_field_workspace_id", "case_field"),
 ]
 
+# FK constraints to rename (old_name, new_name, table)
+FK_CONSTRAINTS_TO_RENAME = [
+    # Tables with fk_ prefix but inconsistent naming
+    ("fk_case_owner_id_workspace", "fk_case_workspace_id_workspace", "case"),
+    ("fk_case_field_owner_id", "fk_case_field_workspace_id_workspace", "case_field"),
+    (
+        "fk_mcp_integration_owner_id_workspace",
+        "fk_mcp_integration_workspace_id_workspace",
+        "mcp_integration",
+    ),
+    # Tables with old {table}_owner_id_fkey pattern (workspace-related)
+    (
+        "agent_preset_owner_id_fkey",
+        "fk_agent_preset_workspace_id_workspace",
+        "agent_preset",
+    ),
+    (
+        "case_duration_owner_id_fkey",
+        "fk_case_duration_workspace_id_workspace",
+        "case_duration",
+    ),
+    (
+        "case_duration_definition_owner_id_fkey",
+        "fk_case_duration_definition_workspace_id_workspace",
+        "case_duration_definition",
+    ),
+    ("case_tag_owner_id_fkey", "fk_case_tag_workspace_id_workspace", "case_tag"),
+    (
+        "membership_workspace_id_fkey",
+        "fk_membership_workspace_id_workspace",
+        "membership",
+    ),
+    (
+        "oauth_integration_owner_id_fkey",
+        "fk_oauth_integration_workspace_id_workspace",
+        "oauth_integration",
+    ),
+    (
+        "oauth_provider_owner_id_fkey",
+        "fk_oauth_provider_workspace_id_workspace",
+        "oauth_provider",
+    ),
+    (
+        "oauth_state_workspace_id_fkey",
+        "fk_oauth_state_workspace_id_workspace",
+        "oauth_state",
+    ),
+    ("secret_owner_id_fkey", "fk_secret_workspace_id_workspace", "secret"),
+    ("tag_owner_id_fkey", "fk_tag_workspace_id_workspace", "tag"),
+    ("workflow_owner_id_fkey", "fk_workflow_workspace_id_workspace", "workflow"),
+    (
+        "workflow_folder_owner_id_fkey",
+        "fk_workflow_folder_workspace_id_workspace",
+        "workflow_folder",
+    ),
+    (
+        "workspace_variable_owner_id_fkey",
+        "fk_workspace_variable_workspace_id_workspace",
+        "workspace_variable",
+    ),
+    # Other FK constraints with old {table}_{column}_fkey pattern
+    ("access_token_user_id_fkey", "fk_access_token_user_id_user", "access_token"),
+    ("action_workflow_id_fkey", "fk_action_workflow_id_workflow", "action"),
+    ("approval_approved_by_fkey", "fk_approval_approved_by_user", "approval"),
+    (
+        "case_attachment_file_id_fkey",
+        "fk_case_attachment_file_id_file",
+        "case_attachment",
+    ),
+    ("case_comment_case_id_fkey", "fk_case_comment_case_id_case", "case_comment"),
+    (
+        "case_duration_start_event_id_fkey",
+        "fk_case_duration_start_event_id_case_event",
+        "case_duration",
+    ),
+    (
+        "case_duration_definition_id_fkey",
+        "fk_case_duration_definition_id_case_duration_definition",
+        "case_duration",
+    ),
+    (
+        "case_duration_end_event_id_fkey",
+        "fk_case_duration_end_event_id_case_event",
+        "case_duration",
+    ),
+    ("case_tag_link_tag_id_fkey", "fk_case_tag_link_tag_id_case_tag", "case_tag_link"),
+    ("case_task_workflow_id_fkey", "fk_case_task_workflow_id_workflow", "case_task"),
+    ("case_task_case_id_fkey", "fk_case_task_case_id_case", "case_task"),
+    ("case_task_assignee_id_fkey", "fk_case_task_assignee_id_user", "case_task"),
+    ("chat_user_id_fkey", "fk_chat_user_id_user", "chat"),
+    ("chat_message_chat_id_fkey", "fk_chat_message_chat_id_chat", "chat_message"),
+    ("membership_user_id_fkey", "fk_membership_user_id_user", "membership"),
+    (
+        "oauth_integration_user_id_fkey",
+        "fk_oauth_integration_user_id_user",
+        "oauth_integration",
+    ),
+    ("oauth_state_user_id_fkey", "fk_oauth_state_user_id_user", "oauth_state"),
+    ("oauth_account_user_id_fkey", "fk_oauth_account_user_id_user", "oauth_account"),
+    (
+        "registry_action_repository_id_fkey",
+        "fk_registry_action_repository_id_registry_repository",
+        "registry_action",
+    ),
+    ("schedule_workflow_id_fkey", "fk_schedule_workflow_id_workflow", "schedule"),
+    ("table_column_table_id_fkey", "fk_table_column_table_id_tables", "table_column"),
+    ("webhook_workflow_id_fkey", "fk_webhook_workflow_id_workflow", "webhook"),
+    (
+        "webhook_api_key_webhook_id_fkey",
+        "fk_webhook_api_key_webhook_id_webhook",
+        "webhook_api_key",
+    ),
+    (
+        "workflow_definition_workflow_id_fkey",
+        "fk_workflow_definition_workflow_id_workflow",
+        "workflow_definition",
+    ),
+    ("workflow_tag_tag_id_fkey", "fk_workflow_tag_tag_id_tag", "workflow_tag"),
+    (
+        "workflow_tag_workflow_id_fkey",
+        "fk_workflow_tag_workflow_id_workflow",
+        "workflow_tag",
+    ),
+    # FK constraints with fk_ prefix but missing referred table suffix
+    (
+        "fk_case_attachment_case_id",
+        "fk_case_attachment_case_id_case",
+        "case_attachment",
+    ),
+    ("fk_case_duration_case_id", "fk_case_duration_case_id_case", "case_duration"),
+    ("fk_case_event_case_id", "fk_case_event_case_id_case", "case_event"),
+    ("fk_case_tag_link_case_id", "fk_case_tag_link_case_id_case", "case_tag_link"),
+    ("fk_case_assignee_id", "fk_case_assignee_id_user", "case"),
+]
+
 
 def upgrade() -> None:
     # 1. Rename owner_id to organization_id for org-scoped tables
@@ -158,32 +293,44 @@ def upgrade() -> None:
     for old_name, new_name, _table in INDEX_TO_RENAME:
         op.execute(f'ALTER INDEX "{old_name}" RENAME TO "{new_name}"')
 
+    # 7. Rename FK constraints
+    for old_name, new_name, table in FK_CONSTRAINTS_TO_RENAME:
+        op.execute(
+            f'ALTER TABLE "{table}" RENAME CONSTRAINT "{old_name}" TO "{new_name}"'
+        )
+
 
 def downgrade() -> None:
-    # 1. Rename indexes back
+    # 1. Rename FK constraints back
+    for old_name, new_name, table in FK_CONSTRAINTS_TO_RENAME:
+        op.execute(
+            f'ALTER TABLE "{table}" RENAME CONSTRAINT "{new_name}" TO "{old_name}"'
+        )
+
+    # 2. Rename indexes back
     for old_name, new_name, _table in INDEX_TO_RENAME:
         op.execute(f'ALTER INDEX "{new_name}" RENAME TO "{old_name}"')
 
-    # 2. Rename unique constraints back
+    # 3. Rename unique constraints back
     for old_name, new_name, table in UNIQUE_CONSTRAINTS_TO_RENAME:
         op.execute(
             f'ALTER TABLE "{table}" RENAME CONSTRAINT "{new_name}" TO "{old_name}"'
         )
 
-    # 3. Drop FK constraints for workspace_id columns
+    # 4. Drop FK constraints for workspace_id columns
     for table in WORKSPACE_SCOPED_TABLES_WITH_FK:
         op.drop_constraint(
             f"fk_{table}_workspace_id_workspace", table, type_="foreignkey"
         )
 
-    # 4. Rename workspace_id back to owner_id for tables that had FK
+    # 5. Rename workspace_id back to owner_id for tables that had FK
     for table in WORKSPACE_SCOPED_TABLES_EXISTING_FK:
         op.alter_column(table, "workspace_id", new_column_name="owner_id")
 
-    # 5. Rename workspace_id back to owner_id for workspace-scoped tables
+    # 6. Rename workspace_id back to owner_id for workspace-scoped tables
     for table in WORKSPACE_SCOPED_TABLES_WITH_FK:
         op.alter_column(table, "workspace_id", new_column_name="owner_id")
 
-    # 6. Rename organization_id back to owner_id for org-scoped tables
+    # 7. Rename organization_id back to owner_id for org-scoped tables
     for table in ORG_SCOPED_TABLES:
         op.alter_column(table, "organization_id", new_column_name="owner_id")
