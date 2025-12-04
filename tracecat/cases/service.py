@@ -183,6 +183,11 @@ class CasesService(BaseWorkspaceService):
         assignee_ids: Sequence[uuid.UUID] | None = None,
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
+        order_by: Literal[
+            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        ]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
@@ -193,7 +198,6 @@ class CasesService(BaseWorkspaceService):
             select(Case)
             .options(selectinload(Case.tags))
             .options(selectinload(Case.assignee))
-            .order_by(Case.created_at.desc(), Case.id.desc())
         )
 
         # Apply search term filter
@@ -266,32 +270,114 @@ class CasesService(BaseWorkspaceService):
         total_count = await self.session.scalar(count_stmt)
         total_estimate = int(total_count or 0)
 
-        # Apply cursor filtering
+        # Determine sort column and direction
+        sort_column = order_by or "created_at"
+        sort_direction = sort or "desc"
+
+        # Map computed properties to their underlying columns
+        if sort_column == "short_id":
+            sort_column = "case_number"
+
+        # Validate and get sort attribute
+        # For "tasks", use a correlated subquery to count tasks; otherwise use Case column
+        if sort_column == "tasks":
+            task_count_expr = func.coalesce(
+                select(func.count())
+                .where(CaseTask.case_id == Case.id)
+                .correlate(Case)
+                .scalar_subquery(),
+                0,
+            )
+            sort_attr = task_count_expr
+        else:
+            sort_attr = getattr(Case, sort_column)
+
+        # Apply cursor-based pagination with sort-column-aware filtering
+        # The cursor stores (sort_column, sort_value, created_at, id) for proper pagination
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
-            cursor_time = cursor_data.created_at
             cursor_id = uuid.UUID(cursor_data.id)
 
-            if params.reverse:
-                stmt = stmt.where(
-                    or_(
-                        Case.created_at > cursor_time,
-                        and_(
-                            Case.created_at == cursor_time,
-                            Case.id > cursor_id,
-                        ),
-                    )
-                ).order_by(Case.created_at.asc(), Case.id.asc())
+            # Check if cursor was created with the same sort column (for proper pagination)
+            cursor_sort_value = cursor_data.sort_value
+            cursor_has_sort_value = (
+                cursor_data.sort_column == sort_column and cursor_sort_value is not None
+            )
+
+            if cursor_has_sort_value:
+                # Use sort column value for cursor filtering (proper pagination)
+                # For "tasks" column, we need to compare against the task count subquery
+                if sort_column == "tasks":
+                    sort_filter_col = task_count_expr
+                    sort_cursor_value = cursor_sort_value  # Integer comparison
+                else:
+                    sort_filter_col = getattr(Case, sort_column)
+                    sort_cursor_value = cursor_sort_value
+
+                # Composite filtering: (sort_col, id) matches ORDER BY
+                # Use id as tie-breaker since it's always unique
+                if sort_direction == "asc":
+                    if params.reverse:
+                        # Going backward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col < sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.id < cursor_id,
+                                ),
+                            )
+                        )
+                    else:
+                        # Going forward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col > sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.id > cursor_id,
+                                ),
+                            )
+                        )
+                else:
+                    # Descending order
+                    if params.reverse:
+                        # Going backward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col > sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.id > cursor_id,
+                                ),
+                            )
+                        )
+                    else:
+                        # Going forward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            or_(
+                                sort_filter_col < sort_cursor_value,
+                                and_(
+                                    sort_filter_col == sort_cursor_value,
+                                    Case.id < cursor_id,
+                                ),
+                            )
+                        )
+
+        # Apply sorting: (sort_col, id) for stable pagination
+        # Use id as tie-breaker unless we're already sorting by id
+        if sort_column == "id":
+            # No tie-breaker needed when sorting by id (already unique)
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_attr.asc())
             else:
-                stmt = stmt.where(
-                    or_(
-                        Case.created_at < cursor_time,
-                        and_(
-                            Case.created_at == cursor_time,
-                            Case.id < cursor_id,
-                        ),
-                    )
-                )
+                stmt = stmt.order_by(sort_attr.desc())
+        else:
+            # Add id as tie-breaker for non-unique columns
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
+            else:
+                stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
@@ -302,29 +388,47 @@ class CasesService(BaseWorkspaceService):
         has_more = len(all_cases) > params.limit
         cases = all_cases[: params.limit] if has_more else all_cases
 
-        # Generate cursors
+        # Fetch task counts for all cases in one query (needed for cursor generation if sorting by tasks)
+        task_counts = await self.get_task_counts([case.id for case in cases])
+
+        # Generate cursors with sort column info for proper pagination
         next_cursor = None
         prev_cursor = None
         has_previous = params.cursor is not None
 
         if has_more and cases:
             last_case = cases[-1]
-            next_cursor = paginator.encode_cursor(last_case.created_at, last_case.id)
+            sort_value = (
+                task_counts.get(last_case.id, {}).get("total", 0)
+                if sort_column == "tasks"
+                else getattr(last_case, sort_column, None)
+            )
+            next_cursor = paginator.encode_cursor(
+                last_case.id,
+                sort_column=sort_column,
+                sort_value=sort_value,
+            )
 
         if params.cursor and cases:
             first_case = cases[0]
+            sort_value = (
+                task_counts.get(first_case.id, {}).get("total", 0)
+                if sort_column == "tasks"
+                else getattr(first_case, sort_column, None)
+            )
             # For reverse pagination, swap the cursor meaning
             if params.reverse:
                 next_cursor = paginator.encode_cursor(
-                    first_case.created_at, first_case.id
+                    first_case.id,
+                    sort_column=sort_column,
+                    sort_value=sort_value,
                 )
             else:
                 prev_cursor = paginator.encode_cursor(
-                    first_case.created_at, first_case.id
+                    first_case.id,
+                    sort_column=sort_column,
+                    sort_value=sort_value,
                 )
-
-        # Fetch task counts for all cases in one query
-        task_counts = await self.get_task_counts([case.id for case in cases])
 
         # Convert to CaseReadMinimal objects with tags
         case_items = []

@@ -6399,7 +6399,15 @@ export type TablesDeleteColumnResponse = void
 export type TablesListRowsData = {
   cursor?: string | null
   limit?: number
+  /**
+   * Column name to order by
+   */
+  orderBy?: string | null
   reverse?: boolean
+  /**
+   * Sort direction (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
   tableId: string
   workspaceId: string
 }
@@ -6467,6 +6475,17 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+   */
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | "tasks"
+    | null
+  /**
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
@@ -6482,6 +6501,10 @@ export type CasesListCasesData = {
    * Filter by case severity
    */
   severity?: Array<CaseSeverity> | null
+  /**
+   * Direction to sort (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
   /**
    * Filter by case status
    */
@@ -6512,7 +6535,7 @@ export type CasesSearchCasesData = {
    */
   limit?: number | null
   /**
-   * Field to order the cases by
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
    */
   orderBy?:
     | "created_at"

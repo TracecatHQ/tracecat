@@ -23,15 +23,18 @@ class TestCursorPaginator:
         timestamp = datetime.now(UTC)
         entity_id = "test-id-123"
 
-        # Test encoding
-        cursor = paginator.encode_cursor(timestamp, entity_id)
+        # Test encoding with datetime sort value
+        cursor = paginator.encode_cursor(
+            entity_id, sort_column="created_at", sort_value=timestamp
+        )
         assert isinstance(cursor, str)
         assert cursor  # Not empty
 
         # Test decoding
         decoded = paginator.decode_cursor(cursor)
         assert isinstance(decoded, CursorData)
-        assert decoded.created_at == timestamp
+        assert decoded.sort_column == "created_at"
+        assert decoded.sort_value == timestamp
         assert decoded.id == entity_id
 
     def test_decode_invalid_cursor(self, session: AsyncSession):
@@ -61,11 +64,14 @@ class TestCursorPaginator:
         timestamp = datetime.now(UTC).replace(microsecond=123456)
         entity_id = "test-id"
 
-        cursor = paginator.encode_cursor(timestamp, entity_id)
+        cursor = paginator.encode_cursor(
+            entity_id, sort_column="created_at", sort_value=timestamp
+        )
         decoded = paginator.decode_cursor(cursor)
 
-        assert decoded.created_at == timestamp
-        assert decoded.created_at.microsecond == 123456
+        assert decoded.sort_column == "created_at"
+        assert decoded.sort_value == timestamp
+        assert decoded.sort_value.microsecond == 123456
         assert decoded.id == entity_id
 
     def test_cursor_pagination_params(self):
@@ -92,8 +98,11 @@ class TestCursorPaginator:
         timestamp = datetime.now(UTC)
         entity_id = "test-id"
 
-        cursor_data = CursorData(created_at=timestamp, id=entity_id)
-        assert cursor_data.created_at == timestamp
+        cursor_data = CursorData(
+            sort_column="created_at", sort_value=timestamp, id=entity_id
+        )
+        assert cursor_data.sort_column == "created_at"
+        assert cursor_data.sort_value == timestamp
         assert cursor_data.id == entity_id
 
         # Test JSON serialization
@@ -103,5 +112,6 @@ class TestCursorPaginator:
         # Test deserialization
         parsed_data = json.loads(json_data)
         recreated = CursorData.model_validate(parsed_data)
-        assert recreated.created_at == timestamp
+        assert recreated.sort_column == "created_at"
+        assert recreated.sort_value == timestamp
         assert recreated.id == entity_id

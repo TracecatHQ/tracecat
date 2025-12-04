@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -1154,6 +1154,8 @@ class BaseTablesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
+        order_by: str | None = None,
+        sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows in a table with cursor-based pagination.
 
@@ -1165,13 +1167,15 @@ class BaseTablesService(BaseWorkspaceService):
             end_time: Filter records created before this time
             updated_before: Filter records updated before this time
             updated_after: Filter records updated after this time
+            order_by: Column name to order by (defaults to created_at)
+            sort: Sort direction, "asc" or "desc" (defaults to desc)
 
         Returns:
             Cursor paginated response with matching rows
 
         Raises:
             TracecatNotFoundError: If the table does not exist
-            ValueError: If search parameters are invalid
+            ValueError: If search parameters are invalid or order_by column doesn't exist
         """
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1254,49 +1258,100 @@ class BaseTablesService(BaseWorkspaceService):
         if where_conditions:
             stmt = stmt.where(sa.and_(*where_conditions))
 
-        # Apply cursor-based pagination
-        # Decode cursor if provided
-        cursor_data = None
+        # Determine sort column and direction
+        sort_column = order_by or "created_at"
+        sort_direction = sort or "desc"
+
+        # Validate the sort column exists in the table
+        valid_columns = {col.name for col in table.columns}
+        valid_columns.update(["id", "created_at", "updated_at"])  # Always available
+        if sort_column not in valid_columns:
+            raise ValueError(f"Invalid order_by column: {sort_column}")
+
+        sort_col = sa.column(self._sanitize_identifier(sort_column))
+
+        # Apply cursor-based pagination with sort-column-aware filtering
         if params.cursor:
             try:
                 cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
             except Exception as e:
                 raise ValueError(f"Invalid cursor: {e}") from e
 
-            # Apply cursor filtering for table rows
-            cursor_time = cursor_data.created_at
             cursor_id = UUID(cursor_data.id)
 
-            if params.reverse:
-                # For reverse pagination (going backwards)
-                stmt = stmt.where(
-                    sa.or_(
-                        sa.column("created_at") > cursor_time,
-                        sa.and_(
-                            sa.column("created_at") == cursor_time,
-                            sa.column("id") > cursor_id,
-                        ),
-                    )
-                )
-            else:
-                # For forward pagination (going forwards)
-                stmt = stmt.where(
-                    sa.or_(
-                        sa.column("created_at") < cursor_time,
-                        sa.and_(
-                            sa.column("created_at") == cursor_time,
-                            sa.column("id") < cursor_id,
-                        ),
-                    )
-                )
+            # Check if cursor was created with the same sort column
+            cursor_sort_value = cursor_data.sort_value
+            cursor_has_sort_value = (
+                cursor_data.sort_column == sort_column and cursor_sort_value is not None
+            )
 
-        # Apply consistent ordering for cursor pagination
-        if params.reverse:
-            # For reverse pagination, use ASC ordering
-            stmt = stmt.order_by(sa.column("created_at").asc(), sa.column("id").asc())
+            if cursor_has_sort_value:
+                # Use sort column value for cursor filtering
+                sort_cursor_value = cursor_sort_value
+
+                # Composite filtering: (sort_col, id) matches ORDER BY
+                if sort_direction == "asc":
+                    if params.reverse:
+                        # Going backward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            sa.or_(
+                                sort_col < sort_cursor_value,
+                                sa.and_(
+                                    sort_col == sort_cursor_value,
+                                    sa.column("id") < cursor_id,
+                                ),
+                            )
+                        )
+                    else:
+                        # Going forward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            sa.or_(
+                                sort_col > sort_cursor_value,
+                                sa.and_(
+                                    sort_col == sort_cursor_value,
+                                    sa.column("id") > cursor_id,
+                                ),
+                            )
+                        )
+                else:
+                    # Descending order
+                    if params.reverse:
+                        # Going backward: get records after cursor in sort order
+                        stmt = stmt.where(
+                            sa.or_(
+                                sort_col > sort_cursor_value,
+                                sa.and_(
+                                    sort_col == sort_cursor_value,
+                                    sa.column("id") > cursor_id,
+                                ),
+                            )
+                        )
+                    else:
+                        # Going forward: get records before cursor in sort order
+                        stmt = stmt.where(
+                            sa.or_(
+                                sort_col < sort_cursor_value,
+                                sa.and_(
+                                    sort_col == sort_cursor_value,
+                                    sa.column("id") < cursor_id,
+                                ),
+                            )
+                        )
+
+        # Apply sorting: (sort_col, id) for stable pagination
+        # Use id as tie-breaker unless we're already sorting by id
+        if sort_column == "id":
+            # No tie-breaker needed when sorting by id (already unique)
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_col.asc())
+            else:
+                stmt = stmt.order_by(sort_col.desc())
         else:
-            # For forward pagination, use DESC ordering (newest first)
-            stmt = stmt.order_by(sa.column("created_at").desc(), sa.column("id").desc())
+            # Add id as tie-breaker for non-unique columns
+            if sort_direction == "asc":
+                stmt = stmt.order_by(sort_col.asc(), sa.column("id").asc())
+            else:
+                stmt = stmt.order_by(sort_col.desc(), sa.column("id").desc())
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
@@ -1327,7 +1382,7 @@ class BaseTablesService(BaseWorkspaceService):
         if has_more:
             rows = rows[: params.limit]
 
-        # Generate cursors
+        # Generate cursors with sort column info for proper pagination
         next_cursor = None
         prev_cursor = None
 
@@ -1336,14 +1391,18 @@ class BaseTablesService(BaseWorkspaceService):
                 # Generate next cursor from the last item
                 last_item = rows[-1]
                 next_cursor = BaseCursorPaginator.encode_cursor(
-                    last_item["created_at"], last_item["id"]
+                    last_item["id"],
+                    sort_column=sort_column,
+                    sort_value=last_item.get(sort_column),
                 )
 
             if params.cursor:
                 # If we used a cursor to get here, we can go back
                 first_item = rows[0]
                 prev_cursor = BaseCursorPaginator.encode_cursor(
-                    first_item["created_at"], first_item["id"]
+                    first_item["id"],
+                    sort_column=sort_column,
+                    sort_value=first_item.get(sort_column),
                 )
 
         # If we were doing reverse pagination, swap the cursors and reverse items

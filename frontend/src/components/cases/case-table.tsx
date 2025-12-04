@@ -277,6 +277,7 @@ export default function CaseTable() {
     goToNextPage,
     goToPreviousPage,
     goToFirstPage,
+    setSorting,
     hasNextPage,
     hasPreviousPage,
     currentPage,
@@ -708,6 +709,7 @@ export default function CaseTable() {
               onPreviousPage: goToPreviousPage,
               onFirstPage: goToFirstPage,
               onPageSizeChange: setPageSize,
+              onSortingChange: setSorting,
               isLoading: casesIsLoading || isDeleting,
             }}
           />

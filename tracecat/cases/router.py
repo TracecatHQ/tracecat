@@ -108,8 +108,18 @@ async def list_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = Query(
+        None,
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
+    ),
+    sort: Literal["asc", "desc"] | None = Query(
+        None, description="Direction to sort (asc or desc)"
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
-    """List cases with cursor-based pagination and filtering."""
+    """List cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
 
     # Convert tag identifiers to IDs
@@ -156,7 +166,17 @@ async def list_cases(
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
+            order_by=order_by,
+            sort=sort,
         )
+    except ValueError as e:
+        logger.warning(f"Invalid request for list cases: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
         raise HTTPException(
@@ -186,7 +206,10 @@ async def search_cases(
     ),
     limit: int | None = Query(None, description="Maximum number of cases to return"),
     order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
-    | None = Query(None, description="Field to order the cases by"),
+    | None = Query(
+        None,
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at",
+    ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
