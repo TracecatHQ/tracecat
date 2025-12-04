@@ -128,7 +128,7 @@ class SecretSearch(BaseModel):
 
 
 class SecretReadMinimal(BaseModel):
-    id: str
+    id: UUID
     type: SecretType
     name: str
     description: str | None = None
@@ -139,7 +139,7 @@ class SecretReadMinimal(BaseModel):
 class SecretReadBase(BaseModel):
     """Base read schema for secrets."""
 
-    id: str
+    id: UUID
     type: SecretType
     name: str
     description: str | None = None

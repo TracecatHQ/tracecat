@@ -60,7 +60,6 @@ from tracecat.identifiers import (
     OwnerID,
     WorkspaceID,
     action,
-    id_factory,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
@@ -417,12 +416,12 @@ class BaseSecret(Base):
 
     __abstract__ = True
 
-    id: Mapped[str] = mapped_column(
-        String(255),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
         nullable=False,
         unique=True,
         index=True,
-        default=id_factory("secret"),
     )
     type: Mapped[str] = mapped_column(String(255), nullable=False, default="custom")
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -501,9 +500,9 @@ class WorkflowDefinition(WorkspaceModel):
 
     __tablename__ = "workflow_definition"
 
-    id: Mapped[str] = mapped_column(
-        String(64),
-        default=id_factory("wf-defn"),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
         nullable=False,
         unique=True,
         index=True,
@@ -701,8 +700,8 @@ class WebhookApiKey(WorkspaceModel):
         unique=True,
         index=True,
     )
-    webhook_id: Mapped[str | None] = mapped_column(
-        String,
+    webhook_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
         ForeignKey("webhook.id", ondelete="CASCADE"),
         nullable=True,
         unique=True,
@@ -724,9 +723,9 @@ class WebhookApiKey(WorkspaceModel):
 class Webhook(WorkspaceModel):
     __tablename__ = "webhook"
 
-    id: Mapped[str] = mapped_column(
-        String(64),
-        default=id_factory("wh"),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
         nullable=False,
         unique=True,
         index=True,
@@ -800,9 +799,9 @@ class Webhook(WorkspaceModel):
 class Schedule(WorkspaceModel):
     __tablename__ = "schedule"
 
-    id: Mapped[str] = mapped_column(
-        String(64),
-        default=id_factory("sch"),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
         nullable=False,
         unique=True,
         index=True,
@@ -847,9 +846,9 @@ class Action(WorkspaceModel):
 
     __tablename__ = "action"
 
-    id: Mapped[str] = mapped_column(
-        String(64),
-        default=id_factory("act"),
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
         nullable=False,
         unique=True,
         index=True,

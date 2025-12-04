@@ -43,7 +43,7 @@ class WorkflowRead(Schema):
 
 
 class WorkflowDefinitionReadMinimal(Schema):
-    id: str
+    id: uuid.UUID
     version: int
     created_at: datetime
 
@@ -51,7 +51,7 @@ class WorkflowDefinitionReadMinimal(Schema):
 class WorkflowDefinitionRead(Schema):
     """API response model for persisted workflow definitions."""
 
-    id: str
+    id: uuid.UUID
     workflow_id: WorkflowUUID | None
     workspace_id: WorkspaceID
     version: int

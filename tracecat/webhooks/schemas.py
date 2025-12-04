@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from ipaddress import ip_address, ip_network
 from typing import Any, Literal, Self
@@ -21,7 +22,7 @@ NDJSON_CONTENT_TYPES = (
 
 
 class WebhookRead(Schema):
-    id: str
+    id: uuid.UUID
     secret: str
     status: WebhookStatus
     entrypoint_ref: str | None = None

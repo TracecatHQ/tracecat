@@ -1,7 +1,7 @@
 """make workspace_id non-nullable for workspace-scoped models
 
 Revision ID: 0fd1f09cd98b
-Revises: a1b2c3d4e5f6
+Revises: b23b877ee161
 Create Date: 2025-12-04 14:14:05.910579
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0fd1f09cd98b"
-down_revision: str | None = "a1b2c3d4e5f6"
+down_revision: str | None = "b23b877ee161"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

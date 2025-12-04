@@ -10,7 +10,8 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
-from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.identifiers import ScheduleUUID, WorkflowID
+from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 from tracecat.workflow.schedules.schemas import ScheduleUpdate
@@ -26,14 +27,16 @@ def build_schedule_search_attributes(role: Role) -> TypedSearchAttributes:
     return TypedSearchAttributes(search_attributes=pairs)
 
 
-async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHandle:
+async def _get_handle(schedule_id: AnyScheduleID) -> temporalio.client.ScheduleHandle:
+    schedule_uuid = ScheduleUUID.new(schedule_id)
     client = await get_temporal_client()
-    return client.get_schedule_handle(schedule_id)
+    temporal_id = schedule_uuid.to_legacy()
+    return client.get_schedule_handle(temporal_id)
 
 
 async def create_schedule(
     workflow_id: WorkflowID,
-    schedule_id: ScheduleID,
+    schedule_id: AnyScheduleID,
     role: Role,
     *,
     cron: str | None = None,
@@ -54,7 +57,9 @@ async def create_schedule(
     if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
         schedule_kwargs["task_timeout"] = timedelta(seconds=float(task_timeout))
 
-    workflow_schedule_id = f"{workflow_id.short()}/{schedule_id}"
+    schedule_uuid = ScheduleUUID.new(schedule_id)
+    temporal_schedule_id = schedule_uuid.to_legacy()
+    workflow_schedule_id = f"{workflow_id.short()}/{temporal_schedule_id}"
 
     if (cron is None or not cron.strip()) and every is None:
         raise ValueError("Either cron or every must be provided for a schedule")
@@ -71,14 +76,15 @@ async def create_schedule(
         ]
 
     return await client.create_schedule(
-        id=schedule_id,
+        id=temporal_schedule_id,
         schedule=temporalio.client.Schedule(
             action=temporalio.client.ScheduleActionStartWorkflow(
                 DSLWorkflow.run,
                 # Scheduled workflow only needs to know the workflow ID
                 # and the role of the user who scheduled it. Everything else
                 # is pulled inside the workflow itself.
-                DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_id),
+                # Pass the native ScheduleUUID (UUID) - it will be serialized as UUID string
+                DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_uuid),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 typed_search_attributes=build_schedule_search_attributes(role),
@@ -93,8 +99,9 @@ async def create_schedule(
     )
 
 
-async def delete_schedule(schedule_id: ScheduleID) -> None:
-    handle = await _get_handle(schedule_id)
+async def delete_schedule(schedule_id: AnyScheduleID) -> None:
+    schedule_uuid = ScheduleUUID.new(schedule_id)
+    handle = await _get_handle(schedule_uuid)
     try:
         await handle.delete()
     except TemporalError as e:
@@ -105,7 +112,7 @@ async def delete_schedule(schedule_id: ScheduleID) -> None:
             for phrase in ["schedule not found", "not found", "does not exist"]
         ):
             logger.warning(
-                f"Temporal schedule {schedule_id} not found, skipping deletion"
+                f"Temporal schedule {schedule_uuid.to_legacy()} not found, skipping deletion"
             )
             return None
         if "workflow execution already completed" not in msg:
@@ -113,7 +120,7 @@ async def delete_schedule(schedule_id: ScheduleID) -> None:
     return None
 
 
-async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> None:
+async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) -> None:
     async def _update_schedule(
         input: temporalio.client.ScheduleUpdateInput,
     ) -> temporalio.client.ScheduleUpdate:

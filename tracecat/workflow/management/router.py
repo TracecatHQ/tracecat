@@ -278,7 +278,7 @@ async def get_workflow(
 
     actions = workflow.actions or []
     actions_responses = {
-        action.id: ActionRead.model_validate(action, from_attributes=True)
+        str(action.id): ActionRead.model_validate(action, from_attributes=True)
         for action in actions
     }
     # Add webhook/schedules

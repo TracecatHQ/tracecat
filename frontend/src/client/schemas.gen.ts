@@ -176,7 +176,7 @@ export const $ActionRead = {
   properties: {
     id: {
       type: "string",
-      pattern: "act-[0-9a-f]{32}",
+      format: "uuid",
       title: "Id",
     },
     type: {
@@ -256,7 +256,7 @@ export const $ActionReadMinimal = {
   properties: {
     id: {
       type: "string",
-      pattern: "act-[0-9a-f]{32}",
+      format: "uuid",
       title: "Id",
     },
     workflow_id: {
@@ -5549,14 +5549,14 @@ export const $DSLRunArgs = {
       anyOf: [
         {
           type: "string",
-          pattern: "sch-[0-9a-f]{32}",
         },
         {
           type: "null",
         },
       ],
       title: "Schedule Id",
-      description: "The schedule ID that triggered this workflow, if any.",
+      description:
+        "The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.",
     },
   },
   type: "object",
@@ -6206,7 +6206,7 @@ export const $EventGroup_TypeVar_ = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "string",
@@ -7659,7 +7659,7 @@ export const $InteractionContext = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     action_ref: {
@@ -7683,7 +7683,7 @@ export const $InteractionInput = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     action_ref: {
@@ -7765,7 +7765,7 @@ export const $InteractionRead = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     actor: {
@@ -8540,6 +8540,7 @@ export const $OrganizationSecretRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     type: {
@@ -10812,7 +10813,7 @@ export const $RunContext = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     wf_run_id: {
@@ -11078,7 +11079,6 @@ export const $ScheduleRead = {
   properties: {
     id: {
       type: "string",
-      pattern: "sch-[0-9a-f]{32}",
       title: "Id",
     },
     workspace_id: {
@@ -11446,6 +11446,7 @@ export const $SecretRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     type: {
@@ -11524,6 +11525,7 @@ export const $SecretReadMinimal = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     type: {
@@ -15318,6 +15320,7 @@ export const $WebhookRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     secret: {
@@ -15508,6 +15511,7 @@ export const $WorkflowDefinitionRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     workflow_id: {
@@ -15570,6 +15574,7 @@ export const $WorkflowDefinitionReadMinimal = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
     },
     version: {
@@ -15850,7 +15855,7 @@ export const $WorkflowExecutionCreateResponse = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     payload: {
@@ -15926,7 +15931,7 @@ export const $WorkflowExecutionEvent = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -16036,7 +16041,7 @@ export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
           {
             type: "string",
             pattern:
-              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
           },
           {
             type: "null",
@@ -16183,7 +16188,7 @@ export const $WorkflowExecutionRead = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -16301,7 +16306,7 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
           {
             type: "string",
             pattern:
-              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
           },
           {
             type: "null",
@@ -16418,7 +16423,7 @@ export const $WorkflowExecutionReadMinimal = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",

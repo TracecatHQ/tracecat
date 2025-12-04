@@ -1718,7 +1718,7 @@ export type DSLRunArgs = {
    */
   timeout?: string
   /**
-   * The schedule ID that triggered this workflow, if any.
+   * The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.
    */
   schedule_id?: string | null
 }

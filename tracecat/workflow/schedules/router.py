@@ -5,10 +5,10 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Schedule
 from tracecat.exceptions import TracecatNotFoundError, TracecatServiceError
-from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.schedules.dependencies import AnyScheduleIDPath
 from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
     ScheduleRead,
@@ -64,7 +64,9 @@ async def create_schedule(
 
 @router.get("/{schedule_id}", response_model=ScheduleRead)
 async def get_schedule(
-    role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    schedule_id: AnyScheduleIDPath,
 ) -> ScheduleRead:
     """Get a schedule from a workflow."""
     service = WorkflowSchedulesService(session, role=role)
@@ -83,7 +85,7 @@ async def get_schedule(
 async def update_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    schedule_id: ScheduleID,
+    schedule_id: AnyScheduleIDPath,
     params: ScheduleUpdate,
 ) -> ScheduleRead:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
@@ -106,7 +108,7 @@ async def update_schedule(
 
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
-    role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
+    role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: AnyScheduleIDPath
 ) -> None:
     """Delete a schedule from a workflow."""
     service = WorkflowSchedulesService(session, role=role)

@@ -991,7 +991,7 @@ class DSLWorkflow:
         return validation_result
 
     async def _get_schedule_trigger_inputs(
-        self, schedule_id: identifiers.ScheduleID, worflow_id: identifiers.WorkflowID
+        self, schedule_id: identifiers.ScheduleUUID, worflow_id: identifiers.WorkflowID
     ) -> dict[str, Any] | None:
         """Get the trigger inputs for a schedule.
 

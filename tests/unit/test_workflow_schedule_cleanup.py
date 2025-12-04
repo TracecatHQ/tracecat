@@ -9,7 +9,6 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Schedule, Workflow
-from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -37,7 +36,7 @@ async def test_delete_workflow_cleans_up_schedules(test_role: Role):
 
         # Create test schedules in the database
         schedule1 = Schedule(
-            id=ResourcePrefix.SCHEDULE.factory()(),
+            id=uuid.uuid4(),
             workflow_id=workflow.id,
             workspace_id=test_role.workspace_id
             if test_role.workspace_id
@@ -49,7 +48,7 @@ async def test_delete_workflow_cleans_up_schedules(test_role: Role):
             timeout=None,
         )
         schedule2 = Schedule(
-            id=ResourcePrefix.SCHEDULE.factory()(),
+            id=uuid.uuid4(),
             workflow_id=workflow.id,
             workspace_id=test_role.workspace_id
             if test_role.workspace_id
@@ -104,7 +103,7 @@ async def test_delete_workflow_handles_temporal_errors_gracefully(test_role: Rol
 
         # Create a test schedule
         schedule = Schedule(
-            id=ResourcePrefix.SCHEDULE.factory()(),
+            id=uuid.uuid4(),
             workflow_id=workflow.id,
             workspace_id=test_role.workspace_id
             if test_role.workspace_id

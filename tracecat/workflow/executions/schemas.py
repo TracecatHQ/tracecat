@@ -209,7 +209,7 @@ class EventGroup[T: EventInput](BaseModel):
             udf_namespace=namespace,
             udf_name=task_name,
             udf_key=task.action,
-            action_id=task.id,
+            action_id=str(task.id) if task.id else None,
             action_ref=task.ref,
             action_title=task.title,
             action_description=task.description,
