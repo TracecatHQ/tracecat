@@ -1,7 +1,7 @@
 """audit logs
 
 Revision ID: eadbdbb55cda
-Revises: f4695a7728a8
+Revises: a1b2c3d4e5f6
 Create Date: 2025-12-04 17:07:35.178333
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "eadbdbb55cda"
-down_revision: str | None = "f4695a7728a8"
+down_revision: str | None = "a1b2c3d4e5f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

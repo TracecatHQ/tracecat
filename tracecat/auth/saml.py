@@ -18,6 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.dependencies import ServiceRole
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
@@ -568,9 +570,46 @@ async def sso_acs(
 
     if not user.is_active:
         logger.error("Inactive user attempted SAML login")
+        # Log audit event for failed SAML login (inactive user)
+        try:
+            from tracecat.auth.credentials import get_role_from_user
+
+            role = get_role_from_user(user)
+            audit_service = AuditService(db_session, role=role)
+            await audit_service.create_event(
+                resource_type="user",
+                action="login",
+                resource_id=user.id,
+                status=AuditEventStatus.FAILURE,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to log audit event for SAML login failure",
+                user_id=user.id,
+                error=e,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
+        )
+
+    # Log audit event for successful SAML login attempt
+    try:
+        from tracecat.auth.credentials import get_role_from_user
+
+        role = get_role_from_user(user)
+        audit_service = AuditService(db_session, role=role)
+        await audit_service.create_event(
+            resource_type="user",
+            action="login",
+            resource_id=user.id,
+            status=AuditEventStatus.ATTEMPT,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to log audit event for SAML login attempt",
+            user_id=user.id,
+            error=e,
         )
 
     response = await auth_backend.login(strategy, user)

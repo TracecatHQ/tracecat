@@ -10,6 +10,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
@@ -53,15 +54,21 @@ async def create_agent_preset(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Create a new agent preset."""
-    service = AgentPresetService(session, role=role)
-    try:
-        preset = await service.create_preset(params)
-        return AgentPresetRead.model_validate(preset)
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+    async with AuditLogger(
+        resource_type="agent_preset",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = AgentPresetService(session, role=role)
+        try:
+            preset = await service.create_preset(params)
+            audit_log.set_resource(preset.id)
+            return AgentPresetRead.model_validate(preset)
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
@@ -107,14 +114,20 @@ async def update_agent_preset(
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Update an existing agent preset."""
-    service = AgentPresetService(session, role=role)
-    if not (preset := await service.get_preset(preset_id)):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent preset {preset_id} not found",
-        )
-    preset = await service.update_preset(preset, params)
-    return AgentPresetRead.model_validate(preset)
+    async with AuditLogger(
+        resource_type="agent_preset",
+        action="update",
+        resource_id=preset_id,
+        session=session,
+    ):
+        service = AgentPresetService(session, role=role)
+        if not (preset := await service.get_preset(preset_id)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent preset {preset_id} not found",
+            )
+        preset = await service.update_preset(preset, params)
+        return AgentPresetRead.model_validate(preset)
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -125,10 +138,16 @@ async def delete_agent_preset(
     session: AsyncDBSession,
 ) -> None:
     """Delete an agent preset."""
-    service = AgentPresetService(session, role=role)
-    if not (preset := await service.get_preset(preset_id)):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent preset {preset_id} not found",
-        )
-    await service.delete_preset(preset)
+    async with AuditLogger(
+        resource_type="agent_preset",
+        action="delete",
+        resource_id=preset_id,
+        session=session,
+    ):
+        service = AgentPresetService(session, role=role)
+        if not (preset := await service.get_preset(preset_id)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent preset {preset_id} not found",
+            )
+        await service.delete_preset(preset)

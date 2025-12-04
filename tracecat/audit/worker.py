@@ -31,7 +31,7 @@ async def submit_batch(events: Sequence[AuditEventPayload]) -> None:
 
 async def audit_buffer_worker(
     *,
-    interval_seconds: float = 5,
+    interval_seconds: float = 15,
 ) -> None:
     logger.info(
         "Audit buffer worker started",

@@ -8,6 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 
 from tracecat import config
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.types import Role
@@ -232,7 +233,23 @@ async def oauth_callback(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Provider returned insecure OAuth endpoints",
         ) from exc
+
+    # Get the integration after storing to get its ID
+    stored_integration = await svc.get_integration(provider_key=key)
+
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
+
+    # Log audit event for successful OAuth connection
+    async with AuditLogger(
+        resource_type="integration",
+        action="connect",
+        resource_id=stored_integration.id if stored_integration else None,
+        session=session,
+    ) as audit_log:
+        if stored_integration:
+            audit_log.set_resource(stored_integration.id)
+        # Connection is already successful at this point
+        pass
 
     redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations/{key.id}?tab=overview&grant_type=authorization_code"
     return IntegrationOAuthCallback(
@@ -459,6 +476,15 @@ async def connect_provider(
         has_code_verifier=code_verifier is not None,
     )
 
+    # Log audit event for OAuth connection attempt
+    async with AuditLogger(
+        resource_type="integration",
+        action="connect",
+        session=session,
+    ):
+        # This is just the initiation, actual connection happens in callback
+        pass
+
     return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
 
 
@@ -485,7 +511,13 @@ async def disconnect_integration(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{provider_info.key} integration not found",
         )
-    await svc.disconnect_integration(integration=integration)
+    async with AuditLogger(
+        resource_type="integration",
+        action="disconnect",
+        resource_id=integration.id,
+        session=session,
+    ):
+        await svc.disconnect_integration(integration=integration)
 
 
 @integrations_router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -509,13 +541,25 @@ async def delete_integration(
     if integration is None:
         if provider_info.key.id.startswith("custom_"):
             # Delete the custom provider definition if it exists
-            await svc.delete_custom_provider(provider_key=provider_info.key)
+            async with AuditLogger(
+                resource_type="integration_provider",
+                action="delete",
+                resource_id=None,  # Custom provider doesn't have a UUID
+                session=session,
+            ):
+                await svc.delete_custom_provider(provider_key=provider_info.key)
             return
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{provider_info.key} integration not found",
         )
-    await svc.remove_integration(integration=integration)
+    async with AuditLogger(
+        resource_type="integration",
+        action="delete",
+        resource_id=integration.id,
+        session=session,
+    ):
+        await svc.remove_integration(integration=integration)
 
 
 @integrations_router.post("/{provider_id}/test")
@@ -553,46 +597,52 @@ async def test_connection(
             detail="Provider is not configured for this workspace",
         )
 
-    try:
-        # Create provider instance and attempt to get token
-        provider = await impl.instantiate(config=provider_config)
-        token_response = await provider.get_client_credentials_token()
+    async with AuditLogger(
+        resource_type="integration",
+        action="test_connection",
+        resource_id=integration.id,
+        session=session,
+    ):
+        try:
+            # Create provider instance and attempt to get token
+            provider = await impl.instantiate(config=provider_config)
+            token_response = await provider.get_client_credentials_token()
 
-        # Store the token if successful
-        await svc.store_integration(
-            provider_key=provider_info.key,
-            access_token=token_response.access_token,
-            expires_in=token_response.expires_in,
-            scope=token_response.scope,
-            authorization_endpoint=provider.authorization_endpoint,
-            token_endpoint=provider.token_endpoint,
-        )
+            # Store the token if successful
+            await svc.store_integration(
+                provider_key=provider_info.key,
+                access_token=token_response.access_token,
+                expires_in=token_response.expires_in,
+                scope=token_response.scope,
+                authorization_endpoint=provider.authorization_endpoint,
+                token_endpoint=provider.token_endpoint,
+            )
 
-        logger.info(
-            "Client credentials test successful",
-            provider=provider_info.key,
-            workspace_id=role.workspace_id,
-        )
+            logger.info(
+                "Client credentials test successful",
+                provider=provider_info.key,
+                workspace_id=role.workspace_id,
+            )
 
-        return IntegrationTestConnectionResponse(
-            success=True,
-            provider_id=impl.id,
-            message="Successfully connected using client credentials",
-        )
+            return IntegrationTestConnectionResponse(
+                success=True,
+                provider_id=impl.id,
+                message="Successfully connected using client credentials",
+            )
 
-    except Exception as e:
-        logger.error(
-            "Client credentials test failed",
-            provider_key=provider_info.key,
-            workspace_id=role.workspace_id,
-            error=str(e),
-        )
-        return IntegrationTestConnectionResponse(
-            success=False,
-            provider_id=impl.id,
-            message="Failed to connect using client credentials",
-            error=str(e),
-        )
+        except Exception as e:
+            logger.error(
+                "Client credentials test failed",
+                provider_key=provider_info.key,
+                workspace_id=role.workspace_id,
+                error=str(e),
+            )
+            return IntegrationTestConnectionResponse(
+                success=False,
+                provider_id=impl.id,
+                message="Failed to connect using client credentials",
+                error=str(e),
+            )
 
 
 @integrations_router.put("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -611,33 +661,47 @@ async def update_integration(
         )
 
     svc = IntegrationService(session, role=role)
-    # Store the provider configuration
-    try:
-        await svc.store_provider_config(
-            provider_key=provider_info.key,
-            client_id=params.client_id,
-            client_secret=params.client_secret,
-            authorization_endpoint=params.authorization_endpoint,
-            token_endpoint=params.token_endpoint,
-            requested_scopes=params.scopes,
-        )
-    except InsecureOAuthEndpointError as exc:
-        logger.warning(
-            "Rejected insecure OAuth endpoint on provider update",
-            provider=provider_info.key,
-            workspace_id=role.workspace_id,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    integration = await svc.get_integration(provider_key=provider_info.key)
 
-    logger.info(
-        "Provider configuration updated",
-        provider_key=provider_info.key,
-        workspace_id=role.workspace_id,
-    )
+    async with AuditLogger(
+        resource_type="integration",
+        action="update",
+        resource_id=integration.id if integration else None,
+        session=session,
+    ) as audit_log:
+        # Store the provider configuration
+        try:
+            await svc.store_provider_config(
+                provider_key=provider_info.key,
+                client_id=params.client_id,
+                client_secret=params.client_secret,
+                authorization_endpoint=params.authorization_endpoint,
+                token_endpoint=params.token_endpoint,
+                requested_scopes=params.scopes,
+            )
+            # Refresh integration to get updated ID if it was created
+            updated_integration = await svc.get_integration(
+                provider_key=provider_info.key
+            )
+            if updated_integration and audit_log:
+                audit_log.set_resource(updated_integration.id)
+        except InsecureOAuthEndpointError as exc:
+            logger.warning(
+                "Rejected insecure OAuth endpoint on provider update",
+                provider=provider_info.key,
+                workspace_id=role.workspace_id,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+        logger.info(
+            "Provider configuration updated",
+            provider_key=provider_info.key,
+            workspace_id=role.workspace_id,
+        )
 
 
 # Provider discovery endpoints
@@ -656,24 +720,29 @@ async def create_custom_provider(
         )
 
     svc = IntegrationService(session, role=role)
-    try:
-        provider = await svc.create_custom_provider(params=params)
-    except InsecureOAuthEndpointError as exc:
-        logger.warning(
-            "Rejected insecure OAuth endpoint on custom provider create",
-            workspace_id=role.workspace_id,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    async with AuditLogger(
+        resource_type="integration_provider",
+        action="create",
+        session=session,
+    ):
+        try:
+            provider = await svc.create_custom_provider(params=params)
+        except InsecureOAuthEndpointError as exc:
+            logger.warning(
+                "Rejected insecure OAuth endpoint on custom provider create",
+                workspace_id=role.workspace_id,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
 
-    integration = await svc.get_integration(
-        provider_key=ProviderKey(
-            id=provider.provider_id, grant_type=provider.grant_type
+        integration = await svc.get_integration(
+            provider_key=ProviderKey(
+                id=provider.provider_id, grant_type=provider.grant_type
+            )
         )
-    )
 
     return ProviderReadMinimal(
         id=provider.provider_id,
@@ -782,13 +851,19 @@ async def create_mcp_integration(
         )
 
     svc = IntegrationService(session, role=role)
-    try:
-        mcp_integration = await svc.create_mcp_integration(params=params)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    async with AuditLogger(
+        resource_type="mcp_integration",
+        action="create",
+        session=session,
+    ) as audit_log:
+        try:
+            mcp_integration = await svc.create_mcp_integration(params=params)
+            audit_log.set_resource(mcp_integration.id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
 
     return MCPIntegrationRead(
         id=mcp_integration.id,
@@ -886,20 +961,26 @@ async def update_mcp_integration(
         )
 
     svc = IntegrationService(session, role=role)
-    try:
-        integration = await svc.update_mcp_integration(
-            mcp_integration_id=mcp_integration_id, params=params
-        )
-        if integration is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="MCP integration not found",
+    async with AuditLogger(
+        resource_type="mcp_integration",
+        action="update",
+        resource_id=mcp_integration_id,
+        session=session,
+    ):
+        try:
+            integration = await svc.update_mcp_integration(
+                mcp_integration_id=mcp_integration_id, params=params
             )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+            if integration is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="MCP integration not found",
+                )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
 
     return MCPIntegrationRead(
         id=integration.id,
@@ -929,9 +1010,17 @@ async def delete_mcp_integration(
         )
 
     svc = IntegrationService(session, role=role)
-    deleted = await svc.delete_mcp_integration(mcp_integration_id=mcp_integration_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="MCP integration not found",
+    async with AuditLogger(
+        resource_type="mcp_integration",
+        action="delete",
+        resource_id=mcp_integration_id,
+        session=session,
+    ):
+        deleted = await svc.delete_mcp_integration(
+            mcp_integration_id=mcp_integration_id
         )
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="MCP integration not found",
+            )

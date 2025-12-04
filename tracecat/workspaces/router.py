@@ -8,6 +8,7 @@ from fastapi import (
 )
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
@@ -114,24 +115,30 @@ async def create_workspace(
     ------------
     - Admin: Can create a workspace for any user.
     """
-    service = WorkspaceService(session, role=role)
-    try:
-        workspace = await service.create_workspace(
-            params.name, organization_id=params.organization_id
-        )
-    except TracecatAuthorizationError as e:
-        logger.warning(
-            "User does not have the appropriate access level",
-            role=role,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-        ) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
-        ) from e
-    return WorkspaceReadMinimal(id=workspace.id, name=workspace.name)
+    async with AuditLogger(
+        resource_type="workspace",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = WorkspaceService(session, role=role)
+        try:
+            workspace = await service.create_workspace(
+                params.name, organization_id=params.organization_id
+            )
+            audit_log.set_resource(workspace.id)
+        except TracecatAuthorizationError as e:
+            logger.warning(
+                "User does not have the appropriate access level",
+                role=role,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            ) from e
+        except IntegrityError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
+            ) from e
+        return WorkspaceReadMinimal(id=workspace.id, name=workspace.name)
 
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work

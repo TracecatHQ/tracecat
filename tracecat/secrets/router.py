@@ -3,6 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
@@ -140,15 +141,20 @@ async def create_secret(
     params: SecretCreate,
 ) -> None:
     """Create a secret."""
-    service = SecretsService(session, role=role)
-    try:
-        await service.create_secret(params)
-    except IntegrityError as e:
-        logger.error("Secret integrity error", e=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Secret creation integrity error: {e!r}",
-        ) from e
+    async with AuditLogger(
+        resource_type="secret",
+        action="create",
+        session=session,
+    ):
+        service = SecretsService(session, role=role)
+        try:
+            await service.create_secret(params)
+        except IntegrityError as e:
+            logger.error("Secret integrity error", e=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Secret creation integrity error: {e!r}",
+            ) from e
 
 
 @router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -160,20 +166,25 @@ async def update_secret_by_id(
     params: SecretUpdate,
 ) -> None:
     """Update a secret by ID."""
-    service = SecretsService(session, role)
-    try:
-        secret = await service.get_secret(secret_id)
-        await service.update_secret(secret, params)
-    except TracecatNotFoundError as e:
-        logger.error("Secret not found", secret_id=secret_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-        ) from e
-    except IntegrityError as e:
-        logger.info("Secret already exists", secret_id=secret_id)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
-        ) from e
+    async with AuditLogger(
+        resource_type="secret",
+        action="update",
+        session=session,
+    ):
+        service = SecretsService(session, role)
+        try:
+            secret = await service.get_secret(secret_id)
+            await service.update_secret(secret, params)
+        except TracecatNotFoundError as e:
+            logger.error("Secret not found", secret_id=secret_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+            ) from e
+        except IntegrityError as e:
+            logger.info("Secret already exists", secret_id=secret_id)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+            ) from e
 
 
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -184,15 +195,20 @@ async def delete_secret_by_id(
     secret_id: AnySecretIDPath,
 ) -> None:
     """Delete a secret by ID."""
-    service = SecretsService(session, role=role)
-    try:
-        secret = await service.get_secret(secret_id)
-        await service.delete_secret(secret)
-    except TracecatNotFoundError as e:
-        logger.info(f"Secret {secret_id=} not found")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-        ) from e
+    async with AuditLogger(
+        resource_type="secret",
+        action="delete",
+        session=session,
+    ):
+        service = SecretsService(session, role=role)
+        try:
+            secret = await service.get_secret(secret_id)
+            await service.delete_secret(secret)
+        except TracecatNotFoundError as e:
+            logger.info(f"Secret {secret_id=} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+            ) from e
 
 
 @org_router.get("")
@@ -248,15 +264,20 @@ async def create_org_secret(
     params: SecretCreate,
 ) -> None:
     """Create an organization secret."""
-    service = SecretsService(session, role=role)
-    try:
-        await service.create_org_secret(params)
-    except IntegrityError as e:
-        logger.error("Organization secret integrity error", e=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Organization secret creation integrity error: {e!r}",
-        ) from e
+    async with AuditLogger(
+        resource_type="org_secret",
+        action="create",
+        session=session,
+    ):
+        service = SecretsService(session, role=role)
+        try:
+            await service.create_org_secret(params)
+        except IntegrityError as e:
+            logger.error("Organization secret integrity error", e=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Organization secret creation integrity error: {e!r}",
+            ) from e
 
 
 @org_router.post(
@@ -271,22 +292,27 @@ async def update_org_secret_by_id(
     params: SecretUpdate,
 ) -> None:
     """Update an organization secret by ID."""
-    service = SecretsService(session, role)
-    try:
-        secret = await service.get_org_secret(secret_id)
-        await service.update_org_secret(secret, params)
-    except TracecatNotFoundError as e:
-        logger.error("Organization secret not found", secret_id=secret_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization secret does not exist",
-        ) from e
-    except IntegrityError as e:
-        logger.info("Organization secret already exists", secret_id=secret_id)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Organization secret already exists",
-        ) from e
+    async with AuditLogger(
+        resource_type="org_secret",
+        action="update",
+        session=session,
+    ):
+        service = SecretsService(session, role)
+        try:
+            secret = await service.get_org_secret(secret_id)
+            await service.update_org_secret(secret, params)
+        except TracecatNotFoundError as e:
+            logger.error("Organization secret not found", secret_id=secret_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization secret does not exist",
+            ) from e
+        except IntegrityError as e:
+            logger.info("Organization secret already exists", secret_id=secret_id)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Organization secret already exists",
+            ) from e
 
 
 @org_router.delete(
@@ -300,13 +326,18 @@ async def delete_org_secret_by_id(
     secret_id: AnySecretIDPath,
 ) -> None:
     """Delete an organization secret by ID."""
-    service = SecretsService(session, role=role)
-    try:
-        secret = await service.get_org_secret(secret_id)
-        await service.delete_org_secret(secret)
-    except TracecatNotFoundError as e:
-        logger.info(f"Organization secret {secret_id=} not found")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Organization secret does not exist",
-        ) from e
+    async with AuditLogger(
+        resource_type="org_secret",
+        action="delete",
+        session=session,
+    ):
+        service = SecretsService(session, role=role)
+        try:
+            secret = await service.get_org_secret(secret_id)
+            await service.delete_org_secret(secret)
+        except TracecatNotFoundError as e:
+            logger.info(f"Organization secret {secret_id=} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization secret does not exist",
+            ) from e

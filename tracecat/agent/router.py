@@ -9,6 +9,7 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
@@ -115,15 +116,22 @@ async def create_provider_credentials(
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Create or update credentials for an AI provider."""
-    service = AgentManagementService(session, role=role)
-    try:
-        await service.create_provider_credentials(params)
-        return {"message": f"Credentials for {params.provider} created successfully"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create credentials: {str(e)}",
-        ) from e
+    async with AuditLogger(
+        resource_type="agent_credential",
+        action="create",
+        session=session,
+    ):
+        service = AgentManagementService(session, role=role)
+        try:
+            await service.create_provider_credentials(params)
+            return {
+                "message": f"Credentials for {params.provider} created successfully"
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create credentials: {str(e)}",
+            ) from e
 
 
 @router.put("/credentials/{provider}")
@@ -135,20 +143,25 @@ async def update_provider_credentials(
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Update existing credentials for an AI provider."""
-    service = AgentManagementService(session, role=role)
-    try:
-        await service.update_provider_credentials(provider, params)
-        return {"message": f"Credentials for {provider} updated successfully"}
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Credentials for provider {provider} not found",
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update credentials: {str(e)}",
-        ) from e
+    async with AuditLogger(
+        resource_type="agent_credential",
+        action="update",
+        session=session,
+    ):
+        service = AgentManagementService(session, role=role)
+        try:
+            await service.update_provider_credentials(provider, params)
+            return {"message": f"Credentials for {provider} updated successfully"}
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credentials for provider {provider} not found",
+            ) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to update credentials: {str(e)}",
+            ) from e
 
 
 @router.delete("/credentials/{provider}")
@@ -159,9 +172,14 @@ async def delete_provider_credentials(
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Delete credentials for an AI provider."""
-    service = AgentManagementService(session, role=role)
-    await service.delete_provider_credentials(provider)
-    return {"message": f"Credentials for {provider} deleted successfully"}
+    async with AuditLogger(
+        resource_type="agent_credential",
+        action="delete",
+        session=session,
+    ):
+        service = AgentManagementService(session, role=role)
+        await service.delete_provider_credentials(provider)
+        return {"message": f"Credentials for {provider} deleted successfully"}
 
 
 @router.get("/default-model")
@@ -183,20 +201,25 @@ async def set_default_model(
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Set the organization's default AI model."""
-    service = AgentManagementService(session, role=role)
-    try:
-        await service.set_default_model(model_name)
-        return {"message": f"Default model set to {model_name}"}
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model {model_name} not found",
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to set default model: {str(e)}",
-        ) from e
+    async with AuditLogger(
+        resource_type="agent_setting",
+        action="update",
+        session=session,
+    ):
+        service = AgentManagementService(session, role=role)
+        try:
+            await service.set_default_model(model_name)
+            return {"message": f"Default model set to {model_name}"}
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model {model_name} not found",
+            ) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to set default model: {str(e)}",
+            ) from e
 
 
 @router.get("/workspace/providers/status")

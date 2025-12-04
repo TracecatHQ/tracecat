@@ -2,6 +2,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat import config
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
@@ -88,8 +90,14 @@ async def update_git_settings(
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    await service.update_git_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_git",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        await service.update_git_settings(params)
 
 
 @router.get("/saml", response_model=SAMLSettingsRead)
@@ -116,10 +124,16 @@ async def update_saml_settings(
     session: AsyncDBSession,
     params: SAMLSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    if not params.saml_enabled:
-        await check_other_auth_enabled(service, AuthType.SAML)
-    await service.update_saml_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_saml",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        if not params.saml_enabled:
+            await check_other_auth_enabled(service, AuthType.SAML)
+        await service.update_saml_settings(params)
 
 
 @router.get("/auth", response_model=AuthSettingsRead)
@@ -142,10 +156,16 @@ async def update_auth_settings(
     session: AsyncDBSession,
     params: AuthSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    if not params.auth_basic_enabled:
-        await check_other_auth_enabled(service, AuthType.BASIC)
-    await service.update_auth_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_auth",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        if not params.auth_basic_enabled:
+            await check_other_auth_enabled(service, AuthType.BASIC)
+        await service.update_auth_settings(params)
 
 
 @router.get("/oauth", response_model=OAuthSettingsRead)
@@ -168,11 +188,17 @@ async def update_oauth_settings(
     session: AsyncDBSession,
     params: OAuthSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    # If we're trying to disable OAuth, we must have at least one other auth type enabled
-    if not params.oauth_google_enabled:
-        await check_other_auth_enabled(service, AuthType.GOOGLE_OAUTH)
-    await service.update_oauth_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_oauth",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        # If we're trying to disable OAuth, we must have at least one other auth type enabled
+        if not params.oauth_google_enabled:
+            await check_other_auth_enabled(service, AuthType.GOOGLE_OAUTH)
+        await service.update_oauth_settings(params)
 
 
 @router.get("/app", response_model=AppSettingsRead)
@@ -195,8 +221,14 @@ async def update_app_settings(
     session: AsyncDBSession,
     params: AppSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    await service.update_app_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_app",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        await service.update_app_settings(params)
 
 
 @router.get("/agent", response_model=AgentSettingsRead)
@@ -219,5 +251,11 @@ async def update_agent_settings(
     session: AsyncDBSession,
     params: AgentSettingsUpdate,
 ) -> None:
-    service = SettingsService(session, role)
-    await service.update_agent_settings(params)
+    async with AuditLogger(
+        resource_type="org_settings",
+        action="update_agent",
+        resource_id=config.TRACECAT__DEFAULT_ORG_ID,
+        session=session,
+    ):
+        service = SettingsService(session, role)
+        await service.update_agent_settings(params)

@@ -330,7 +330,7 @@ class AuditEvent(Base):
 
 
 class Workspace(OrganizationModel):
-    __tablename__ = "workspace"
+    """A workspace belonging to an organization."""
 
     __tablename__ = "workspace"
     id: Mapped[uuid.UUID] = mapped_column(
