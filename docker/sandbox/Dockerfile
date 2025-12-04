@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast package management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
 
 # Create sandbox user (UID 1000) - matches common container user mappings
 RUN useradd -m -u 1000 sandbox
