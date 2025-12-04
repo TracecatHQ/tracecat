@@ -140,6 +140,7 @@ async def run_python(
         SandboxExecutionError,
         SandboxService,
         SandboxTimeoutError,
+        SandboxValidationError,
     )
 
     try:
@@ -154,5 +155,9 @@ async def run_python(
         )
     except SandboxTimeoutError as e:
         raise PythonScriptTimeoutError(str(e)) from e
+    except SandboxValidationError as e:
+        # Validation errors (e.g., invalid env var keys) should be reported
+        # as validation errors, not execution errors
+        raise PythonScriptValidationError(str(e)) from e
     except (SandboxExecutionError, PackageInstallError) as e:
         raise PythonScriptExecutionError(str(e)) from e

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 from collections.abc import AsyncIterator
@@ -151,19 +152,42 @@ class SandboxService:
                 f"Failed to install packages: {result.error or 'Unknown error'}"
             )
 
-        # Copy installed packages to shared cache
+        # Copy installed packages to shared cache using atomic rename.
+        # This prevents race conditions when multiple concurrent requests
+        # try to install the same dependencies.
         site_packages = cache_dir / "site-packages"
         if site_packages.exists() and any(site_packages.iterdir()):
             dest = self.package_cache / cache_key / "site-packages"
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.copytree(site_packages, dest)
-            logger.info(
-                "Packages cached",
-                cache_key=cache_key,
-                path=str(dest),
-            )
+
+            # Use atomic rename: copy to temp dir in same parent, then rename.
+            # os.rename is atomic on the same filesystem.
+            temp_dest = dest.parent / f"site-packages.{os.getpid()}.tmp"
+            try:
+                # Clean up any stale temp dir from a previous failed attempt
+                if temp_dest.exists():
+                    shutil.rmtree(temp_dest)
+                shutil.copytree(site_packages, temp_dest)
+
+                # Atomic rename into place. If dest already exists (another process
+                # beat us), this will fail on POSIX - that's fine, we just use theirs.
+                try:
+                    os.rename(temp_dest, dest)
+                    logger.info(
+                        "Packages cached",
+                        cache_key=cache_key,
+                        path=str(dest),
+                    )
+                except OSError:
+                    # Another process already created the cache - use theirs
+                    logger.debug(
+                        "Cache already exists (concurrent install), using existing",
+                        cache_key=cache_key,
+                    )
+            finally:
+                # Clean up temp dir if rename failed or succeeded
+                if temp_dest.exists():
+                    shutil.rmtree(temp_dest, ignore_errors=True)
         else:
             logger.warning(
                 "No packages were installed",

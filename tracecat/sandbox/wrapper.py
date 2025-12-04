@@ -10,6 +10,7 @@ The wrapper script is executed inside the nsjail sandbox and handles:
 # The wrapper script content is embedded as a string constant
 # to be written to the job directory before execution
 WRAPPER_SCRIPT = '''
+import inspect
 import json
 import sys
 import traceback
@@ -51,9 +52,11 @@ def main():
         # Find the callable function
         main_func = script_globals.get("main")
         if main_func is None:
-            # Look for the first non-private callable
+            # Look for the first non-private user-defined function.
+            # Use inspect.isfunction to match only functions created with 'def',
+            # not imported classes or other callables.
             for name, obj in script_globals.items():
-                if callable(obj) and not name.startswith("_"):
+                if inspect.isfunction(obj) and not name.startswith("_"):
                     main_func = obj
                     break
 

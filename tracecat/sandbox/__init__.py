@@ -13,6 +13,7 @@ from tracecat.sandbox.exceptions import (
     SandboxError,
     SandboxExecutionError,
     SandboxTimeoutError,
+    SandboxValidationError,
 )
 from tracecat.sandbox.service import SandboxService
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
@@ -28,5 +29,6 @@ __all__ = [
     "SandboxError",
     "SandboxTimeoutError",
     "SandboxExecutionError",
+    "SandboxValidationError",
     "PackageInstallError",
 ]
