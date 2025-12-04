@@ -450,23 +450,13 @@ class Secret(WorkspaceModel, BaseSecret):
     __tablename__ = "secret"
     __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
 
-    # Workspace-scoped secret - add workspace_id since BaseSecret doesn't have ownership
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
-    )
-    workspace: Mapped[Workspace | None] = relationship(back_populates="secrets")
+    workspace: Mapped[Workspace] = relationship(back_populates="secrets")
 
 
 class WorkspaceVariable(WorkspaceModel):
     __tablename__ = "workspace_variable"
     __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
 
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -543,11 +533,6 @@ class WorkflowFolder(WorkspaceModel):
         ),
     )
 
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
-    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -667,11 +652,6 @@ class Workflow(WorkspaceModel):
         doc="Workflow alias or ID for the workflow to run when this fails.",
     )
     icon_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
-    )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("workflow_folder.id", ondelete="CASCADE"),
@@ -1179,11 +1159,6 @@ class CaseTag(WorkspaceModel):
         unique=True,
         index=True,
     )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
-    )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     ref: Mapped[str] = mapped_column(String, nullable=False, index=True)
     color: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -1214,11 +1189,6 @@ class CaseDurationDefinition(WorkspaceModel):
         nullable=False,
         unique=True,
         index=True,
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -1272,11 +1242,6 @@ class CaseDuration(WorkspaceModel):
         nullable=False,
         unique=True,
         index=True,
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1360,11 +1325,6 @@ class Case(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="Additional data payload for the case",
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
     )
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -1673,11 +1633,6 @@ class AgentPreset(WorkspaceModel):
         index=True,
         doc="Unique agent preset identifier",
     )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
-    )
     name: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="Human readable preset name"
     )
@@ -1737,7 +1692,7 @@ class AgentPreset(WorkspaceModel):
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
 
-    workspace: Mapped[Workspace | None] = relationship(back_populates="agent_presets")
+    workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="agent_preset",
@@ -2269,11 +2224,6 @@ class Tag(WorkspaceModel):
         nullable=False,
         unique=True,
         index=True,
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     ref: Mapped[str] = mapped_column(
