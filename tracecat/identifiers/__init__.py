@@ -41,13 +41,14 @@ e.g. wf-77932a0b140a4465a1a25a5c95edcfb8:run-b140a425a577932a0c95edcfb8465a1a
 import uuid
 from typing import Literal
 
-from tracecat.identifiers import action, resource, schedules, workflow
-from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
+from tracecat.identifiers import action, resource, schedules, secret, workflow
+from tracecat.identifiers.action import ActionID, ActionKey, ActionRef, ActionUUID
 from tracecat.identifiers.resource import id_factory
 from tracecat.identifiers.schedules import (
     ScheduleUUID,
     schedule_id_to_temporal,
 )
+from tracecat.identifiers.secret import SecretID, SecretUUID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowExecutionSuffixID,
@@ -64,11 +65,10 @@ OrganizationID = uuid.UUID
 OwnerID = uuid.UUID
 """Generic owner identifier for Ownership model. Can be UserID, WorkspaceID, or OrganizationID."""
 
-SecretID = uuid.UUID
-"""A unique ID for a secret. Now uses native UUID format."""
+# SecretID is now imported from tracecat/identifiers/secret.py
 
 WebhookID = uuid.UUID
-"""A unique ID for a webhook. Now uses native UUID format."""
+"""A unique ID for a webhook. Uses native UUID format."""
 
 WorkflowDefinitionID = uuid.UUID
 """A unique ID for a workflow definition. Now uses native UUID format."""
@@ -97,6 +97,7 @@ __all__ = [
     "ActionID",
     "ActionKey",
     "ActionRef",
+    "ActionUUID",
     "WorkflowID",
     "WorkflowUUID",
     "WorkflowExecutionID",
@@ -105,6 +106,7 @@ __all__ = [
     "ScheduleUUID",
     "schedule_id_to_temporal",
     "SecretID",
+    "SecretUUID",
     "WebhookID",
     "WorkflowDefinitionID",
     "UserID",
@@ -120,5 +122,6 @@ __all__ = [
     "action",
     "workflow",
     "schedules",
+    "secret",
     "resource",
 ]
