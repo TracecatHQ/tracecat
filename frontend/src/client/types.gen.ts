@@ -2668,6 +2668,24 @@ export type OrgMemberRead = {
   last_login_at: string | null
 }
 
+/**
+ * Read schema for organization-scoped secrets.
+ */
+export type OrganizationSecretRead = {
+  id: string
+  type: SecretType
+  name: string
+  description?: string | null
+  encrypted_keys: Blob | File
+  environment: string
+  tags?: {
+    [key: string]: string
+  } | null
+  created_at: string
+  updated_at: string
+  organization_id: string
+}
+
 export type OutputType =
   | "bool"
   | "float"
@@ -6302,7 +6320,8 @@ export type OrganizationSecretsGetOrgSecretByNameData = {
   secretName: string
 }
 
-export type OrganizationSecretsGetOrgSecretByNameResponse = SecretRead
+export type OrganizationSecretsGetOrgSecretByNameResponse =
+  OrganizationSecretRead
 
 export type OrganizationSecretsUpdateOrgSecretByIdData = {
   requestBody: SecretUpdate
@@ -9031,7 +9050,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: SecretRead
+        200: OrganizationSecretRead
         /**
          * Validation Error
          */

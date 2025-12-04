@@ -8536,6 +8536,84 @@ export const $OrgMemberRead = {
   title: "OrgMemberRead",
 } as const
 
+export const $OrganizationSecretRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SecretType",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    encrypted_keys: {
+      type: "string",
+      format: "binary",
+      title: "Encrypted Keys",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "name",
+    "encrypted_keys",
+    "environment",
+    "created_at",
+    "updated_at",
+    "organization_id",
+  ],
+  title: "OrganizationSecretRead",
+  description: "Read schema for organization-scoped secrets.",
+} as const
+
 export const $OutputType = {
   anyOf: [
     {

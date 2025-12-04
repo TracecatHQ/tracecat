@@ -11,7 +11,7 @@ from pydantic import SecretStr
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Secret, Workspace
+from tracecat.db.models import OrganizationSecret, Secret, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.secrets import router as secrets_router
 from tracecat.secrets.enums import SecretType
@@ -333,9 +333,9 @@ async def test_delete_secret_by_id_not_found(
 
 
 @pytest.fixture
-def mock_org_secret(mock_org_id: uuid.UUID) -> Secret:
+def mock_org_secret(mock_org_id: uuid.UUID) -> OrganizationSecret:
     """Create a mock organization secret DB object."""
-    secret = Secret(
+    secret = OrganizationSecret(
         id="secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         organization_id=mock_org_id,
         name="org_secret",
@@ -354,7 +354,7 @@ def mock_org_secret(mock_org_id: uuid.UUID) -> Secret:
 async def test_list_org_secrets_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_org_secret: Secret,
+    mock_org_secret: OrganizationSecret,
 ) -> None:
     """Test GET /organization/secrets returns org secrets."""
     with patch.object(secrets_router, "SecretsService") as MockService:
@@ -406,7 +406,7 @@ async def test_create_org_secret_success(
 async def test_get_org_secret_by_name_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_org_secret: Secret,
+    mock_org_secret: OrganizationSecret,
 ) -> None:
     """Test GET /organization/secrets/{secret_name} returns org secret."""
     with patch.object(secrets_router, "SecretsService") as MockService:
@@ -427,7 +427,7 @@ async def test_get_org_secret_by_name_success(
 async def test_update_org_secret_by_id_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_org_secret: Secret,
+    mock_org_secret: OrganizationSecret,
 ) -> None:
     """Test POST /organization/secrets/{secret_id} updates org secret."""
     with patch.object(secrets_router, "SecretsService") as MockService:
@@ -451,7 +451,7 @@ async def test_update_org_secret_by_id_success(
 async def test_delete_org_secret_by_id_success(
     client: TestClient,
     test_admin_role: Role,
-    mock_org_secret: Secret,
+    mock_org_secret: OrganizationSecret,
 ) -> None:
     """Test DELETE /organization/secrets/{secret_id} deletes org secret."""
     with patch.object(secrets_router, "SecretsService") as MockService:
