@@ -46,13 +46,57 @@ env:
   PYODIDE_VERSION: "0.27.6"
 
 jobs:
+  build-dev-image:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 30
+    outputs:
+      cache-scope: test-python-${{ github.sha }}
+      artifact-name: tracecat-dev-image-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build dev image with cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.dev
+          push: false
+          tags: |
+            tracecat-api:latest
+            tracecat-worker:latest
+          cache-from: type=gha,scope=test-python-${{ github.sha }}
+          cache-to: type=gha,scope=test-python-${{ github.sha }},mode=max
+          outputs: type=docker,dest=/tmp/tracecat-dev.tar
+
+      - name: Upload dev image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracecat-dev-image-${{ github.sha }}
+          path: /tmp/tracecat-dev.tar
+          retention-days: 3
+
   test-custom-registry-install:
+    needs: build-dev-image
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.git-ref || github.ref }}
+
+      - name: Download dev image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-dev-image.outputs.artifact-name }}
+          path: .
+
+      - name: Load cached dev image
+        run: docker load -i tracecat-dev.tar
 
       - name: Install uv
         uses: useblacksmith/setup-uv@v4
@@ -73,6 +117,7 @@ jobs:
         run: uv sync --frozen
 
   test-workflow-codec:
+    needs: build-dev-image
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     steps:
@@ -92,8 +137,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Download dev image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-dev-image.outputs.artifact-name }}
+          path: .
+
+      - name: Load cached dev image
+        run: docker load -i tracecat-dev.tar
 
       - name: Run environment setup script
         run: |
@@ -160,6 +211,7 @@ jobs:
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
 
   test-all:
+    needs: build-dev-image
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     strategy:
@@ -226,6 +278,15 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Download dev image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-dev-image.outputs.artifact-name }}
+          path: .
+
+      - name: Load cached dev image
+        run: docker load -i tracecat-dev.tar
 
       - name: Install kind
         run: |
