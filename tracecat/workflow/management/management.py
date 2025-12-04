@@ -641,7 +641,7 @@ class WorkflowsManagementService(BaseService):
         # Delete actions that don't exist in the action_nodes
         orphaned_action_ids = ids_in_db - ids_in_graph
         for action in actions:
-            if action.id not in orphaned_action_ids:
+            if str(action.id) not in orphaned_action_ids:
                 continue
             await self.session.delete(action)
             self.logger.info(f"Deleted orphaned action: {action.title}")
