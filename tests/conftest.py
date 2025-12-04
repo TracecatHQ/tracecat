@@ -14,7 +14,7 @@ import tracecat_registry.integrations.aws_boto3 as boto3_module
 from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -437,6 +437,26 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     )
     session.add(workspace)
     await session.commit()
+
+    # Also persist the workspace in the default engine used by BaseWorkspaceService
+    # so services that use `with_session()` (and thus `get_async_session_context_manager`)
+    # can see the same workspace and satisfy foreign key constraints.
+    async with get_async_session_context_manager() as global_session:
+        # Avoid duplicate insert if the workspace already exists
+        result = await global_session.execute(
+            select(Workspace).where(Workspace.id == workspace.id)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            global_session.add(
+                Workspace(
+                    id=workspace.id,
+                    name=workspace.name,
+                    organization_id=workspace.organization_id,
+                )
+            )
+            await global_session.commit()
+
     try:
         yield workspace
     finally:
@@ -455,8 +475,11 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
                     # If that fails, try with a completely new session
                     await session.close()
                     async with get_async_session_context_manager() as new_session:
-                        # Fetch the workspace again in the new session
-                        db_workspace = await new_session.get(Workspace, workspace.id)
+                        # Fetch the workspace again in the new session by logical ID
+                        result = await new_session.execute(
+                            select(Workspace).where(Workspace.id == workspace.id)
+                        )
+                        db_workspace = result.scalar_one_or_none()
                         if db_workspace:
                             await new_session.delete(db_workspace)
                             await new_session.commit()
