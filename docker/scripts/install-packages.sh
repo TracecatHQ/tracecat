@@ -69,7 +69,12 @@ echo "Creating sandbox directories..."
 mkdir -p /var/lib/tracecat/sandbox-rootfs
 mkdir -p /var/lib/tracecat/sandbox-cache/packages
 mkdir -p /var/lib/tracecat/sandbox-cache/uv-cache
-chmod -R 755 /var/lib/tracecat
+# Rootfs is read-only at runtime, root ownership is fine
+chmod -R 755 /var/lib/tracecat/sandbox-rootfs
+# Cache directories must be writable by apiuser (UID 1001) who runs the executor
+# The sandbox process (UID 1000) is mapped to apiuser via nsjail uidmap
+chown -R 1001:1001 /var/lib/tracecat/sandbox-cache
+chmod -R 755 /var/lib/tracecat/sandbox-cache
 
 # Build sandbox rootfs
 # The rootfs is a minimal Python 3.12 environment with uv
