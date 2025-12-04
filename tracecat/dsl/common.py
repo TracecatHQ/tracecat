@@ -102,7 +102,7 @@ class DSLInput(BaseModel):
     """
 
     # Using this for backwards compatibility of existing workflow definitions
-    model_config: ConfigDict = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore")
     title: str
     description: str
     entrypoint: DSLEntrypoint

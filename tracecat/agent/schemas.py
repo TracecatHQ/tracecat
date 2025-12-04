@@ -175,7 +175,7 @@ class ExecuteToolCallResult(BaseModel):
 
 
 class ModelRequestArgs(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     role: Role
     messages: list[ModelMessage]
     model_settings: ModelSettings | None
