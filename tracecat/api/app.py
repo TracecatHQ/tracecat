@@ -23,6 +23,7 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.audit.worker import audit_buffer_worker
 from tracecat.auth.dependencies import require_auth_type_enabled
 from tracecat.auth.enums import AuthType
 from tracecat.auth.router import router as users_router
@@ -95,6 +96,7 @@ async def lifespan(app: FastAPI):
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())
     logger.debug("Spawned lifespan task to add temporal search attributes")
+    asyncio.create_task(audit_buffer_worker())
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)

@@ -24,6 +24,8 @@ with workflow.unsafe.imports_passed_through():
         resolve_agent_preset_config_activity,
     )
     from tracecat.agent.tools import SimpleToolExecutor
+    from tracecat.audit.activities import audit_persist_activity
+    from tracecat.audit.workflow import AuditPersistWorkflow
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -77,6 +79,7 @@ def get_activities() -> list[Callable]:
         normalize_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
+        audit_persist_activity,
     ]
     tool_executor = SimpleToolExecutor()
     agent_activities = AgentActivities(tool_executor=tool_executor)
@@ -123,7 +126,11 @@ async def main() -> None:
     )
 
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DSLWorkflow, DurableAgentWorkflow]
+        workflows: list[type] = [
+            DSLWorkflow,
+            DurableAgentWorkflow,
+            AuditPersistWorkflow,
+        ]
 
         async with Worker(
             client,
