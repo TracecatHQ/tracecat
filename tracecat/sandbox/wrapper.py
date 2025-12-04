@@ -82,7 +82,15 @@ def main():
 
     # Write result to file
     result_path = Path("/work/result.json")
-    result_path.write_text(json.dumps(result))
+    try:
+        result_path.write_text(json.dumps(result))
+    except (TypeError, ValueError) as e:
+        # Handle non-JSON-serializable outputs (datetime, bytes, custom classes, etc.)
+        # Convert output to string representation so we don't lose the result
+        result["output"] = repr(result["output"])
+        result["error"] = f"Output not JSON-serializable: {type(e).__name__}: {e}"
+        result["success"] = False
+        result_path.write_text(json.dumps(result))
 
     # Exit with appropriate code
     sys.exit(0 if result["success"] else 1)
