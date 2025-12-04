@@ -28,6 +28,7 @@ from tracecat.exceptions import (
 from tracecat.executor.client import ExecutorClient
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
+from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionValidateResponse
 from tracecat.validation.service import validate_registry_action_args
@@ -222,3 +223,10 @@ class DSLActivities:
         # is malformed/invalid.
         expr = TemplateExpression(expr_str, operand=operand)
         return expr.result()
+
+    @staticmethod
+    @activity.defn
+    def evaluate_templated_object_activity(obj: Any, operand: dict[str, Any]) -> Any:
+        """Evaluate templated objects using the expression engine."""
+
+        return eval_templated_object(obj, operand=operand)
