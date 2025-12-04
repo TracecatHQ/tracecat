@@ -32,9 +32,11 @@ mkdir -p "${ROOTFS_PATH}"
 
 # Clean existing rootfs to ensure no stale files from previous builds
 # This is important for security - leftover files could cause inconsistent behavior
-if [ -d "${ROOTFS_PATH}" ] && [ "$(ls -A "${ROOTFS_PATH}" 2>/dev/null)" ]; then
+# Remove and recreate the entire directory to catch hidden files (e.g., .dockerenv)
+if [ -d "${ROOTFS_PATH}" ]; then
     echo "Cleaning existing rootfs directory..."
-    rm -rf "${ROOTFS_PATH:?}"/*
+    rm -rf "${ROOTFS_PATH:?}"
+    mkdir -p "${ROOTFS_PATH}"
 fi
 
 # Create a temporary container and export its filesystem
