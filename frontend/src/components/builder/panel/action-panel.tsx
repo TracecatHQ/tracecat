@@ -1290,7 +1290,8 @@ function ActionPanelContent({
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent
                                         align="start"
-                                        className="max-w-96"
+                                        collisionPadding={8}
+                                        className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-96 overflow-y-auto"
                                       >
                                         {optionalFields.map(
                                           ([fieldName, fieldDefn]) => {
