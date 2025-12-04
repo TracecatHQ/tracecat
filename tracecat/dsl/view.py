@@ -38,7 +38,7 @@ class TSObject(BaseModel):
     - You must serialize with `by_alias=True` to get the camelCase keys.
     """
 
-    model_config: ConfigDict = ConfigDict(
+    model_config = ConfigDict(
         extra="allow",
         alias_generator=to_camel,
         populate_by_name=True,
