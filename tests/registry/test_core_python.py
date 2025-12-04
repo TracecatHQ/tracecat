@@ -487,6 +487,142 @@ def main(user_input):
         assert result == "Final: __IMPORT__('OS').SYSTEM('ID')"
 
 
+class TestMultiTenantIsolation:
+    """Test suite for multi-tenant workspace isolation."""
+
+    @pytest.mark.anyio
+    async def test_workspace_cache_isolation(self):
+        """Test that different workspaces get separate package caches."""
+        from tracecat.sandbox import SandboxService
+
+        service = SandboxService()
+
+        # Compute cache keys for same dependencies with different workspace IDs
+        deps = ["requests==2.28.0"]
+        cache_key_workspace_a = service._compute_cache_key(
+            dependencies=deps, workspace_id="workspace-a"
+        )
+        cache_key_workspace_b = service._compute_cache_key(
+            dependencies=deps, workspace_id="workspace-b"
+        )
+        cache_key_no_workspace = service._compute_cache_key(
+            dependencies=deps, workspace_id=None
+        )
+
+        # Verify different workspaces get different cache keys
+        assert cache_key_workspace_a != cache_key_workspace_b
+        assert cache_key_workspace_a != cache_key_no_workspace
+        assert cache_key_workspace_b != cache_key_no_workspace
+
+    @pytest.mark.anyio
+    async def test_version_isolation(self):
+        """Test that different package versions get different cache keys."""
+        from tracecat.sandbox import SandboxService
+
+        service = SandboxService()
+        workspace_id = "workspace-test"
+
+        # Different versions should produce different cache keys
+        key_v1 = service._compute_cache_key(
+            dependencies=["requests==2.28.0"], workspace_id=workspace_id
+        )
+        key_v2 = service._compute_cache_key(
+            dependencies=["requests==2.29.0"], workspace_id=workspace_id
+        )
+
+        assert key_v1 != key_v2
+
+    @pytest.mark.anyio
+    async def test_cache_key_format(self):
+        """Test that cache keys follow expected format (hex string)."""
+        import re
+
+        from tracecat.sandbox import SandboxService
+
+        service = SandboxService()
+        cache_key = service._compute_cache_key(
+            dependencies=["requests==2.28.0"], workspace_id="workspace-test"
+        )
+
+        # Cache key should be a 16-character hexadecimal string
+        assert isinstance(cache_key, str)
+        assert len(cache_key) == 16
+        assert re.match(r"^[a-f0-9]+$", cache_key)
+
+
+class TestPyPIConfiguration:
+    """Test suite for PyPI index URL configuration."""
+
+    @pytest.mark.anyio
+    async def test_default_pypi_index_used(self):
+        """Test that default PyPI index is used when no configuration is set."""
+        from tracecat.config import TRACECAT__SANDBOX_PYPI_INDEX_URL
+
+        # Default should be public PyPI
+        assert TRACECAT__SANDBOX_PYPI_INDEX_URL == "https://pypi.org/simple"
+
+    @pytest.mark.anyio
+    async def test_custom_pypi_index_configuration(self, monkeypatch):
+        """Test that custom PyPI index URL can be configured."""
+        import importlib
+
+        from tracecat import config
+
+        # Set custom index URL
+        custom_url = "https://custom.pypi.example.com/simple"
+        monkeypatch.setenv("TRACECAT__SANDBOX_PYPI_INDEX_URL", custom_url)
+
+        # Reload config to pick up new env var
+        importlib.reload(config)
+
+        assert config.TRACECAT__SANDBOX_PYPI_INDEX_URL == custom_url
+
+    @pytest.mark.anyio
+    async def test_extra_index_urls_configuration(self, monkeypatch):
+        """Test that extra index URLs can be configured."""
+        import importlib
+
+        from tracecat import config
+
+        # Set extra index URLs
+        extra_urls = (
+            "https://extra1.example.com/simple,https://extra2.example.com/simple"
+        )
+        monkeypatch.setenv("TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS", extra_urls)
+
+        # Reload config to pick up new env var
+        importlib.reload(config)
+
+        assert len(config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS) == 2
+        assert (
+            "https://extra1.example.com/simple"
+            in config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+        )
+        assert (
+            "https://extra2.example.com/simple"
+            in config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+        )
+
+    @pytest.mark.anyio
+    async def test_executor_passes_index_urls_to_install_env(self):
+        """Test that executor passes PyPI index URLs to install environment."""
+        from tracecat.sandbox.executor import NsjailExecutor
+        from tracecat.sandbox.types import SandboxConfig
+
+        config = SandboxConfig(
+            network_enabled=False,
+            env_vars={},
+        )
+        executor = NsjailExecutor()
+
+        # Build environment for install phase
+        env_map = executor._build_env_map(config, phase="install")
+
+        # Verify PyPI index URLs are in the environment
+        assert "UV_INDEX_URL" in env_map
+        assert env_map["UV_INDEX_URL"] == "https://pypi.org/simple"
+
+
 def print_nsjail_installation_instructions():
     """Print instructions for setting up nsjail sandbox."""
     print("\n" + "=" * 80)

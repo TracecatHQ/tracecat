@@ -107,6 +107,7 @@ if __name__ == "__main__":
 # via malicious package names. Never interpolate user input into this script.
 INSTALL_SCRIPT = """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -126,8 +127,26 @@ if not deps:
     print("No dependencies to install")
     sys.exit(0)
 
+# Build uv pip install command with PyPI index configuration
+cmd = ["uv", "pip", "install", "--target", "/cache/site-packages", "--python", sys.executable]
+
+# Add index URL if configured (supports private PyPI mirrors)
+index_url = os.environ.get("UV_INDEX_URL")
+if index_url:
+    cmd.extend(["--index-url", index_url])
+
+# Add extra index URLs if configured
+extra_index_urls = os.environ.get("UV_EXTRA_INDEX_URL")
+if extra_index_urls:
+    for url in extra_index_urls.split(","):
+        url = url.strip()
+        if url:
+            cmd.extend(["--extra-index-url", url])
+
+cmd.extend(deps)
+
 result = subprocess.run(
-    ["uv", "pip", "install", "--target", "/cache/site-packages", "--python", sys.executable] + deps,
+    cmd,
     capture_output=True,
     text=True,
 )

@@ -270,10 +270,21 @@ class NsjailExecutor:
         cache_key: str | None = None,
     ) -> dict[str, str]:
         """Construct a sanitized environment for the nsjail process."""
+        from tracecat.config import (
+            TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
+            TRACECAT__SANDBOX_PYPI_INDEX_URL,
+        )
+
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
         if phase == "install":
             env_map["UV_CACHE_DIR"] = "/uv-cache"
+            # Pass PyPI index URLs to uv for package installation
+            env_map["UV_INDEX_URL"] = TRACECAT__SANDBOX_PYPI_INDEX_URL
+            if TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
+                env_map["UV_EXTRA_INDEX_URL"] = ",".join(
+                    TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+                )
         elif cache_key:
             cache_path = self.package_cache / cache_key / "site-packages"
             if cache_path.exists():

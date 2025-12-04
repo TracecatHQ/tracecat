@@ -291,6 +291,18 @@ TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
 )
 """Default memory limit for sandbox execution in megabytes (2 GiB)."""
 
+TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
+    "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"
+)
+"""Primary PyPI index URL for package installation. Supports private mirrors and air-gapped deployments."""
+
+TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
+    url.strip()
+    for url in os.environ.get("TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS", "").split(",")
+    if url.strip()
+]
+"""Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"

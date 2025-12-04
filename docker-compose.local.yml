@@ -181,6 +181,9 @@ services:
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
+      # PyPI Configuration (optional - for private mirrors or air-gapped deployments)
+      # TRACECAT__SANDBOX_PYPI_INDEX_URL: https://pypi.org/simple  # Default
+      # TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS: https://extra.pypi.example.com/simple  # Optional
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache

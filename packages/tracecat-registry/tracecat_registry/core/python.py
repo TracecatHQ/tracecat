@@ -1,6 +1,7 @@
 import re
 from typing import Annotated, Any
 
+from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.fields import Code
 from tracecat_registry import registry
@@ -145,6 +146,10 @@ async def run_python(
 
     try:
         service = SandboxService()
+        # Get workspace_id from execution context for multi-tenant cache isolation
+        role = ctx_role.get()
+        workspace_id = str(role.workspace_id) if role and role.workspace_id else None
+
         return await service.run_python(
             script=script,
             inputs=inputs,
@@ -152,6 +157,7 @@ async def run_python(
             timeout_seconds=timeout_seconds,
             allow_network=allow_network,
             env_vars=env_vars,
+            workspace_id=workspace_id,
         )
     except SandboxTimeoutError as e:
         raise PythonScriptTimeoutError(str(e)) from e
