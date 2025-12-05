@@ -45,6 +45,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
@@ -75,6 +76,7 @@ CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
+AUDIT_EVENT_STATUS_ENUM = Enum(AuditEventStatus, name="auditeventstatus")
 
 
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -254,6 +256,77 @@ class Ownership(Base):
     resource_type: Mapped[str] = mapped_column(String, nullable=False)
     owner_id: Mapped[OwnerID] = mapped_column(UUID, nullable=False)
     owner_type: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AuditEvent(Base):
+    """Org-level audit log entries."""
+
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("ix_audit_event_org_created", "organization_id", "created_at"),
+        Index("ix_audit_event_workspace_created", "workspace_id", "created_at"),
+        Index("ix_audit_event_actor", "actor_type", "actor_id", "created_at"),
+        Index("ix_audit_event_resource", "resource_type", "resource_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    organization_id: Mapped[OwnerID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Organization scope for the event. Usually TRACECAT__DEFAULT_ORG_ID.",
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Workspace scope, if applicable.",
+    )
+    actor_type: Mapped[AuditEventActor] = mapped_column(
+        Enum(AuditEventActor, name="auditeventactor"),
+        nullable=False,
+        doc="Actor classification (user, agent).",
+    )
+    actor_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Stable identifier for the actor (e.g., user UUID).",
+    )
+    actor_display: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Human-friendly label cached at emit time (e.g., email address).",
+    )
+    ip_address: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        doc="IP address of the actor, if available.",
+    )
+    resource_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Domain object the action targeted (workflow, secret, case, etc.).",
+    )
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Identifier of the resource, if available.",
+    )
+    action: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Action verb or enumeration (created, updated, executed, viewed, etc.).",
+    )
+    status: Mapped[AuditEventStatus] = mapped_column(
+        AUDIT_EVENT_STATUS_ENUM,
+        nullable=False,
+        doc="Outcome of the attempt (success, failure, denied, error).",
+    )
 
 
 class Workspace(OrganizationModel):

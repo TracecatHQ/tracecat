@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.runtime import AgentOutput
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.chat.schemas import ChatMessage
@@ -18,7 +19,11 @@ from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
-from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    OptionalAnyWorkflowIDQuery,
+    WorkflowUUID,
+    exec_id_to_parts,
+)
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
@@ -196,39 +201,45 @@ async def create_workflow_execution(
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    # Get the dslinput from the workflow definition
-    wf_id = WorkflowUUID.new(params.workflow_id)
-    try:
-        result = await session.execute(
-            select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        defn = result.scalars().first()
-        if not defn:
-            raise NoResultFound("No workflow definition found for workflow ID")
-    except NoResultFound as e:
-        # No workflow associated with the webhook
-        logger.opt(exception=e).error("Invalid workflow ID", error=e)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-        ) from e
-    dsl_input = DSLInput(**defn.content)
-    try:
-        response = service.create_workflow_execution_nowait(
-            dsl=dsl_input, wf_id=wf_id, payload=params.inputs
-        )
-        return response
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "type": "TracecatValidationError",
-                "message": str(e),
-                "detail": e.detail,
-            },
-        ) from e
+    async with AuditLogger(
+        resource_type="workflow_execution",
+        action="create",
+        resource_id=WorkflowUUID.new(params.workflow_id),
+        session=session,
+    ):
+        service = await WorkflowExecutionsService.connect(role=role)
+        # Get the dslinput from the workflow definition
+        wf_id = WorkflowUUID.new(params.workflow_id)
+        try:
+            result = await session.execute(
+                select(WorkflowDefinition)
+                .where(WorkflowDefinition.workflow_id == wf_id)
+                .order_by(WorkflowDefinition.version.desc())
+            )
+            defn = result.scalars().first()
+            if not defn:
+                raise NoResultFound("No workflow definition found for workflow ID")
+        except NoResultFound as e:
+            # No workflow associated with the webhook
+            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+        dsl_input = DSLInput(**defn.content)
+        try:
+            response = service.create_workflow_execution_nowait(
+                dsl=dsl_input, wf_id=wf_id, payload=params.inputs
+            )
+            return response
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "TracecatValidationError",
+                    "message": str(e),
+                    "detail": e.detail,
+                },
+            ) from e
 
 
 @router.post(
@@ -238,19 +249,27 @@ async def create_workflow_execution(
 async def cancel_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
+    session: AsyncDBSession,
 ) -> None:
-    """Get a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    try:
-        await service.cancel_workflow_execution(execution_id)
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring cancellation request",
-            )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e
+    """Cancel a workflow execution."""
+    wf_id, _ = exec_id_to_parts(execution_id)
+    async with AuditLogger(
+        resource_type="workflow_execution",
+        action="cancel",
+        resource_id=wf_id,
+        session=session,
+    ):
+        service = await WorkflowExecutionsService.connect(role=role)
+        try:
+            await service.cancel_workflow_execution(execution_id)
+        except temporalio.service.RPCError as e:
+            if "workflow execution already completed" in e.message:
+                logger.info(
+                    "Workflow execution already completed, ignoring cancellation request",
+                )
+            else:
+                logger.error(e.message, error=e, execution_id=execution_id)
+                raise e
 
 
 @router.post(
@@ -261,16 +280,26 @@ async def terminate_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionTerminate,
+    session: AsyncDBSession,
 ) -> None:
-    """Get a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    try:
-        await service.terminate_workflow_execution(execution_id, reason=params.reason)
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring termination request",
+    """Terminate a workflow execution."""
+    wf_id, _ = exec_id_to_parts(execution_id)
+    async with AuditLogger(
+        resource_type="workflow_execution",
+        action="terminate",
+        resource_id=wf_id,
+        session=session,
+    ):
+        service = await WorkflowExecutionsService.connect(role=role)
+        try:
+            await service.terminate_workflow_execution(
+                execution_id, reason=params.reason
             )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e
+        except temporalio.service.RPCError as e:
+            if "workflow execution already completed" in e.message:
+                logger.info(
+                    "Workflow execution already completed, ignoring termination request",
+                )
+            else:
+                logger.error(e.message, error=e, execution_id=execution_id)
+                raise e

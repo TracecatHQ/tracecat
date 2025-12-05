@@ -13,6 +13,7 @@ from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
@@ -48,15 +49,21 @@ async def create_chat(
     session: AsyncDBSession,
 ) -> ChatReadMinimal:
     """Create a new chat associated with an entity."""
-    chat_service = ChatService(session, role)
-    chat = await chat_service.create_chat(
-        title=request.title,
-        entity_type=request.entity_type,
-        entity_id=request.entity_id,
-        tools=request.tools,
-        agent_preset_id=request.agent_preset_id,
-    )
-    return ChatReadMinimal.model_validate(chat, from_attributes=True)
+    async with AuditLogger(
+        resource_type="chat",
+        action="create",
+        session=session,
+    ) as audit_log:
+        chat_service = ChatService(session, role)
+        chat = await chat_service.create_chat(
+            title=request.title,
+            entity_type=request.entity_type,
+            entity_id=request.entity_id,
+            tools=request.tools,
+            agent_preset_id=request.agent_preset_id,
+        )
+        audit_log.set_resource(chat.id)
+        return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
 @router.get("")
@@ -170,16 +177,22 @@ async def update_chat(
     session: AsyncDBSession,
 ) -> ChatReadMinimal:
     """Update chat properties."""
-    svc = ChatService(session, role)
-    chat = await svc.get_chat(chat_id)
-    if not chat:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chat not found",
-        )
+    async with AuditLogger(
+        resource_type="chat",
+        action="update",
+        resource_id=chat_id,
+        session=session,
+    ):
+        svc = ChatService(session, role)
+        chat = await svc.get_chat(chat_id)
+        if not chat:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
+            )
 
-    chat = await svc.update_chat(chat, params=params)
-    return ChatReadMinimal.model_validate(chat, from_attributes=True)
+        chat = await svc.update_chat(chat, params=params)
+        return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
 @router.post("/{chat_id}/vercel")

@@ -15,6 +15,7 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -365,14 +366,20 @@ async def create_case(
     params: CaseCreate,
 ) -> None:
     """Create a new case."""
-    service = CasesService(session, role)
-    try:
-        await service.create_case(params)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+    async with AuditLogger(
+        resource_type="case",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = CasesService(session, role)
+        try:
+            case = await service.create_case(params)
+            audit_log.set_resource(case.id)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
 
 
 @cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
@@ -384,27 +391,33 @@ async def update_case(
     case_id: uuid.UUID,
 ) -> None:
     """Update a case."""
-    service = CasesService(session, role)
-    case = await service.get_case(case_id)
-    if case is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-    try:
-        await service.update_case(case, params)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        ) from e
+    async with AuditLogger(
+        resource_type="case",
+        action="update",
+        resource_id=case_id,
+        session=session,
+    ):
+        service = CasesService(session, role)
+        case = await service.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        try:
+            await service.update_case(case, params)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+        except DBAPIError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            ) from e
 
 
 @cases_router.delete("/{case_id}", status_code=HTTP_204_NO_CONTENT)
@@ -415,14 +428,20 @@ async def delete_case(
     case_id: uuid.UUID,
 ) -> None:
     """Delete a case."""
-    service = CasesService(session, role)
-    case = await service.get_case(case_id)
-    if case is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-    await service.delete_case(case)
+    async with AuditLogger(
+        resource_type="case",
+        action="delete",
+        resource_id=case_id,
+        session=session,
+    ):
+        service = CasesService(session, role)
+        case = await service.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        await service.delete_case(case)
 
 
 # Case Comments
@@ -464,15 +483,21 @@ async def create_comment(
     params: CaseCommentCreate,
 ) -> None:
     """Create a new comment on a case."""
-    cases_svc = CasesService(session, role)
-    case = await cases_svc.get_case(case_id)
-    if case is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-    comments_svc = CaseCommentsService(session, role)
-    await comments_svc.create_comment(case, params)
+    async with AuditLogger(
+        resource_type="case_comment",
+        action="create",
+        session=session,
+    ) as audit_log:
+        cases_svc = CasesService(session, role)
+        case = await cases_svc.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        comments_svc = CaseCommentsService(session, role)
+        comment = await comments_svc.create_comment(case, params)
+        audit_log.set_resource(comment.id)
 
 
 @cases_router.patch(
@@ -488,21 +513,27 @@ async def update_comment(
     params: CaseCommentUpdate,
 ) -> None:
     """Update an existing comment."""
-    cases_svc = CasesService(session, role)
-    case = await cases_svc.get_case(case_id)
-    if case is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-    comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
-    if comment is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Comment with ID {comment_id} not found",
-        )
-    await comments_svc.update_comment(comment, params)
+    async with AuditLogger(
+        resource_type="case_comment",
+        action="update",
+        resource_id=comment_id,
+        session=session,
+    ):
+        cases_svc = CasesService(session, role)
+        case = await cases_svc.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        comments_svc = CaseCommentsService(session, role)
+        comment = await comments_svc.get_comment(comment_id)
+        if comment is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Comment with ID {comment_id} not found",
+            )
+        await comments_svc.update_comment(comment, params)
 
 
 @cases_router.delete(
@@ -516,21 +547,27 @@ async def delete_comment(
     comment_id: uuid.UUID,
 ) -> None:
     """Delete a comment."""
-    cases_svc = CasesService(session, role)
-    case = await cases_svc.get_case(case_id)
-    if case is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-    comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
-    if comment is None:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"Comment with ID {comment_id} not found",
-        )
-    await comments_svc.delete_comment(comment)
+    async with AuditLogger(
+        resource_type="case_comment",
+        action="delete",
+        resource_id=comment_id,
+        session=session,
+    ):
+        cases_svc = CasesService(session, role)
+        case = await cases_svc.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        comments_svc = CaseCommentsService(session, role)
+        comment = await comments_svc.get_comment(comment_id)
+        if comment is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Comment with ID {comment_id} not found",
+            )
+        await comments_svc.delete_comment(comment)
 
 
 # Case Fields
@@ -708,37 +745,43 @@ async def create_task(
     params: CaseTaskCreate,
 ) -> CaseTaskRead:
     """Create a new task for a case."""
-    service = CaseTasksService(session, role)
-    try:
-        task = await service.create_task(case_id, params)
-        return CaseTaskRead(
-            id=task.id,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            case_id=task.case_id,
-            title=task.title,
-            description=task.description,
-            priority=task.priority,
-            status=task.status,
-            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
-            if task.assignee
-            else None,
-            workflow_id=WorkflowUUID.new(task.workflow_id).short()
-            if task.workflow_id
-            else None,
-            default_trigger_values=task.default_trigger_values,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail="Case not found",
-        ) from e
-    except Exception as e:
-        logger.exception("Failed to create task")
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to create task",
-        ) from e
+    async with AuditLogger(
+        resource_type="case_task",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = CaseTasksService(session, role)
+        try:
+            task = await service.create_task(case_id, params)
+            audit_log.set_resource(task.id)
+            return CaseTaskRead(
+                id=task.id,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                case_id=task.case_id,
+                title=task.title,
+                description=task.description,
+                priority=task.priority,
+                status=task.status,
+                assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+                if task.assignee
+                else None,
+                workflow_id=WorkflowUUID.new(task.workflow_id).short()
+                if task.workflow_id
+                else None,
+                default_trigger_values=task.default_trigger_values,
+            )
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail="Case not found",
+            ) from e
+        except Exception as e:
+            logger.exception("Failed to create task")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Failed to create task",
+            ) from e
 
 
 @cases_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
@@ -751,40 +794,48 @@ async def update_task(
     params: CaseTaskUpdate,
 ) -> CaseTaskRead:
     """Update a task."""
-    service = CaseTasksService(session, role)
-    try:
-        existing = await service.get_task(task_id)
-        if existing.case_id != case_id:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
-        task = await service.update_task(task_id, params)
-        return CaseTaskRead(
-            id=task.id,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            case_id=task.case_id,
-            title=task.title,
-            description=task.description,
-            priority=task.priority,
-            status=task.status,
-            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
-            if task.assignee
-            else None,
-            workflow_id=WorkflowUUID.new(task.workflow_id).short()
-            if task.workflow_id
-            else None,
-            default_trigger_values=task.default_trigger_values,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        ) from e
-    except Exception as e:
-        logger.exception(f"Failed to update task: {e}")
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to update task",
-        ) from e
+    async with AuditLogger(
+        resource_type="case_task",
+        action="update",
+        resource_id=task_id,
+        session=session,
+    ):
+        service = CaseTasksService(session, role)
+        try:
+            existing = await service.get_task(task_id)
+            if existing.case_id != case_id:
+                raise HTTPException(
+                    status_code=HTTP_404_NOT_FOUND, detail="Task not found"
+                )
+            task = await service.update_task(task_id, params)
+            return CaseTaskRead(
+                id=task.id,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                case_id=task.case_id,
+                title=task.title,
+                description=task.description,
+                priority=task.priority,
+                status=task.status,
+                assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+                if task.assignee
+                else None,
+                workflow_id=WorkflowUUID.new(task.workflow_id).short()
+                if task.workflow_id
+                else None,
+                default_trigger_values=task.default_trigger_values,
+            )
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail="Task not found",
+            ) from e
+        except Exception as e:
+            logger.exception(f"Failed to update task: {e}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Failed to update task",
+            ) from e
 
 
 @cases_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
@@ -796,20 +847,28 @@ async def delete_task(
     task_id: uuid.UUID,
 ) -> None:
     """Delete a task."""
-    service = CaseTasksService(session, role)
-    try:
-        existing = await service.get_task(task_id)
-        if existing.case_id != case_id:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
-        await service.delete_task(task_id)
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail="Task not found",
-        ) from e
-    except Exception as e:
-        logger.exception(f"Failed to delete task: {e}")
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task",
-        ) from e
+    async with AuditLogger(
+        resource_type="case_task",
+        action="delete",
+        resource_id=task_id,
+        session=session,
+    ):
+        service = CaseTasksService(session, role)
+        try:
+            existing = await service.get_task(task_id)
+            if existing.case_id != case_id:
+                raise HTTPException(
+                    status_code=HTTP_404_NOT_FOUND, detail="Task not found"
+                )
+            await service.delete_task(task_id)
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail="Task not found",
+            ) from e
+        except Exception as e:
+            logger.exception(f"Failed to delete task: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete task",
+            ) from e

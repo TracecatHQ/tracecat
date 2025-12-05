@@ -38,6 +38,8 @@ from sqlalchemy.orm import Mapped
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
 from tracecat.auth.types import AccessLevel, system_role
 from tracecat.authz.enums import WorkspaceRole
@@ -154,17 +156,67 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         is_verified_by_default: bool = False,
     ) -> User:
         await self.validate_email(account_email)
-        return await super().oauth_callback(  # type: ignore
-            oauth_name,
-            access_token,
-            account_id,
-            account_email,
-            expires_at,
-            refresh_token,
-            request,
-            associate_by_email=associate_by_email,
-            is_verified_by_default=is_verified_by_default,
-        )
+        try:
+            user = await super().oauth_callback(  # type: ignore
+                oauth_name,
+                access_token,
+                account_id,
+                account_email,
+                expires_at,
+                refresh_token,
+                request,
+                associate_by_email=associate_by_email,
+                is_verified_by_default=is_verified_by_default,
+            )
+            # Log audit event for OAuth login (on_after_login will also log a regular login)
+            try:
+                from tracecat.auth.credentials import get_role_from_user
+
+                async with get_async_session_context_manager() as session:
+                    role = get_role_from_user(user)
+                    audit_service = AuditService(session, role=role)
+                    await audit_service.create_event(
+                        resource_type="user",
+                        action="oauth_login",
+                        resource_id=user.id,
+                        status=AuditEventStatus.SUCCESS,
+                    )
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to log audit event for OAuth login",
+                    user_id=user.id,
+                    oauth_name=oauth_name,
+                    error=e,
+                )
+            return user
+        except Exception:
+            # Log audit event for failed OAuth login attempt
+            try:
+                from tracecat.auth.credentials import get_role_from_user
+
+                async with get_async_session_context_manager() as session:
+                    # Try to get user by email to log the failure
+                    try:
+                        user = await self.get_by_email(account_email)
+                        role = get_role_from_user(user)
+                        audit_service = AuditService(session, role=role)
+                        await audit_service.create_event(
+                            resource_type="user",
+                            action="oauth_login",
+                            resource_id=user.id,
+                            status=AuditEventStatus.FAILURE,
+                        )
+                    except UserNotExists:
+                        # User doesn't exist, can't log audit event
+                        pass
+            except Exception as audit_error:
+                self.logger.warning(
+                    "Failed to log audit event for OAuth login failure",
+                    account_email=account_email,
+                    oauth_name=oauth_name,
+                    error=audit_error,
+                )
+            raise
 
     async def create(
         self,
@@ -197,10 +249,50 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 error=e,
             )
 
+        # Log audit event for successful login
+        try:
+            from tracecat.auth.credentials import get_role_from_user
+
+            async with get_async_session_context_manager() as session:
+                role = get_role_from_user(user)
+                audit_service = AuditService(session, role=role)
+                await audit_service.create_event(
+                    resource_type="user",
+                    action="login",
+                    resource_id=user.id,
+                    status=AuditEventStatus.SUCCESS,
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to log audit event for login",
+                user_id=user.id,
+                error=e,
+            )
+
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
+
+        # Log audit event for successful registration
+        try:
+            from tracecat.auth.credentials import get_role_from_user
+
+            async with get_async_session_context_manager() as session:
+                role = get_role_from_user(user)
+                audit_service = AuditService(session, role=role)
+                await audit_service.create_event(
+                    resource_type="user",
+                    action="register",
+                    resource_id=user.id,
+                    status=AuditEventStatus.SUCCESS,
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to log audit event for registration",
+                user_id=user.id,
+                error=e,
+            )
 
         # Check if this user should be promoted to superuser
         async with get_async_session_context_manager() as session:
@@ -263,12 +355,52 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             f"User {user.id} has forgot their password. Reset token: {token}"
         )
 
+        # Log audit event for password reset request
+        try:
+            from tracecat.auth.credentials import get_role_from_user
+
+            async with get_async_session_context_manager() as session:
+                role = get_role_from_user(user)
+                audit_service = AuditService(session, role=role)
+                await audit_service.create_event(
+                    resource_type="user",
+                    action="forgot_password",
+                    resource_id=user.id,
+                    status=AuditEventStatus.SUCCESS,
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to log audit event for forgot password",
+                user_id=user.id,
+                error=e,
+            )
+
     async def on_after_request_verify(
         self, user: User, token: str, request: Request | None = None
     ) -> None:
         self.logger.info(
             f"Verification requested for user {user.id}. Verification token: {token}"
         )
+
+        # Log audit event for verification request
+        try:
+            from tracecat.auth.credentials import get_role_from_user
+
+            async with get_async_session_context_manager() as session:
+                role = get_role_from_user(user)
+                audit_service = AuditService(session, role=role)
+                await audit_service.create_event(
+                    resource_type="user",
+                    action="request_verify",
+                    resource_id=user.id,
+                    status=AuditEventStatus.SUCCESS,
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to log audit event for verification request",
+                user_id=user.id,
+                error=e,
+            )
 
     async def saml_callback(
         self,
@@ -442,8 +574,32 @@ class FastAPIUserWithLogoutRouter(FastAPIUsers[models.UP, models.ID]):
         async def logout(
             user_token: tuple[models.UP, str] = Depends(get_current_user_token),
             strategy: Strategy[models.UP, models.ID] = Depends(backend.get_strategy),
+            request: Request | None = None,
         ) -> Response:
             user, token = user_token
+
+            # Log audit event for logout
+            try:
+                from tracecat.auth.credentials import get_role_from_user
+
+                async with get_async_session_context_manager() as session:
+                    # user is models.UP (UserProtocol), cast to User
+                    user_obj = cast(User, user)
+                    role = get_role_from_user(user_obj)
+                    audit_service = AuditService(session, role=role)
+                    await audit_service.create_event(
+                        resource_type="user",
+                        action="logout",
+                        resource_id=user_obj.id,
+                        status=AuditEventStatus.SUCCESS,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to log audit event for logout",
+                    user_id=getattr(user, "id", None),
+                    error=e,
+                )
+
             return await backend.logout(strategy, user, token)
 
         return router

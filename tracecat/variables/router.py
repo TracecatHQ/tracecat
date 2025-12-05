@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
@@ -117,16 +118,22 @@ async def create_variable(
     session: AsyncDBSession,
     params: VariableCreate,
 ) -> VariableRead:
-    service = VariablesService(session, role=role)
-    try:
-        variable = await service.create_variable(params)
-    except IntegrityError as exc:
-        logger.error("Variable integrity error", error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Variable creation integrity error",
-        ) from exc
-    return VariableRead.from_database(variable)
+    async with AuditLogger(
+        resource_type="variable",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = VariablesService(session, role=role)
+        try:
+            variable = await service.create_variable(params)
+            audit_log.set_resource(variable.id)
+        except IntegrityError as exc:
+            logger.error("Variable integrity error", error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Variable creation integrity error",
+            ) from exc
+        return VariableRead.from_database(variable)
 
 
 @router.post("/{variable_id}", response_model=VariableRead)
@@ -137,20 +144,26 @@ async def update_variable_by_id(
     variable_id: VariableID,
     params: VariableUpdate,
 ) -> VariableRead:
-    service = VariablesService(session, role=role)
-    try:
-        variable = await service.get_variable(variable_id)
-        updated = await service.update_variable(variable, params)
-    except TracecatNotFoundError as exc:
-        logger.error("Variable not found", variable_id=variable_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Variable does not exist"
-        ) from exc
-    except IntegrityError as exc:
-        logger.info("Variable already exists", variable_id=variable_id)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Variable already exists"
-        ) from exc
+    async with AuditLogger(
+        resource_type="variable",
+        action="update",
+        resource_id=variable_id,
+        session=session,
+    ):
+        service = VariablesService(session, role=role)
+        try:
+            variable = await service.get_variable(variable_id)
+            updated = await service.update_variable(variable, params)
+        except TracecatNotFoundError as exc:
+            logger.error("Variable not found", variable_id=variable_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Variable does not exist"
+            ) from exc
+        except IntegrityError as exc:
+            logger.info("Variable already exists", variable_id=variable_id)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Variable already exists"
+            ) from exc
     return VariableRead.from_database(updated)
 
 
@@ -161,12 +174,18 @@ async def delete_variable_by_id(
     session: AsyncDBSession,
     variable_id: VariableID,
 ) -> None:
-    service = VariablesService(session, role=role)
-    try:
-        variable = await service.get_variable(variable_id)
-        await service.delete_variable(variable)
-    except TracecatNotFoundError as exc:
-        logger.info("Variable not found", variable_id=variable_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Variable does not exist"
-        ) from exc
+    async with AuditLogger(
+        resource_type="variable",
+        action="delete",
+        resource_id=variable_id,
+        session=session,
+    ):
+        service = VariablesService(session, role=role)
+        try:
+            variable = await service.get_variable(variable_id)
+            await service.delete_variable(variable)
+        except TracecatNotFoundError as exc:
+            logger.info("Variable not found", variable_id=variable_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Variable does not exist"
+            ) from exc

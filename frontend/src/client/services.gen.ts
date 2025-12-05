@@ -1539,7 +1539,7 @@ export const workflowExecutionsGetWorkflowExecutionCompact = (
 
 /**
  * Cancel Workflow Execution
- * Get a workflow execution.
+ * Cancel a workflow execution.
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
@@ -1566,7 +1566,7 @@ export const workflowExecutionsCancelWorkflowExecution = (
 
 /**
  * Terminate Workflow Execution
- * Get a workflow execution.
+ * Terminate a workflow execution.
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId

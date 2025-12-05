@@ -18,6 +18,7 @@ from fastapi import (
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
@@ -123,30 +124,36 @@ async def create_table(
     params: TableCreate,
 ) -> None:
     """Create a new table."""
-    service = TablesService(session, role=role)
-    try:
-        await service.create_table(params)
-    except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateTableError):
-            logger.warning(f"Duplicate table error: {e}")
+    async with AuditLogger(
+        resource_type="table",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = TablesService(session, role=role)
+        try:
+            table = await service.create_table(params)
+            audit_log.set_resource(table.id)
+        except ProgrammingError as e:
+            # Drill down to the root cause
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, DuplicateTableError):
+                logger.warning(f"Duplicate table error: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Table already exists",
+                ) from e
+            if isinstance(e, DuplicateColumnError):
+                logger.warning(f"Duplicate column error: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Column already exists",
+                ) from e
+            logger.error(f"Unexpected error creating table: {e}")
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Table already exists",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while creating the table",
             ) from e
-        if isinstance(e, DuplicateColumnError):
-            logger.warning(f"Duplicate column error: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Column already exists",
-            ) from e
-        logger.error(f"Unexpected error creating table: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the table",
-        ) from e
 
 
 @router.get("/{table_id}", response_model=TableRead)
@@ -227,15 +234,21 @@ async def delete_table(
     table_id: TableID,
 ) -> None:
     """Delete a table."""
-    service = TablesService(session, role=role)
-    try:
-        table = await service.get_table(table_id)
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    await service.delete_table(table)
+    async with AuditLogger(
+        resource_type="table",
+        action="delete",
+        resource_id=table_id,
+        session=session,
+    ):
+        service = TablesService(session, role=role)
+        try:
+            table = await service.get_table(table_id)
+        except TracecatNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            ) from e
+        await service.delete_table(table)
 
 
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)

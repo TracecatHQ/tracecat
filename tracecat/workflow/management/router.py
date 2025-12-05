@@ -20,6 +20,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat.audit.logger import AuditLogger
 from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
@@ -184,81 +185,87 @@ async def create_workflow(
     Optionally, you can provide a YAML file to create a workflow.
     You can also provide a title and description to create a blank workflow."""
 
-    service = WorkflowsManagementService(session, role=role)
-    if file:
-        raw_data = await file.read()
-        match file.content_type:
-            case (
-                "application/yaml"
-                | "text/yaml"
-                | "application/x-yaml"
-                | "application/octet-stream"
-            ):
-                logger.info("Parsing YAML file", file=file.filename)
-                try:
-                    external_defn_data = yaml.safe_load(raw_data)
-                except yaml.YAMLError as e:
+    async with AuditLogger(
+        resource_type="workflow",
+        action="create",
+        session=session,
+    ) as audit_log:
+        service = WorkflowsManagementService(session, role=role)
+        if file:
+            raw_data = await file.read()
+            match file.content_type:
+                case (
+                    "application/yaml"
+                    | "text/yaml"
+                    | "application/x-yaml"
+                    | "application/octet-stream"
+                ):
+                    logger.info("Parsing YAML file", file=file.filename)
+                    try:
+                        external_defn_data = yaml.safe_load(raw_data)
+                    except yaml.YAMLError as e:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Error parsing YAML file: {e!r}",
+                        ) from e
+                case "application/json":
+                    logger.info("Parsing JSON file", file=file.filename)
+                    try:
+                        external_defn_data = orjson.loads(raw_data)
+                    except orjson.JSONDecodeError as e:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Error parsing JSON file: {e!r}",
+                        ) from e
+                case None:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Error parsing YAML file: {e!r}",
-                    ) from e
-            case "application/json":
-                logger.info("Parsing JSON file", file=file.filename)
-                try:
-                    external_defn_data = orjson.loads(raw_data)
-                except orjson.JSONDecodeError as e:
+                        detail="Content-Type header is required for file uploads.",
+                    )
+                case _:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Error parsing JSON file: {e!r}",
-                    ) from e
-            case None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Content-Type header is required for file uploads.",
-                )
-            case _:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid file type {file.content_type}. Only YAML and JSON files are supported.",
-                )
+                        detail=f"Invalid file type {file.content_type}. Only YAML and JSON files are supported.",
+                    )
 
-        logger.info("Importing workflow", external_defn_data=external_defn_data)
-        try:
-            workflow = await service.create_workflow_from_external_definition(
-                external_defn_data, use_workflow_id=use_workflow_id
+            logger.info("Importing workflow", external_defn_data=external_defn_data)
+            try:
+                workflow = await service.create_workflow_from_external_definition(
+                    external_defn_data, use_workflow_id=use_workflow_id
+                )
+            except ValidationError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=json.dumps(
+                        {
+                            "status": "failure",
+                            "message": "Error validating external workflow definition",
+                            "errors": e.errors(),
+                        },
+                        indent=2,
+                    ),
+                ) from e
+            except IntegrityError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Workflow already exists",
+                ) from e
+        else:
+            workflow = await service.create_workflow(
+                WorkflowCreate(title=title, description=description)
             )
-        except ValidationError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=json.dumps(
-                    {
-                        "status": "failure",
-                        "message": "Error validating external workflow definition",
-                        "errors": e.errors(),
-                    },
-                    indent=2,
-                ),
-            ) from e
-        except IntegrityError as e:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Workflow already exists",
-            ) from e
-    else:
-        workflow = await service.create_workflow(
-            WorkflowCreate(title=title, description=description)
+        audit_log.set_resource(workflow.id)
+        return WorkflowReadMinimal(
+            id=WorkflowUUID.new(workflow.id).short(),
+            title=workflow.title,
+            description=workflow.description,
+            status=workflow.status,
+            icon_url=workflow.icon_url,
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.version,
+            error_handler=workflow.error_handler,
         )
-    return WorkflowReadMinimal(
-        id=WorkflowUUID.new(workflow.id).short(),
-        title=workflow.title,
-        description=workflow.description,
-        status=workflow.status,
-        icon_url=workflow.icon_url,
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
-        version=workflow.version,
-        error_handler=workflow.error_handler,
-    )
 
 
 @router.get("/{workflow_id}", tags=["workflows"])
@@ -322,28 +329,34 @@ async def update_workflow(
     params: WorkflowUpdate,
 ) -> None:
     """Update a workflow."""
-    service = WorkflowsManagementService(session, role=role)
-    try:
-        await service.update_workflow(workflow_id, params=params)
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-    except IntegrityError as e:
-        while cause := e.__cause__:
-            e = cause
-        if isinstance(
-            e, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
-            logger.warning("Unique violation error", error=e)
+    async with AuditLogger(
+        resource_type="workflow",
+        action="update",
+        resource_id=workflow_id,
+        session=session,
+    ):
+        service = WorkflowsManagementService(session, role=role)
+        try:
+            await service.update_workflow(workflow_id, params=params)
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        except IntegrityError as e:
+            while cause := e.__cause__:
+                e = cause
+            if isinstance(
+                e, UniqueViolationError
+            ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
+                logger.warning("Unique violation error", error=e)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
+                ) from e
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
+                detail="Workflow already exists",
             ) from e
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Workflow already exists",
-        ) from e
 
 
 @router.delete(
@@ -358,13 +371,19 @@ async def delete_workflow(
 ) -> None:
     """Delete a workflow."""
 
-    service = WorkflowsManagementService(session, role=role)
-    try:
-        await service.delete_workflow(workflow_id)
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+    async with AuditLogger(
+        resource_type="workflow",
+        action="delete",
+        resource_id=workflow_id,
+        session=session,
+    ):
+        service = WorkflowsManagementService(session, role=role)
+        try:
+            await service.delete_workflow(workflow_id)
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
 
 @router.post("/{workflow_id}/commit", tags=["workflows"])
@@ -380,90 +399,96 @@ async def commit_workflow(
     # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
-    mgmt_service = WorkflowsManagementService(session, role=role)
-    workflow = await mgmt_service.get_workflow(workflow_id)
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
-        )
-
-    # Perform Tiered Validation
-    # Tier 1: DSLInput validation
-    # Verify that the workflow DSL is structurally sound
-    construction_errors: list[ValidationResult] = []
-    dsl: DSLInput | None = None
-    try:
-        # Convert the workflow into a WorkflowDefinition
-        # XXX: When we commit from the workflow, we have action IDs
-        dsl = await mgmt_service.build_dsl_from_workflow(workflow)
-    except TracecatValidationError as e:
-        logger.info("Custom validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=e.detail,
+    async with AuditLogger(
+        resource_type="workflow",
+        action="commit",
+        resource_id=workflow_id,
+        session=session,
+    ):
+        mgmt_service = WorkflowsManagementService(session, role=role)
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
             )
-        )
-    except ValidationError as e:
-        logger.info("Pydantic validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=ValidationDetail.list_from_pydantic(e),
-            )
-        )
 
-    if construction_errors:
+        # Perform Tiered Validation
+        # Tier 1: DSLInput validation
+        # Verify that the workflow DSL is structurally sound
+        construction_errors: list[ValidationResult] = []
+        dsl: DSLInput | None = None
+        try:
+            # Convert the workflow into a WorkflowDefinition
+            # XXX: When we commit from the workflow, we have action IDs
+            dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+        except TracecatValidationError as e:
+            logger.info("Custom validation error in DSL", e=e)
+            construction_errors.append(
+                ValidationResult.new(
+                    type=ValidationResultType.DSL,
+                    status="error",
+                    msg=str(e),
+                    detail=e.detail,
+                )
+            )
+        except ValidationError as e:
+            logger.info("Pydantic validation error in DSL", e=e)
+            construction_errors.append(
+                ValidationResult.new(
+                    type=ValidationResultType.DSL,
+                    status="error",
+                    msg=str(e),
+                    detail=ValidationDetail.list_from_pydantic(e),
+                )
+            )
+
+        if construction_errors:
+            return WorkflowCommitResponse(
+                workflow_id=workflow_id.short(),
+                status="failure",
+                message=f"Workflow definition construction failed with {len(construction_errors)} errors",
+                errors=construction_errors,
+            )
+
+        if dsl is None:
+            raise ValueError("dsl should be defined if no construction errors")
+        # When we're here, we've verified that the workflow DSL is structurally sound
+        # Now, we have to ensure that the arguments are sound
+
+        if val_errors := await validate_dsl(session=session, dsl=dsl):
+            logger.info("Validation errors", errors=val_errors)
+            return WorkflowCommitResponse(
+                workflow_id=workflow_id.short(),
+                status="failure",
+                message=f"{len(val_errors)} validation error(s)",
+                errors=list(val_errors),
+            )
+
+        # Validation is complete. We can now construct the workflow definition
+        # Phase 1: Create workflow definition
+        # Workflow definition uses action.refs to refer to actions
+        # We should only instantiate action refs at workflow    runtime
+        service = WorkflowDefinitionsService(session, role=role)
+        # Creating a workflow definition only uses refs
+        defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
+
+        # Update Workflow
+        # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
+        # We only need to update the workflow definition version
+        workflow.version = defn.version
+
+        session.add(workflow)
+        session.add(defn)
+        await session.commit()
+        await session.refresh(workflow)
+        await session.refresh(defn)
+
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),
-            status="failure",
-            message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-            errors=construction_errors,
+            status="success",
+            message="Workflow committed successfully.",
+            metadata={"version": defn.version},
         )
-
-    if dsl is None:
-        raise ValueError("dsl should be defined if no construction errors")
-    # When we're here, we've verified that the workflow DSL is structurally sound
-    # Now, we have to ensure that the arguments are sound
-
-    if val_errors := await validate_dsl(session=session, dsl=dsl):
-        logger.info("Validation errors", errors=val_errors)
-        return WorkflowCommitResponse(
-            workflow_id=workflow_id.short(),
-            status="failure",
-            message=f"{len(val_errors)} validation error(s)",
-            errors=list(val_errors),
-        )
-
-    # Validation is complete. We can now construct the workflow definition
-    # Phase 1: Create workflow definition
-    # Workflow definition uses action.refs to refer to actions
-    # We should only instantiate action refs at workflow    runtime
-    service = WorkflowDefinitionsService(session, role=role)
-    # Creating a workflow definition only uses refs
-    defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
-
-    # Update Workflow
-    # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
-    # We only need to update the workflow definition version
-    workflow.version = defn.version
-
-    session.add(workflow)
-    session.add(defn)
-    await session.commit()
-    await session.refresh(workflow)
-    await session.refresh(defn)
-
-    return WorkflowCommitResponse(
-        workflow_id=workflow_id.short(),
-        status="success",
-        message="Workflow committed successfully.",
-        metadata={"version": defn.version},
-    )
 
 
 @router.get("/{workflow_id}/export", tags=["workflows"])

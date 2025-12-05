@@ -176,7 +176,7 @@ class SecretsService(BaseService):
                 " Please double check that the name was correctly input."
             ) from e
 
-    async def create_secret(self, params: SecretCreate) -> None:
+    async def create_secret(self, params: SecretCreate) -> Secret:
         """Create a workspace secret."""
         workspace_id = self.role.workspace_id
         if workspace_id is None:
@@ -194,6 +194,7 @@ class SecretsService(BaseService):
         )
         self.session.add(secret)
         await self.session.commit()
+        return secret
 
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
@@ -280,7 +281,7 @@ class SecretsService(BaseService):
                 " Please double check that the name was correctly input."
             ) from e
 
-    async def create_org_secret(self, params: SecretCreate) -> None:
+    async def create_org_secret(self, params: SecretCreate) -> OrganizationSecret:
         """Create a new organization secret."""
         secret = OrganizationSecret(
             organization_id=config.TRACECAT__DEFAULT_ORG_ID,
@@ -293,6 +294,7 @@ class SecretsService(BaseService):
         )
         self.session.add(secret)
         await self.session.commit()
+        return secret
 
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
