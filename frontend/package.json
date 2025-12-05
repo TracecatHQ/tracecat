@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit --incremental",
     "test": "jest",
     "generate-client": "openapi-ts --input ${TRACECAT__PUBLIC_API_URL:-http://localhost/api}/openapi.json --output ./src/client --client axios",
-    "generate-client-ci": "uv run --directory .. scripts/generate-openapi.py /tmp/tracecat-openapi.json && openapi-ts --input /tmp/tracecat-openapi.json --output ./src/client --client axios && rm /tmp/tracecat-openapi.json",
+    "generate-client-ci": "uv run --directory .. scripts/openapi/generate_openapi.py /tmp/tracecat-openapi.json && openapi-ts --input /tmp/tracecat-openapi.json --output ./src/client --client axios && rm /tmp/tracecat-openapi.json",
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
