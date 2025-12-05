@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -33,6 +34,8 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     model_converters,
 )
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.index import RegistryIndex
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
@@ -43,6 +46,70 @@ class RegistryActionsService(BaseService):
     """Registry actions service."""
 
     service_name = "registry_actions"
+    # Runtime registry indexes keyed by repository ID (or 'builtin' for the core bundle).
+    _runtime_indexes: dict[str, RegistryIndex] = {}
+    _runtime_index_lock = asyncio.Lock()
+
+    @classmethod
+    async def _ensure_builtin_index(cls, role) -> RegistryIndex:
+        """Lazily build the core registry index for runtime execution."""
+        async with cls._runtime_index_lock:
+            if builtin := cls._runtime_indexes.get("builtin"):
+                return builtin
+
+            repo = Repository(origin=DEFAULT_REGISTRY_ORIGIN, role=role)
+            await repo.load_from_origin()
+            if not repo.index:
+                raise RegistryError("Registry index was not initialized")
+
+            cls._runtime_indexes["builtin"] = repo.index
+            return repo.index
+
+    @classmethod
+    def _register_runtime_index(cls, key: str, index: RegistryIndex) -> None:
+        """Cache a repository index for runtime lookups (per process)."""
+        cls._runtime_indexes[key] = index
+
+    @classmethod
+    async def _get_loader_from_runtime_indexes(
+        cls, action_name: str, role
+    ) -> tuple[RegistryIndex | None, BoundRegistryAction | None]:
+        """Find a bound loader from any cached runtime index."""
+        if not cls._runtime_indexes or "builtin" not in cls._runtime_indexes:
+            await cls._ensure_builtin_index(role)
+
+        for index in cls._runtime_indexes.values():
+            if action_name in index:
+                return index, index.get_loader(action_name)
+
+        return None, None
+
+    @staticmethod
+    def _collect_loader_secrets(
+        loader: BoundRegistryAction, index: RegistryIndex
+    ) -> set[RegistrySecretType]:
+        """Recursively collect secrets from a bound loader (uses runtime index)."""
+        secrets: set[RegistrySecretType] = set(loader.secrets or [])
+
+        if loader.is_template and loader.template_action:
+            defn = loader.template_action.definition
+            if defn.secrets:
+                secrets.update(defn.secrets)
+            for step in defn.steps:
+                try:
+                    step_loader = index.get_loader(step.action)
+                except RegistryError:
+                    logger.warning(
+                        "Step action not found in runtime index",
+                        step_action=step.action,
+                        parent_action=loader.action,
+                    )
+                    continue
+                secrets.update(
+                    RegistryActionsService._collect_loader_secrets(step_loader, index)
+                )
+
+        return secrets
 
     async def list_actions(
         self,
@@ -208,6 +275,7 @@ class RegistryActionsService(BaseService):
         """
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
+        repo.repository_id = db_repo.id
         # Load the repository
         # Determine which commit SHA to use:
         # 1. If target_commit_sha is provided, use it
@@ -235,11 +303,17 @@ class RegistryActionsService(BaseService):
         )
         self.logger.info("Registry validation enabled", enabled=should_validate)
         if should_validate:
-            self.logger.info("Validating actions", all_actions=repo.store.keys())
+            if not repo.index:
+                raise RegistryError("Registry index was not initialized")
+
+            self.logger.info(
+                "Validating actions",
+                all_actions=[entry.action_id for entry in repo.index.iter_entries()],
+            )
             val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(
                 list
             )
-            for action in repo.store.values():
+            for action in repo.index.iter_loaders():
                 if not action.is_template:
                     continue
                 if errs := await self.validate_action_template(action, repo):
@@ -261,6 +335,10 @@ class RegistryActionsService(BaseService):
                 await self.upsert_actions_from_repo(
                     repo, db_repo, commit=False, allow_delete_all=allow_delete_all
                 )
+
+        # Cache the runtime index for execution (per-process in-memory).
+        if repo.index:
+            self._register_runtime_index(str(db_repo.id), repo.index)
 
         return commit_sha
 
@@ -295,12 +373,16 @@ class RegistryActionsService(BaseService):
         # actions should be propogated to the db.
         # Safety: We're in a db session so we can call this
         await self.session.refresh(db_repo)
+        if not repo.index:
+            raise RegistryError("Registry index was not initialized")
+
         db_actions = db_repo.actions
         db_actions_map = {db_action.action: db_action for db_action in db_actions}
+        specs = list(repo.index.iter_specs())
         self.logger.info(
             "Syncing actions from repository",
             repository=db_repo.origin,
-            incoming_actions=len(repo.store.keys()),
+            incoming_actions=len(specs),
             existing_actions=len(db_actions_map.keys()),
         )
 
@@ -325,34 +407,32 @@ class RegistryActionsService(BaseService):
         n_created = 0
         n_updated = 0
         n_deleted = 0
-        for action_name, new_bound_action in repo.store.items():
+        for spec in specs:
             try:
-                registry_action = await self.get_action(action_name=action_name)
+                registry_action = await self.get_action(action_name=spec.action_id)
             except RegistryError:
                 self.logger.debug(
                     "Action not found, creating",
-                    namespace=new_bound_action.namespace,
-                    origin=new_bound_action.origin,
+                    namespace=spec.namespace,
+                    origin=spec.origin,
                     repository_id=db_repo.id,
                 )
-                create_params = RegistryActionCreate.from_bound(
-                    new_bound_action, db_repo.id
-                )
+                create_params = spec.to_create_params()
                 await self.create_action(create_params, commit=commit)
                 n_created += 1
             else:
                 self.logger.debug(
                     "Action found, updating",
-                    namespace=new_bound_action.namespace,
-                    origin=new_bound_action.origin,
+                    namespace=spec.namespace,
+                    origin=spec.origin,
                     repository_id=db_repo.id,
                 )
-                update_params = RegistryActionUpdate.from_bound(new_bound_action)
+                update_params = spec.to_update_params()
                 await self.update_action(registry_action, update_params, commit=commit)
                 n_updated += 1
             finally:
                 # Mark action as not to delete
-                db_actions_map.pop(action_name, None)
+                db_actions_map.pop(spec.action_id, None)
 
         # Remove actions that are marked for deletion
         if db_actions_map:
@@ -378,15 +458,49 @@ class RegistryActionsService(BaseService):
         """
         Load the implementation for a registry action.
         """
-        action = await self.get_action(action_name=action_name)
-        bound_action = get_bound_action_impl(action, mode=mode)
-        return bound_action
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if not loader:
+            raise RegistryError(
+                f"Action {action_name} not found in runtime registry index. "
+                "Ensure the registry index is built and registered for this process."
+            )
+        if mode == "execution":
+            return loader
+        return loader
+
+    async def load_action_for_execution(
+        self, action_name: str
+    ) -> tuple[BoundRegistryAction, set[RegistrySecretType]]:
+        """Return a bound action and its secrets, preferring the runtime index."""
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if not (loader and index):
+            raise RegistryError(
+                f"Action {action_name} not found in runtime registry index. "
+                "Execution requires the registry index to be present."
+            )
+        secrets = self._collect_loader_secrets(loader, index)
+        return loader, secrets
 
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
     ) -> RegistryActionRead:
         extra_secrets = await self.fetch_all_action_secrets(action)
         return RegistryActionRead.from_database(action, list(extra_secrets))
+
+    async def fetch_all_action_secrets_from_index(
+        self, action_name: str
+    ) -> set[RegistrySecretType]:
+        """Collect secrets for an action using the runtime index if available."""
+        index, loader = await self._get_loader_from_runtime_indexes(
+            action_name, self.role
+        )
+        if not loader or not index:
+            return set()
+        return self._collect_loader_secrets(loader, index)
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction
@@ -464,7 +578,9 @@ async def validate_action_template(
     # 1. Validate template steps
     for step in defn.steps:
         # (A) Ensure that the step action type exists
-        if step.action in repo.store:
+        if repo.index and step.action in repo.index:
+            bound_action = repo.index.get_loader(step.action)
+        elif step.action in repo.store:
             # If this action is already in the repo, we can just use it
             # We will overwrite the action in the DB anyways
             bound_action = repo.store[step.action]
