@@ -51,7 +51,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
-    from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
 
 
@@ -688,7 +687,19 @@ class DSLScheduler:
 
         args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
-        collection = eval_templated_object(args.collection, operand=context)
+        try:
+            collection = await workflow.execute_local_activity(
+                DSLActivities.evaluate_templated_object_activity,
+                args=(args.collection, context),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
+                case _:
+                    raise
 
         if not is_iterable(collection):
             raise ApplicationError(
