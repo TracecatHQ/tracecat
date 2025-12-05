@@ -71,6 +71,7 @@ class TestCursorPaginator:
 
         assert decoded.sort_column == "created_at"
         assert decoded.sort_value == timestamp
+        assert isinstance(decoded.sort_value, datetime)
         assert decoded.sort_value.microsecond == 123456
         assert decoded.id == entity_id
 
