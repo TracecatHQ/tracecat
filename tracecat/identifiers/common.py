@@ -157,7 +157,7 @@ class TracecatUUID[ShortID: str](UUID):
         if cls.legacy_prefix is None:
             raise ValueError(f"Legacy IDs are not supported for {cls.__name__}")
         prefix_len = len(cls.legacy_prefix)
-        hex_str = id[prefix_len - 1 :]
+        hex_str = id[prefix_len:]
         return cls.from_uuid(UUID(hex_str))
 
     def to_legacy(self) -> str:
