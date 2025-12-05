@@ -4,6 +4,13 @@ from typing import Annotated, Any
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.fields import Code
+from tracecat.sandbox import (
+    PackageInstallError,
+    SandboxExecutionError,
+    SandboxService,
+    SandboxTimeoutError,
+    SandboxValidationError,
+)
 from tracecat_registry import registry
 from typing_extensions import Doc
 
@@ -135,14 +142,6 @@ async def run_python(
         assert error_message is not None  # Should never be None when is_valid is False
         logger.error(f"Script validation failed: {error_message}")
         raise PythonScriptValidationError(error_message)
-
-    from tracecat.sandbox import (
-        PackageInstallError,
-        SandboxExecutionError,
-        SandboxService,
-        SandboxTimeoutError,
-        SandboxValidationError,
-    )
 
     try:
         service = SandboxService()

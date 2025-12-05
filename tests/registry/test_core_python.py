@@ -1,4 +1,7 @@
+import importlib
+import json
 import os
+import re
 import shutil
 from unittest.mock import patch
 
@@ -9,6 +12,12 @@ from tracecat_registry.core.python import (
     PythonScriptValidationError,
     run_python,
 )
+
+from tracecat import config
+from tracecat.config import TRACECAT__SANDBOX_PYPI_INDEX_URL
+from tracecat.sandbox import SandboxService
+from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.types import SandboxConfig
 
 # Check if nsjail is available (required for the sandbox)
 NSJAIL_AVAILABLE = shutil.which("nsjail") is not None
@@ -139,6 +148,98 @@ def main():
             timeout_seconds=120,
         )
         assert "requests module loaded successfully" in result
+
+    @pytest.mark.anyio
+    async def test_script_with_openpyxl_dependency(self):
+        """Test script with openpyxl dependency (non-pure Python package).
+
+        This test verifies the nsjail sandbox can install packages with C extensions.
+        openpyxl depends on et_xmlfile and optionally lxml, which have native components.
+        The previous deno/WASM sandbox failed to install openpyxl due to WASM restrictions.
+        """
+        script_content = """
+def main():
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    # Create a workbook and add data
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Test Sheet"
+
+    # Write some data
+    ws["A1"] = "Name"
+    ws["B1"] = "Value"
+    ws["A2"] = "Test"
+    ws["B2"] = 42
+
+    # Test column letter utility
+    col_letter = get_column_letter(3)
+
+    return {
+        "workbook_created": True,
+        "sheet_title": ws.title,
+        "cell_a1": ws["A1"].value,
+        "cell_b2": ws["B2"].value,
+        "column_3_letter": col_letter,
+        "openpyxl_version": __import__("openpyxl").__version__,
+    }
+"""
+        result = await run_python(
+            script=script_content,
+            dependencies=["openpyxl==3.1.5"],
+            timeout_seconds=120,
+        )
+        assert result["workbook_created"] is True
+        assert result["sheet_title"] == "Test Sheet"
+        assert result["cell_a1"] == "Name"
+        assert result["cell_b2"] == 42
+        assert result["column_3_letter"] == "C"
+        assert result["openpyxl_version"] == "3.1.5"
+
+    @pytest.mark.anyio
+    async def test_script_with_ocsf_dependency(self):
+        """Test script with py-ocsf-models dependency.
+
+        This test verifies the nsjail sandbox can install and use OCSF models,
+        which are Pydantic-based security event schemas.
+        """
+        script_content = """
+def main():
+    from py_ocsf_models.events.findings.detection_finding import DetectionFinding
+    from py_ocsf_models.objects.fingerprint import FingerPrint, AlgorithmID
+
+    # Create a fingerprint object using the Pydantic model
+    fp = FingerPrint(
+        algorithm="SHA-256",
+        algorithm_id=AlgorithmID.SHA_256,
+        value="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+
+    # Check that we can access OCSF event classes
+    detection_finding_fields = list(DetectionFinding.model_fields.keys())
+
+    return {
+        "fingerprint_algorithm": fp.algorithm,
+        "fingerprint_value": fp.value,
+        "fingerprint_algorithm_id": fp.algorithm_id.value,
+        "detection_finding_has_fields": len(detection_finding_fields) > 0,
+        "sample_fields": detection_finding_fields[:5],
+    }
+"""
+        result = await run_python(
+            script=script_content,
+            dependencies=["py-ocsf-models==0.8.0"],
+            timeout_seconds=120,
+        )
+        assert result["fingerprint_algorithm"] == "SHA-256"
+        assert (
+            result["fingerprint_value"]
+            == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+        assert result["fingerprint_algorithm_id"] == 3  # SHA_256 = 3
+        assert result["detection_finding_has_fields"] is True
+        assert len(result["sample_fields"]) > 0
 
     @pytest.mark.anyio
     async def test_script_error_handling(self):
@@ -318,7 +419,6 @@ def main():
 """
         result = await run_python(script=script)
         assert isinstance(result, str)
-        import json
 
         parsed = json.loads(result)
         assert "value" in parsed
@@ -493,8 +593,6 @@ class TestMultiTenantIsolation:
     @pytest.mark.anyio
     async def test_workspace_cache_isolation(self):
         """Test that different workspaces get separate package caches."""
-        from tracecat.sandbox import SandboxService
-
         service = SandboxService()
 
         # Compute cache keys for same dependencies with different workspace IDs
@@ -517,8 +615,6 @@ class TestMultiTenantIsolation:
     @pytest.mark.anyio
     async def test_version_isolation(self):
         """Test that different package versions get different cache keys."""
-        from tracecat.sandbox import SandboxService
-
         service = SandboxService()
         workspace_id = "workspace-test"
 
@@ -535,10 +631,6 @@ class TestMultiTenantIsolation:
     @pytest.mark.anyio
     async def test_cache_key_format(self):
         """Test that cache keys follow expected format (hex string)."""
-        import re
-
-        from tracecat.sandbox import SandboxService
-
         service = SandboxService()
         cache_key = service._compute_cache_key(
             dependencies=["requests==2.28.0"], workspace_id="workspace-test"
@@ -556,18 +648,12 @@ class TestPyPIConfiguration:
     @pytest.mark.anyio
     async def test_default_pypi_index_used(self):
         """Test that default PyPI index is used when no configuration is set."""
-        from tracecat.config import TRACECAT__SANDBOX_PYPI_INDEX_URL
-
         # Default should be public PyPI
         assert TRACECAT__SANDBOX_PYPI_INDEX_URL == "https://pypi.org/simple"
 
     @pytest.mark.anyio
     async def test_custom_pypi_index_configuration(self, monkeypatch):
         """Test that custom PyPI index URL can be configured."""
-        import importlib
-
-        from tracecat import config
-
         # Set custom index URL
         custom_url = "https://custom.pypi.example.com/simple"
         monkeypatch.setenv("TRACECAT__SANDBOX_PYPI_INDEX_URL", custom_url)
@@ -580,10 +666,6 @@ class TestPyPIConfiguration:
     @pytest.mark.anyio
     async def test_extra_index_urls_configuration(self, monkeypatch):
         """Test that extra index URLs can be configured."""
-        import importlib
-
-        from tracecat import config
-
         # Set extra index URLs
         extra_urls = (
             "https://extra1.example.com/simple,https://extra2.example.com/simple"
@@ -606,17 +688,14 @@ class TestPyPIConfiguration:
     @pytest.mark.anyio
     async def test_executor_passes_index_urls_to_install_env(self):
         """Test that executor passes PyPI index URLs to install environment."""
-        from tracecat.sandbox.executor import NsjailExecutor
-        from tracecat.sandbox.types import SandboxConfig
-
-        config = SandboxConfig(
+        sandbox_config = SandboxConfig(
             network_enabled=False,
             env_vars={},
         )
         executor = NsjailExecutor()
 
         # Build environment for install phase
-        env_map = executor._build_env_map(config, phase="install")
+        env_map = executor._build_env_map(sandbox_config, phase="install")
 
         # Verify PyPI index URLs are in the environment
         assert "UV_INDEX_URL" in env_map

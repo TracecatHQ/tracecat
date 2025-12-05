@@ -13,11 +13,13 @@ from typing import TYPE_CHECKING, Literal
 from tracecat.config import (
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_NSJAIL_PATH,
+    TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
+    TRACECAT__SANDBOX_PYPI_INDEX_URL,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
-from tracecat.sandbox.types import SandboxConfig, SandboxResult
+from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
 if TYPE_CHECKING:
     pass
@@ -270,11 +272,6 @@ class NsjailExecutor:
         cache_key: str | None = None,
     ) -> dict[str, str]:
         """Construct a sanitized environment for the nsjail process."""
-        from tracecat.config import (
-            TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
-            TRACECAT__SANDBOX_PYPI_INDEX_URL,
-        )
-
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
         if phase == "install":
@@ -442,8 +439,6 @@ class NsjailExecutor:
         Returns:
             SandboxResult with installation outcome.
         """
-        from tracecat.sandbox.types import ResourceLimits
-
         # Create config for installation (always with network)
         config = SandboxConfig(
             network_enabled=True,
