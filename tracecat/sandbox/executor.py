@@ -8,7 +8,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from tracecat.config import (
     TRACECAT__SANDBOX_CACHE_DIR,
@@ -20,9 +20,6 @@ from tracecat.config import (
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
-
-if TYPE_CHECKING:
-    pass
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
