@@ -183,7 +183,9 @@ async def test_create_secret_success(
     """Test POST /secrets creates a new secret."""
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_secret.return_value = None
+        mock_svc.create_secret.return_value = Secret(
+            id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -383,7 +385,9 @@ async def test_create_org_secret_success(
     """Test POST /organization/secrets creates org secret."""
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_org_secret.return_value = None
+        mock_svc.create_org_secret.return_value = OrganizationSecret(
+            id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+        )
         MockService.return_value = mock_svc
 
         # Make request

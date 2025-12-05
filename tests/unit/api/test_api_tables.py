@@ -66,7 +66,9 @@ async def test_create_table_success(
     """Test POST /tables creates a new table."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_table.return_value = None
+        mock_svc.create_table.return_value = Table(
+            id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+        )
         MockService.return_value = mock_svc
 
         # Make request
