@@ -145,10 +145,11 @@ async def create_secret(
         resource_type="secret",
         action="create",
         session=session,
-    ):
+    ) as audit_log:
         service = SecretsService(session, role=role)
         try:
-            await service.create_secret(params)
+            secret = await service.create_secret(params)
+            audit_log.set_resource(secret.id)
         except IntegrityError as e:
             logger.error("Secret integrity error", e=str(e))
             raise HTTPException(
@@ -169,6 +170,7 @@ async def update_secret_by_id(
     async with AuditLogger(
         resource_type="secret",
         action="update",
+        resource_id=secret_id,
         session=session,
     ):
         service = SecretsService(session, role)
@@ -198,6 +200,7 @@ async def delete_secret_by_id(
     async with AuditLogger(
         resource_type="secret",
         action="delete",
+        resource_id=secret_id,
         session=session,
     ):
         service = SecretsService(session, role=role)
@@ -268,10 +271,11 @@ async def create_org_secret(
         resource_type="org_secret",
         action="create",
         session=session,
-    ):
+    ) as audit_log:
         service = SecretsService(session, role=role)
         try:
-            await service.create_org_secret(params)
+            secret = await service.create_org_secret(params)
+            audit_log.set_resource(secret.id)
         except IntegrityError as e:
             logger.error("Organization secret integrity error", e=str(e))
             raise HTTPException(
@@ -295,6 +299,7 @@ async def update_org_secret_by_id(
     async with AuditLogger(
         resource_type="org_secret",
         action="update",
+        resource_id=secret_id,
         session=session,
     ):
         service = SecretsService(session, role)
@@ -329,6 +334,7 @@ async def delete_org_secret_by_id(
     async with AuditLogger(
         resource_type="org_secret",
         action="delete",
+        resource_id=secret_id,
         session=session,
     ):
         service = SecretsService(session, role=role)

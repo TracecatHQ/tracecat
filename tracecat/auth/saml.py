@@ -603,7 +603,7 @@ async def sso_acs(
             resource_type="user",
             action="login",
             resource_id=user.id,
-            status=AuditEventStatus.ATTEMPT,
+            status=AuditEventStatus.SUCCESS,
         )
     except Exception as e:
         logger.warning(
