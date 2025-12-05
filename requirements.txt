@@ -217,10 +217,6 @@ authlib==1.6.5 \
     --hash=sha256:3e0e0507807f842b02175507bdee8957a1d5707fd4afb17c32fb43fee90b6e3a \
     --hash=sha256:6aaf9c79b7cc96c900f0b284061691c5d4e61221640a948fe690b556a6d6d10b
     # via tracecat
-backoff==2.2.1 \
-    --hash=sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba \
-    --hash=sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8
-    # via langfuse
 bcrypt==4.3.0 \
     --hash=sha256:0042b2e342e9ae3d2ed22727c1262f76cc4f345683b5c1715f0250cf4277294f \
     --hash=sha256:0142b2cb84a009f8452c8c5a33ace5e3dfec4159e7735f5afe9a4d50a8ea722d \
@@ -904,9 +900,7 @@ google-genai==1.52.0 \
 googleapis-common-protos==1.72.0 \
     --hash=sha256:4299c5a82d5ae1a9702ada957347726b167f9f8d1fc352477702a1e851ff4038 \
     --hash=sha256:e55a601c1b32b52d7a3e65f43563e2aa61bcd737998ee672ac9b951cd49319f5
-    # via
-    #   google-api-core
-    #   opentelemetry-exporter-otlp-proto-http
+    # via google-api-core
 graphviz==0.21 \
     --hash=sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78 \
     --hash=sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42
@@ -1083,7 +1077,6 @@ httpx==0.28.1 \
     #   genai-prices
     #   google-genai
     #   httpx-oauth
-    #   langfuse
     #   mcp
     #   openai
     #   pydantic-ai-slim
@@ -1226,10 +1219,6 @@ kaitaistruct==0.11 \
     --hash=sha256:053ee764288e78b8e53acf748e9733268acbd579b8d82a427b1805453625d74b \
     --hash=sha256:5c6ce79177b4e193a577ecd359e26516d1d6d000a0bffd6e1010f2a46a62a561
     # via polyfile
-langfuse==3.3.4 \
-    --hash=sha256:15b9d20878cf39a48ca9cfa7e52acdfeb043603d3a9cef8cf451687a4d838c6b \
-    --hash=sha256:e5df4e7284298990b522e02a1dc6c3c72ebc4a7a411dc7d39255fb8c2e5a7c3a
-    # via tracecat-registry
 lark==1.1.9 \
     --hash=sha256:15fa5236490824c2c4aba0e22d2d6d823575dcaf4cdd1848e34b6ad836240fba \
     --hash=sha256:a0dd3a87289f8ccbb325901e4222e723e7d745dbfc1803eaf5f3d2ace19cf2db
@@ -1665,20 +1654,10 @@ opentelemetry-api==1.38.0 \
     --hash=sha256:2891b0197f47124454ab9f0cf58f3be33faca394457ac3e09daba13ff50aa582 \
     --hash=sha256:f4c193b5e8acb0912b06ac5b16321908dd0843d75049c091487322284a3eea12
     # via
-    #   langfuse
-    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   pydantic-ai-slim
-opentelemetry-exporter-otlp-proto-common==1.38.0 \
-    --hash=sha256:03cb76ab213300fe4f4c62b7d8f17d97fcfd21b89f0b5ce38ea156327ddda74a \
-    --hash=sha256:e333278afab4695aa8114eeb7bf4e44e65c6607d54968271a249c180b2cb605c
-    # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-http==1.38.0 \
-    --hash=sha256:84b937305edfc563f08ec69b9cb2298be8188371217e867c1854d77198d0825b \
-    --hash=sha256:f16bd44baf15cbe07633c5112ffc68229d0edbeac7b37610be0b2def4e21e90b
-    # via langfuse
 opentelemetry-exporter-prometheus==0.59b0 \
     --hash=sha256:71ced23207abd15b30d1fe4e7e910dcaa7c2ff1f24a6ffccbd4fdded676f541b \
     --hash=sha256:d64f23c49abb5a54e271c2fbc8feacea0c394a30ec29876ab5ef7379f08cf3d7
@@ -1686,16 +1665,11 @@ opentelemetry-exporter-prometheus==0.59b0 \
 opentelemetry-proto==1.38.0 \
     --hash=sha256:88b161e89d9d372ce723da289b7da74c3a8354a8e5359992be813942969ed468 \
     --hash=sha256:b6ebe54d3217c42e45462e2a1ae28c3e2bf2ec5a5645236a490f55f45f1a0a18
-    # via
-    #   opentelemetry-exporter-otlp-proto-common
-    #   opentelemetry-exporter-otlp-proto-http
-    #   ray
+    # via ray
 opentelemetry-sdk==1.38.0 \
     --hash=sha256:1c66af6564ecc1553d72d811a01df063ff097cdc82ce188da9951f93b8d10f6b \
     --hash=sha256:93df5d4d871ed09cb4272305be4d996236eedb232253e3ab864c8620f051cebe
     # via
-    #   langfuse
-    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
     #   ray
 opentelemetry-semantic-conventions==0.59b0 \
@@ -1721,7 +1695,6 @@ packaging==25.0 \
     #   ansible-core
     #   ansible-runner
     #   hatchling
-    #   langfuse
     #   marshmallow
     #   pytest
     #   ray
@@ -2088,7 +2061,6 @@ pydantic==2.12.5 \
     #   fastapi-cloud-cli
     #   genai-prices
     #   google-genai
-    #   langfuse
     #   mcp
     #   openai
     #   openai-agents
@@ -2468,9 +2440,7 @@ requests==2.32.5 \
     #   docker
     #   google-api-core
     #   google-genai
-    #   langfuse
     #   openai-agents
-    #   opentelemetry-exporter-otlp-proto-http
     #   pygithub
     #   pysaml2
     #   ray
@@ -3050,7 +3020,6 @@ typing-extensions==4.15.0 \
     #   openai
     #   openai-agents
     #   opentelemetry-api
-    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   psycopg
@@ -3315,7 +3284,6 @@ wrapt==1.17.3 \
     --hash=sha256:fbd3c8319de8e1dc79d346929cd71d523622da527cca14e0c1d257e31c2b8b10
     # via
     #   aiobotocore
-    #   langfuse
     #   smart-open
 xmlschema==2.5.1 \
     --hash=sha256:4f7497de6c8b6dc2c28ad7b9ed6e21d186f4afe248a5bea4f54eedab4da44083 \

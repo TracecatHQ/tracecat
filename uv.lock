@@ -1903,26 +1903,6 @@ wheels = [
 ]
 
 [[package]]
-name = "langfuse"
-version = "3.3.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "backoff" },
-    { name = "httpx" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
-    { name = "packaging" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/27/9d/c9c422c660459687293727c9146185f92443b6c72fda564ab10e9e16ab41/langfuse-3.3.4.tar.gz", hash = "sha256:e5df4e7284298990b522e02a1dc6c3c72ebc4a7a411dc7d39255fb8c2e5a7c3a", size = 164745, upload-time = "2025-09-02T15:02:39.16Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/46/edd370d47ca72ed4ca36b3c3b8f3a4ce71a310629d0bcb6ed760b04b08b1/langfuse-3.3.4-py3-none-any.whl", hash = "sha256:15b9d20878cf39a48ca9cfa7e52acdfeb043603d3a9cef8cf451687a4d838c6b", size = 318389, upload-time = "2025-09-02T15:02:37.171Z" },
-]
-
-[[package]]
 name = "lark"
 version = "1.1.9"
 source = { registry = "https://pypi.org/simple" }
@@ -4780,7 +4760,6 @@ dependencies = [
     { name = "docker" },
     { name = "grpcio" },
     { name = "hatchling" },
-    { name = "langfuse" },
     { name = "ldap3" },
     { name = "marshmallow" },
     { name = "nh3" },
@@ -4810,7 +4789,6 @@ requires-dist = [
     { name = "docker", specifier = "==7.1.0" },
     { name = "grpcio", specifier = "==1.75.1" },
     { name = "hatchling", specifier = "==1.27.0" },
-    { name = "langfuse", specifier = "==3.3.4" },
     { name = "ldap3", specifier = "==2.9.1" },
     { name = "marshmallow", specifier = "==3.26.1" },
     { name = "nh3", specifier = "==0.2.18" },

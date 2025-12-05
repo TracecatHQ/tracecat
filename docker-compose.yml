@@ -156,10 +156,6 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
-      # Langfuse
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       # Sandbox
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs

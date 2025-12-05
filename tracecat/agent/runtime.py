@@ -4,7 +4,6 @@ import uuid
 from timeit import default_timer
 from typing import Any
 
-from langfuse import observe
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
@@ -12,7 +11,6 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
-from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
@@ -25,9 +23,6 @@ from tracecat.config import (
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-
-# Initialize Pydantic AI instrumentation for Langfuse
-Agent.instrument_all()
 
 
 async def run_agent_sync(
@@ -66,7 +61,6 @@ async def run_agent_sync(
     )
 
 
-@observe()
 async def run_agent(
     user_prompt: str,
     model_name: str,
@@ -141,8 +135,6 @@ async def run_agent(
         ```
     """
 
-    trace_id = init_langfuse(model_name, model_provider)
-
     if max_tool_calls > TRACECAT__AGENT_MAX_TOOL_CALLS:
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_TOOL_CALLS} tool calls"
@@ -208,7 +200,6 @@ async def run_agent(
             message_history=result.all_messages(),
             duration=end_time - start_time,
             usage=result.usage(),
-            trace_id=trace_id,
             session_id=session_id,
         )
 
