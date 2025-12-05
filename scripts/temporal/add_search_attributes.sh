@@ -10,7 +10,7 @@ declare -a SEARCH_ATTRIBUTES=()
 
 usage() {
   cat <<'EOF'
-Usage: scripts/add_temporal_search_attributes.sh [options] --attribute Name=Type [--attribute Name=Type ...]
+Usage: scripts/temporal/add_search_attributes.sh [options] --attribute Name=Type [--attribute Name=Type ...]
 
 Adds Temporal Cloud search attributes to every namespace accessible by the provided API key.
 

@@ -24,6 +24,36 @@ Usage:
     uv run openapi_to_template.py --input openapi.json --output-dir templates/ --config gen_template_config.yaml
 
 Tested with msgraph, sentinelone, and jira.
+
+Sample config:
+```yaml
+# Example config for generating templates from an OpenAPI spec
+endpoints:
+  # include:
+  #   like:
+  #     - "/pet/{petId}*"
+  # exclude:
+  #   like:
+  #     - "**/api-doc/api-details/**"
+definition_overrides:
+  # Namespace will be used as a prefix, not
+  namespace: pet_store
+  # All other fields that appear here, override
+  # These override the default values for the actions
+  display_group: PetStore
+
+# How to inject auth logic
+auth:
+  secrets:
+    - name: petstore
+      keys: ["API_KEY"]
+
+  injection:
+    action: "core.http_request"
+    args:
+      headers:
+        Authorization: "ApiKey ${{ SECRETS.petstore.API_KEY }}"
+```
 """
 
 import argparse
