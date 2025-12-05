@@ -10,6 +10,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
+from tracecat.secrets.dependencies import AnySecretIDPath
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
     OrganizationSecretRead,
@@ -155,7 +156,7 @@ async def update_secret_by_id(
     *,
     role: WorkspaceAdminUser,
     session: AsyncDBSession,
-    secret_id: SecretID,
+    secret_id: AnySecretIDPath,
     params: SecretUpdate,
 ) -> None:
     """Update a secret by ID."""
@@ -180,7 +181,7 @@ async def delete_secret_by_id(
     *,
     role: WorkspaceAdminUser,
     session: AsyncDBSession,
-    secret_id: SecretID,
+    secret_id: AnySecretIDPath,
 ) -> None:
     """Delete a secret by ID."""
     service = SecretsService(session, role=role)
@@ -266,7 +267,7 @@ async def update_org_secret_by_id(
     *,
     role: OrgAdminUser,
     session: AsyncDBSession,
-    secret_id: SecretID,
+    secret_id: AnySecretIDPath,
     params: SecretUpdate,
 ) -> None:
     """Update an organization secret by ID."""
@@ -296,7 +297,7 @@ async def delete_org_secret_by_id(
     *,
     role: OrgAdminUser,
     session: AsyncDBSession,
-    secret_id: SecretID,
+    secret_id: AnySecretIDPath,
 ) -> None:
     """Delete an organization secret by ID."""
     service = SecretsService(session, role=role)

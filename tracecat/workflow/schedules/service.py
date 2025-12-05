@@ -13,7 +13,8 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
 )
-from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.identifiers import ScheduleUUID, WorkflowID
+from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
@@ -150,13 +151,13 @@ class WorkflowSchedulesService(BaseService):
         await self.session.refresh(schedule)
         return schedule
 
-    async def get_schedule(self, schedule_id: ScheduleID) -> Schedule:
+    async def get_schedule(self, schedule_id: AnyScheduleID) -> Schedule:
         """
         Retrieve a schedule by its ID.
 
         Parameters
         ----------
-        schedule_id : ScheduleID
+        schedule_id : AnyScheduleID
             The ID of the schedule to retrieve.
 
         Returns
@@ -170,26 +171,27 @@ class WorkflowSchedulesService(BaseService):
             If the schedule is not found
 
         """
+        schedule_uuid = ScheduleUUID.new(schedule_id)
         result = await self.session.execute(
             select(Schedule).where(
                 Schedule.workspace_id == self.role.workspace_id,
-                Schedule.id == schedule_id,
+                Schedule.id == schedule_uuid,
             )
         )
         try:
             return result.scalar_one()
         except NoResultFound as e:
-            raise TracecatNotFoundError(f"Schedule {schedule_id} not found") from e
+            raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
 
     async def update_schedule(
-        self, schedule_id: ScheduleID, params: ScheduleUpdate
+        self, schedule_id: AnyScheduleID, params: ScheduleUpdate
     ) -> Schedule:
         """
         Update a schedule with the given schedule ID and parameters.
 
         Parameters
         ----------
-        schedule_id : ScheduleID
+        schedule_id : AnyScheduleID
             The ID of the schedule to be updated.
         params : ScheduleUpdate
             The updated parameters for the schedule.
@@ -235,14 +237,14 @@ class WorkflowSchedulesService(BaseService):
         return schedule
 
     async def delete_schedule(
-        self, schedule_id: ScheduleID, commit: bool = True
+        self, schedule_id: AnyScheduleID, commit: bool = True
     ) -> None:
         """
         Delete a schedule.
 
         Parameters
         ----------
-        schedule_id : ScheduleID
+        schedule_id : AnyScheduleID
             The ID of the schedule to be deleted.
 
         Raises
@@ -308,7 +310,7 @@ class WorkflowSchedulesService(BaseService):
             try:
                 schedule = await service.get_schedule(input.schedule_id)
                 return ScheduleRead(
-                    id=schedule.id,
+                    id=ScheduleUUID.new(schedule.id),
                     workspace_id=schedule.workspace_id,
                     created_at=schedule.created_at,
                     updated_at=schedule.updated_at,

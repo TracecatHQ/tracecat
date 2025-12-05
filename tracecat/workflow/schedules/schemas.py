@@ -6,12 +6,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.auth.types import Role
 from tracecat.core.schemas import Schema
-from tracecat.identifiers import ScheduleID, WorkflowID, WorkspaceID
+from tracecat.identifiers import ScheduleUUID, WorkflowID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID
 
 
 class ScheduleRead(Schema):
-    id: ScheduleID
+    id: ScheduleUUID
     workspace_id: WorkspaceID
     created_at: datetime
     updated_at: datetime
@@ -98,6 +98,14 @@ class ScheduleSearch(BaseModel):
 
 
 class GetScheduleActivityInputs(BaseModel):
+    """Activity input for fetching schedule data.
+
+    ScheduleUUID (ScheduleUUID) auto-validates from any format:
+    - Native UUID
+    - Short ID: sch_xxx
+    - Legacy format: sch-<32hex>
+    """
+
     role: Role
-    schedule_id: ScheduleID
+    schedule_id: ScheduleUUID
     workflow_id: WorkflowID

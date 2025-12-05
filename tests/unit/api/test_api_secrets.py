@@ -22,7 +22,7 @@ from tracecat.secrets.schemas import SecretKeyValue
 def mock_secret(test_workspace: Workspace) -> Secret:
     """Create a mock secret DB object."""
     secret = Secret(
-        id="secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         workspace_id=test_workspace.id,
         name="test_secret",
         type=SecretType.CUSTOM,
@@ -272,7 +272,7 @@ async def test_update_secret_by_id_not_found(
         MockService.return_value = mock_svc
 
         # Make request
-        fake_id = "secret-00000000000000000000000000000000"
+        fake_id = "00000000-0000-4000-8000-000000000000"
         response = client.post(
             f"/secrets/{fake_id}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
@@ -319,7 +319,7 @@ async def test_delete_secret_by_id_not_found(
         MockService.return_value = mock_svc
 
         # Make request
-        fake_id = "secret-00000000000000000000000000000000"
+        fake_id = "00000000-0000-4000-8000-000000000000"
         response = client.delete(
             f"/secrets/{fake_id}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
@@ -336,7 +336,7 @@ async def test_delete_secret_by_id_not_found(
 def mock_org_secret(mock_org_id: uuid.UUID) -> OrganizationSecret:
     """Create a mock organization secret DB object."""
     secret = OrganizationSecret(
-        id="secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         organization_id=mock_org_id,
         name="org_secret",
         type=SecretType.CUSTOM,

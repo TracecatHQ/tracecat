@@ -320,7 +320,7 @@ class WorkflowImportService(BaseWorkspaceService):
 
         # 5. Regenerate the React Flow graph
         base_graph = RFGraph.with_defaults(existing_workflow)
-        ref2id = {act.ref: act.id for act in actions}
+        ref2id = {act.ref: str(act.id) for act in actions}
         updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
         existing_workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
 

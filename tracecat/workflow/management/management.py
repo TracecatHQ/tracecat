@@ -623,7 +623,7 @@ class WorkflowsManagementService(BaseService):
         self.logger.info("Creating graph for workflow", graph=base_graph)
 
         # Add DSL contents to the Workflow
-        ref2id = {act.ref: act.id for act in actions}
+        ref2id = {act.ref: str(act.id) for act in actions}
         updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
         workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
 
@@ -641,11 +641,11 @@ class WorkflowsManagementService(BaseService):
 
         # Set difference of action IDs
         ids_in_graph = {node.id for node in action_nodes}
-        ids_in_db = {action.id for action in actions}
+        ids_in_db = {str(action.id) for action in actions}
         # Delete actions that don't exist in the action_nodes
         orphaned_action_ids = ids_in_db - ids_in_graph
         for action in actions:
-            if action.id not in orphaned_action_ids:
+            if str(action.id) not in orphaned_action_ids:
                 continue
             await self.session.delete(action)
             self.logger.info(f"Deleted orphaned action: {action.title}")

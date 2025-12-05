@@ -64,7 +64,7 @@ from tracecat.exceptions import (
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers import ScheduleID
+from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
@@ -452,9 +452,9 @@ class DSLRunArgs(BaseModel):
         description="Platform activity start-to-close timeout.",
     )
     """Platform activity start-to-close timeout."""
-    schedule_id: ScheduleID | None = Field(
+    schedule_id: ScheduleUUID | None = Field(
         default=None,
-        description="The schedule ID that triggered this workflow, if any.",
+        description="The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.",
     )
 
     @field_validator("wf_id", mode="before")
@@ -608,7 +608,8 @@ def build_action_statements(
     graph: RFGraph, actions: list[Action]
 ) -> list[ActionStatement]:
     """Convert DB Actions into ActionStatements using the graph."""
-    id2action = {action.id: action for action in actions}
+    # Use string keys since graph node IDs are strings (UUID format)
+    id2action = {str(action.id): action for action in actions}
 
     statements = []
     for node in graph.action_nodes():

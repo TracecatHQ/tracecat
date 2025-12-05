@@ -4,10 +4,10 @@ from pydantic_core import PydanticUndefined
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import RegistryError, TracecatValidationError
-from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.workflow.actions.dependencies import AnyActionIDPath
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,
@@ -77,7 +77,7 @@ async def create_action(
 @router.get("/{action_id}")
 async def get_action(
     role: WorkspaceUserRole,
-    action_id: ActionID,
+    action_id: AnyActionIDPath,
     workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> ActionRead:
@@ -128,7 +128,7 @@ async def get_action(
 @router.post("/{action_id}")
 async def update_action(
     role: WorkspaceUserRole,
-    action_id: ActionID,
+    action_id: AnyActionIDPath,
     workflow_id: AnyWorkflowIDPath,
     params: ActionUpdate,
     session: AsyncDBSession,
@@ -148,7 +148,7 @@ async def update_action(
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_action(
     role: WorkspaceUserRole,
-    action_id: ActionID,
+    action_id: AnyActionIDPath,
     workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> None:

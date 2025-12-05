@@ -79,7 +79,7 @@ def normalize_trigger_inputs(
 
 
 class ValidateTriggerInputsActivityInputs(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     dsl: DSLInput
     trigger_inputs: TriggerInputs
 
@@ -95,7 +95,7 @@ async def validate_trigger_inputs_activity(
 
 
 class NormalizeTriggerInputsActivityInputs(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     input_schema: dict[str, ExpectedField]
     trigger_inputs: TriggerInputs
 

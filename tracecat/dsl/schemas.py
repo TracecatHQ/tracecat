@@ -59,7 +59,7 @@ class ActionRetryPolicy(BaseModel):
 
 
 class ActionStatement(BaseModel):
-    id: str | None = Field(
+    id: uuid.UUID | None = Field(
         default=None,
         exclude=True,
         description=(
