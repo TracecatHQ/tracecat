@@ -420,6 +420,10 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
+        # Only disable parallel tool calls if tools will be present
+        model_settings = {}
+        if preset.actions or mcp_servers:
+            model_settings["parallel_tool_calls"] = False
         return AgentConfig(
             model_name=preset.model_name,
             model_provider=preset.model_provider,
@@ -431,4 +435,5 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=preset.tool_approvals,
             mcp_servers=mcp_servers,
             retries=preset.retries,
+            model_settings=model_settings,
         )
