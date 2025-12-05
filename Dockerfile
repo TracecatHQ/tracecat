@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.9.7-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.9.15-python3.12-bookworm-slim
 
 ENV HOST=0.0.0.0
 ENV PORT=8000
@@ -8,12 +8,12 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
 # Install required apt packages (this now creates ALL cache directories)
-COPY scripts/install-packages.sh .
+COPY docker/scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
 
-COPY scripts/auto-update.sh ./auto-update.sh
+COPY docker/scripts/auto-update.sh ./auto-update.sh
 RUN chmod +x auto-update.sh && \
     ./auto-update.sh && \
     rm auto-update.sh
@@ -22,22 +22,15 @@ RUN chmod +x auto-update.sh && \
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
 
-# Ensure all required directories exist and copy pre-cached files
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/deno /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp && \
-    mkdir -p /home/apiuser/.local/lib/node_modules && \
-    cp -r /opt/deno-cache/* /home/apiuser/.cache/deno/ 2>/dev/null || true && \
-    cp -r /opt/node_modules/* /home/apiuser/.local/lib/node_modules/ 2>/dev/null || true && \
-    rm -rf /opt/deno-cache /opt/node_modules
+# Ensure all required directories exist
+RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp && \
+    mkdir -p /home/apiuser/.local
 
 # Set environment variables for Python and package managers
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
 ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
 ENV PATH=/home/apiuser/.local/bin:$PATH
-
-# Set deno environment variables to use user-owned directories
-ENV DENO_DIR="/home/apiuser/.cache/deno"
-ENV NODE_MODULES_DIR="/home/apiuser/.local/lib/node_modules"
 
 # Set temporary directory environment variables for apiuser
 ENV TMPDIR="/home/apiuser/.cache/tmp"
@@ -72,9 +65,8 @@ COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
 # Copy the entrypoint script and health check script
-COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
-RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
+COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Install the project with EE features
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -106,13 +98,12 @@ RUN ls -la /home/apiuser/ && \
 USER apiuser
 
 # Verify apiuser can access required directories and binaries
-RUN deno --version && \
-    python3 -c "import os; print(f'DENO_DIR accessible: {os.access(os.environ[\"DENO_DIR\"], os.R_OK | os.W_OK)}')" && \
+RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available" && \
     python3 -c "import os; print(f'UV_CACHE_DIR accessible: {os.access(os.environ[\"UV_CACHE_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os, tempfile; f=tempfile.NamedTemporaryFile(dir=os.environ['UV_CACHE_DIR'], delete=True); print(f'UV_CACHE_DIR write test: SUCCESS - {f.name}')" && \
-    python3 -c "import os; print(f'NODE_MODULES_DIR accessible: {os.access(os.environ[\"NODE_MODULES_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'/app/.scripts accessible: {os.access(\"/app/.scripts\", os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'S3 cache accessible: {os.access(\"/home/apiuser/.cache/s3\", os.R_OK | os.W_OK)}')" && \
+    python3 -c "import os; print(f'Sandbox rootfs exists: {os.path.isdir(\"/var/lib/tracecat/sandbox-rootfs\")}')" && \
     python3 -c "import tempfile; print(f'Temp dir: {tempfile.gettempdir()}')" && \
     python3 -c "import os; print(f'Entrypoint executable: {os.access(\"/app/entrypoint.sh\", os.R_OK | os.X_OK)}')" && \
     ls -la /app/entrypoint.sh && \

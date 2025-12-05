@@ -142,6 +142,11 @@ services:
       # NOTE: Unit tests in `test_workflows.py` need
       # to connect to the executor directly
       - ${EXECUTOR_API_PORT:-8001}:8000
+    # Required for nsjail sandbox
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -158,12 +163,17 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sandbox
+      TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
+      TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
+      TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
+      # PyPI Configuration (optional - for private mirrors or air-gapped deployments)
+      # TRACECAT__SANDBOX_PYPI_INDEX_URL: https://pypi.org/simple  # Default
+      # TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS: https://extra.pypi.example.com/simple  # Optional
       # Redis
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
-      # TMP
-      HEALTHCHECK_TMP_THRESHOLD: ${HEALTHCHECK_TMP_THRESHOLD:-}
       # Langfuse
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
@@ -175,6 +185,7 @@ services:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+      - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command:
       [
         "python",
@@ -187,12 +198,6 @@ services:
         "8000",
         "--reload",
       ]
-    healthcheck:
-      test: ["CMD-SHELL", "check_tmp.py"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -331,3 +336,4 @@ volumes:
   containers:
   minio-data:
   redis-data:
+  sandbox-cache:

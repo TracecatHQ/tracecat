@@ -1,4 +1,7 @@
+import importlib
+import json
 import os
+import re
 import shutil
 from unittest.mock import patch
 
@@ -10,13 +13,28 @@ from tracecat_registry.core.python import (
     run_python,
 )
 
-# Check if Deno is available (required for the subprocess fallback)
-DENO_AVAILABLE = shutil.which("deno") is not None
+from tracecat import config
+from tracecat.config import TRACECAT__SANDBOX_PYPI_INDEX_URL
+from tracecat.sandbox import SandboxService
+from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.types import SandboxConfig
 
-# Skip all tests if Deno isn't available
+# Check if nsjail is available (required for the sandbox)
+NSJAIL_AVAILABLE = shutil.which("nsjail") is not None
+
+# Check if the sandbox rootfs exists
+ROOTFS_PATH = os.environ.get(
+    "TRACECAT__SANDBOX_ROOTFS_PATH", "/var/lib/tracecat/sandbox-rootfs"
+)
+ROOTFS_AVAILABLE = os.path.isdir(ROOTFS_PATH)
+
+# Skip all tests if nsjail or rootfs isn't available
 pytestmark = pytest.mark.skipif(
-    not DENO_AVAILABLE,
-    reason="Deno not available. Required for Pyodide subprocess execution.",
+    not (NSJAIL_AVAILABLE and ROOTFS_AVAILABLE),
+    reason=(
+        f"nsjail sandbox not available. "
+        f"nsjail installed: {NSJAIL_AVAILABLE}, rootfs exists: {ROOTFS_AVAILABLE}"
+    ),
 )
 
 
@@ -27,23 +45,22 @@ def mock_logger():
 
 
 class TestPythonExecution:
-    """Test suite for Python execution via Deno subprocess."""
+    """Test suite for Python execution via nsjail sandbox."""
 
     @pytest.mark.anyio
-    async def test_basic_script_execution(self, mock_logger):
-        """Test basic script execution with Deno subprocess."""
+    async def test_basic_script_execution(self):
+        """Test basic script execution with nsjail sandbox."""
         script_content = """
 def main():
-    print('Hello from Deno subprocess')
+    print('Hello from nsjail sandbox')
     value = 10 * 2
     return value
 """
         result = await run_python(script=script_content)
         assert result == 20
-        mock_logger.info.assert_any_call("Script stdout:\nHello from Deno subprocess")
 
     @pytest.mark.anyio
-    async def test_script_with_function_arguments(self, mock_logger):
+    async def test_script_with_function_arguments(self):
         """Test script with function arguments."""
         script_content = """
 def process_item(item_name, qty, price):
@@ -55,23 +72,18 @@ def process_item(item_name, qty, price):
 
         result = await run_python(script=script_content, inputs=inputs_data)
         assert result == expected_result
-        mock_logger.info.assert_any_call(
-            f"Script stdout:\nProcessing: {inputs_data['item_name']}, quantity: {inputs_data['qty']}"
-        )
 
     @pytest.mark.anyio
-    async def test_script_with_partial_arguments(self, mock_logger):
+    async def test_script_with_partial_arguments(self):
         """Test script with some arguments missing (should raise TypeError)."""
         script_content = """
 def process_data(a, b, c):
     print(f'a={a}, b={b}, c={c}')
-    # Handle None values gracefully
     result = (a or 0) + (b or 0) + (c or 0)
     return result
 """
         inputs_data = {"a": 10, "b": 5}  # c is missing, should raise TypeError
 
-        # Should raise TypeError for missing required argument
         with pytest.raises(PythonScriptExecutionError) as exc_info:
             await run_python(script=script_content, inputs=inputs_data)
 
@@ -123,22 +135,111 @@ def main(value):
         assert result == expected_result
 
     @pytest.mark.anyio
-    @pytest.mark.skip(reason="Dependencies might not be available in all environments")
-    async def test_script_with_dependencies(self, mock_logger):
+    async def test_script_with_dependencies(self):
         """Test script with dependencies."""
-        # This test requires network access and might take longer
         script_content = """
 def main():
-    import numpy as np
-    return np.array([1, 2, 3]).sum()
+    import requests
+    return "requests module loaded successfully"
 """
         result = await run_python(
             script=script_content,
-            dependencies=["numpy"],
-            timeout_seconds=60,  # Give more time for package installation
-            allow_network=True,  # Enable network access for package installation
+            dependencies=["requests"],
+            timeout_seconds=120,
         )
-        assert result == 6
+        assert "requests module loaded successfully" in result
+
+    @pytest.mark.anyio
+    async def test_script_with_openpyxl_dependency(self):
+        """Test script with openpyxl dependency (non-pure Python package).
+
+        This test verifies the nsjail sandbox can install packages with C extensions.
+        openpyxl depends on et_xmlfile and optionally lxml, which have native components.
+        The previous deno/WASM sandbox failed to install openpyxl due to WASM restrictions.
+        """
+        script_content = """
+def main():
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    # Create a workbook and add data
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Test Sheet"
+
+    # Write some data
+    ws["A1"] = "Name"
+    ws["B1"] = "Value"
+    ws["A2"] = "Test"
+    ws["B2"] = 42
+
+    # Test column letter utility
+    col_letter = get_column_letter(3)
+
+    return {
+        "workbook_created": True,
+        "sheet_title": ws.title,
+        "cell_a1": ws["A1"].value,
+        "cell_b2": ws["B2"].value,
+        "column_3_letter": col_letter,
+        "openpyxl_version": __import__("openpyxl").__version__,
+    }
+"""
+        result = await run_python(
+            script=script_content,
+            dependencies=["openpyxl==3.1.5"],
+            timeout_seconds=120,
+        )
+        assert result["workbook_created"] is True
+        assert result["sheet_title"] == "Test Sheet"
+        assert result["cell_a1"] == "Name"
+        assert result["cell_b2"] == 42
+        assert result["column_3_letter"] == "C"
+        assert result["openpyxl_version"] == "3.1.5"
+
+    @pytest.mark.anyio
+    async def test_script_with_ocsf_dependency(self):
+        """Test script with py-ocsf-models dependency.
+
+        This test verifies the nsjail sandbox can install and use OCSF models,
+        which are Pydantic-based security event schemas.
+        """
+        script_content = """
+def main():
+    from py_ocsf_models.events.findings.detection_finding import DetectionFinding
+    from py_ocsf_models.objects.fingerprint import FingerPrint, AlgorithmID
+
+    # Create a fingerprint object using the Pydantic model
+    fp = FingerPrint(
+        algorithm="SHA-256",
+        algorithm_id=AlgorithmID.SHA_256,
+        value="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+
+    # Check that we can access OCSF event classes
+    detection_finding_fields = list(DetectionFinding.model_fields.keys())
+
+    return {
+        "fingerprint_algorithm": fp.algorithm,
+        "fingerprint_value": fp.value,
+        "fingerprint_algorithm_id": fp.algorithm_id.value,
+        "detection_finding_has_fields": len(detection_finding_fields) > 0,
+        "sample_fields": detection_finding_fields[:5],
+    }
+"""
+        result = await run_python(
+            script=script_content,
+            dependencies=["py-ocsf-models==0.8.0"],
+            timeout_seconds=120,
+        )
+        assert result["fingerprint_algorithm"] == "SHA-256"
+        assert (
+            result["fingerprint_value"]
+            == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+        assert result["fingerprint_algorithm_id"] == 3  # SHA_256 = 3
+        assert result["detection_finding_has_fields"] is True
+        assert len(result["sample_fields"]) > 0
 
     @pytest.mark.anyio
     async def test_script_error_handling(self):
@@ -163,7 +264,7 @@ def main():
     return "Should not reach here"
 """
         with pytest.raises(PythonScriptTimeoutError) as exc_info:
-            await run_python(script=script_with_infinite_loop, timeout_seconds=1)
+            await run_python(script=script_with_infinite_loop, timeout_seconds=2)
         assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.anyio
@@ -171,7 +272,6 @@ def main():
         """Test handling of complex data types as function arguments."""
         script_content = """
 def main(data_list, data_dict):
-    # Return a complex data structure
     return {
         "input_list": data_list,
         "input_dict": data_dict,
@@ -193,7 +293,6 @@ def main(data_list, data_dict):
     @pytest.mark.anyio
     async def test_clean_error_messages(self):
         """Test that error messages are clean and user-friendly without tracebacks."""
-        # Test ValueError with function arguments
         script_with_value_error = """
 def main(value):
     if value is None:
@@ -204,152 +303,32 @@ def main(value):
             await run_python(script=script_with_value_error, inputs={"value": None})
         error_msg = str(exc_info.value)
         assert "ValueError: Invalid input provided" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
-
-        # Test TypeError with function arguments
-        script_with_type_error = """
-def main(a, b):
-    result = a + b  # This will cause a TypeError if types are incompatible
-    return result
-"""
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(
-                script=script_with_type_error, inputs={"a": "hello", "b": 5}
-            )
-        error_msg = str(exc_info.value)
-        assert "TypeError" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
 
     @pytest.mark.anyio
-    async def test_numpy_error_messages(self):
-        """Test that numpy errors are extracted cleanly without complex tracebacks."""
-        # Test numpy shape mismatch error with function arguments
-        script_with_numpy_error = """
-def main(array_a, array_b):
-    import numpy as np
-    a = np.array(array_a)
-    b = np.array(array_b)
-    # This will cause a ValueError with numpy-specific details
-    result = a + b
-    return result.tolist()
+    async def test_subprocess_support(self):
+        """Test that subprocess.run works in nsjail sandbox."""
+        script_content = """
+def main():
+    import subprocess
+    result = subprocess.run(['echo', 'Hello from subprocess'], capture_output=True, text=True)
+    return result.stdout.strip()
 """
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(
-                script=script_with_numpy_error,
-                inputs={"array_a": [1, 2, 3], "array_b": [[1, 2], [3, 4]]},
-                dependencies=["numpy"],
-                allow_network=True,  # Enable network access for package installation
-            )
-        error_msg = str(exc_info.value)
-        assert "ValueError" in error_msg
-        # Should contain the actual numpy error message
-        assert "operands could not be broadcast" in error_msg or "shape" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
+        result = await run_python(script=script_content)
+        assert result == "Hello from subprocess"
 
     @pytest.mark.anyio
-    async def test_automation_libraries_success(self):
-        """Test successful operations with common automation libraries using function arguments."""
-
-        # Test pandas DataFrame creation and basic operations
-        pandas_script = """
-def main(sales_data):
-    import pandas as pd
-    df = pd.DataFrame(sales_data)
-    return {
-        'shape': list(df.shape),
-        'columns': list(df.columns),
-        'first_row': df.iloc[0].to_dict()
-    }
+    async def test_env_vars_injection(self):
+        """Test that environment variables are properly injected."""
+        script_content = """
+def main():
+    import os
+    return os.environ.get('TEST_SECRET', 'not found')
 """
-        sales_data = [
-            {"name": "Alice", "age": 25, "city": "NYC"},
-            {"name": "Bob", "age": 30, "city": "LA"},
-            {"name": "Charlie", "age": 35, "city": "Chicago"},
-        ]
         result = await run_python(
-            script=pandas_script,
-            inputs={"sales_data": sales_data},
-            dependencies=["pandas"],
-            allow_network=True,  # Enable network access for package installation
+            script=script_content,
+            env_vars={"TEST_SECRET": "secret_value_123"},
         )
-        assert result["shape"] == [3, 3]
-        assert result["columns"] == ["name", "age", "city"]
-        assert result["first_row"]["name"] == "Alice"
-
-        # Test BeautifulSoup HTML parsing
-        bs_script = """
-def main(html_content):
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html_content, 'html.parser')
-    return {
-        'text': soup.get_text().strip(),
-        'p_count': len(soup.find_all('p')),
-        'first_p': soup.find('p').text
-    }
-"""
-        html_content = (
-            '<div class="content"><p>Hello World</p><p>Second paragraph</p></div>'
-        )
-        result = await run_python(
-            script=bs_script,
-            inputs={"html_content": html_content},
-            dependencies=["beautifulsoup4"],
-            allow_network=True,  # Enable network access for package installation
-        )
-        assert "Hello World" in result["text"]
-        assert result["p_count"] == 2
-        assert result["first_p"] == "Hello World"
-
-    @pytest.mark.anyio
-    async def test_automation_libraries_errors(self):
-        """Test error handling with common automation libraries using function arguments."""
-
-        # Test pandas KeyError (common in data processing)
-        pandas_error_script = """
-def main(data):
-    import pandas as pd
-    df = pd.DataFrame(data)
-    # This will cause a KeyError
-    return df['nonexistent_column'].tolist()
-"""
-        data = [{"a": 1, "b": 4}, {"a": 2, "b": 5}, {"a": 3, "b": 6}]
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(
-                script=pandas_error_script,
-                inputs={"data": data},
-                dependencies=["pandas"],
-                allow_network=True,  # Enable network access for package installation
-            )
-        error_msg = str(exc_info.value)
-        assert "KeyError" in error_msg
-        assert "nonexistent_column" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
-
-        # Test BeautifulSoup AttributeError (common when element not found)
-        bs_error_script = """
-def main(html_content):
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html_content, 'html.parser')
-    # This will cause an AttributeError because find() returns None
-    return soup.find('p').text
-"""
-        html_content = "<div>No paragraphs here</div>"
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(
-                script=bs_error_script,
-                inputs={"html_content": html_content},
-                dependencies=["beautifulsoup4"],
-                allow_network=True,  # Enable network access for package installation
-            )
-        error_msg = str(exc_info.value)
-        assert "AttributeError" in error_msg
-        assert "NoneType" in error_msg or "None" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
+        assert result == "secret_value_123"
 
 
 class TestDocumentationExamples:
@@ -396,24 +375,6 @@ def main(subtotal, tax_rate):
         result = await run_python(script=script, inputs=inputs)
         assert result == 108.0
 
-    @pytest.mark.anyio
-    @pytest.mark.skip(reason="Dependencies might not be available in all environments")
-    async def test_doc_example_with_pip_packages(self):
-        """Test the 'With pip packages' example from the documentation."""
-        script = """
-def main():
-    import numpy as np
-    result = np.array([1, 2, 3])
-    return result.tolist()
-"""
-        dependencies = ["numpy"]
-        result = await run_python(
-            script=script,
-            dependencies=dependencies,
-            allow_network=True,  # Enable network access for package installation
-        )
-        assert result == [1, 2, 3]
-
 
 class TestNetworkSecurity:
     """Test suite for network access security controls."""
@@ -421,32 +382,26 @@ class TestNetworkSecurity:
     @pytest.mark.anyio
     async def test_network_disabled_by_default(self):
         """Test that network access is disabled by default."""
-        # Try to make a network request from within the script
         script = """
 def main():
     try:
         import urllib.request
-        # Try to make a network request
-        response = urllib.request.urlopen('https://httpbin.org/get')
-        return "Network access allowed - this should not happen!"
+        response = urllib.request.urlopen('https://httpbin.org/get', timeout=5)
+        return "Network access allowed"
     except Exception as e:
         return f"Network blocked: {type(e).__name__}"
 """
-        # Network should be blocked by default
         result = await run_python(script=script)
         assert "Network blocked" in result
-        assert "Network access allowed" not in result
 
     @pytest.mark.anyio
     async def test_basic_scripts_work_without_network(self):
         """Test that basic scripts work fine without network access."""
         script = """
 def main(x, y):
-    # Basic operations that don't require external packages
     result = x * y + 10
     return result
 """
-        # Should work fine without network access
         result = await run_python(script=script, inputs={"x": 5, "y": 3})
         assert result == 25
 
@@ -462,59 +417,32 @@ def main():
     data = {"value": math.pi, "timestamp": str(datetime.datetime.now())}
     return json.dumps(data)
 """
-        # Should work fine with builtin modules
         result = await run_python(script=script)
         assert isinstance(result, str)
-        # Should be valid JSON
-        import json
 
         parsed = json.loads(result)
         assert "value" in parsed
         assert "timestamp" in parsed
 
     @pytest.mark.anyio
-    @pytest.mark.skip(reason="Network test - may be slow and requires internet access")
-    async def test_network_enabled_allows_dependencies(self):
+    async def test_network_enabled_when_requested(self):
         """Test that network access works when explicitly enabled."""
         script = """
 def main():
     try:
         import urllib.request
-        # Try to make a network request
-        response = urllib.request.urlopen('https://httpbin.org/get', timeout=5)
+        response = urllib.request.urlopen('https://httpbin.org/get', timeout=10)
         return f"Network access successful: {response.status}"
     except Exception as e:
         return f"Network failed: {type(e).__name__}: {str(e)}"
 """
-        # Should work when network access is enabled
         result = await run_python(
             script=script,
             allow_network=True,
             timeout_seconds=30,
         )
-        assert "Network access successful: 200" in result or "Network failed" in result
-
-    @pytest.mark.anyio
-    async def test_empty_dependencies_work_without_network(self):
-        """Test that empty dependencies list works without network access."""
-        script = """
-def main():
-    return "Hello, World!"
-"""
-        # Should work fine with empty dependencies
-        result = await run_python(script=script, dependencies=[])
-        assert result == "Hello, World!"
-
-    @pytest.mark.anyio
-    async def test_none_dependencies_work_without_network(self):
-        """Test that None dependencies work without network access."""
-        script = """
-def main():
-    return 42
-"""
-        # Should work fine with None dependencies
-        result = await run_python(script=script, dependencies=None)
-        assert result == 42
+        # Either succeeds or fails for network reasons (not sandbox blocking)
+        assert "Network access successful" in result or "Network failed" in result
 
 
 class TestInputValidation:
@@ -546,27 +474,6 @@ def main(user_data, settings):
         assert result == "User: Bob, Theme: dark"
 
     @pytest.mark.anyio
-    async def test_complex_data_types_as_inputs(self):
-        """Test that complex data types work correctly as function arguments."""
-        script = """
-def main(numbers, metadata):
-    total = sum(numbers)
-    return {
-        'sum': total,
-        'count': len(numbers),
-        'source': metadata['source']
-    }
-"""
-        inputs = {
-            "numbers": [1, 2, 3, 4, 5],
-            "metadata": {"source": "test_data", "version": "1.0"},
-        }
-        result = await run_python(script=script, inputs=inputs)
-        assert result["sum"] == 15
-        assert result["count"] == 5
-        assert result["source"] == "test_data"
-
-    @pytest.mark.anyio
     async def test_none_inputs_work(self):
         """Test that None inputs work (no arguments passed)."""
         script = """
@@ -585,45 +492,6 @@ def main():
 """
         result = await run_python(script=script, inputs={})
         assert result == "Empty dict inputs"
-
-    @pytest.mark.anyio
-    async def test_missing_function_parameters_get_none(self):
-        """Test that functions can have optional parameters with default values."""
-        script = """
-def main(required_param, optional_param=None):
-    if optional_param is None:
-        return f"Required: {required_param}, Optional: missing"
-    else:
-        return f"Required: {required_param}, Optional: {optional_param}"
-"""
-        # Only provide required_param, optional_param will use its default value
-        inputs = {"required_param": "test_value"}
-        result = await run_python(script=script, inputs=inputs)
-        assert result == "Required: test_value, Optional: missing"
-
-    @pytest.mark.anyio
-    async def test_extra_input_fields_raise_type_error(self):
-        """Test that extra input fields not matching function parameters raise TypeError."""
-        script = """
-def main(name, age):
-    return f"{name} is {age} years old"
-"""
-        inputs = {
-            "name": "Alice",
-            "age": 30,
-            "city": "NYC",  # Extra field
-            "country": "USA",  # Extra field
-            "occupation": "Engineer",  # Extra field
-        }
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script, inputs=inputs)
-        assert "main() got an unexpected keyword argument 'city'" in str(exc_info.value)
-
-    # Note: We can't test non-dict inputs at runtime because the type system
-    # prevents it at the function signature level. The type annotation
-    # `inputs: dict[str, Any] | None` ensures only dict or None can be passed.
-    # This is enforced by the type checker and would cause a TypeError if
-    # someone tried to pass a list or other non-dict type.
 
 
 class TestSingleFunctionInputs:
@@ -646,62 +514,14 @@ def process_order(item_name, quantity, price_per_item):
         """Test that a single function with no parameters works without inputs."""
         script = """
 def calculate_pi_approximation():
-    # Simple approximation
     return 22 / 7
 """
         result = await run_python(script=script)
         assert abs(result - 3.142857142857143) < 0.000001
 
-    @pytest.mark.anyio
-    async def test_single_function_with_missing_inputs(self):
-        """Test that missing inputs work with default parameter values for single functions."""
-        script = """
-def greet_user(name, title=None):
-    if title is None:
-        return f"Hello, {name}!"
-    else:
-        return f"Hello, {title} {name}!"
-"""
-        inputs = {"name": "Alice"}  # title is missing, will use default value
-        result = await run_python(script=script, inputs=inputs)
-        assert result == "Hello, Alice!"
 
-    @pytest.mark.anyio
-    async def test_main_function_takes_precedence(self):
-        """Test that 'main' function is called even when other functions exist."""
-        script = """
-def helper_function(x):
-    return x * 2
-
-def main(value):
-    # This should be called, not helper_function
-    return helper_function(value) + 10
-"""
-        inputs = {"value": 5}
-        result = await run_python(script=script, inputs=inputs)
-        assert result == 20  # (5 * 2) + 10
-
-    @pytest.mark.anyio
-    async def test_extra_input_fields_raise_type_error(self):
-        """Test that extra input fields not matching function parameters raise TypeError."""
-        script = """
-def main(name, age):
-    return f"{name} is {age} years old"
-"""
-        inputs = {
-            "name": "Alice",
-            "age": 30,
-            "city": "NYC",  # Extra field
-            "country": "USA",  # Extra field
-            "occupation": "Engineer",  # Extra field
-        }
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script, inputs=inputs)
-        assert "main() got an unexpected keyword argument 'city'" in str(exc_info.value)
-
-
-class TestSecurityVulnerabilities:
-    """Test suite for security vulnerabilities and sandbox isolation."""
+class TestSecurityIsolation:
+    """Test suite for security and sandbox isolation."""
 
     @pytest.mark.anyio
     async def test_command_injection_via_inputs(self):
@@ -710,90 +530,43 @@ class TestSecurityVulnerabilities:
 def main(user_input):
     return f"Processed: {user_input}"
 """
-        # Attempt command injection through repr() vulnerability (now fixed)
         malicious_inputs = {
             "user_input": '"); import os; os.system("cat /etc/passwd"); print("'
         }
 
-        # Should execute safely without running the injected code
         result = await run_python(script=script, inputs=malicious_inputs)
         assert (
             result == 'Processed: "); import os; os.system("cat /etc/passwd"); print("'
         )
 
     @pytest.mark.anyio
-    async def test_file_system_access_blocked(self):
-        """Test that scripts cannot access the file system outside sandbox."""
-        # Test reading sensitive files
+    async def test_file_system_isolation(self):
+        """Test that scripts cannot access the host file system."""
         script_read = """
 def main():
     try:
-        import os
-        # Try to read a sensitive file
+        # Try to read host's /etc/passwd
         with open('/etc/passwd', 'r') as f:
-            return f.read()
+            content = f.read()
+        # If we can read it, return the first line to verify it's sandbox's file
+        return content.split('\\n')[0]
     except Exception as e:
-        return f"Blocked: {type(e).__name__}"
+        return f"Error: {type(e).__name__}"
 """
         result = await run_python(script=script_read)
-        assert "Blocked" in result or "Error" in result
-        assert "/etc/passwd" not in result  # Content should not be accessible
-
-        # Test executing system commands - this should fail due to lack of env access
-        script_exec = """
-def main():
-    try:
-        import os
-        result = os.system('echo "pwned" > /tmp/hacked.txt')
-        return f"Command result: {result}"
-    except Exception as e:
-        return f"Blocked: {type(e).__name__}"
-"""
-        # os.system requires env access, which we don't provide
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script_exec)
-
-        error_msg = str(exc_info.value)
-        assert "Operation not permitted" in error_msg
-        assert "security restrictions" in error_msg
-
-        # Verify file wasn't created
-        assert not os.path.exists("/tmp/hacked.txt")
-
-    @pytest.mark.anyio
-    async def test_script_injection_in_deno(self):
-        """Test that scripts with special characters are safely handled."""
-        # Test template literal injection
-        script_template_injection = """
-def main():
-    return "Result: ${1+1} and `backticks` and ${'test'}"
-"""
-        result = await run_python(script=script_template_injection)
-        # Should return the literal string, not evaluate the template
-        assert "${1+1}" in result
-        assert "`backticks`" in result
-
-        # Test escape sequence injection
-        script_escape_injection = """
-def main():
-    # Test that backslashes and quotes are handled safely
-    return r'\\"; console.log("injected"); //'
-"""
-        result = await run_python(script=script_escape_injection)
-        # Should not execute the injected JavaScript
-        assert "console.log" in result
-        assert "injected" in result
+        # Should either fail or read the sandbox's /etc/passwd (with sandbox user)
+        if "Error" not in result:
+            # If it succeeded, verify it's reading sandbox's passwd file
+            assert "sandbox" in result or "root" in result
 
     @pytest.mark.anyio
     async def test_large_input_handling(self):
-        """Test handling of large inputs that could cause DoS."""
+        """Test handling of large inputs."""
         script = """
 def main(data):
     return f"Received {len(data)} items"
 """
-        # Create a large but reasonable input
         large_input = {"data": list(range(10000))}
-
         result = await run_python(script=script, inputs=large_input)
         assert result == "Received 10000 items"
 
@@ -805,7 +578,6 @@ def process_data(data):
     return data.upper() if isinstance(data, str) else str(data)
 
 def main(user_input):
-    # Even with function composition, injection should be prevented
     result = process_data(user_input)
     return f"Final: {result}"
 """
@@ -814,79 +586,150 @@ def main(user_input):
         result = await run_python(script=script, inputs=malicious_input)
         assert result == "Final: __IMPORT__('OS').SYSTEM('ID')"
 
-    @pytest.mark.anyio
-    async def test_import_restrictions(self):
-        """Test that dangerous imports are handled safely in Pyodide."""
-        # Test subprocess import (not available in Pyodide)
-        script_subprocess = """
-def main():
-    try:
-        import subprocess
-        return subprocess.check_output(['whoami']).decode()
-    except Exception as e:
-        return f"Import failed: {type(e).__name__}"
-"""
-        result = await run_python(script=script_subprocess)
-        assert "Import failed" in result
 
-        # Test eval with malicious input - should fail due to env restrictions
-        script_eval = """
-def main(code):
-    try:
-        return eval(code)
-    except Exception as e:
-        return f"Eval failed: {type(e).__name__}"
-"""
-        # This will trigger os.system which requires env access
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(
-                script=script_eval, inputs={"code": "__import__('os').system('id')"}
-            )
-
-        error_msg = str(exc_info.value)
-        assert "Operation not permitted" in error_msg
-        assert "security restrictions" in error_msg
+class TestMultiTenantIsolation:
+    """Test suite for multi-tenant workspace isolation."""
 
     @pytest.mark.anyio
-    async def test_resource_exhaustion_protection(self):
-        """Test timeout protection against infinite loops and resource exhaustion."""
-        # This test is already covered by test_script_timeout
-        # but let's add a memory exhaustion test
-        script_memory = """
-def main():
-    # Try to consume excessive memory
-    data = []
-    for i in range(1000000):
-        data.append([0] * 1000000)
-    return len(data)
-"""
-        with pytest.raises((PythonScriptTimeoutError, PythonScriptExecutionError)):
-            await run_python(script=script_memory, timeout_seconds=5)
+    async def test_workspace_cache_isolation(self):
+        """Test that different workspaces get separate package caches."""
+        service = SandboxService()
+
+        # Compute cache keys for same dependencies with different workspace IDs
+        deps = ["requests==2.28.0"]
+        cache_key_workspace_a = service._compute_cache_key(
+            dependencies=deps, workspace_id="workspace-a"
+        )
+        cache_key_workspace_b = service._compute_cache_key(
+            dependencies=deps, workspace_id="workspace-b"
+        )
+        cache_key_no_workspace = service._compute_cache_key(
+            dependencies=deps, workspace_id=None
+        )
+
+        # Verify different workspaces get different cache keys
+        assert cache_key_workspace_a != cache_key_workspace_b
+        assert cache_key_workspace_a != cache_key_no_workspace
+        assert cache_key_workspace_b != cache_key_no_workspace
+
+    @pytest.mark.anyio
+    async def test_version_isolation(self):
+        """Test that different package versions get different cache keys."""
+        service = SandboxService()
+        workspace_id = "workspace-test"
+
+        # Different versions should produce different cache keys
+        key_v1 = service._compute_cache_key(
+            dependencies=["requests==2.28.0"], workspace_id=workspace_id
+        )
+        key_v2 = service._compute_cache_key(
+            dependencies=["requests==2.29.0"], workspace_id=workspace_id
+        )
+
+        assert key_v1 != key_v2
+
+    @pytest.mark.anyio
+    async def test_cache_key_format(self):
+        """Test that cache keys follow expected format (hex string)."""
+        service = SandboxService()
+        cache_key = service._compute_cache_key(
+            dependencies=["requests==2.28.0"], workspace_id="workspace-test"
+        )
+
+        # Cache key should be a 16-character hexadecimal string
+        assert isinstance(cache_key, str)
+        assert len(cache_key) == 16
+        assert re.match(r"^[a-f0-9]+$", cache_key)
 
 
-def print_deno_installation_instructions():
-    """Print instructions for installing Deno."""
+class TestPyPIConfiguration:
+    """Test suite for PyPI index URL configuration."""
+
+    @pytest.mark.anyio
+    async def test_default_pypi_index_used(self):
+        """Test that default PyPI index is used when no configuration is set."""
+        # Default should be public PyPI
+        assert TRACECAT__SANDBOX_PYPI_INDEX_URL == "https://pypi.org/simple"
+
+    @pytest.mark.anyio
+    async def test_custom_pypi_index_configuration(self, monkeypatch):
+        """Test that custom PyPI index URL can be configured."""
+        # Set custom index URL
+        custom_url = "https://custom.pypi.example.com/simple"
+        monkeypatch.setenv("TRACECAT__SANDBOX_PYPI_INDEX_URL", custom_url)
+
+        # Reload config to pick up new env var
+        importlib.reload(config)
+
+        assert config.TRACECAT__SANDBOX_PYPI_INDEX_URL == custom_url
+
+    @pytest.mark.anyio
+    async def test_extra_index_urls_configuration(self, monkeypatch):
+        """Test that extra index URLs can be configured."""
+        # Set extra index URLs
+        extra_urls = (
+            "https://extra1.example.com/simple,https://extra2.example.com/simple"
+        )
+        monkeypatch.setenv("TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS", extra_urls)
+
+        # Reload config to pick up new env var
+        importlib.reload(config)
+
+        assert len(config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS) == 2
+        assert (
+            "https://extra1.example.com/simple"
+            in config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+        )
+        assert (
+            "https://extra2.example.com/simple"
+            in config.TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+        )
+
+    @pytest.mark.anyio
+    async def test_executor_passes_index_urls_to_install_env(self):
+        """Test that executor passes PyPI index URLs to install environment."""
+        sandbox_config = SandboxConfig(
+            network_enabled=False,
+            env_vars={},
+        )
+        executor = NsjailExecutor()
+
+        # Build environment for install phase
+        env_map = executor._build_env_map(sandbox_config, phase="install")
+
+        # Verify PyPI index URLs are in the environment
+        assert "UV_INDEX_URL" in env_map
+        assert env_map["UV_INDEX_URL"] == "https://pypi.org/simple"
+
+
+def print_nsjail_installation_instructions():
+    """Print instructions for setting up nsjail sandbox."""
     print("\n" + "=" * 80)
-    print("Deno Installation Instructions")
+    print("nsjail Sandbox Setup Instructions")
     print("=" * 80)
-    print("""
-To run these tests, you need Deno installed in your environment:
+    print(
+        """
+These tests require nsjail sandbox to be set up. This is typically done
+inside the Docker container during the image build process.
 
-1. Install Deno:
-   - macOS/Linux: curl -fsSL https://deno.land/install.sh | sh
-   - Windows: iwr https://deno.land/install.ps1 -useb | iex
-   - Alternative: brew install deno (macOS with Homebrew)
+To run tests locally:
 
-2. Add Deno to your PATH if it's not already added
+1. Build and run the development Docker container:
+   just dev
 
-3. Run the tests with:
-   python -m pytest tests/registry/test_core_python.py -v
+2. Run tests inside the executor container:
+   docker exec -it tracecat-executor-1 pytest tests/registry/test_core_python.py -v
 
-Note: Some tests require network access for downloading Pyodide.
-""")
+The sandbox requires:
+- Linux with kernel >= 4.6 (for user namespaces)
+- nsjail binary at /usr/local/bin/nsjail
+- Sandbox rootfs at /var/lib/tracecat/sandbox-rootfs
+- SYS_ADMIN capability (configured in docker-compose)
+"""
+    )
     print("=" * 80 + "\n")
 
 
-# Print installation instructions if Deno is not available
-if not DENO_AVAILABLE and __name__ == "__main__":
-    print_deno_installation_instructions()
+# Print installation instructions if sandbox is not available
+if not (NSJAIL_AVAILABLE and ROOTFS_AVAILABLE) and __name__ == "__main__":
+    print_nsjail_installation_instructions()

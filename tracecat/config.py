@@ -265,14 +265,43 @@ TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
 TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 
-# === Python Script Execution === #
-TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.27.6")
-"""Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
-
-TRACECAT__NODE_MODULES_DIR = os.environ.get(
-    "NODE_MODULES_DIR", "/home/apiuser/.local/lib/node_modules"
+# === Python Script Execution (nsjail Sandbox) === #
+TRACECAT__SANDBOX_NSJAIL_PATH = os.environ.get(
+    "TRACECAT__SANDBOX_NSJAIL_PATH", "/usr/local/bin/nsjail"
 )
-"""Directory where Node.js modules are installed for Deno/Pyodide execution."""
+"""Path to the nsjail binary for sandbox execution."""
+
+TRACECAT__SANDBOX_ROOTFS_PATH = os.environ.get(
+    "TRACECAT__SANDBOX_ROOTFS_PATH", "/var/lib/tracecat/sandbox-rootfs"
+)
+"""Path to the sandbox rootfs directory containing Python 3.12 + uv."""
+
+TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
+    "TRACECAT__SANDBOX_CACHE_DIR", "/var/lib/tracecat/sandbox-cache"
+)
+"""Base directory for sandbox caching (packages, uv cache)."""
+
+TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
+    os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT", "300")
+)
+"""Default timeout for sandbox script execution in seconds."""
+
+TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
+    os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB", "2048")
+)
+"""Default memory limit for sandbox execution in megabytes (2 GiB)."""
+
+TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
+    "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"
+)
+"""Primary PyPI index URL for package installation. Supports private mirrors and air-gapped deployments."""
+
+TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
+    url.strip()
+    for url in os.environ.get("TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS", "").split(",")
+    if url.strip()
+]
+"""Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
