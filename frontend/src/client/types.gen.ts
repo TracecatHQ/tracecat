@@ -180,7 +180,6 @@ export type AgentOutput = {
   duration: number
   usage: RunUsage
   session_id: string
-  trace_id?: string | null
 }
 
 export type AgentPreset = {

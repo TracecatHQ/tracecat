@@ -154,7 +154,6 @@ class AgentOutput(BaseModel):
     duration: float
     usage: RunUsage
     session_id: uuid.UUID
-    trace_id: str | None = None
 
 
 class ExecuteToolCallArgs(BaseModel):

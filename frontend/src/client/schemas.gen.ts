@@ -729,17 +729,6 @@ export const $AgentOutput = {
       format: "uuid",
       title: "Session Id",
     },
-    trace_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Trace Id",
-    },
   },
   type: "object",
   required: ["output", "duration", "usage", "session_id"],

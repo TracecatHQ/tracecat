@@ -115,24 +115,6 @@ custom_model_provider_secret = RegistrySecret(
     - `CUSTOM_MODEL_PROVIDER_BASE_URL`: Optional custom model provider base URL.
 """
 
-langfuse_secret = RegistrySecret(
-    name="langfuse",
-    optional_keys=[
-        "LANGFUSE_HOST",
-        "LANGFUSE_PUBLIC_KEY",
-        "LANGFUSE_SECRET_KEY",
-    ],
-    optional=True,
-)
-"""Langfuse observability configuration.
-
-- name: `langfuse`
-- optional_keys:
-    - `LANGFUSE_HOST`: Optional Langfuse host URL.
-    - `LANGFUSE_PUBLIC_KEY`: Optional Langfuse public key.
-    - `LANGFUSE_SECRET_KEY`: Optional Langfuse secret key.
-"""
-
 PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
@@ -147,7 +129,7 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://ai.pydantic.dev/agents/",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
 async def agent(
@@ -196,7 +178,7 @@ async def agent(
     default_title="Run agent preset",
     description="Run an AI agent using a saved agent preset.",
     display_group="AI",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, langfuse_secret],
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
 async def preset_agent(
