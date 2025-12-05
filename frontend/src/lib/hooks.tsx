@@ -103,8 +103,16 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  type MCPIntegrationCreate,
+  type MCPIntegrationRead,
+  type MCPIntegrationUpdate,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
+  mcpIntegrationsCreateMcpIntegration,
+  mcpIntegrationsDeleteMcpIntegration,
+  mcpIntegrationsGetMcpIntegration,
+  mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
@@ -4172,6 +4180,180 @@ export function useCreateCustomProvider(workspaceId: string) {
     createCustomProvider,
     createCustomProviderIsPending,
     createCustomProviderError,
+  }
+}
+
+export function useCreateMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createMcpIntegration,
+    isPending: createMcpIntegrationIsPending,
+    error: createMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationCreate) => {
+      return await mcpIntegrationsCreateMcpIntegration({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (integration) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      toast({
+        title: "MCP integration created",
+        description: `Added ${integration.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to create MCP integration:", error)
+      toast({
+        title: "Failed to create MCP integration",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createMcpIntegration,
+    createMcpIntegrationIsPending,
+    createMcpIntegrationError,
+  }
+}
+
+export function useListMcpIntegrations(workspaceId: string) {
+  const {
+    data: mcpIntegrations,
+    isLoading: mcpIntegrationsIsLoading,
+    error: mcpIntegrationsError,
+  } = useQuery<MCPIntegrationRead[], TracecatApiError>({
+    queryKey: ["mcp-integrations", workspaceId],
+    queryFn: async () =>
+      await mcpIntegrationsListMcpIntegrations({ workspaceId }),
+    enabled: Boolean(workspaceId),
+  })
+
+  return {
+    mcpIntegrations,
+    mcpIntegrationsIsLoading,
+    mcpIntegrationsError,
+  }
+}
+
+export function useGetMcpIntegration(
+  workspaceId: string,
+  mcpIntegrationId: string | null
+) {
+  const {
+    data: mcpIntegration,
+    isLoading: mcpIntegrationIsLoading,
+    error: mcpIntegrationError,
+  } = useQuery<MCPIntegrationRead, TracecatApiError>({
+    queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+    queryFn: async () =>
+      await mcpIntegrationsGetMcpIntegration({
+        workspaceId,
+        mcpIntegrationId: mcpIntegrationId!,
+      }),
+    enabled: Boolean(workspaceId && mcpIntegrationId),
+  })
+
+  return {
+    mcpIntegration,
+    mcpIntegrationIsLoading,
+    mcpIntegrationError,
+  }
+}
+
+export function useUpdateMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateMcpIntegration,
+    isPending: updateMcpIntegrationIsPending,
+    error: updateMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async ({
+      mcpIntegrationId,
+      params,
+    }: {
+      mcpIntegrationId: string
+      params: MCPIntegrationUpdate
+    }) => {
+      return await mcpIntegrationsUpdateMcpIntegration({
+        workspaceId,
+        mcpIntegrationId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (integration) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, integration.id],
+      })
+      toast({
+        title: "MCP integration updated",
+        description: `Updated ${integration.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update MCP integration:", error)
+      toast({
+        title: "Failed to update MCP integration",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    updateMcpIntegration,
+    updateMcpIntegrationIsPending,
+    updateMcpIntegrationError,
+  }
+}
+
+export function useDeleteMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: deleteMcpIntegration,
+    isPending: deleteMcpIntegrationIsPending,
+    error: deleteMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsDeleteMcpIntegration({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      toast({
+        title: "MCP integration deleted",
+        description: "The integration has been removed",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to delete MCP integration:", error)
+      toast({
+        title: "Failed to delete MCP integration",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    deleteMcpIntegration,
+    deleteMcpIntegrationIsPending,
+    deleteMcpIntegrationError,
   }
 }
 

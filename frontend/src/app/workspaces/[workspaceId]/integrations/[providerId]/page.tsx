@@ -290,6 +290,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
   return (
     <div className="container mx-auto max-w-4xl p-6 mb-20 mt-12">
+      <Link
+        href={`/workspaces/${workspaceId}/integrations`}
+        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
+      >
+        <ChevronLeft className="mr-1 size-4" />
+        Back to integrations
+      </Link>
       {/* Header */}
       <div className="mb-8 flex items-start justify-between">
         <div className="flex items-start gap-4">

@@ -120,7 +120,7 @@ import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
   useChatReadiness,
-  useIntegrations,
+  useListMcpIntegrations,
   useModelProviders,
   useRegistryActions,
   useWorkspaceModelProvidersStatus,
@@ -141,6 +141,26 @@ const DATA_TYPE_OUTPUT_TYPES = [
 
 const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
+
+/**
+ * Maps MCP integration slugs to provider IDs for icon lookup.
+ * This handles both built-in MCP providers and custom integrations.
+ */
+function getMcpProviderId(slug: string): string | undefined {
+  // Map common slugs to provider IDs
+  const slugMap: Record<string, string> = {
+    "github-copilot": "github_mcp",
+    github: "github_mcp",
+    sentry: "sentry_mcp",
+    notion: "notion_mcp",
+    linear: "linear_mcp",
+    runreveal: "runreveal_mcp",
+    "secure-annex": "secureannex_mcp",
+    secureannex: "secureannex_mcp",
+  }
+
+  return slugMap[slug.toLowerCase()]
+}
 
 const agentPresetSchema = z
   .object({
@@ -248,38 +268,23 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { providers } = useModelProviders()
   const { models } = useAgentModels()
 
-  const {
-    integrations,
-    providers: integrationProviders,
-    integrationsIsLoading,
-    providersIsLoading: integrationProvidersIsLoading,
-  } = useIntegrations(workspaceId)
+  const { mcpIntegrations, mcpIntegrationsIsLoading } =
+    useListMcpIntegrations(workspaceId)
 
-  const mcpIntegrations = useMemo(() => {
-    if (!integrations || !integrationProviders) {
+  const mcpIntegrationsForForm = useMemo(() => {
+    if (!mcpIntegrations) {
       return []
     }
 
-    const providerMap = new Map(
-      integrationProviders
-        .filter((provider) => provider.id.endsWith("_mcp"))
-        .map((provider) => [provider.id, provider])
-    )
-
-    return integrations
-      .filter((integration) => providerMap.has(integration.provider_id))
-      .map((integration) => {
-        const provider = providerMap.get(integration.provider_id)!
-        // Remove " MCP" suffix from provider names for cleaner display
-        const displayName = provider.name.replace(/\s*MCP\s*$/i, "")
-        return {
-          providerId: integration.provider_id,
-          name: displayName,
-          description: provider.description,
-        }
-      })
+    return mcpIntegrations
+      .map((integration) => ({
+        id: integration.id,
+        name: integration.name,
+        description: integration.description,
+        providerId: getMcpProviderId(integration.slug),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [integrations, integrationProviders])
+  }, [mcpIntegrations])
 
   const currentTab = searchParams?.get("tab") === "chat" ? "chat" : "presets"
 
@@ -517,10 +522,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
             namespaceSuggestions={namespaceSuggestions}
             modelOptionsByProvider={modelOptionsByProvider}
             modelProviderOptions={modelProviderOptions}
-            mcpIntegrations={mcpIntegrations}
-            mcpIntegrationsIsLoading={
-              integrationsIsLoading || integrationProvidersIsLoading
-            }
+            mcpIntegrations={mcpIntegrationsForForm}
+            mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
             isSaving={
               selectedPreset
                 ? updateAgentPresetIsPending
@@ -1059,9 +1062,10 @@ function AgentPresetForm({
   modelProviderOptions: string[]
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
   mcpIntegrations: {
-    providerId: string
+    id: string
     name: string
     description?: string | null
+    providerId?: string
   }[]
   mcpIntegrationsIsLoading: boolean
 }) {
@@ -1330,13 +1334,14 @@ function AgentPresetForm({
                         searchKeys={["label", "value"]}
                         suggestions={(mcpIntegrations ?? []).map(
                           (integration) => ({
-                            id: integration.providerId,
+                            id: integration.id,
                             label: integration.name,
-                            value: integration.providerId,
-                            description: integration.description || "Connected",
+                            value: integration.id,
+                            description:
+                              integration.description || "MCP Integration",
                             icon: (
                               <ProviderIcon
-                                providerId={integration.providerId}
+                                providerId={integration.providerId || "custom"}
                                 className="size-3 bg-transparent p-0 mx-1"
                               />
                             ),
@@ -1546,14 +1551,14 @@ function AgentPresetForm({
                                   <FormControl>
                                     <ActionSelect
                                       field={field}
-                                      suggestions={actionSuggestions}
+                                      suggestions={[...actionSuggestions]}
                                       searchKeys={[
                                         "label",
                                         "value",
                                         "description",
                                         "group",
                                       ]}
-                                      placeholder="Select an action..."
+                                      placeholder="Select an action or MCP tool..."
                                       disabled={isSaving}
                                     />
                                   </FormControl>
