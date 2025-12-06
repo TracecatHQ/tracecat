@@ -8,7 +8,11 @@ import {
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
-import { actionsCreateAction, type RegistryActionReadMinimal } from "@/client"
+import {
+  actionsCreateAction,
+  type GraphOperation,
+  type RegistryActionReadMinimal,
+} from "@/client"
 import type { ActionNodeType } from "@/components/builder/canvas/action-node"
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
@@ -25,7 +29,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import {
+  useBuilderRegistryActions,
+  useGraph,
+  useGraphOperations,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -217,7 +225,12 @@ function ActionCommandGroup({
   inputValue: string
 }) {
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
-  const { getNode, setNodes, setEdges } = reactFlow
+  const { getNode, getEdges, setNodes, setEdges } = reactFlow
+  const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
+  const { applyGraphOperations } = useGraphOperations(
+    workspaceId,
+    workflowId ?? ""
+  )
 
   // Move sortedActions and filterResults logic here
   const sortedActions = useMemo(() => {
@@ -236,6 +249,10 @@ function ActionCommandGroup({
       console.log("Selected action:", registryAction)
       const { position } = getNode(nodeId) as Node<SelectorNodeData>
 
+      // Find any incoming edge to the selector node before we modify state
+      const currentEdges = getEdges()
+      const incomingEdge = currentEdges.find((e) => e.target === nodeId)
+
       try {
         const type = registryAction.action
         const title = registryAction.default_title || registryAction.action
@@ -247,6 +264,34 @@ function ActionCommandGroup({
             title,
           },
         })
+
+        // If there's an incoming edge, persist it via graph operations
+        if (incomingEdge) {
+          const isTrigger = incomingEdge.source.startsWith("trigger")
+          const operation: GraphOperation = {
+            type: "add_edge",
+            payload: {
+              source_id: incomingEdge.source,
+              source_type: isTrigger ? "trigger" : "udf",
+              target_id: id,
+              source_handle: isTrigger
+                ? undefined
+                : ((incomingEdge.sourceHandle as "success" | "error") ??
+                  "success"),
+            },
+          }
+
+          try {
+            await applyGraphOperations({
+              baseVersion: graphData?.version ?? 1,
+              operations: [operation],
+            })
+          } catch (error) {
+            console.error("Failed to persist edge:", error)
+            // Continue anyway - the node was created, edge will be lost on refresh
+          }
+        }
+
         const newNode = {
           id,
           type: "udf",
@@ -287,7 +332,17 @@ function ActionCommandGroup({
         return // Abort
       }
     },
-    [getNode, nodeId, workflowId, workspaceId, setNodes, setEdges]
+    [
+      getNode,
+      getEdges,
+      nodeId,
+      workflowId,
+      workspaceId,
+      setNodes,
+      setEdges,
+      applyGraphOperations,
+      graphData?.version,
+    ]
   )
 
   return (

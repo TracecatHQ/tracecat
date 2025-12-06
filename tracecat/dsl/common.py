@@ -47,9 +47,9 @@ from tracecat.dsl.schemas import (
     TriggerInputs,
 )
 from tracecat.dsl.view import (
+    NodeVariant,
     RFEdge,
     RFGraph,
-    RFNode,
     TriggerNode,
     UDFNode,
     UDFNodeData,
@@ -64,6 +64,7 @@ from tracecat.exceptions import (
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
@@ -385,14 +386,20 @@ class DSLInput(BaseModel):
     def dump_yaml(self) -> str:
         return yaml.dump(self.model_dump())
 
-    def to_graph(self, trigger_node: TriggerNode, ref2id: dict[str, str]) -> RFGraph:
+    def to_graph(
+        self, trigger_node: TriggerNode, ref2id: dict[str, ActionID]
+    ) -> RFGraph:
         """Construct a new react flow graph from this DSLInput.
 
         We depend on the trigger from the old graph to create the new graph.
+
+        Args:
+            trigger_node: The trigger node from the workflow
+            ref2id: Mapping from action ref (slugified title) to action ID (UUID)
         """
 
         # Create nodes and edges
-        nodes: list[RFNode] = [trigger_node]
+        nodes: list[NodeVariant] = [trigger_node]
         edges: list[RFEdge] = []
         try:
             for action in self.actions:
@@ -607,9 +614,13 @@ def context_locator(
 def build_action_statements(
     graph: RFGraph, actions: list[Action]
 ) -> list[ActionStatement]:
-    """Convert DB Actions into ActionStatements using the graph."""
-    # Use string keys since graph node IDs are strings (UUID format)
-    id2action = {str(action.id): action for action in actions}
+    """Convert DB Actions into ActionStatements using the graph.
+
+    DEPRECATED: Use build_action_statements_from_actions() instead.
+    This function is kept for backward compatibility during the transition.
+    """
+    # Map action ID (UUID) to Action model
+    id2action = {action.id: action for action in actions}
 
     statements = []
     for node in graph.action_nodes():
@@ -627,6 +638,63 @@ def build_action_statements(
         dependencies = sorted(dependencies)
 
         action = id2action[node.id]
+        control_flow = ActionControlFlow.model_validate(action.control_flow)
+        args = yaml.safe_load(action.inputs) or {}
+        interaction = (
+            ActionInteractionValidator.validate_python(action.interaction)
+            if action.is_interactive and action.interaction
+            else None
+        )
+        action_stmt = ActionStatement(
+            id=action.id,
+            ref=action.ref,
+            action=action.type,
+            args=args,
+            depends_on=dependencies,
+            run_if=control_flow.run_if,
+            for_each=control_flow.for_each,
+            retry_policy=control_flow.retry_policy,
+            start_delay=control_flow.start_delay,
+            wait_until=control_flow.wait_until,
+            join_strategy=control_flow.join_strategy,
+            interaction=interaction,
+            environment=control_flow.environment,
+        )
+        statements.append(action_stmt)
+    return statements
+
+
+def build_action_statements_from_actions(
+    actions: list[Action],
+) -> list[ActionStatement]:
+    """Convert DB Actions into ActionStatements using upstream_edges.
+
+    This function uses Action.upstream_edges directly as the source of truth
+    for dependencies, eliminating the need for a separate RFGraph object.
+    """
+    id2action = {action.id: action for action in actions}
+
+    statements = []
+    for action in actions:
+        dependencies: list[str] = []
+
+        # Build dependencies from upstream_edges
+        for edge_data in action.upstream_edges:
+            source_id = edge_data.get("source_id")
+            source_handle = edge_data.get("source_handle", "success")
+
+            if source_id and source_id in id2action:
+                source_action = id2action[source_id]
+                base_ref = source_action.ref
+
+                if source_handle == "error":
+                    ref = dep_from_edge_components(base_ref, EdgeType.ERROR)
+                else:
+                    ref = base_ref
+                dependencies.append(ref)
+
+        dependencies = sorted(dependencies)
+
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = yaml.safe_load(action.inputs) or {}
         interaction = (

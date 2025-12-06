@@ -166,10 +166,69 @@ export const $ActionCreate = {
       ],
       title: "Interaction",
     },
+    position_x: {
+      type: "number",
+      title: "Position X",
+      default: 0,
+    },
+    position_y: {
+      type: "number",
+      title: "Position Y",
+      default: 0,
+    },
+    upstream_edges: {
+      items: {
+        $ref: "#/components/schemas/ActionEdge",
+      },
+      type: "array",
+      title: "Upstream Edges",
+    },
   },
   type: "object",
   required: ["workflow_id", "type", "title"],
   title: "ActionCreate",
+} as const
+
+export const $ActionEdge = {
+  properties: {
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_type: {
+      type: "string",
+      enum: ["trigger", "udf"],
+      title: "Source Type",
+    },
+    source_handle: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Source Handle",
+    },
+  },
+  type: "object",
+  required: ["source_id", "source_type"],
+  title: "ActionEdge",
+  description: `Represents an incoming edge to an action.
+
+Stored in Action.upstream_edges to represent incoming connections.`,
+} as const
+
+export const $ActionPositionUpdate = {
+  properties: {
+    action_id: {
+      type: "string",
+      format: "uuid",
+      title: "Action Id",
+    },
+    position: {
+      $ref: "#/components/schemas/Position",
+    },
+  },
+  type: "object",
+  required: ["action_id", "position"],
+  title: "ActionPositionUpdate",
+  description: "Position update for a single action.",
 } as const
 
 export const $ActionRead = {
@@ -231,6 +290,23 @@ export const $ActionRead = {
         },
       ],
       title: "Interaction",
+    },
+    position_x: {
+      type: "number",
+      title: "Position X",
+      default: 0,
+    },
+    position_y: {
+      type: "number",
+      title: "Position Y",
+      default: 0,
+    },
+    upstream_edges: {
+      items: {
+        $ref: "#/components/schemas/ActionEdge",
+      },
+      type: "array",
+      title: "Upstream Edges",
     },
     ref: {
       type: "string",
@@ -601,6 +677,42 @@ export const $ActionUpdate = {
         },
       ],
       title: "Interaction",
+    },
+    position_x: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position X",
+    },
+    position_y: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position Y",
+    },
+    upstream_edges: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ActionEdge",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Upstream Edges",
     },
   },
   type: "object",
@@ -2097,7 +2209,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "AudioUrl",
-  description: "A URL to an audio file.",
 } as const
 
 export const $AuthSettingsRead = {
@@ -2175,6 +2286,31 @@ export const $AuthSettingsUpdate = {
   },
   type: "object",
   title: "AuthSettingsUpdate",
+} as const
+
+export const $BatchPositionUpdate = {
+  properties: {
+    actions: {
+      items: {
+        $ref: "#/components/schemas/ActionPositionUpdate",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    trigger_position: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Position",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "BatchPositionUpdate",
+  description: "Batch update for action and trigger positions.",
 } as const
 
 export const $BinaryContent = {
@@ -2259,7 +2395,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["data", "media_type", "identifier"],
   title: "BinaryContent",
-  description: "Binary content, e.g. an audio or image file.",
 } as const
 
 export const $Body_auth_auth_database_login = {
@@ -2508,7 +2643,6 @@ export const $BuiltinToolCallEvent = {
   type: "object",
   required: ["part"],
   title: "BuiltinToolCallEvent",
-  description: "An event indicating the start to a call to a built-in tool.",
   deprecated: true,
 } as const
 
@@ -2581,7 +2715,6 @@ export const $BuiltinToolCallPart = {
   type: "object",
   required: ["tool_name"],
   title: "BuiltinToolCallPart",
-  description: "A tool call to a built-in tool.",
 } as const
 
 export const $BuiltinToolResultEvent = {
@@ -2599,7 +2732,6 @@ export const $BuiltinToolResultEvent = {
   type: "object",
   required: ["result"],
   title: "BuiltinToolResultEvent",
-  description: "An event indicating the result of a built-in tool call.",
   deprecated: true,
 } as const
 
@@ -2657,7 +2789,6 @@ export const $BuiltinToolReturnPart = {
   type: "object",
   required: ["tool_name", "content"],
   title: "BuiltinToolReturnPart",
-  description: "A tool return message from a built-in tool.",
 } as const
 
 export const $CachePoint = {
@@ -5624,6 +5755,7 @@ export const $DataUIPart = {
       title: "Data",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "data"],
   title: "DataUIPart",
@@ -5686,7 +5818,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
-  description: "The URL of the document.",
 } as const
 
 export const $DynamicToolUIPartInputAvailable = {
@@ -5729,6 +5860,7 @@ export const $DynamicToolUIPartInputAvailable = {
       title: "Callprovidermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolName", "toolCallId", "state", "input"],
   title: "DynamicToolUIPartInputAvailable",
@@ -5766,6 +5898,7 @@ export const $DynamicToolUIPartInputStreaming = {
       title: "Errortext",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolName", "toolCallId", "state"],
   title: "DynamicToolUIPartInputStreaming",
@@ -5814,6 +5947,7 @@ export const $DynamicToolUIPartOutputAvailable = {
       title: "Preliminary",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolName", "toolCallId", "state", "input", "output"],
   title: "DynamicToolUIPartOutputAvailable",
@@ -5859,6 +5993,7 @@ export const $DynamicToolUIPartOutputError = {
       title: "Callprovidermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolName", "toolCallId", "state", "input", "errorText"],
   title: "DynamicToolUIPartOutputError",
@@ -6545,7 +6680,6 @@ export const $FilePart = {
   type: "object",
   required: ["content"],
   title: "FilePart",
-  description: "A file response from a model.",
 } as const
 
 export const $FileUIPart = {
@@ -6576,6 +6710,7 @@ export const $FileUIPart = {
       title: "Providermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
@@ -6727,7 +6862,6 @@ export const $FunctionToolCallEvent = {
   type: "object",
   required: ["part"],
   title: "FunctionToolCallEvent",
-  description: "An event indicating the start to a call to a function tool.",
 } as const
 
 export const $FunctionToolResultEvent = {
@@ -6792,7 +6926,6 @@ export const $FunctionToolResultEvent = {
   type: "object",
   required: ["result"],
   title: "FunctionToolResultEvent",
-  description: "An event indicating the result of a function tool call.",
 } as const
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -7166,6 +7299,103 @@ export const $GitSettingsUpdate = {
   title: "GitSettingsUpdate",
 } as const
 
+export const $GraphOperation = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/GraphOperationType",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+      description: "Operation-specific payload",
+    },
+  },
+  type: "object",
+  required: ["type", "payload"],
+  title: "GraphOperation",
+  description: "A single graph operation.",
+} as const
+
+export const $GraphOperationType = {
+  type: "string",
+  enum: [
+    "add_node",
+    "update_node",
+    "delete_node",
+    "add_edge",
+    "delete_edge",
+    "move_nodes",
+    "update_trigger_position",
+    "update_viewport",
+  ],
+  title: "GraphOperationType",
+  description: "Graph operation types.",
+} as const
+
+export const $GraphOperationsRequest = {
+  properties: {
+    base_version: {
+      type: "integer",
+      title: "Base Version",
+      description: "Expected current graph_version. Returns 409 if mismatched.",
+    },
+    operations: {
+      items: {
+        $ref: "#/components/schemas/GraphOperation",
+      },
+      type: "array",
+      title: "Operations",
+      description: "List of operations to apply atomically",
+    },
+  },
+  type: "object",
+  required: ["base_version", "operations"],
+  title: "GraphOperationsRequest",
+  description: `Request for PATCH /workflows/{id}/graph.
+
+Applies a batch of graph operations with optimistic concurrency.`,
+} as const
+
+export const $GraphResponse = {
+  properties: {
+    version: {
+      type: "integer",
+      title: "Version",
+      description: "Graph version for optimistic concurrency",
+    },
+    nodes: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Nodes",
+      description: "React Flow nodes",
+    },
+    edges: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Edges",
+      description: "React Flow edges",
+    },
+    viewport: {
+      additionalProperties: true,
+      type: "object",
+      title: "Viewport",
+    },
+  },
+  type: "object",
+  required: ["version", "nodes", "edges"],
+  title: "GraphResponse",
+  description: `Response for GET /workflows/{id}/graph.
+
+Returns the canonical graph projection from Actions.`,
+} as const
+
 export const $HTTPValidationError = {
   properties: {
     detail: {
@@ -7236,7 +7466,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
-  description: "A URL to an image.",
 } as const
 
 export const $InferredColumn = {
@@ -8245,8 +8474,6 @@ export const $ModelRequest = {
   type: "object",
   required: ["parts"],
   title: "ModelRequest",
-  description:
-    "A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.",
 } as const
 
 export const $ModelResponse = {
@@ -8386,8 +8613,6 @@ export const $ModelResponse = {
   type: "object",
   required: ["parts"],
   title: "ModelResponse",
-  description:
-    "A response from a model, e.g. a message from the model to the Pydantic AI app.",
 } as const
 
 export const $ModelSecretConfig = {
@@ -8861,6 +9086,23 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $Position = {
+  properties: {
+    x: {
+      type: "number",
+      title: "X",
+      default: 0,
+    },
+    y: {
+      type: "number",
+      title: "Y",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "Position",
 } as const
 
 export const $PriorityChangedEventRead = {
@@ -9379,6 +9621,7 @@ export const $ReasoningUIPart = {
       title: "Providermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "text"],
   title: "ReasoningUIPart",
@@ -10659,18 +10902,6 @@ export const $RetryPromptPart = {
   type: "object",
   required: ["content"],
   title: "RetryPromptPart",
-  description: `A message back to a model asking it to try again.
-
-This can be sent for a number of reasons:
-
-* Pydantic validation of tool arguments failed, here content is derived from a Pydantic
-  [\`ValidationError\`][pydantic_core.ValidationError]
-* a tool raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception
-* no tool was found for the tool name
-* the model returned plain text when a structured response was expected
-* Pydantic validation of a structured response failed, here content is derived from a Pydantic
-  [\`ValidationError\`][pydantic_core.ValidationError]
-* an output validator raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception`,
 } as const
 
 export const $Role = {
@@ -11907,6 +12138,7 @@ export const $SourceDocumentUIPart = {
       title: "Providermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "sourceId", "mediaType", "title"],
   title: "SourceDocumentUIPart",
@@ -11941,6 +12173,7 @@ export const $SourceUrlUIPart = {
       title: "Providermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "sourceId", "url"],
   title: "SourceUrlUIPart",
@@ -12033,6 +12266,7 @@ export const $StepStartUIPart = {
       title: "Type",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type"],
   title: "StepStartUIPart",
@@ -12095,9 +12329,6 @@ export const $SystemPromptPart = {
   type: "object",
   required: ["content"],
   title: "SystemPromptPart",
-  description: `A system prompt, generally written by the application developer.
-
-This gives the model context and guidance on how to respond.`,
 } as const
 
 export const $TableColumnCreate = {
@@ -13572,7 +13803,6 @@ export const $TextPart = {
   type: "object",
   required: ["content"],
   title: "TextPart",
-  description: "A plain text response from a model.",
 } as const
 
 export const $TextPartDelta = {
@@ -13603,8 +13833,6 @@ export const $TextPartDelta = {
   type: "object",
   required: ["content_delta"],
   title: "TextPartDelta",
-  description:
-    "A partial update (delta) for a `TextPart` to append new text content.",
 } as const
 
 export const $TextUIPart = {
@@ -13632,6 +13860,7 @@ export const $TextUIPart = {
       title: "Providermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "text"],
   title: "TextUIPart",
@@ -13699,7 +13928,6 @@ export const $ThinkingPart = {
   type: "object",
   required: ["content"],
   title: "ThinkingPart",
-  description: "A thinking response from a model.",
 } as const
 
 export const $ThinkingPartDelta = {
@@ -13866,7 +14094,6 @@ export const $ToolCallPart = {
   type: "object",
   required: ["tool_name"],
   title: "ToolCallPart",
-  description: "A tool call from a model.",
 } as const
 
 export const $ToolCallPartDelta = {
@@ -13947,8 +14174,6 @@ export const $ToolDenied = {
   },
   type: "object",
   title: "ToolDenied",
-  description:
-    "Indicates that a tool call has been denied and that a denial message should be returned to the model.",
 } as const
 
 export const $ToolReturn = {
@@ -14008,12 +14233,6 @@ export const $ToolReturn = {
   type: "object",
   required: ["return_value"],
   title: "ToolReturn",
-  description: `A structured return value for tools that need to provide both a return value and custom content to the model.
-
-This class allows tools to return complex responses that include:
-- A return value for actual tool return
-- Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
-- Optional metadata for application use`,
 } as const
 
 export const $ToolReturnPart = {
@@ -14047,8 +14266,6 @@ export const $ToolReturnPart = {
   type: "object",
   required: ["tool_name", "content"],
   title: "ToolReturnPart",
-  description:
-    "A tool return message, this encodes the result of running a tool.",
 } as const
 
 export const $ToolUIPartInputAvailable = {
@@ -14090,6 +14307,7 @@ export const $ToolUIPartInputAvailable = {
       title: "Callprovidermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolCallId", "state", "input"],
   title: "ToolUIPartInputAvailable",
@@ -14126,6 +14344,7 @@ export const $ToolUIPartInputStreaming = {
       title: "Errortext",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolCallId", "state"],
   title: "ToolUIPartInputStreaming",
@@ -14173,6 +14392,7 @@ export const $ToolUIPartOutputAvailable = {
       title: "Preliminary",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolCallId", "state", "input", "output"],
   title: "ToolUIPartOutputAvailable",
@@ -14220,6 +14440,7 @@ export const $ToolUIPartOutputError = {
       title: "Callprovidermetadata",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type", "toolCallId", "state", "errorText"],
   title: "ToolUIPartOutputError",
@@ -14538,10 +14759,6 @@ export const $UserPromptPart = {
   type: "object",
   required: ["content"],
   title: "UserPromptPart",
-  description: `A user prompt, generally written by the end user.
-
-Content comes from the \`user_prompt\` parameter of [\`Agent.run\`][pydantic_ai.agent.AbstractAgent.run],
-[\`Agent.run_sync\`][pydantic_ai.agent.AbstractAgent.run_sync], and [\`Agent.run_stream\`][pydantic_ai.agent.AbstractAgent.run_stream].`,
 } as const
 
 export const $UserRead = {
@@ -15222,7 +15439,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
-  description: "A URL to a video.",
 } as const
 
 export const $WaitStrategy = {
@@ -16754,6 +16970,21 @@ export const $WorkflowRead = {
         },
       ],
       title: "Error Handler",
+    },
+    trigger_position_x: {
+      type: "number",
+      title: "Trigger Position X",
+      default: 0,
+    },
+    trigger_position_y: {
+      type: "number",
+      title: "Trigger Position Y",
+      default: 0,
+    },
+    graph_version: {
+      type: "integer",
+      title: "Graph Version",
+      default: 1,
     },
   },
   type: "object",

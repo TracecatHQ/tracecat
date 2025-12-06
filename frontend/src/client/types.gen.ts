@@ -33,6 +33,32 @@ export type ActionCreate = {
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number
+  position_y?: number
+  upstream_edges?: Array<ActionEdge>
+}
+
+/**
+ * Represents an incoming edge to an action.
+ *
+ * Stored in Action.upstream_edges to represent incoming connections.
+ */
+export type ActionEdge = {
+  source_id: string
+  source_type: "trigger" | "udf"
+  source_handle?: "success" | "error"
+}
+
+export type source_type = "trigger" | "udf"
+
+export type source_handle = "success" | "error"
+
+/**
+ * Position update for a single action.
+ */
+export type ActionPositionUpdate = {
+  action_id: string
+  position: Position
 }
 
 export type ActionRead = {
@@ -45,6 +71,9 @@ export type ActionRead = {
   control_flow?: ActionControlFlow
   is_interactive: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number
+  position_y?: number
+  upstream_edges?: Array<ActionEdge>
   readonly ref: string
 }
 
@@ -151,6 +180,9 @@ export type ActionUpdate = {
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean | null
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number | null
+  position_y?: number | null
+  upstream_edges?: Array<ActionEdge> | null
 }
 
 /**
@@ -494,9 +526,6 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
-/**
- * A URL to an audio file.
- */
 export type AudioUrl = {
   url: string
   force_download?: boolean
@@ -556,8 +585,13 @@ export type AuthSettingsUpdate = {
 }
 
 /**
- * Binary content, e.g. an audio or image file.
+ * Batch update for action and trigger positions.
  */
+export type BatchPositionUpdate = {
+  actions?: Array<ActionPositionUpdate>
+  trigger_position?: Position | null
+}
+
 export type BinaryContent = {
   data: Blob | File
   media_type:
@@ -657,7 +691,6 @@ export type Body_workflows_create_workflow = {
 }
 
 /**
- * An event indicating the start to a call to a built-in tool.
  * @deprecated
  */
 export type BuiltinToolCallEvent = {
@@ -665,9 +698,6 @@ export type BuiltinToolCallEvent = {
   event_kind?: "builtin_tool_call"
 }
 
-/**
- * A tool call to a built-in tool.
- */
 export type BuiltinToolCallPart = {
   tool_name: string
   args?:
@@ -686,7 +716,6 @@ export type BuiltinToolCallPart = {
 }
 
 /**
- * An event indicating the result of a built-in tool call.
  * @deprecated
  */
 export type BuiltinToolResultEvent = {
@@ -694,9 +723,6 @@ export type BuiltinToolResultEvent = {
   event_kind?: "builtin_tool_result"
 }
 
-/**
- * A tool return message from a built-in tool.
- */
 export type BuiltinToolReturnPart = {
   tool_name: string
   content: unknown
@@ -1756,9 +1782,6 @@ export type DataUIPart = {
   data: unknown
 }
 
-/**
- * The URL of the document.
- */
 export type DocumentUrl = {
   url: string
   force_download?: boolean
@@ -2027,9 +2050,6 @@ export type FieldDiff = {
   new: unknown
 }
 
-/**
- * A file response from a model.
- */
 export type FilePart = {
   content: BinaryContent
   id?: string | null
@@ -2079,17 +2099,11 @@ export type FolderDirectoryItem = {
   num_items: number
 }
 
-/**
- * An event indicating the start to a call to a function tool.
- */
 export type FunctionToolCallEvent = {
   part: ToolCallPart
   event_kind?: "function_tool_call"
 }
 
-/**
- * An event indicating the result of a function tool call.
- */
 export type FunctionToolResultEvent = {
   result: ToolReturnPart | RetryPromptPart
   content?:
@@ -2233,13 +2247,79 @@ export type GitSettingsUpdate = {
   git_repo_package_name?: string | null
 }
 
+/**
+ * A single graph operation.
+ */
+export type GraphOperation = {
+  type: GraphOperationType
+  /**
+   * Operation-specific payload
+   */
+  payload: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Graph operation types.
+ */
+export type GraphOperationType =
+  | "add_node"
+  | "update_node"
+  | "delete_node"
+  | "add_edge"
+  | "delete_edge"
+  | "move_nodes"
+  | "update_trigger_position"
+  | "update_viewport"
+
+/**
+ * Request for PATCH /workflows/{id}/graph.
+ *
+ * Applies a batch of graph operations with optimistic concurrency.
+ */
+export type GraphOperationsRequest = {
+  /**
+   * Expected current graph_version. Returns 409 if mismatched.
+   */
+  base_version: number
+  /**
+   * List of operations to apply atomically
+   */
+  operations: Array<GraphOperation>
+}
+
+/**
+ * Response for GET /workflows/{id}/graph.
+ *
+ * Returns the canonical graph projection from Actions.
+ */
+export type GraphResponse = {
+  /**
+   * Graph version for optimistic concurrency
+   */
+  version: number
+  /**
+   * React Flow nodes
+   */
+  nodes: Array<{
+    [key: string]: unknown
+  }>
+  /**
+   * React Flow edges
+   */
+  edges: Array<{
+    [key: string]: unknown
+  }>
+  viewport?: {
+    [key: string]: unknown
+  }
+}
+
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
-/**
- * A URL to an image.
- */
 export type ImageUrl = {
   url: string
   force_download?: boolean
@@ -2610,9 +2690,6 @@ export type ModelCredentialUpdate = {
   }
 }
 
-/**
- * A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.
- */
 export type ModelRequest = {
   parts: Array<
     SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
@@ -2625,9 +2702,6 @@ export type ModelRequest = {
   } | null
 }
 
-/**
- * A response from a model, e.g. a message from the model to the Pydantic AI app.
- */
 export type ModelResponse = {
   parts: Array<
     | TextPart
@@ -2796,6 +2870,11 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type Position = {
+  x?: number
+  y?: number
 }
 
 /**
@@ -3439,20 +3518,6 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
-/**
- * A message back to a model asking it to try again.
- *
- * This can be sent for a number of reasons:
- *
- * * Pydantic validation of tool arguments failed, here content is derived from a Pydantic
- * [`ValidationError`][pydantic_core.ValidationError]
- * * a tool raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
- * * no tool was found for the tool name
- * * the model returned plain text when a structured response was expected
- * * Pydantic validation of a structured response failed, here content is derived from a Pydantic
- * [`ValidationError`][pydantic_core.ValidationError]
- * * an output validator raised a [`ModelRetry`][pydantic_ai.exceptions.ModelRetry] exception
- */
 export type RetryPromptPart = {
   content: Array<ErrorDetails> | string
   tool_name?: string | null
@@ -3885,11 +3950,6 @@ export type SyntaxToken = {
   end: number
 }
 
-/**
- * A system prompt, generally written by the application developer.
- *
- * This gives the model context and guidance on how to respond.
- */
 export type SystemPromptPart = {
   content: string
   timestamp?: string
@@ -4417,9 +4477,6 @@ export type TextArea = {
   placeholder?: string
 }
 
-/**
- * A plain text response from a model.
- */
 export type TextPart = {
   content: string
   id?: string | null
@@ -4429,9 +4486,6 @@ export type TextPart = {
   part_kind?: "text"
 }
 
-/**
- * A partial update (delta) for a `TextPart` to append new text content.
- */
 export type TextPartDelta = {
   content_delta: string
   provider_details?: {
@@ -4454,9 +4508,6 @@ export type TextUIPart = {
   }
 }
 
-/**
- * A thinking response from a model.
- */
 export type ThinkingPart = {
   content: string
   id?: string | null
@@ -4491,9 +4542,6 @@ export type ToolApproved = {
   kind?: "tool-approved"
 }
 
-/**
- * A tool call from a model.
- */
 export type ToolCallPart = {
   tool_name: string
   args?:
@@ -4525,22 +4573,11 @@ export type ToolCallPartDelta = {
   part_delta_kind?: "tool_call"
 }
 
-/**
- * Indicates that a tool call has been denied and that a denial message should be returned to the model.
- */
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
 }
 
-/**
- * A structured return value for tools that need to provide both a return value and custom content to the model.
- *
- * This class allows tools to return complex responses that include:
- * - A return value for actual tool return
- * - Custom content (including multi-modal content) to be sent to the model as a UserPromptPart
- * - Optional metadata for application use
- */
 export type ToolReturn = {
   return_value: unknown
   content?:
@@ -4559,9 +4596,6 @@ export type ToolReturn = {
   kind?: "tool-return"
 }
 
-/**
- * A tool return message, this encodes the result of running a tool.
- */
 export type ToolReturnPart = {
   tool_name: string
   content: unknown
@@ -4704,12 +4738,6 @@ export type UserCreate = {
   last_name?: string | null
 }
 
-/**
- * A user prompt, generally written by the end user.
- *
- * Content comes from the `user_prompt` parameter of [`Agent.run`][pydantic_ai.agent.AbstractAgent.run],
- * [`Agent.run_sync`][pydantic_ai.agent.AbstractAgent.run_sync], and [`Agent.run_stream`][pydantic_ai.agent.AbstractAgent.run_stream].
- */
 export type UserPromptPart = {
   content:
     | string
@@ -4856,9 +4884,6 @@ export type VercelChatRequest = {
   base_url?: string | null
 }
 
-/**
- * A URL to a video.
- */
 export type VideoUrl = {
   url: string
   force_download?: boolean
@@ -5307,6 +5332,9 @@ export type WorkflowRead = {
   config: DSLConfig_Output | null
   alias?: string | null
   error_handler?: string | null
+  trigger_position_x?: number
+  trigger_position_y?: number
+  graph_version?: number
 }
 
 /**
@@ -5752,6 +5780,21 @@ export type WorkflowsMoveWorkflowToFolderData = {
 
 export type WorkflowsMoveWorkflowToFolderResponse = void
 
+export type GraphGetGraphData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphGetGraphResponse = GraphResponse
+
+export type GraphApplyGraphOperationsData = {
+  requestBody: GraphOperationsRequest
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphApplyGraphOperationsResponse = GraphResponse
+
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
   trigger?: Array<TriggerType> | null
@@ -5840,6 +5883,14 @@ export type ActionsDeleteActionData = {
 }
 
 export type ActionsDeleteActionResponse = void
+
+export type ActionsBatchUpdatePositionsData = {
+  requestBody: BatchPositionUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type ActionsBatchUpdatePositionsResponse = void
 
 export type WorkflowsListTagsData = {
   workflowId: string
@@ -7830,6 +7881,34 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/graph": {
+    get: {
+      req: GraphGetGraphData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: GraphApplyGraphOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflow-executions": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionsData
@@ -7975,6 +8054,21 @@ export type $OpenApiTs = {
     }
     delete: {
       req: ActionsDeleteActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/actions/batch-positions": {
+    post: {
+      req: ActionsBatchUpdatePositionsData
       res: {
         /**
          * Successful Response

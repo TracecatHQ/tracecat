@@ -93,6 +93,9 @@ import {
   foldersUpdateFolder,
   type GitCommitInfo,
   type GitSettingsRead,
+  type GraphOperation,
+  graphApplyGraphOperations,
+  graphGetGraph,
   type IntegrationRead,
   type IntegrationReadMinimal,
   type IntegrationUpdate,
@@ -392,6 +395,69 @@ export function useDeleteAction() {
     },
   })
   return { deleteAction }
+}
+
+type GraphOpParams = {
+  baseVersion: number
+  operations: GraphOperation[]
+}
+
+/**
+ * Hook to fetch graph data for a workflow.
+ */
+export function useGraph(workspaceId: string, workflowId: string) {
+  const query = useQuery({
+    queryKey: ["graph", workflowId],
+    queryFn: async () => {
+      const graph = await graphGetGraph({ workspaceId, workflowId })
+      return graph
+    },
+    enabled: Boolean(workflowId),
+  })
+
+  return query
+}
+
+/**
+ * Hook to apply graph operations with optimistic concurrency.
+ * Returns the updated graph on success, allowing the canvas to update state.
+ */
+export function useGraphOperations(workspaceId: string, workflowId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: async ({ baseVersion, operations }: GraphOpParams) =>
+      await graphApplyGraphOperations({
+        workspaceId,
+        workflowId,
+        requestBody: {
+          base_version: baseVersion,
+          operations,
+        },
+      }),
+    onSuccess: (graph) => {
+      // Update the graph cache with the new version
+      queryClient.setQueryData(["graph", workflowId], graph)
+      // Also invalidate workflow to pick up any action changes
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    },
+    onError: (error) => {
+      console.error("Failed to apply graph operations:", error)
+    },
+  })
+
+  // Helper to refetch graph on 409 conflict
+  const refetchGraph = useCallback(async () => {
+    const graph = await graphGetGraph({ workspaceId, workflowId })
+    queryClient.setQueryData(["graph", workflowId], graph)
+    return graph
+  }, [workspaceId, workflowId, queryClient])
+
+  return {
+    applyGraphOperations: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    refetchGraph,
+  }
 }
 
 export function useUpdateWebhook(workspaceId: string, workflowId: string) {

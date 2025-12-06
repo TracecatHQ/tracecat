@@ -2,7 +2,8 @@
 
 import asyncio
 import os
-from typing import Any
+from collections.abc import Coroutine
+from typing import Any, cast
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
@@ -218,7 +219,8 @@ class RedisClient:
         """Check if Redis connection is alive."""
         try:
             client = await self._get_client()
-            await client.ping()
+            # Cast needed due to redis library type stub limitations
+            await cast(Coroutine[Any, Any, bool], client.ping())
             return True
         except Exception:
             return False
