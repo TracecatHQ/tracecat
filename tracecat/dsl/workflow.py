@@ -98,9 +98,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
-    from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -463,7 +461,7 @@ class DSLWorkflow:
 
         try:
             self.logger.info("DSL workflow completed")
-            return self._handle_return()
+            return await self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
                 f"Couldn't parse return value expression: {e}",
@@ -533,6 +531,41 @@ class DSLWorkflow:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
 
+    async def _evaluate_templated_object_activity(
+        self, obj: Any, operand: ExecutionContext
+    ) -> Any:
+        try:
+            return await workflow.execute_local_activity(
+                DSLActivities.evaluate_templated_object_activity,
+                args=(obj, operand),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            if e.cause:
+                raise e.cause from None
+            raise
+
+    async def _iter_for_each_activity(
+        self,
+        task: ActionStatement,
+        *,
+        context: ExecutionContext,
+        assign_context: str = ExprContext.LOCAL_VARS,
+        patch: bool = True,
+    ) -> list[dict[str, Any]]:
+        try:
+            return await workflow.execute_local_activity(
+                DSLActivities.iter_for_each_activity,
+                args=(task, context, assign_context, patch),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            if e.cause:
+                raise e.cause from None
+            raise
+
     async def _execute_task_until_condition(self, task: ActionStatement) -> TaskResult:
         """Execute a task until a condition is met."""
         retry_until = task.retry_policy.retry_until
@@ -544,7 +577,9 @@ class DSLWorkflow:
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
             ctx[ExprContext.ACTIONS][task.ref] = result
-            retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
+            retry_until_result = await self._evaluate_templated_object_activity(
+                retry_until.strip(), ctx
+            )
             if not isinstance(retry_until_result, bool):
                 try:
                     retry_until_result = bool(retry_until_result)
@@ -602,8 +637,8 @@ class DSLWorkflow:
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
-                    evaluated_args = eval_templated_object(
-                        task.args, operand=agent_operand
+                    evaluated_args = await self._evaluate_templated_object_activity(
+                        task.args, agent_operand
                     )
                     action_args = AgentActionArgs(**evaluated_args)
                     wf_info = workflow.info()
@@ -650,8 +685,8 @@ class DSLWorkflow:
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
-                    evaluated_args = eval_templated_object(
-                        task.args, operand=agent_operand
+                    evaluated_args = await self._evaluate_templated_object_activity(
+                        task.args, agent_operand
                     )
                     preset_action_args = PresetAgentActionArgs(**evaluated_args)
 
@@ -780,7 +815,9 @@ class DSLWorkflow:
             # At this point,
             # Child run args
             # Task args here refers to the args passed to the child
-            args = evaluate_templated_args(task, context=self.get_context())
+            args = await self._evaluate_templated_object_activity(
+                task.args, self.get_context()
+            )
             self.logger.trace(
                 "Executing child workflow",
                 child_run_args=child_run_args,
@@ -824,8 +861,12 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
+        patched_args_list = await self._iter_for_each_activity(
+            task=task, context=self.context
+        )
+
         def iterator() -> Generator[ExecuteChildWorkflowArgs]:
-            for args in iter_for_each(task=task, context=self.context):
+            for args in patched_args_list:
                 yield ExecuteChildWorkflowArgs(**args)
 
         it = iterator()
@@ -910,7 +951,7 @@ class DSLWorkflow:
             ]
             return result
 
-    def _handle_return(self) -> Any:
+    async def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             match config.TRACECAT__WORKFLOW_RETURN_STRATEGY:
@@ -924,11 +965,15 @@ class DSLWorkflow:
                     return None
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
-        return eval_templated_object(self.dsl.returns, operand=self.context)
+        return await self._evaluate_templated_object_activity(
+            self.dsl.returns, self.context
+        )
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         # Evaluate the workflow alias as a templated expression
-        evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
+        evaluated_alias = await self._evaluate_templated_object_activity(
+            wf_alias, self.get_context()
+        )
         if not isinstance(evaluated_alias, str):
             raise TypeError(
                 f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
@@ -1115,7 +1160,9 @@ class DSLWorkflow:
         run_context = self.run_context
         if task.environment is not None:
             # Evaluate the environment expression
-            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            evaluated_env = await self._evaluate_templated_object_activity(
+                task.environment, new_context
+            )
             # Create a new run context with the overridden environment
             run_context = self.run_context.model_copy(
                 update={"environment": evaluated_env}

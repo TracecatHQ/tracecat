@@ -17,7 +17,7 @@ from tenacity import (
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.schemas import ActionStatement, RunActionInput
+from tracecat.dsl.schemas import ActionStatement, ExecutionContext, RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import (
     ExecutorClientError,
@@ -26,6 +26,7 @@ from tracecat.exceptions import (
     TracecatExpressionError,
 )
 from tracecat.executor.client import ExecutorClient
+from tracecat.executor.service import iter_for_each
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
@@ -230,3 +231,22 @@ class DSLActivities:
         """Evaluate templated objects using the expression engine."""
 
         return eval_templated_object(obj, operand=operand)
+
+    @staticmethod
+    @activity.defn
+    def iter_for_each_activity(
+        task: ActionStatement,
+        context: ExecutionContext,
+        assign_context: str = ExprContext.LOCAL_VARS,
+        patch: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Evaluate a ``for_each`` expression and render task args per iteration."""
+
+        return list(
+            iter_for_each(
+                task=task,
+                context=context,
+                assign_context=assign_context,
+                patch=patch,
+            )
+        )
