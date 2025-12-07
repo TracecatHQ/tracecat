@@ -1,5 +1,4 @@
 import {
-  applyNodeChanges,
   Background,
   type Connection,
   ConnectionLineType,
@@ -54,7 +53,7 @@ import triggerNode, {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
-import { useDeleteAction, useGraph, useGraphOperations } from "@/lib/hooks"
+import { useGraph, useGraphOperations } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -184,7 +183,6 @@ export const WorkflowCanvas = React.forwardRef<
     NodeRemoveChange[]
   >([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const { deleteAction } = useDeleteAction()
   const openContextMenuId = useRef<string | null>(null)
 
   /**
@@ -462,37 +460,54 @@ export const WorkflowCanvas = React.forwardRef<
 
   // Handle confirmed deletion
   const handleConfirmedDeletion = useCallback(async () => {
-    if (!workflowId || !reactFlowInstance) return
+    if (!workflowId) return
     console.log("HANDLE CONFIRMED DELETION", {
       pendingDeleteNodes,
     })
 
     try {
-      await Promise.all(
-        pendingDeleteNodes.map((node) =>
-          deleteAction({ actionId: node.id, workspaceId, workflowId })
-        )
+      const deleteOperations: GraphOperation[] = pendingDeleteNodes.map(
+        (node) => ({
+          type: "delete_node",
+          payload: { action_id: node.id },
+        })
       )
 
-      // If the above succeeds, we can remove the nodes from state
-      // For all nodes, we need to remove all their edges
-      // We need to compute all the edges that need to be removed based on the pending node deletions
-      setNodes((nodes) => applyNodeChanges(pendingDeleteNodes, nodes))
-      const nodeIds = new Set(pendingDeleteNodes.map((n) => n.id))
-      setEdges((edges) =>
-        edges.filter(
-          (edge) => !nodeIds.has(edge.source) && !nodeIds.has(edge.target)
-        )
-      )
+      const result = await applyGraphOperations({
+        baseVersion: graphVersion,
+        operations: deleteOperations,
+      })
 
+      updateStateFromGraph(result)
       console.log("Actions deleted successfully")
     } catch (error) {
-      console.error("An error occurred while deleting Action nodes:", error)
-      toast({
-        title: "Failed to delete nodes",
-        description:
-          "Could not delete nodes. Please check the console logs for more information.",
-      })
+      const apiError = error as { status?: number }
+      if (apiError.status === 409) {
+        console.log("Version conflict on delete, refetching and retrying...")
+        try {
+          const latestGraph = await refetchGraph()
+          const deleteOperations: GraphOperation[] = pendingDeleteNodes.map(
+            (node) => ({
+              type: "delete_node",
+              payload: { action_id: node.id },
+            })
+          )
+          const retryResult = await applyGraphOperations({
+            baseVersion: latestGraph.version,
+            operations: deleteOperations,
+          })
+          updateStateFromGraph(retryResult)
+        } catch (retryError) {
+          console.error("Failed to delete nodes after retry:", retryError)
+        }
+      } else {
+        console.error("An error occurred while deleting Action nodes:", error)
+        toast({
+          title: "Failed to delete nodes",
+          description:
+            "Could not delete nodes. Please check the console logs for more information.",
+        })
+      }
     } finally {
       setShowDeleteDialog(false)
       setPendingDeleteNodes([])
@@ -500,12 +515,12 @@ export const WorkflowCanvas = React.forwardRef<
   }, [
     pendingDeleteNodes,
     workflowId,
-    reactFlowInstance,
     workspaceId,
-    setNodes,
     toast,
-    deleteAction,
-    setEdges,
+    applyGraphOperations,
+    graphVersion,
+    updateStateFromGraph,
+    refetchGraph,
   ])
 
   const handleEdgesChange = useCallback(
