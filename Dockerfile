@@ -45,7 +45,7 @@ COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
 
 # Install runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    acl git xmlsec1 libmagic1 curl ca-certificates \
+    acl git openssh-client xmlsec1 libmagic1 curl ca-certificates \
     libnl-route-3-200 libprotobuf32 \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
