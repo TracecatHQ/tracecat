@@ -40,6 +40,9 @@ class WorkflowGraphService(BaseWorkspaceService):
         "delete_node",
         "add_edge",
         "delete_edge",
+        "move_nodes",
+        "update_trigger_position",
+        "update_viewport",
     }
 
     async def get_graph(self, workflow_id: WorkflowID) -> GraphResponse | None:
@@ -118,14 +121,20 @@ class WorkflowGraphService(BaseWorkspaceService):
                     "current_version": workflow.graph_version,
                     "graph": GraphResponse(
                         version=workflow.graph_version,
-                        nodes=[node.model_dump(by_alias=True) for node in graph.nodes],
-                        edges=[edge.model_dump(by_alias=True) for edge in graph.edges],
+                        nodes=[
+                            node.model_dump(by_alias=True, mode="json")
+                            for node in graph.nodes
+                        ],
+                        edges=[
+                            edge.model_dump(by_alias=True, mode="json")
+                            for edge in graph.edges
+                        ],
                         viewport={
                             "x": workflow.viewport_x,
                             "y": workflow.viewport_y,
                             "zoom": workflow.viewport_zoom,
                         },
-                    ).model_dump(),
+                    ).model_dump(mode="json"),
                 },
             )
 
@@ -136,9 +145,10 @@ class WorkflowGraphService(BaseWorkspaceService):
             await self._apply_operation(workflow, op)
 
         # Increment graph version only for structural mutations
+        # Don't call session.add() - workflow is already tracked and dirty attributes
+        # will be flushed on commit. Explicit add() causes cascade issues with deleted actions.
         if should_bump_version:
             workflow.graph_version += 1
-            self.session.add(workflow)
         await self.session.commit()
 
         # Refresh to get updated actions
