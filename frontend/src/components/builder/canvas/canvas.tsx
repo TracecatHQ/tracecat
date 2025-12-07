@@ -555,9 +555,20 @@ export const WorkflowCanvas = React.forwardRef<
         } catch (error) {
           const apiError = error as { status?: number }
           if (apiError.status === 409) {
-            console.log("Version conflict, refetching graph...")
-            const latestGraph = await refetchGraph()
-            updateStateFromGraph(latestGraph)
+            console.log(
+              "Version conflict on edge deletion, refetching and retrying..."
+            )
+            try {
+              const latestGraph = await refetchGraph()
+              // Retry with the latest version
+              const retryResult = await applyGraphOperations({
+                baseVersion: latestGraph.version,
+                operations: deleteOperations,
+              })
+              updateStateFromGraph(retryResult)
+            } catch (retryError) {
+              console.error("Failed to delete edges after retry:", retryError)
+            }
           } else {
             console.error("Failed to persist edge deletion:", error)
           }
@@ -721,16 +732,16 @@ export const WorkflowCanvas = React.forwardRef<
     async (_event: unknown, viewport: Viewport) => {
       if (!workflowId) return
 
-      try {
-        const operation: GraphOperation = {
-          type: "update_viewport",
-          payload: {
-            x: viewport.x,
-            y: viewport.y,
-            zoom: viewport.zoom,
-          },
-        }
+      const operation: GraphOperation = {
+        type: "update_viewport",
+        payload: {
+          x: viewport.x,
+          y: viewport.y,
+          zoom: viewport.zoom,
+        },
+      }
 
+      try {
         const result = await applyGraphOperations({
           baseVersion: graphVersion,
           operations: [operation],
@@ -740,8 +751,20 @@ export const WorkflowCanvas = React.forwardRef<
       } catch (error) {
         const apiError = error as { status?: number }
         if (apiError.status === 409) {
-          const latestGraph = await refetchGraph()
-          setGraphVersion(latestGraph.version)
+          console.log(
+            "Version conflict on viewport save, refetching and retrying..."
+          )
+          try {
+            const latestGraph = await refetchGraph()
+            // Retry with the latest version
+            const retryResult = await applyGraphOperations({
+              baseVersion: latestGraph.version,
+              operations: [operation],
+            })
+            setGraphVersion(retryResult.version)
+          } catch (retryError) {
+            console.error("Failed to save viewport after retry:", retryError)
+          }
         } else {
           console.error("Failed to save viewport:", error)
         }

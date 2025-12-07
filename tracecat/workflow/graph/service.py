@@ -120,6 +120,11 @@ class WorkflowGraphService(BaseWorkspaceService):
                         version=workflow.graph_version,
                         nodes=[node.model_dump(by_alias=True) for node in graph.nodes],
                         edges=[edge.model_dump(by_alias=True) for edge in graph.edges],
+                        viewport={
+                            "x": workflow.viewport_x,
+                            "y": workflow.viewport_y,
+                            "zoom": workflow.viewport_zoom,
+                        },
                     ).model_dump(),
                 },
             )
