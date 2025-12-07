@@ -664,9 +664,20 @@ export const WorkflowCanvas = React.forwardRef<
       } catch (error) {
         const apiError = error as { status?: number }
         if (apiError.status === 409) {
-          console.log("Version conflict on position save, refetching graph...")
-          const latestGraph = await refetchGraph()
-          setGraphVersion(latestGraph.version)
+          console.log(
+            "Version conflict on position save, refetching graph and retrying..."
+          )
+          try {
+            const latestGraph = await refetchGraph()
+            // Retry with the latest version
+            const retryResult = await applyGraphOperations({
+              baseVersion: latestGraph.version,
+              operations,
+            })
+            setGraphVersion(retryResult.version)
+          } catch (retryError) {
+            console.error("Failed to save positions after retry:", retryError)
+          }
         } else {
           console.error("Failed to save positions:", error)
         }

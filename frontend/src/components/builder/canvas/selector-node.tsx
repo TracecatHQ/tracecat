@@ -227,7 +227,7 @@ function ActionCommandGroup({
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
   const { getNode, getEdges, setNodes, setEdges } = reactFlow
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
-  const { applyGraphOperations } = useGraphOperations(
+  const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
     workflowId ?? ""
   )
@@ -287,8 +287,22 @@ function ActionCommandGroup({
               operations: [operation],
             })
           } catch (error) {
-            console.error("Failed to persist edge:", error)
-            // Continue anyway - the node was created, edge will be lost on refresh
+            // Handle 409 conflict by refetching and retrying
+            const apiError = error as { status?: number }
+            if (apiError.status === 409) {
+              console.log("Version conflict, refetching graph and retrying...")
+              try {
+                const latestGraph = await refetchGraph()
+                await applyGraphOperations({
+                  baseVersion: latestGraph.version,
+                  operations: [operation],
+                })
+              } catch (retryError) {
+                console.error("Failed to persist edge after retry:", retryError)
+              }
+            } else {
+              console.error("Failed to persist edge:", error)
+            }
           }
         }
 
@@ -341,6 +355,7 @@ function ActionCommandGroup({
       setNodes,
       setEdges,
       applyGraphOperations,
+      refetchGraph,
       graphData?.version,
     ]
   )

@@ -407,7 +407,7 @@ type GraphOpParams = {
  */
 export function useGraph(workspaceId: string, workflowId: string) {
   const query = useQuery({
-    queryKey: ["graph", workflowId],
+    queryKey: ["graph", workspaceId, workflowId],
     queryFn: async () => {
       const graph = await graphGetGraph({ workspaceId, workflowId })
       return graph
@@ -437,7 +437,7 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
       }),
     onSuccess: (graph) => {
       // Update the graph cache with the new version
-      queryClient.setQueryData(["graph", workflowId], graph)
+      queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
       // Also invalidate workflow to pick up any action changes
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
@@ -449,7 +449,7 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
   // Helper to refetch graph on 409 conflict
   const refetchGraph = useCallback(async () => {
     const graph = await graphGetGraph({ workspaceId, workflowId })
-    queryClient.setQueryData(["graph", workflowId], graph)
+    queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
     return graph
   }, [workspaceId, workflowId, queryClient])
 

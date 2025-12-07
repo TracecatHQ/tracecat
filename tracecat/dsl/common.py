@@ -680,10 +680,19 @@ def build_action_statements_from_actions(
 
         # Build dependencies from upstream_edges
         for edge_data in action.upstream_edges:
-            source_id = edge_data.get("source_id")
+            source_id_str = edge_data.get("source_id")
             source_handle = edge_data.get("source_handle", "success")
 
-            if source_id and source_id in id2action:
+            # Convert string source_id to ActionID (UUID) for lookup
+            if source_id_str:
+                try:
+                    source_id = ActionID(source_id_str)
+                except ValueError:
+                    continue  # Skip invalid UUIDs
+            else:
+                continue
+
+            if source_id in id2action:
                 source_action = id2action[source_id]
                 base_ref = source_action.ref
 

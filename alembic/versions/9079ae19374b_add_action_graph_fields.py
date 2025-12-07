@@ -1,7 +1,7 @@
 """add_action_graph_fields
 
 Revision ID: 9079ae19374b
-Revises: f4695a7728a8
+Revises: 0fd1f09cd98b
 Create Date: 2025-12-03 15:22:20.734638
 
 """
@@ -210,7 +210,7 @@ def downgrade() -> None:
         # Reconstruct nodes
         nodes = []
 
-        # Add trigger node
+        # Add trigger node - convert workflow UUID to string for JSON
         trigger_id = f"trigger-{wf_id}"
         nodes.append(
             {
@@ -223,9 +223,11 @@ def downgrade() -> None:
         # Add action nodes
         for action in actions:
             action_id, title, pos_x, pos_y, upstream_edges = action
+            # Convert UUID to string for JSON serialization
+            action_id_str = str(action_id)
             nodes.append(
                 {
-                    "id": action_id,
+                    "id": action_id_str,
                     "type": "udf",
                     "position": {"x": pos_x, "y": pos_y},
                     "data": {"title": title},
@@ -236,13 +238,15 @@ def downgrade() -> None:
         edges = []
         for action in actions:
             action_id = action[0]
+            # Convert UUID to string for JSON serialization
+            action_id_str = str(action_id)
             upstream_edges = action[4] or []
             for edge in upstream_edges:
                 source_id = edge.get("source_id", "")
                 source_type = edge.get("source_type", "udf")
                 edge_data = {
                     "source": source_id,
-                    "target": action_id,
+                    "target": action_id_str,
                 }
                 if source_type != "trigger":
                     edge_data["sourceHandle"] = edge.get("source_handle", "success")
