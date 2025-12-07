@@ -13,7 +13,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: development
     restart: unless-stopped
     ports:
       - ${API_PORT:-8000}:8000
@@ -85,7 +86,8 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: development
     restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
@@ -135,7 +137,8 @@ services:
   executor:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: development
     restart: unless-stopped
     ports:
       - ${EXECUTOR_DASHBOARD_PORT:-8265}:8265
