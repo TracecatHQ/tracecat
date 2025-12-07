@@ -36,6 +36,8 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         alias="test-workflow",
         error_handler=None,
         icon_url="https://example.com/icon.png",
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         tags=[],
@@ -514,6 +516,9 @@ async def test_get_workflow_with_relationships(
             is_interactive=False,
             workspace_id=test_workspace.id,
             workflow_id=mock_workflow.id,
+            position_x=100.0,
+            position_y=200.0,
+            upstream_edges=[],
             created_at=datetime(2024, 1, 1, tzinfo=UTC),
             updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
