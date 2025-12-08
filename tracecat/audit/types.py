@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 
 
-class AuditEventRead(BaseModel):
+class AuditEvent(BaseModel):
     organization_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
     actor_type: AuditEventActor

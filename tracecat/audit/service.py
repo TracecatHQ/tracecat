@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import httpx
 from sqlalchemy import select
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
-from tracecat.audit.schemas import AuditEventRead
+from tracecat.audit.types import AuditEvent
 from tracecat.contexts import ctx_client_ip
 from tracecat.db.models import User
 from tracecat.service import BaseService
@@ -25,9 +24,6 @@ class AuditService(BaseService):
         1. `AUDIT_WEBHOOK_URL` env var
         2. Organization setting `audit_webhook_url`
         """
-
-        if env_url := os.environ.get("AUDIT_WEBHOOK_URL"):
-            return env_url
 
         from tracecat.settings.service import SettingsService  # noqa: PLC0415
 
@@ -50,7 +46,7 @@ class AuditService(BaseService):
         cleaned = value.strip()
         return cleaned or None
 
-    async def _post_event(self, *, webhook_url: str, payload: AuditEventRead) -> None:
+    async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
         response: httpx.Response | None = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -95,7 +91,7 @@ class AuditService(BaseService):
         except Exception as exc:
             self.logger.warning("Failed to fetch actor email", error=str(exc))
 
-        payload = AuditEventRead(
+        payload = AuditEvent(
             organization_id=role.organization_id,
             workspace_id=role.workspace_id,
             actor_type=AuditEventActor.USER,

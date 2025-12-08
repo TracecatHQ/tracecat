@@ -9,10 +9,12 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.service import MembershipWithOrg
 from tracecat.db.models import Membership, User
 from tracecat.middleware import AuthorizationCacheMiddleware
 
@@ -205,7 +207,7 @@ async def test_performance_improvement(mocker):
     async def mock_get_membership_slow(self, workspace_id, user_id):
         # Simulate database query delay
         await asyncio.sleep(db_delay_ms / 1000)
-        return mock_membership
+        return MembershipWithOrg(membership=mock_membership, org_id=uuid.uuid4())
 
     # Patch the membership service
     mocker.patch.object(
@@ -347,9 +349,11 @@ async def test_cache_user_id_validation():
         else [membership2]
     )
     mock_service.get_membership = AsyncMock(
-        side_effect=lambda workspace_id, user_id: membership1
+        side_effect=lambda workspace_id, user_id: MembershipWithOrg(
+            membership=membership1, org_id=uuid.uuid4()
+        )
         if user_id == user1.id
-        else membership2
+        else MembershipWithOrg(membership=membership2, org_id=uuid.uuid4())
     )
 
     # Create request with cache
@@ -493,14 +497,8 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN
 
-    # Create mock workspace with organization_id
-    mock_org_id = uuid.uuid4()
-
-    # Mock session to return organization_id from workspace
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none = MagicMock(return_value=mock_org_id)
+    # Mock session (not used for privileged users, but required parameter)
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(return_value=mock_result)
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
@@ -515,7 +513,7 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     request.state = MagicMock()
     request.state.auth_cache = None
 
-    # Test with require_workspace="no" - should populate organization_id
+    # Test with require_workspace="no" - should use default organization_id
     role = await _role_dependency(
         request=request,
         session=mock_session,
@@ -529,11 +527,7 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         require_workspace_roles=None,
     )
 
-    # Verify organization_id was populated
-    assert role.organization_id == mock_org_id
+    # Verify organization_id was populated with default
+    assert role.organization_id == config.TRACECAT__DEFAULT_ORG_ID
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
-
-    # Verify the query was made to get organization_id from workspace
-    # Should query: select(Workspace.organization_id).join(Membership).where(Membership.user_id == user.id)
-    assert mock_session.execute.called

@@ -695,9 +695,7 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
         )
 
-    @audit_log(
-        resource_type="workflow_execution", action="create", resource_id_attr="wf_id"
-    )
+    @audit_log(resource_type="workflow_execution", action="create")
     async def create_workflow_execution(
         self,
         dsl: DSLInput,

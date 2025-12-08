@@ -14,12 +14,18 @@ from tracecat.logger import logger
 P = ParamSpec("P")
 R = TypeVar("R")
 
+# Mapping of resource types to their default resource_id_attr names
+_RESOURCE_ID_ATTR_MAP: dict[str, str] = {
+    "workflow": "workflow_id",
+    "workflow_execution": "wf_id",
+}
+
 
 def audit_log(
     *,
     resource_type: str,
     action: str,
-    resource_id_attr: str = "id",
+    resource_id_attr: str | None = None,
 ) -> Callable[
     [Callable[Concatenate[Any, P], Awaitable[R]]],
     Callable[Concatenate[Any, P], Awaitable[R]],
@@ -27,11 +33,21 @@ def audit_log(
     """Decorator to emit audit attempt/success/failure around service methods.
 
     If no user role or session is available, auditing is skipped without failing the call.
+
+    The resource_id_attr is automatically derived from resource_type if not provided,
+    using the _RESOURCE_ID_ATTR_MAP. Falls back to "id" if no mapping exists.
     """
 
     def decorator(
         func: Callable[Concatenate[Any, P], Awaitable[R]],
     ) -> Callable[Concatenate[Any, P], Awaitable[R]]:
+        # Determine the resource_id_attr from mapping or use provided/default
+        resolved_resource_id_attr = (
+            resource_id_attr
+            if resource_id_attr is not None
+            else _RESOURCE_ID_ATTR_MAP.get(resource_type, "id")
+        )
+
         @functools.wraps(func)
         async def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
             role: Role | None = ctx_role.get()
@@ -43,7 +59,7 @@ def audit_log(
             async with AuditService.with_session() as audit_service:
                 try:
                     resource_id: uuid.UUID | None = _extract_resource_id(
-                        args, kwargs, None, resource_id_attr
+                        args, kwargs, None, resolved_resource_id_attr
                     )
                 except Exception as exc:
                     logger.warning(
@@ -69,7 +85,7 @@ def audit_log(
                     # Log success
                     try:
                         resource_id = _extract_resource_id(
-                            args, kwargs, result, resource_id_attr
+                            args, kwargs, result, resolved_resource_id_attr
                         )
                         await audit_service.create_event(
                             resource_type=resource_type,
