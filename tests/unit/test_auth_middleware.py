@@ -482,3 +482,58 @@ async def test_cache_size_limit():
 
         # But the role should still be valid (fallback worked)
         assert role.workspace_id == target_workspace_id
+
+
+@pytest.mark.anyio
+async def test_organization_id_populated_when_require_workspace_no(mocker):
+    """Test that organization_id is populated when require_workspace="no"."""
+
+    # Create mock user
+    mock_user = MagicMock(spec=User)
+    mock_user.id = uuid.uuid4()
+    mock_user.role = UserRole.ADMIN
+
+    # Create mock workspace with organization_id
+    mock_org_id = uuid.uuid4()
+
+    # Mock session to return organization_id from workspace
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none = MagicMock(return_value=mock_org_id)
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    # Mock is_unprivileged to return False for admin users
+    mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
+
+    # Mock the access level lookup
+    mocker.patch.dict(
+        "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
+        {UserRole.ADMIN: AccessLevel.ADMIN},
+    )
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    # Test with require_workspace="no" - should populate organization_id
+    role = await _role_dependency(
+        request=request,
+        session=mock_session,
+        workspace_id=None,  # No workspace ID
+        user=mock_user,
+        api_key=None,
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=None,
+        require_workspace_roles=None,
+    )
+
+    # Verify organization_id was populated
+    assert role.organization_id == mock_org_id
+    assert role.workspace_id is None
+    assert role.user_id == mock_user.id
+
+    # Verify the query was made to get organization_id from workspace
+    # Should query: select(Workspace.organization_id).join(Membership).where(Membership.user_id == user.id)
+    assert mock_session.execute.called

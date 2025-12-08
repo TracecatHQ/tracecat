@@ -19,6 +19,7 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -29,7 +30,7 @@ from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import User
+from tracecat.db.models import Membership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -263,17 +264,14 @@ async def _role_dependency(
             # Privileged user doesn't need workspace role verification
             workspace_role = None
 
-        # Get organization_id from workspace if available
-        organization_id = None
-        if workspace_id:
-            from sqlalchemy import select
-
-            from tracecat.db.models import Workspace
-
-            result = await session.execute(
-                select(Workspace.organization_id).where(Workspace.id == workspace_id)
-            )
-            organization_id = result.scalar_one_or_none()
+        # Get organization_id from one of the user's workspace memberships (potentially no workspace id provided)
+        result = await session.execute(
+            select(Workspace.organization_id)
+            .join(Membership, Membership.workspace_id == Workspace.id)
+            .where(Membership.user_id == user.id)
+            .limit(1)
+        )
+        organization_id = result.scalar_one_or_none()
 
         role = get_role_from_user(
             user,
