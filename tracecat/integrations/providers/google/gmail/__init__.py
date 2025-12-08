@@ -3,4 +3,3 @@
 from tracecat.integrations.providers.google.gmail.oauth import GoogleGmailACProvider
 
 __all__ = ["GoogleGmailACProvider"]
-
