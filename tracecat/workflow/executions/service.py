@@ -22,6 +22,7 @@ from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
@@ -694,6 +695,9 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
         )
 
+    @audit_log(
+        resource_type="workflow_execution", action="create", resource_id_attr="wf_id"
+    )
     async def create_workflow_execution(
         self,
         dsl: DSLInput,

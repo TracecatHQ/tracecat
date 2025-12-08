@@ -9,6 +9,7 @@ from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
 from tracecat.exceptions import (
@@ -176,6 +177,7 @@ class SecretsService(BaseService):
                 " Please double check that the name was correctly input."
             ) from e
 
+    @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
         workspace_id = self.role.workspace_id
@@ -195,11 +197,13 @@ class SecretsService(BaseService):
         self.session.add(secret)
         await self.session.commit()
 
+    @audit_log(resource_type="secret", action="update", resource_id_attr="secret")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
 
         await self._update_secret(secret=secret, params=params)
 
+    @audit_log(resource_type="secret", action="delete", resource_id_attr="secret")
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
 
@@ -280,6 +284,7 @@ class SecretsService(BaseService):
                 " Please double check that the name was correctly input."
             ) from e
 
+    @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
         secret = OrganizationSecret(
@@ -294,11 +299,19 @@ class SecretsService(BaseService):
         self.session.add(secret)
         await self.session.commit()
 
+    @audit_log(
+        resource_type="organization_secret", action="update", resource_id_attr="secret"
+    )
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
         await self._update_secret(secret=secret, params=params)
 
+    @audit_log(
+        resource_type="organization_secret",
+        action="delete",
+        resource_id_attr="org_secret",
+    )
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         await self._delete_secret(org_secret)
 

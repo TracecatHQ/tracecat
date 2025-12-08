@@ -12,6 +12,7 @@ from sqlalchemy import and_, cast, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     Action,
     Tag,
@@ -362,6 +363,7 @@ class WorkflowsManagementService(BaseService):
         await self.session.refresh(workflow)
         return workflow
 
+    @audit_log(resource_type="workflow", action="delete")
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
         """Delete a workflow and clean up associated resources.
 
@@ -401,6 +403,7 @@ class WorkflowsManagementService(BaseService):
         await self.session.delete(workflow)
         await self.session.commit()
 
+    @audit_log(resource_type="workflow", action="create")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
 

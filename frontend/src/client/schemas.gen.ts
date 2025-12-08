@@ -2099,6 +2099,47 @@ distinguish multiple files.`,
   title: "AudioUrl",
 } as const
 
+export const $AuditSettingsRead = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+    },
+  },
+  type: "object",
+  required: ["audit_webhook_url"],
+  title: "AuditSettingsRead",
+  description: "Settings for audit logging.",
+} as const
+
+export const $AuditSettingsUpdate = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+      description:
+        "Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    },
+  },
+  type: "object",
+  title: "AuditSettingsUpdate",
+  description: "Settings for audit logging.",
+} as const
+
 export const $AuthSettingsRead = {
   properties: {
     auth_basic_enabled: {
@@ -10671,6 +10712,18 @@ export const $Role = {
         },
       ],
       title: "Workspace Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
     },
     workspace_role: {
       anyOf: [

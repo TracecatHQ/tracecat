@@ -64,11 +64,13 @@ def get_role_from_user(
     user: User,
     workspace_id: UUID4 | None = None,
     workspace_role: WorkspaceRole | None = None,
+    organization_id: UUID4 | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
     return Role(
         type="user",
         workspace_id=workspace_id,
+        organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
         access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
@@ -261,8 +263,23 @@ async def _role_dependency(
             # Privileged user doesn't need workspace role verification
             workspace_role = None
 
+        # Get organization_id from workspace if available
+        organization_id = None
+        if workspace_id:
+            from sqlalchemy import select
+
+            from tracecat.db.models import Workspace
+
+            result = await session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+            organization_id = result.scalar_one_or_none()
+
         role = get_role_from_user(
-            user, workspace_id=workspace_id, workspace_role=workspace_role
+            user,
+            workspace_id=workspace_id,
+            workspace_role=workspace_role,
+            organization_id=organization_id,
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)

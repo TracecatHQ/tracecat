@@ -24,6 +24,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
@@ -252,6 +253,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
+    @audit_log(resource_type="table", action="create")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
@@ -317,6 +319,7 @@ class BaseTablesService(BaseWorkspaceService):
 
         return table
 
+    @audit_log(resource_type="table", action="update")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
@@ -348,6 +351,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return table
 
+    @audit_log(resource_type="table", action="delete")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
@@ -376,6 +380,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError("Column not found")
         return column
 
+    @audit_log(resource_type="table_column", action="create")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def create_column(
         self, table: Table, params: TableColumnCreate
@@ -447,6 +452,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return column
 
+    @audit_log(resource_type="table_column", action="update")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def update_column(
         self,
@@ -616,6 +622,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Commit the transaction
         await self.session.flush()
 
+    @audit_log(resource_type="table_column", action="delete")
     @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""

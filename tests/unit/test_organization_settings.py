@@ -11,6 +11,7 @@ from tracecat.contexts import ctx_role
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.router import check_other_auth_enabled
 from tracecat.settings.schemas import (
+    AuditSettingsUpdate,
     AuthSettingsUpdate,
     GitSettingsUpdate,
     OAuthSettingsUpdate,
@@ -211,6 +212,35 @@ async def test_update_git_settings(
     assert settings_dict["git_allowed_domains"] == ["github.com", "gitlab.com"]
     assert settings_dict["git_repo_url"] == "git+ssh://git@github.com/test/repo.git"
     assert settings_dict["git_repo_package_name"] == "test-package"
+
+
+@pytest.mark.anyio
+async def test_update_audit_settings(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure audit webhook updates persist."""
+    service = settings_service_with_defaults
+    await service.update_audit_settings(
+        SettingUpdate(value="https://example.com/audit", value_type=ValueType.JSON)  # type: ignore[arg-type]
+    )
+    settings = await service.list_org_settings(keys={"audit_webhook_url"})
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    assert settings_dict["audit_webhook_url"] == "https://example.com/audit"
+
+
+@pytest.mark.anyio
+async def test_update_audit_settings_can_clear(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure audit webhook can be unset."""
+    service = settings_service_with_defaults
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_url="https://example.com/audit")
+    )
+    await service.update_audit_settings(AuditSettingsUpdate(audit_webhook_url=None))
+    settings = await service.list_org_settings(keys={"audit_webhook_url"})
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    assert settings_dict["audit_webhook_url"] is None
 
 
 @pytest.mark.anyio

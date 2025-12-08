@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+
+from tracecat.audit.enums import AuditEventActor, AuditEventStatus
+
+
+class AuditEventRead(BaseModel):
+    organization_id: uuid.UUID
+    workspace_id: uuid.UUID | None = None
+    actor_type: AuditEventActor
+    actor_id: uuid.UUID
+    ip_address: str | None = None
+    resource_type: str
+    resource_id: uuid.UUID | None = None
+    action: str
+    status: AuditEventStatus
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
