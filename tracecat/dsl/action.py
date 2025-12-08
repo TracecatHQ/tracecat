@@ -90,7 +90,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
+    def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
         """No-op gather action activity."""
         return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
 
