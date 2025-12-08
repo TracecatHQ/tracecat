@@ -429,12 +429,6 @@ class WorkflowsManagementService(BaseService):
         self.session.add(webhook)
         workflow.webhook = webhook
 
-        await self.session.flush()
-
-        graph = RFGraph.with_defaults(workflow)
-        self.logger.info("Graph", graph=graph)
-        workflow.object = graph.model_dump(by_alias=True, mode="json")
-        self.session.add(workflow)
         await self.session.commit()
         await self.session.refresh(workflow)
         return workflow
@@ -608,18 +602,6 @@ class WorkflowsManagementService(BaseService):
             self.session.add(new_action)
 
         workflow.actions = actions  # Associate actions with the workflow
-
-        # Ensure IDs are generated before constructing the graph
-        await self.session.flush()
-
-        # Create and set the graph for the Workflow
-        base_graph = RFGraph.with_defaults(workflow)
-        self.logger.info("Creating graph for workflow", graph=base_graph)
-
-        # Add DSL contents to the Workflow
-        ref2id = {act.ref: act.id for act in actions}
-        updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
-        workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
 
         # Commit the transaction
         if commit:

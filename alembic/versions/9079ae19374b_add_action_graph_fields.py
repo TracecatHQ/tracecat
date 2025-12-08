@@ -177,9 +177,18 @@ def upgrade() -> None:
                 },
             )
 
+    # 3. Drop the legacy object column (data has been migrated to normalized fields)
+    op.drop_column("workflow", "object")
+
 
 def downgrade() -> None:
-    # 1. Migrate data back to workflow.object from new fields
+    # 1. Re-add the object column first (needed for data migration)
+    op.add_column(
+        "workflow",
+        sa.Column("object", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    )
+
+    # 2. Migrate data back to workflow.object from new fields
     conn = op.get_bind()
 
     # Get all workflows with their graph data
@@ -262,7 +271,7 @@ def downgrade() -> None:
             {"obj": json.dumps(obj), "id": wf_id},
         )
 
-    # 2. Drop the new columns
+    # 3. Drop the new columns
     op.drop_column("workflow", "viewport_zoom")
     op.drop_column("workflow", "viewport_y")
     op.drop_column("workflow", "viewport_x")

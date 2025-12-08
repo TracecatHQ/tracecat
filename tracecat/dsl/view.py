@@ -236,13 +236,6 @@ class RFGraph(TSObject):
         return [node for node in self.nodes if _is_udf_node(node)]
 
     @classmethod
-    def from_workflow(cls, workflow: Workflow) -> Self:
-        if not workflow.object:
-            raise ValueError("Empty response object")
-        # This will accept either RFGraph or dict
-        return cls.model_validate(workflow.object)
-
-    @classmethod
     def from_actions(cls, workflow: Workflow, actions: list[Action]) -> Self:
         """Build RFGraph from Actions (single source of truth).
 

@@ -29,7 +29,6 @@ class WorkflowRead(Schema):
     description: str
     status: str
     actions: dict[str, ActionRead]
-    object: dict[str, Any] | None  # React Flow object
     workspace_id: WorkspaceID
     version: int | None = None
     webhook: WebhookRead
@@ -95,7 +94,6 @@ class WorkflowUpdate(BaseModel):
         description="Optional workflow description, up to 1000 characters",
     )
     status: Literal["online", "offline"] | None = None
-    object: dict[str, Any] | None = None
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None

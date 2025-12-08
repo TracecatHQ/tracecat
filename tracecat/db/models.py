@@ -633,9 +633,6 @@ class Workflow(WorkspaceModel):
     returns: Mapped[Any | None] = mapped_column(
         JSONB, nullable=True, doc="Workflow return values"
     )
-    object: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, doc="React flow graph object"
-    )
     trigger_position_x: Mapped[float] = mapped_column(
         Float,
         default=0.0,

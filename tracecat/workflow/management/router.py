@@ -300,7 +300,6 @@ async def get_workflow(
         expects_schema=expects_schema,
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
-        object=workflow.object,
         config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),

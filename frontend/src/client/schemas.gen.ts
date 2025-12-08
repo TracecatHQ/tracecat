@@ -16861,18 +16861,6 @@ export const $WorkflowRead = {
       type: "object",
       title: "Actions",
     },
-    object: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Object",
-    },
     workspace_id: {
       type: "string",
       format: "uuid",
@@ -16994,7 +16982,6 @@ export const $WorkflowRead = {
     "description",
     "status",
     "actions",
-    "object",
     "workspace_id",
     "webhook",
     "schedules",
@@ -17233,18 +17220,6 @@ export const $WorkflowUpdate = {
         },
       ],
       title: "Status",
-    },
-    object: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Object",
     },
     version: {
       anyOf: [

@@ -5314,9 +5314,6 @@ export type WorkflowRead = {
   actions: {
     [key: string]: ActionRead
   }
-  object: {
-    [key: string]: unknown
-  } | null
   workspace_id: string
   version?: number | null
   webhook: WebhookRead
@@ -5390,9 +5387,6 @@ export type WorkflowUpdate = {
    */
   description?: string | null
   status?: "online" | "offline" | null
-  object?: {
-    [key: string]: unknown
-  } | null
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
