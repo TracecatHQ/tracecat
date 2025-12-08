@@ -28,7 +28,6 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         entrypoint="action-1",
         expects={},
         returns=None,
-        object=None,
         config={},
         alias="graph-workflow",
         error_handler=None,
