@@ -34,10 +34,11 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)
     _output_type = parse_output_type(config.output_type)
-    _model_settings = (
-        ModelSettings(**config.model_settings) if config.model_settings else None
-    )
-
+    # Disable parallel tool calls only if tools exist (OpenAI requires this)
+    model_settings_dict = {**(config.model_settings or {})}
+    if agent_tools or config.mcp_servers:
+        model_settings_dict["parallel_tool_calls"] = False
+    _model_settings = ModelSettings(**model_settings_dict)
     # Add verbosity prompt
     verbosity_prompt = VerbosityPrompt()
     instructions = f"{config.instructions}\n{verbosity_prompt.prompt}"
