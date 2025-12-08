@@ -1,11 +1,24 @@
-"""nsjail-based Python sandbox for secure script execution.
+"""Python sandbox for secure script execution.
 
-This package provides a secure sandboxed environment for executing Python scripts
-using nsjail for isolation. It supports:
-- Two-phase execution: package installation (with network) → script execution
+This package provides secure sandboxed environments for executing Python scripts.
+It supports two execution modes:
+
+1. **nsjail sandbox** (when TRACECAT__DISABLE_NSJAIL=false):
+   - Full OS-level isolation via Linux namespaces
+   - Network, filesystem, and process isolation
+   - Resource limits (memory, CPU, file size)
+   - Requires privileged Docker mode or CAP_SYS_ADMIN
+
+2. **Safe executor** (when TRACECAT__DISABLE_NSJAIL=true, default):
+   - AST-based script validation with deny-by-default imports
+   - Runtime import hooks to block unauthorized modules
+   - Subprocess isolation with venv per dependency set
+   - Works without privileged mode
+
+Both modes support:
+- Two-phase execution: package installation → script execution
 - Package caching with hash-based keys
-- Configurable network access and resource limits
-- Secure secrets injection via environment variables
+- Configurable dependencies and environment variables
 """
 
 from tracecat.sandbox.exceptions import (
@@ -15,12 +28,24 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
     SandboxValidationError,
 )
+from tracecat.sandbox.safe_executor import (
+    NETWORK_MODULES,
+    SAFE_STDLIB_MODULES,
+    SYSTEM_ACCESS_MODULES,
+    SafeEvaluator,
+    SafePythonExecutor,
+    ScriptValidator,
+    WhitelistValidator,
+    build_safe_lambda,
+    sandbox_lambda,
+)
 from tracecat.sandbox.service import SandboxService
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
 __all__ = [
-    # Service
+    # Services
     "SandboxService",
+    "SafePythonExecutor",
     # Types
     "ResourceLimits",
     "SandboxConfig",
@@ -31,4 +56,13 @@ __all__ = [
     "SandboxExecutionError",
     "SandboxValidationError",
     "PackageInstallError",
+    # Security validators and constants
+    "SafeEvaluator",
+    "WhitelistValidator",
+    "ScriptValidator",
+    "build_safe_lambda",
+    "sandbox_lambda",
+    "SAFE_STDLIB_MODULES",
+    "NETWORK_MODULES",
+    "SYSTEM_ACCESS_MODULES",
 ]

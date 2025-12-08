@@ -1,0 +1,667 @@
+"""Tests for SafePythonExecutor - the fallback Python executor without nsjail."""
+
+import importlib
+
+import pytest
+
+from tracecat.sandbox.exceptions import (
+    SandboxExecutionError,
+    SandboxTimeoutError,
+    SandboxValidationError,
+)
+from tracecat.sandbox.safe_executor import SafePythonExecutor, _extract_package_name
+
+
+class TestExtractPackageName:
+    """Test the package name extraction helper."""
+
+    def test_simple_package_name(self):
+        """Test extracting a simple package name."""
+        assert _extract_package_name("requests") == "requests"
+
+    def test_package_with_version(self):
+        """Test extracting package name from version spec."""
+        assert _extract_package_name("requests==2.28.0") == "requests"
+        assert _extract_package_name("requests>=2.28.0") == "requests"
+        assert _extract_package_name("requests<=2.28.0") == "requests"
+        assert _extract_package_name("requests~=2.28.0") == "requests"
+
+    def test_package_with_extras(self):
+        """Test extracting package name with extras."""
+        assert _extract_package_name("requests[security]") == "requests"
+        assert _extract_package_name("openpyxl[lxml]") == "openpyxl"
+
+    def test_hyphenated_package_normalized(self):
+        """Test that hyphenated package names are normalized."""
+        assert _extract_package_name("py-ocsf-models") == "py_ocsf_models"
+        assert _extract_package_name("py-ocsf-models==0.8.0") == "py_ocsf_models"
+
+
+class TestSafePythonExecutorBasics:
+    """Test basic SafePythonExecutor functionality."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        """Create an executor with a temp cache directory."""
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_basic_execution(self, executor):
+        """Test basic script execution."""
+        script = """
+def main():
+    return 42
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == 42
+
+    @pytest.mark.anyio
+    async def test_with_inputs(self, executor):
+        """Test execution with input arguments."""
+        script = """
+def main(a, b):
+    return a + b
+"""
+        result = await executor.execute(script=script, inputs={"a": 10, "b": 20})
+        assert result.success
+        assert result.output == 30
+
+    @pytest.mark.anyio
+    async def test_with_return_types(self, executor):
+        """Test various return types."""
+        # Return dict
+        script = """
+def main():
+    return {"key": "value", "count": 42}
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == {"key": "value", "count": 42}
+
+        # Return list
+        script = """
+def main():
+    return [1, 2, 3, 4, 5]
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == [1, 2, 3, 4, 5]
+
+        # Return string
+        script = """
+def main():
+    return "hello world"
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == "hello world"
+
+    @pytest.mark.anyio
+    async def test_single_function_not_main(self, executor):
+        """Test that single functions not named 'main' are called."""
+        script = """
+def process_data():
+    return "processed"
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == "processed"
+
+
+class TestSafeStdlibExecution:
+    """Test execution with safe stdlib modules."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_json_module(self, executor):
+        """Test using json module."""
+        script = """
+import json
+
+def main():
+    data = {"key": "value"}
+    return json.dumps(data)
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == '{"key": "value"}'
+
+    @pytest.mark.anyio
+    async def test_datetime_module(self, executor):
+        """Test using datetime module."""
+        script = """
+from datetime import datetime
+
+def main():
+    dt = datetime(2024, 1, 15, 12, 30, 0)
+    return dt.isoformat()
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == "2024-01-15T12:30:00"
+
+    @pytest.mark.anyio
+    async def test_re_module(self, executor):
+        """Test using re module."""
+        script = """
+import re
+
+def main(text):
+    pattern = r"\\b\\w+@\\w+\\.\\w+\\b"
+    matches = re.findall(pattern, text)
+    return matches
+"""
+        result = await executor.execute(
+            script=script,
+            inputs={"text": "Contact us at test@example.com or info@test.org"},
+        )
+        assert result.success
+        assert "test@example.com" in result.output
+        assert "info@test.org" in result.output
+
+    @pytest.mark.anyio
+    async def test_base64_module(self, executor):
+        """Test using base64 module."""
+        script = """
+import base64
+
+def main(text):
+    encoded = base64.b64encode(text.encode()).decode()
+    return encoded
+"""
+        result = await executor.execute(script=script, inputs={"text": "hello"})
+        assert result.success
+        assert result.output == "aGVsbG8="
+
+    @pytest.mark.anyio
+    async def test_hashlib_module(self, executor):
+        """Test using hashlib module."""
+        script = """
+import hashlib
+
+def main(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+"""
+        result = await executor.execute(script=script, inputs={"text": "hello"})
+        assert result.success
+        assert len(result.output) == 64  # SHA256 hex digest length
+
+    @pytest.mark.anyio
+    async def test_collections_module(self, executor):
+        """Test using collections module."""
+        script = """
+from collections import Counter
+
+def main(items):
+    return dict(Counter(items))
+"""
+        result = await executor.execute(
+            script=script, inputs={"items": ["a", "b", "a", "c", "a"]}
+        )
+        assert result.success
+        assert result.output == {"a": 3, "b": 1, "c": 1}
+
+
+class TestSystemModulesBlocked:
+    """Test that system modules are blocked."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_os_import_blocked(self, executor):
+        """Test that os module is blocked."""
+        script = """
+import os
+
+def main():
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "os" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_sys_import_blocked(self, executor):
+        """Test that sys module is blocked."""
+        script = """
+import sys
+
+def main():
+    return sys.version
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "sys" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_subprocess_import_blocked(self, executor):
+        """Test that subprocess module is blocked."""
+        script = """
+import subprocess
+
+def main():
+    return subprocess.run(["echo", "hello"], capture_output=True).stdout
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "subprocess" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_shutil_import_blocked(self, executor):
+        """Test that shutil module is blocked."""
+        script = """
+import shutil
+
+def main():
+    return "should not work"
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "shutil" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_pathlib_import_blocked(self, executor):
+        """Test that pathlib module is blocked."""
+        script = """
+from pathlib import Path
+
+def main():
+    return str(Path.home())
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "pathlib" in str(exc_info.value).lower()
+
+
+class TestNetworkModulesBlocked:
+    """Test that network modules are blocked by default."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_socket_import_blocked(self, executor):
+        """Test that socket module is blocked."""
+        script = """
+import socket
+
+def main():
+    return socket.gethostname()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert (
+            "socket" in str(exc_info.value).lower()
+            or "network" in str(exc_info.value).lower()
+        )
+
+    @pytest.mark.anyio
+    async def test_http_client_blocked(self, executor):
+        """Test that http.client module is blocked."""
+        script = """
+import http.client
+
+def main():
+    return "should not work"
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert (
+            "http" in str(exc_info.value).lower()
+            or "network" in str(exc_info.value).lower()
+        )
+
+    @pytest.mark.anyio
+    async def test_urllib_request_blocked(self, executor):
+        """Test that urllib.request module is blocked."""
+        script = """
+import urllib.request
+
+def main():
+    return urllib.request.urlopen("https://example.com")
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert (
+            "urllib" in str(exc_info.value).lower()
+            or "network" in str(exc_info.value).lower()
+        )
+
+    @pytest.mark.anyio
+    async def test_urllib_parse_allowed(self, executor):
+        """Test that urllib.parse (safe) is allowed."""
+        script = """
+from urllib.parse import quote, urlencode
+
+def main():
+    return quote("hello world")
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == "hello%20world"
+
+
+class TestScriptErrors:
+    """Test error handling in scripts."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_runtime_error(self, executor):
+        """Test that runtime errors are captured."""
+        script = """
+def main():
+    raise ValueError("Test error message")
+"""
+        result = await executor.execute(script=script)
+        assert not result.success
+        assert "ValueError" in result.error
+        assert "Test error message" in result.error
+
+    @pytest.mark.anyio
+    async def test_division_by_zero(self, executor):
+        """Test that division by zero is captured."""
+        script = """
+def main():
+    return 1 / 0
+"""
+        result = await executor.execute(script=script)
+        assert not result.success
+        assert "ZeroDivisionError" in result.error
+
+    @pytest.mark.anyio
+    async def test_undefined_variable(self, executor):
+        """Test that undefined variable errors are captured."""
+        script = """
+def main():
+    return undefined_variable
+"""
+        result = await executor.execute(script=script)
+        assert not result.success
+        assert "NameError" in result.error
+
+    @pytest.mark.anyio
+    async def test_missing_required_argument(self, executor):
+        """Test that missing argument errors are captured."""
+        script = """
+def main(required_arg):
+    return required_arg
+"""
+        result = await executor.execute(script=script, inputs={})
+        assert not result.success
+        assert "TypeError" in result.error
+
+
+class TestTimeout:
+    """Test timeout handling."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_timeout(self, executor):
+        """Test that scripts that take too long are terminated."""
+        script = """
+import time
+
+def main():
+    time.sleep(10)
+    return "done"
+"""
+        with pytest.raises(SandboxTimeoutError):
+            await executor.execute(script=script, timeout_seconds=2)
+
+
+class TestEnvVars:
+    """Test environment variable handling."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_env_vars_not_accessible_via_os(self, executor):
+        """Test that os.environ is blocked even with env_vars passed."""
+        script = """
+import os
+
+def main():
+    return os.environ.get("TEST_VAR")
+"""
+        # Should fail validation before env_vars matter
+        with pytest.raises(SandboxValidationError):
+            await executor.execute(
+                script=script,
+                env_vars={"TEST_VAR": "test_value"},
+            )
+
+
+class TestCaching:
+    """Test dependency caching."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    def test_cache_key_computation(self, executor):
+        """Test that cache keys are computed correctly."""
+        key1 = executor._compute_cache_key(["requests==2.28.0"])
+        key2 = executor._compute_cache_key(["requests==2.28.0"])
+        key3 = executor._compute_cache_key(["requests==2.29.0"])
+
+        # Same deps = same key
+        assert key1 == key2
+        # Different version = different key
+        assert key1 != key3
+
+    def test_cache_key_workspace_isolation(self, executor):
+        """Test that workspace ID affects cache key."""
+        deps = ["requests==2.28.0"]
+        key_no_workspace = executor._compute_cache_key(deps)
+        key_workspace_a = executor._compute_cache_key(deps, workspace_id="workspace-a")
+        key_workspace_b = executor._compute_cache_key(deps, workspace_id="workspace-b")
+
+        # Different workspaces = different keys
+        assert key_no_workspace != key_workspace_a
+        assert key_workspace_a != key_workspace_b
+
+    def test_allowed_modules_extraction(self, executor):
+        """Test that allowed modules are extracted correctly from dependencies."""
+        allowed = executor._get_allowed_modules(
+            ["requests==2.28.0", "py-ocsf-models>=0.8.0"]
+        )
+
+        assert "requests" in allowed
+        assert "py_ocsf_models" in allowed
+
+
+class TestAllowNetwork:
+    """Test allow_network parameter behavior."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_allow_network_logs_warning(self, executor, caplog):
+        """Test that allow_network=True logs a warning."""
+        script = """
+def main():
+    return 42
+"""
+        await executor.execute(script=script, allow_network=True)
+        # The warning should be logged about limited network isolation
+        # Note: We can't easily check caplog with structlog, so we just verify execution works
+
+    @pytest.mark.anyio
+    async def test_allow_network_false_blocks_socket(self, executor):
+        """Test that socket is blocked with allow_network=False."""
+        script = """
+import socket
+def main():
+    return "should fail"
+"""
+        with pytest.raises(SandboxValidationError):
+            await executor.execute(script=script, allow_network=False)
+
+
+class TestSafeExecutorFallback:
+    """Tests for safe executor fallback when nsjail is not available.
+
+    These tests run with TRACECAT__DISABLE_NSJAIL=true to use the safe executor
+    instead of nsjail. This tests the fallback path for environments without
+    privileged Docker mode.
+    """
+
+    @pytest.fixture(autouse=True)
+    def force_safe_executor(self, monkeypatch, tmp_path):
+        """Force use of safe executor by disabling nsjail."""
+        cache_dir = str(tmp_path / "sandbox-cache")
+        monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
+        # Use a temp directory for sandbox cache to avoid permission issues
+        monkeypatch.setenv("TRACECAT__SANDBOX_CACHE_DIR", cache_dir)
+        # Reload config to pick up the change
+        import tracecat.config as config_module
+
+        importlib.reload(config_module)
+        yield
+        # Restore after test
+        importlib.reload(config_module)
+
+    @pytest.fixture
+    def sandbox_service(self, tmp_path):
+        """Create a SandboxService with a temporary cache directory."""
+        # Import after config reload to get the updated values
+        from tracecat.sandbox import SandboxService
+
+        return SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
+
+    @pytest.mark.anyio
+    async def test_fallback_basic_execution(self, sandbox_service):
+        """Test that fallback executor works for basic scripts."""
+        script = """
+def main():
+    return 42
+"""
+        result = await sandbox_service.run_python(script=script)
+        assert result == 42
+
+    @pytest.mark.anyio
+    async def test_fallback_with_inputs(self, sandbox_service):
+        """Test fallback executor with input arguments."""
+        script = """
+def main(a, b):
+    return a * b + 10
+"""
+        result = await sandbox_service.run_python(
+            script=script, inputs={"a": 5, "b": 3}
+        )
+        assert result == 25
+
+    @pytest.mark.anyio
+    async def test_fallback_safe_stdlib(self, sandbox_service):
+        """Test that safe stdlib modules work in fallback mode."""
+        script = """
+import json
+import re
+import datetime
+import base64
+
+def main():
+    data = {"key": "value"}
+    encoded = base64.b64encode(json.dumps(data).encode()).decode()
+    return encoded
+"""
+        result = await sandbox_service.run_python(script=script)
+        assert result is not None
+        # Verify it's valid base64
+        import base64 as b64
+
+        decoded = b64.b64decode(result).decode()
+        assert decoded == '{"key": "value"}'
+
+    @pytest.mark.anyio
+    async def test_fallback_blocks_os_module(self, sandbox_service):
+        """Test that os module is blocked in fallback mode."""
+        script = """
+import os
+
+def main():
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await sandbox_service.run_python(script=script)
+        assert "os" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_fallback_blocks_subprocess(self, sandbox_service):
+        """Test that subprocess module is blocked in fallback mode."""
+        script = """
+import subprocess
+
+def main():
+    return subprocess.run(["echo", "test"], capture_output=True).stdout
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await sandbox_service.run_python(script=script)
+        assert "subprocess" in str(exc_info.value).lower()
+
+    @pytest.mark.anyio
+    async def test_fallback_blocks_network_by_default(self, sandbox_service):
+        """Test that network modules are blocked by default in fallback mode."""
+        script = """
+import socket
+
+def main():
+    return socket.gethostname()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await sandbox_service.run_python(script=script)
+        assert (
+            "socket" in str(exc_info.value).lower()
+            or "network" in str(exc_info.value).lower()
+        )
+
+    @pytest.mark.anyio
+    async def test_fallback_error_handling(self, sandbox_service):
+        """Test that errors are properly captured in fallback mode."""
+        script = """
+def main():
+    raise ValueError("Test error from fallback")
+"""
+        with pytest.raises(SandboxExecutionError) as exc_info:
+            await sandbox_service.run_python(script=script)
+        assert "Test error from fallback" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_fallback_complex_data_types(self, sandbox_service):
+        """Test handling of complex data types in fallback mode."""
+        script = """
+def main(data_list, data_dict):
+    return {
+        "input_list": data_list,
+        "input_dict": data_dict,
+        "processed": {
+            "list_length": len(data_list),
+            "dict_keys": list(data_dict.keys())
+        }
+    }
+"""
+        result = await sandbox_service.run_python(
+            script=script,
+            inputs={"data_list": [1, 2, 3, 4, 5], "data_dict": {"a": 1, "b": 2}},
+        )
+        assert isinstance(result, dict)
+        assert result["input_list"] == [1, 2, 3, 4, 5]
+        assert result["input_dict"] == {"a": 1, "b": 2}
+        assert result["processed"]["list_length"] == 5
