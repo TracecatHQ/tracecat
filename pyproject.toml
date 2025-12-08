@@ -71,6 +71,8 @@ dependencies = [
     "pip>=25.3,<26.0",
     "pygithub>=2.7.0",
     "croniter>=6.0.0",
+    # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
+    "urllib3>=2.6.0",
 ]
 dynamic = ["version"]
 
