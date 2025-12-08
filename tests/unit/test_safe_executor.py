@@ -665,3 +665,111 @@ def main(data_list, data_dict):
         assert result["input_list"] == [1, 2, 3, 4, 5]
         assert result["input_dict"] == {"a": 1, "b": 2}
         assert result["processed"]["list_length"] == 5
+
+
+class TestSecurityBypasses:
+    """Test that security bypass attempts are blocked.
+
+    These tests verify that various attempts to bypass the sandbox security
+    are properly blocked by AST validation and/or runtime import hooks.
+    """
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        """Create an executor with a temp cache directory."""
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_dunder_import_blocked(self, executor):
+        """Test that __import__() calls are blocked at AST validation.
+
+        This verifies the fix for the security vulnerability where __import__('os')
+        could bypass AST validation since it's an ast.Call node, not ast.Import.
+        """
+        script = """
+def main():
+    os = __import__('os')
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "__import__" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_builtins_dunder_import_blocked(self, executor):
+        """Test that builtins.__import__() is blocked.
+
+        This verifies that the attribute access form of __import__ is also blocked.
+        """
+        script = """
+def main():
+    import builtins
+    os = builtins.__import__('os')
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "__import__" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_dunder_import_sys_blocked(self, executor):
+        """Test that __import__('sys') is blocked."""
+        script = """
+def main():
+    sys = __import__('sys')
+    return sys.version
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "__import__" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_dunder_import_subprocess_blocked(self, executor):
+        """Test that __import__('subprocess') is blocked."""
+        script = """
+def main():
+    subprocess = __import__('subprocess')
+    return subprocess.run(['echo', 'pwned'], capture_output=True).stdout
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "__import__" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_safe_stdlib_with_os_dependency_still_works(self, executor):
+        """Test that safe stdlib modules that internally use os still work.
+
+        Modules like inspect and traceback depend on os internally, but they
+        import it during wrapper initialization before the hook is active.
+        User code should still be able to use these modules.
+        """
+        script = """
+import traceback
+
+def main():
+    try:
+        raise ValueError("test error")
+    except ValueError:
+        tb = traceback.format_exc()
+        return "ValueError" in tb and "test error" in tb
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output is True
+
+    @pytest.mark.anyio
+    async def test_inspect_module_works(self, executor):
+        """Test that inspect module works for safe operations."""
+        script = """
+import inspect
+
+def example_func(a, b):
+    return a + b
+
+def main():
+    # Basic inspect operations should work
+    return inspect.isfunction(example_func)
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output is True

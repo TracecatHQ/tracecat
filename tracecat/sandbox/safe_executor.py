@@ -575,6 +575,27 @@ class ScriptValidator(ast.NodeVisitor):
                     )
         self.generic_visit(node)
 
+    def visit_Call(self, node: ast.Call) -> None:
+        """Block calls to __import__ which bypass import statement validation.
+
+        The AST validator only checks ast.Import and ast.ImportFrom nodes,
+        but __import__('os') is an ast.Call node that would bypass validation.
+        This method blocks both direct __import__ calls and builtins.__import__.
+        """
+        # Block __import__('module')
+        if isinstance(node.func, ast.Name) and node.func.id == "__import__":
+            self.errors.append(
+                "Direct calls to __import__ are not allowed. "
+                "Use regular import statements instead."
+            )
+        # Block builtins.__import__('module') and similar attribute access
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "__import__":
+            self.errors.append(
+                "Direct calls to __import__ are not allowed. "
+                "Use regular import statements instead."
+            )
+        self.generic_visit(node)
+
     def validate(self, script: str) -> list[str]:
         """Validate a script and return list of errors.
 
@@ -783,7 +804,7 @@ _ALLOWED_MODULES = {allowed_modules!r}
 _BLOCKED_MODULES = {blocked_modules!r}
 _SAFE_STDLIB = {safe_stdlib!r}
 _INTERNAL_MODULES = frozenset({{
-    # Python internals that are needed transitively
+    # Python internals that are needed transitively (underscore-prefixed)
     "_ast", "_bootstrap", "_bootstrap_external", "_collections_abc",
     "_frozen_importlib", "_frozen_importlib_external", "_imp", "_io",
     "_opcode", "_opcode_metadata", "_tokenize", "_weakref", "_weakrefset",
@@ -793,14 +814,14 @@ _INTERNAL_MODULES = frozenset({{
     "_sha1", "_md5", "_sha3", "_decimal", "_datetime", "_bisect", "_heapq",
     "_pickle", "_json", "_lsprof", "_contextvars", "_asyncio", "_queue",
     "_multibytecodec", "_codecs_cn", "_codecs_hk", "_codecs_iso2022",
-    "_codecs_jp", "_codecs_kr", "_codecs_tw", "encodings", "posixpath",
-    "genericpath", "ntpath", "stat",
-    # Stdlib modules needed by inspect, traceback, etc.
-    "os", "sys", "linecache", "tokenize", "token", "dis", "opcode",
-    "keyword", "types", "weakref", "ast", "codecs",
-    # Modules needed by pathlib, json, etc.
-    "posix", "nt", "fnmatch", "ntpath", "posixpath", "genericpath", "stat",
-    "io", "abc", "_abc",
+    "_codecs_jp", "_codecs_kr", "_codecs_tw",
+    # Non-underscore modules that are safe and needed for path operations
+    # NOTE: os, sys, and other dangerous modules are NOT included here.
+    # They are imported during wrapper init (before _wrapper_initialized=True)
+    # and cached in sys.modules. User code cannot re-import them because
+    # they are in _BLOCKED_MODULES which is checked first.
+    "encodings", "posixpath", "genericpath", "ntpath", "stat",
+    "linecache", "tokenize", "token", "keyword", "abc",
 }})
 
 _original_import = builtins.__import__
@@ -819,10 +840,18 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     if not _wrapper_initialized:
         return _original_import(name, globals, locals, fromlist, level)
 
-    # Always allow Python internals (underscore-prefixed or in internal set)
+    # Always allow Python internals (underscore-prefixed)
     if name.startswith("_") or base_module.startswith("_"):
         return _original_import(name, globals, locals, fromlist, level)
 
+    # CHECK BLOCKED MODULES FIRST - before any allowlists
+    # This ensures os, sys, etc. are blocked even if they appear in other sets
+    if name in _BLOCKED_MODULES or base_module in _BLOCKED_MODULES:
+        raise ImportError(
+            f"Import of module '{{name}}' is blocked for security reasons."
+        )
+
+    # Allow internal modules (now safe since dangerous ones blocked above)
     if name in _INTERNAL_MODULES or base_module in _INTERNAL_MODULES:
         return _original_import(name, globals, locals, fromlist, level)
 
@@ -839,15 +868,7 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name.startswith(f"{{allowed}}."):
             return _original_import(name, globals, locals, fromlist, level)
 
-    # Check if this is an import from the user script (blocked modules)
-    if name in _BLOCKED_MODULES or base_module in _BLOCKED_MODULES:
-        raise ImportError(
-            f"Import of module '{{name}}' is blocked for security reasons."
-        )
-
-    # For unknown modules, block only if this appears to be a user import
-    # (Check call stack to see if we're in user code vs stdlib)
-    # For safety, we block unknown modules
+    # Block unknown modules - anything not in allowlists is rejected
     raise ImportError(
         f"Import of module '{{name}}' is not allowed. "
         f"Only safe stdlib modules and declared dependencies are permitted."
@@ -1245,24 +1266,47 @@ class SafePythonExecutor:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
                 cached_venv = self.package_cache / cache_key
 
+                # Fast path: venv already exists and is valid
                 if cached_venv.exists() and (cached_venv / "bin" / "python").exists():
                     logger.debug("Using cached venv", cache_key=cache_key)
                 else:
-                    # Create new venv with dependencies
+                    # Slow path: create venv atomically using temp directory
+                    # This prevents race conditions when multiple concurrent requests
+                    # try to create the same venv.
                     logger.info(
                         "Cache miss, creating venv with packages",
                         cache_key=cache_key,
                         dependencies=dependencies,
                     )
-                    # Remove any partial cache
-                    if cached_venv.exists():
-                        shutil.rmtree(cached_venv, ignore_errors=True)
-                    await self._create_venv(cached_venv)
-                    await self._install_packages(
-                        cached_venv,
-                        dependencies,
-                        timeout_seconds=timeout_seconds,
-                    )
+                    temp_venv = self.package_cache / f"{cache_key}.{os.getpid()}.tmp"
+
+                    try:
+                        # Clean up any stale temp dir from previous failed attempt
+                        if temp_venv.exists():
+                            shutil.rmtree(temp_venv, ignore_errors=True)
+
+                        await self._create_venv(temp_venv)
+                        await self._install_packages(
+                            temp_venv,
+                            dependencies,
+                            timeout_seconds=timeout_seconds,
+                        )
+
+                        # Atomic rename into place. os.rename is atomic on the same
+                        # filesystem. If another process beat us, this will fail.
+                        try:
+                            os.rename(temp_venv, cached_venv)
+                            logger.info("Venv cached", cache_key=cache_key)
+                        except OSError:
+                            # Another process won the race - use theirs
+                            logger.debug(
+                                "Venv cache race: using existing venv",
+                                cache_key=cache_key,
+                            )
+                    finally:
+                        # Clean up temp dir if it still exists
+                        if temp_venv.exists():
+                            shutil.rmtree(temp_venv, ignore_errors=True)
 
                 python_path = str(cached_venv / "bin" / "python")
 
