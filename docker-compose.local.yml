@@ -14,10 +14,13 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
+  # All services use the production target from the multi-stage Dockerfile
+  # to match the TRACECAT__APP_ENV=production environment variable
   api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     container_name: api
     restart: unless-stopped
     networks:
@@ -94,6 +97,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     restart: unless-stopped
     networks:
       - core
@@ -141,6 +145,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     restart: unless-stopped
     networks:
       - core-db
