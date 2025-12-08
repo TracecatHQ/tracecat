@@ -21,7 +21,8 @@ from tenacity import (
     wait_fixed,
 )
 import yaml
-from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
+from tracecat.expressions.common import eval_jsonpath
+from tracecat.sandbox.safe_executor import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
