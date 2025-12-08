@@ -41,9 +41,15 @@ def audit_log(
                 return await func(self, *args, **kwargs)
 
             async with AuditService.with_session() as audit_service:
-                resource_id: uuid.UUID | None = _extract_resource_id(
-                    args, kwargs, None, resource_id_attr
-                )
+                try:
+                    resource_id: uuid.UUID | None = _extract_resource_id(
+                        args, kwargs, None, resource_id_attr
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Audit resource_id extraction failed", error=str(exc)
+                    )
+                    resource_id = None
 
                 # Log attempt
                 try:

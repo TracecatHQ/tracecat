@@ -197,13 +197,13 @@ class SecretsService(BaseService):
         self.session.add(secret)
         await self.session.commit()
 
-    @audit_log(resource_type="secret", action="update", resource_id_attr="secret")
+    @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
 
         await self._update_secret(secret=secret, params=params)
 
-    @audit_log(resource_type="secret", action="delete", resource_id_attr="secret")
+    @audit_log(resource_type="secret", action="delete")
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
 
@@ -299,9 +299,7 @@ class SecretsService(BaseService):
         self.session.add(secret)
         await self.session.commit()
 
-    @audit_log(
-        resource_type="organization_secret", action="update", resource_id_attr="secret"
-    )
+    @audit_log(resource_type="organization_secret", action="update")
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
@@ -310,7 +308,6 @@ class SecretsService(BaseService):
     @audit_log(
         resource_type="organization_secret",
         action="delete",
-        resource_id_attr="org_secret",
     )
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         await self._delete_secret(org_secret)

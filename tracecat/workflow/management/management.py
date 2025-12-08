@@ -363,7 +363,9 @@ class WorkflowsManagementService(BaseService):
         await self.session.refresh(workflow)
         return workflow
 
-    @audit_log(resource_type="workflow", action="delete")
+    @audit_log(
+        resource_type="workflow", action="delete", resource_id_attr="workflow_id"
+    )
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
         """Delete a workflow and clean up associated resources.
 

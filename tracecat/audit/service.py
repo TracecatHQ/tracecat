@@ -4,10 +4,12 @@ import os
 import uuid
 
 import httpx
+from sqlalchemy import select
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.schemas import AuditEventRead
 from tracecat.contexts import ctx_client_ip
+from tracecat.db.models import User
 from tracecat.service import BaseService
 
 
@@ -51,7 +53,7 @@ class AuditService(BaseService):
     async def _post_event(self, *, webhook_url: str, payload: AuditEventRead) -> None:
         response: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     webhook_url, json=payload.model_dump(mode="json")
                 )
@@ -82,11 +84,23 @@ class AuditService(BaseService):
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
+        actor_label: str | None = None
+        try:
+            result = await self.session.execute(
+                select(User).where(User.id == role.user_id)  # pyright: ignore[reportArgumentType]
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                actor_label = user.email
+        except Exception as exc:
+            self.logger.warning("Failed to fetch actor email", error=str(exc))
+
         payload = AuditEventRead(
             organization_id=role.organization_id,
             workspace_id=role.workspace_id,
             actor_type=AuditEventActor.USER,
             actor_id=role.user_id,
+            actor_label=actor_label,
             resource_type=resource_type,
             resource_id=resource_id,
             action=action,

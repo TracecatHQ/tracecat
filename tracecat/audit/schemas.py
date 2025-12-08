@@ -13,6 +13,7 @@ class AuditEventRead(BaseModel):
     workspace_id: uuid.UUID | None = None
     actor_type: AuditEventActor
     actor_id: uuid.UUID
+    actor_label: str | None = None
     ip_address: str | None = None
     resource_type: str
     resource_id: uuid.UUID | None = None
