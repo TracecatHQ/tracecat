@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import TYPE_CHECKING
 
 import httpx
 
@@ -10,9 +9,6 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.schemas import AuditEventRead
 from tracecat.contexts import ctx_client_ip
 from tracecat.service import BaseService
-
-if TYPE_CHECKING:
-    from tracecat.settings.service import SettingsService
 
 
 class AuditService(BaseService):
@@ -30,6 +26,8 @@ class AuditService(BaseService):
 
         if env_url := os.environ.get("AUDIT_WEBHOOK_URL"):
             return env_url
+
+        from tracecat.settings.service import SettingsService  # noqa: PLC0415
 
         settings_service = SettingsService(self.session, role=self.role)
         setting = await settings_service.get_org_setting("audit_webhook_url")

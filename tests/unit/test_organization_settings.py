@@ -221,7 +221,7 @@ async def test_update_audit_settings(
     """Ensure audit webhook updates persist."""
     service = settings_service_with_defaults
     await service.update_audit_settings(
-        SettingUpdate(value="https://example.com/audit", value_type=ValueType.JSON)  # type: ignore[arg-type]
+        AuditSettingsUpdate(audit_webhook_url="https://example.com/audit")
     )
     settings = await service.list_org_settings(keys={"audit_webhook_url"})
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}

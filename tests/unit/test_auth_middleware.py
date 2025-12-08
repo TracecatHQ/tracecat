@@ -129,8 +129,11 @@ async def test_auth_cache_reduces_database_queries(mocker):
         "user_id": None,
     }
 
-    # Mock session
+    # Mock session with proper execute() and scalar_one_or_none() chain
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none = MagicMock(return_value=None)
     mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
 
     # First workspace check - should trigger database query
     await _role_dependency(
@@ -368,10 +371,16 @@ async def test_cache_user_id_validation():
             {UserRole.BASIC: AccessLevel.BASIC},
         ),
     ):
+        # Mock session with proper execute() and scalar_one_or_none() chain
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         # Common parameters for _role_dependency
         common_params = {
             "request": request,
-            "session": AsyncMock(),
+            "session": mock_session,
             "workspace_id": workspace_id,
             "api_key": None,
             "allow_user": True,
@@ -443,10 +452,16 @@ async def test_cache_size_limit():
             {UserRole.BASIC: AccessLevel.BASIC},
         ),
     ):
+        # Mock session with proper execute() and scalar_one_or_none() chain
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         # Check with excessive memberships
         role = await _role_dependency(
             request=request,
-            session=AsyncMock(),
+            session=mock_session,
             workspace_id=target_workspace_id,
             user=user,
             api_key=None,
