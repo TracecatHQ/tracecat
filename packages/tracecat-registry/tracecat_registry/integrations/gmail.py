@@ -13,6 +13,7 @@ import base64
 import httpx
 from pydantic import Field
 from tracecat_registry import registry, RegistryOAuthSecret, secrets
+from tracecat_registry._internal.logger import logger
 
 
 # Use Tracecat's built-in OAuth system
@@ -77,8 +78,9 @@ async def search_messages(
         # Fetch metadata for each message
         results = []
         for msg in messages:
+            msg_id = msg['id']
             msg_response = await client.get(
-                f"https://gmail.googleapis.com/gmail/v1/users/{user_id}/messages/{msg['id']}",
+                f"https://gmail.googleapis.com/gmail/v1/users/{user_id}/messages/{msg_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
                 params={"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]},
             )
@@ -86,7 +88,7 @@ async def search_messages(
                 msg_data = msg_response.json()
                 headers = {h["name"]: h["value"] for h in msg_data.get("payload", {}).get("headers", [])}
                 results.append({
-                    "id": msg["id"],
+                    "id": msg_id,
                     "threadId": msg["threadId"],
                     "snippet": msg_data.get("snippet", ""),
                     "from": headers.get("From", ""),
@@ -94,6 +96,18 @@ async def search_messages(
                     "subject": headers.get("Subject", ""),
                     "date": headers.get("Date", ""),
                     "labelIds": msg_data.get("labelIds", []),
+                })
+            else:
+                # Log the failure and include error info in results
+                error_detail = msg_response.text[:200] if msg_response.text else "No error details"
+                logger.warning(
+                    f"Failed to fetch Gmail message {msg_id}: HTTP {msg_response.status_code} - {error_detail}"
+                )
+                results.append({
+                    "id": msg_id,
+                    "threadId": msg["threadId"],
+                    "error": f"Failed to fetch message metadata: HTTP {msg_response.status_code}",
+                    "status_code": msg_response.status_code,
                 })
         
         return results
