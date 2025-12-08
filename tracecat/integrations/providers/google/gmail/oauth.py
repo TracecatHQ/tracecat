@@ -12,7 +12,7 @@ from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
 class GoogleGmailACProvider(AuthorizationCodeOAuthProvider):
     """Google Gmail OAuth provider using authorization code flow for user access.
-    
+
     This provider enables Gmail API access for security automation workflows including:
     - Email search and retrieval
     - Phishing investigation
@@ -23,12 +23,10 @@ class GoogleGmailACProvider(AuthorizationCodeOAuthProvider):
     id: ClassVar[str] = "google_gmail"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=[
-            "https://www.googleapis.com/auth/gmail.readonly",
-        ],
-        additional=[
-            "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.labels",
             "https://www.googleapis.com/auth/gmail.metadata",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.readonly",
         ],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
@@ -50,14 +48,12 @@ class GoogleGmailACProvider(AuthorizationCodeOAuthProvider):
         setup_guide_url="https://developers.google.com/gmail/api/quickstart/python",
         troubleshooting_url="https://developers.google.com/identity/protocols/oauth2/web-server#httprest",
     )
-    
+
     # Google OAuth endpoints
     default_authorization_endpoint: ClassVar[str] = (
         "https://accounts.google.com/o/oauth2/v2/auth"
     )
-    default_token_endpoint: ClassVar[str] = (
-        "https://oauth2.googleapis.com/token"
-    )
+    default_token_endpoint: ClassVar[str] = "https://oauth2.googleapis.com/token"
 
     def _use_pkce(self) -> bool:
         """Enable PKCE for enhanced security (recommended by Google)."""
@@ -71,4 +67,3 @@ class GoogleGmailACProvider(AuthorizationCodeOAuthProvider):
         # Force consent screen to ensure we get a refresh token
         params["prompt"] = "consent"
         return params
-
