@@ -7,6 +7,7 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditAction, AuditResourceType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
@@ -23,8 +24,8 @@ _RESOURCE_ID_ATTR_MAP: dict[str, str] = {
 
 def audit_log(
     *,
-    resource_type: str,
-    action: str,
+    resource_type: AuditResourceType,
+    action: AuditAction,
     resource_id_attr: str | None = None,
 ) -> Callable[
     [Callable[Concatenate[Any, P], Awaitable[R]]],
@@ -56,65 +57,56 @@ def audit_log(
             if role is None or role.user_id is None:
                 return await func(self, *args, **kwargs)
 
+            audit_service = AuditService(session=self.session, role=role)
             try:
-                async with AuditService.with_session() as audit_service:
-                    try:
-                        resource_id: uuid.UUID | None = _extract_resource_id(
-                            args, kwargs, None, resolved_resource_id_attr
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Audit resource_id extraction failed", error=str(exc)
-                        )
-                        resource_id = None
-
-                    # Log attempt
-                    try:
-                        await audit_service.create_event(
-                            resource_type=resource_type,
-                            action=action,
-                            resource_id=resource_id,
-                            status=AuditEventStatus.ATTEMPT,
-                        )
-                    except Exception as exc:
-                        logger.warning("Audit attempt log failed", error=str(exc))
-
-                    try:
-                        # Execute the actual function
-                        result = await func(self, *args, **kwargs)
-
-                        # Log success
-                        try:
-                            resource_id = _extract_resource_id(
-                                args, kwargs, result, resolved_resource_id_attr
-                            )
-                            await audit_service.create_event(
-                                resource_type=resource_type,
-                                action=action,
-                                resource_id=resource_id,
-                                status=AuditEventStatus.SUCCESS,
-                            )
-                        except Exception as exc:
-                            logger.warning("Audit success log failed", error=str(exc))
-                        return result
-                    except Exception:
-                        # Log failure
-                        try:
-                            await audit_service.create_event(
-                                resource_type=resource_type,
-                                action=action,
-                                resource_id=resource_id,
-                                status=AuditEventStatus.FAILURE,
-                            )
-                        except Exception as exc:
-                            logger.warning("Audit failure log failed", error=str(exc))
-                        raise
-            except Exception as exc:
-                logger.warning(
-                    "Audit service failed, running function without audit logging",
-                    error=str(exc),
+                resource_id: uuid.UUID | None = _extract_resource_id(
+                    args, kwargs, None, resolved_resource_id_attr
                 )
-                return await func(self, *args, **kwargs)
+            except Exception as exc:
+                logger.warning("Audit resource_id extraction failed", error=str(exc))
+                resource_id = None
+
+            # Log attempt
+            try:
+                await audit_service.create_event(
+                    resource_type=resource_type,
+                    action=action,
+                    resource_id=resource_id,
+                    status=AuditEventStatus.ATTEMPT,
+                )
+            except Exception as exc:
+                logger.warning("Audit attempt log failed", error=str(exc))
+
+            try:
+                # Execute the actual function
+                result = await func(self, *args, **kwargs)
+
+                # Log success
+                try:
+                    resource_id = _extract_resource_id(
+                        args, kwargs, result, resolved_resource_id_attr
+                    )
+                    await audit_service.create_event(
+                        resource_type=resource_type,
+                        action=action,
+                        resource_id=resource_id,
+                        status=AuditEventStatus.SUCCESS,
+                    )
+                except Exception as exc:
+                    logger.warning("Audit success log failed", error=str(exc))
+                return result
+            except Exception:
+                # Log failure
+                try:
+                    await audit_service.create_event(
+                        resource_type=resource_type,
+                        action=action,
+                        resource_id=resource_id,
+                        status=AuditEventStatus.FAILURE,
+                    )
+                except Exception as exc:
+                    logger.warning("Audit failure log failed", error=str(exc))
+                raise
 
         return wrapper
 

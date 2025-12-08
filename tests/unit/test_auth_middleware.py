@@ -101,10 +101,23 @@ async def test_auth_cache_reduces_database_queries(mocker):
         db_call_count += 1
         return [mock_membership1, mock_membership2]
 
+    # Create organization IDs for memberships
+    org_id_1 = uuid.uuid4()
+    org_id_2 = uuid.uuid4()
+
     # Create a mock service instance
     mock_service = MagicMock(spec=MembershipService)
     mock_service.list_user_memberships = AsyncMock(
         side_effect=mock_list_user_memberships
+    )
+    mock_service.get_membership = AsyncMock(
+        side_effect=lambda workspace_id, user_id: MembershipWithOrg(
+            membership=mock_membership1, org_id=org_id_1
+        )
+        if workspace_id == workspace_id_1
+        else MembershipWithOrg(membership=mock_membership2, org_id=org_id_2)
+        if workspace_id == workspace_id_2
+        else None
     )
 
     # Mock the MembershipService constructor to return our mock
@@ -432,10 +445,19 @@ async def test_cache_size_limit():
 
     # The workspace we're checking
     target_workspace_id = memberships[500].workspace_id
+    target_membership = memberships[500]
+    org_id = uuid.uuid4()
 
     # Mock the service
     mock_service = MagicMock(spec=MembershipService)
     mock_service.list_user_memberships = AsyncMock(return_value=memberships)
+    mock_service.get_membership = AsyncMock(
+        side_effect=lambda workspace_id, user_id: MembershipWithOrg(
+            membership=target_membership, org_id=org_id
+        )
+        if workspace_id == target_workspace_id
+        else None
+    )
 
     # Create request with cache
     request = MagicMock(spec=Request)

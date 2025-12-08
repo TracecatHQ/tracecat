@@ -2,10 +2,28 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
+
+AuditAction = Literal["create", "update", "delete"]
+AuditResourceType = Literal[
+    "workspace",
+    "workflow",
+    "workflow_execution",
+    "workspace_variable",
+    "tag",
+    "table",
+    "table_column",
+    "organization_setting",
+    "secret",
+    "organization_secret",
+    "chat",
+    "case",
+    "agent_preset",
+]
 
 
 class AuditEvent(BaseModel):
@@ -15,8 +33,8 @@ class AuditEvent(BaseModel):
     actor_id: uuid.UUID
     actor_label: str | None = None
     ip_address: str | None = None
-    resource_type: str
+    resource_type: AuditResourceType
     resource_id: uuid.UUID | None = None
-    action: str
+    action: AuditAction
     status: AuditEventStatus
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

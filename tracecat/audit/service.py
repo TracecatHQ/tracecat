@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy import select
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
-from tracecat.audit.types import AuditEvent
+from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
 from tracecat.contexts import ctx_client_ip
 from tracecat.db.models import User
 from tracecat.service import BaseService
@@ -22,13 +22,11 @@ class AuditService(BaseService):
 
         Precedence:
         1. `AUDIT_WEBHOOK_URL` env var
-        2. Organization setting `audit_webhook_url` (cached)
+        2. Organization setting `audit_webhook_url`
         """
         from tracecat.settings.service import get_setting_cached  # noqa: PLC0415
 
-        value = await get_setting_cached(
-            "audit_webhook_url", role=self.role, session=self.session
-        )
+        value = await get_setting_cached("audit_webhook_url")
         if value is None:
             return None
         if not isinstance(value, str):
@@ -61,8 +59,8 @@ class AuditService(BaseService):
     async def create_event(
         self,
         *,
-        resource_type: str,
-        action: str,
+        resource_type: AuditResourceType,
+        action: AuditAction,
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
     ) -> None:
