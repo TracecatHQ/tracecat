@@ -22,17 +22,13 @@ class AuditService(BaseService):
 
         Precedence:
         1. `AUDIT_WEBHOOK_URL` env var
-        2. Organization setting `audit_webhook_url`
+        2. Organization setting `audit_webhook_url` (cached)
         """
+        from tracecat.settings.service import get_setting_cached  # noqa: PLC0415
 
-        from tracecat.settings.service import SettingsService  # noqa: PLC0415
-
-        settings_service = SettingsService(self.session, role=self.role)
-        setting = await settings_service.get_org_setting("audit_webhook_url")
-        if setting is None:
-            return None
-
-        value = settings_service.get_value(setting)
+        value = await get_setting_cached(
+            "audit_webhook_url", role=self.role, session=self.session
+        )
         if value is None:
             return None
         if not isinstance(value, str):
