@@ -144,15 +144,26 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
     return {key: (value or {}) for key, value in data.items()}
 
 
+def _normalize_error_message(msg: str) -> str:
+    """Normalize an error message string for comparison."""
+    # Normalize line numbers
+    msg = re.sub(r"Line: \d+", "Line: <NUM>", msg)
+    # Normalize newlines (collapse multiple newlines, normalize line endings)
+    msg = re.sub(r"\r\n", "\n", msg)
+    msg = re.sub(r"\n{3,}", "\n\n", msg)
+    return msg
+
+
 def normalize_error_line_numbers(obj: Any) -> Any:
     """Recursively normalize error messages by replacing line numbers with a placeholder.
 
-    This prevents test flakiness when source code line numbers change.
+    This prevents test flakiness when source code line numbers change or
+    newline formatting varies.
     """
     if isinstance(obj, dict):
         return {
             k: (
-                re.sub(r"Line: \d+", "Line: <NUM>", v)
+                _normalize_error_message(v)
                 if k == "message" and isinstance(v, str)
                 else normalize_error_line_numbers(v)
             )
