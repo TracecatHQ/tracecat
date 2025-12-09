@@ -22,7 +22,7 @@ from tenacity import (
 )
 import yaml
 from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_executor import build_safe_lambda
+from tracecat.sandbox.safe_lambda import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 

@@ -32,12 +32,13 @@ from tracecat.sandbox.safe_executor import (
     NETWORK_MODULES,
     SAFE_STDLIB_MODULES,
     SYSTEM_ACCESS_MODULES,
-    SafeEvaluator,
     SafePythonExecutor,
     ScriptValidator,
+)
+from tracecat.sandbox.safe_lambda import (
+    SafeEvaluator,
     WhitelistValidator,
     build_safe_lambda,
-    sandbox_lambda,
 )
 from tracecat.sandbox.service import SandboxService
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
@@ -61,7 +62,6 @@ __all__ = [
     "WhitelistValidator",
     "ScriptValidator",
     "build_safe_lambda",
-    "sandbox_lambda",
     "SAFE_STDLIB_MODULES",
     "NETWORK_MODULES",
     "SYSTEM_ACCESS_MODULES",

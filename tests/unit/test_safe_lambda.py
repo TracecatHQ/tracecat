@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from tracecat.sandbox.safe_executor import build_safe_lambda
+from tracecat.sandbox.safe_lambda import build_safe_lambda
 
 
 @pytest.mark.parametrize(

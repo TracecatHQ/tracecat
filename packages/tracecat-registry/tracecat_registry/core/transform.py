@@ -3,7 +3,7 @@ from builtins import map as map_
 from typing import Annotated, Any, Literal
 
 from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_executor import build_safe_lambda
+from tracecat.sandbox.safe_lambda import build_safe_lambda
 from typing_extensions import Doc
 import hashlib
 import json
