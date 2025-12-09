@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from slugify import slugify
 from sqlalchemy import select
 
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseService
@@ -58,6 +59,7 @@ class TagsService(BaseService):
             # Not a UUID, try ref
             return await self.get_tag_by_ref(tag_identifier)
 
+    @audit_log(resource_type="tag", action="create")
     async def create_tag(self, tag: TagCreate) -> Tag:
         workspace_id = self.role.workspace_id
         if workspace_id is None:
@@ -78,6 +80,7 @@ class TagsService(BaseService):
         await self.session.commit()
         return db_tag
 
+    @audit_log(resource_type="tag", action="update")
     async def update_tag(self, tag: Tag, tag_update: TagUpdate) -> Tag:
         """Update tag and regenerate ref if name changed."""
         if tag_update.name and tag_update.name != tag.name:
@@ -89,6 +92,7 @@ class TagsService(BaseService):
         await self.session.refresh(tag)
         return tag
 
+    @audit_log(resource_type="tag", action="delete")
     async def delete_tag(self, tag: Tag) -> None:
         await self.session.delete(tag)
         await self.session.commit()

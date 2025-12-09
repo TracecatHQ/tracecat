@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
@@ -22,6 +23,7 @@ from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS
 from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
+    AuditSettingsUpdate,
     AuthSettingsUpdate,
     BaseSettingsGroup,
     GitSettingsUpdate,
@@ -43,6 +45,7 @@ class SettingsService(BaseService):
         AuthSettingsUpdate,
         OAuthSettingsUpdate,
         AppSettingsUpdate,
+        AuditSettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -166,6 +169,7 @@ class SettingsService(BaseService):
         self.session.add(setting)
         return setting
 
+    @audit_log(resource_type="organization_setting", action="create")
     @require_access_level(AccessLevel.ADMIN)
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
@@ -198,6 +202,7 @@ class SettingsService(BaseService):
             setattr(setting, field, value)
         return setting
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_org_setting(
         self, setting: OrganizationSetting, params: SettingUpdate
@@ -217,6 +222,7 @@ class SettingsService(BaseService):
         await self.session.refresh(updated_setting)
         return updated_setting
 
+    @audit_log(resource_type="organization_setting", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_org_setting(self, setting: OrganizationSetting) -> None:
         """Delete an organization setting."""
@@ -240,6 +246,7 @@ class SettingsService(BaseService):
                 await self._update_setting(setting, params)
         await self.session.commit()
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_git_settings(self, params: GitSettingsUpdate) -> None:
         self.logger.info(f"Updating Git settings: {params}")
@@ -247,26 +254,37 @@ class SettingsService(BaseService):
         git_settings = await self.list_org_settings(keys=GitSettingsUpdate.keys())
         await self._update_grouped_settings(git_settings, params)
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_saml_settings(self, params: SAMLSettingsUpdate) -> None:
         saml_settings = await self.list_org_settings(keys=SAMLSettingsUpdate.keys())
         await self._update_grouped_settings(saml_settings, params)
 
+    @audit_log(resource_type="organization_setting", action="update")
+    @require_access_level(AccessLevel.ADMIN)
+    async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
+        audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
+        await self._update_grouped_settings(audit_settings, params)
+
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_auth_settings(self, params: AuthSettingsUpdate) -> None:
         auth_settings = await self.list_org_settings(keys=AuthSettingsUpdate.keys())
         await self._update_grouped_settings(auth_settings, params)
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_oauth_settings(self, params: OAuthSettingsUpdate) -> None:
         oauth_settings = await self.list_org_settings(keys=OAuthSettingsUpdate.keys())
         await self._update_grouped_settings(oauth_settings, params)
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
 
+    @audit_log(resource_type="organization_setting", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())

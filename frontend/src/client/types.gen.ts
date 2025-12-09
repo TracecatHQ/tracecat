@@ -521,6 +521,23 @@ export type AudioUrl = {
   readonly identifier: string
 }
 
+/**
+ * Settings for audit logging.
+ */
+export type AuditSettingsRead = {
+  audit_webhook_url: string | null
+}
+
+/**
+ * Settings for audit logging.
+ */
+export type AuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+}
+
 export type AuthSettingsRead = {
   auth_basic_enabled: boolean
   auth_require_email_verification: boolean
@@ -3441,6 +3458,7 @@ export type RetryPromptPart = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
+  organization_id?: string
   workspace_role?: WorkspaceRole | null
   user_id?: string | null
   access_level?: AccessLevel
@@ -6291,6 +6309,14 @@ export type SettingsUpdateAppSettingsData = {
 
 export type SettingsUpdateAppSettingsResponse = void
 
+export type SettingsGetAuditSettingsResponse = AuditSettingsRead
+
+export type SettingsUpdateAuditSettingsData = {
+  requestBody: AuditSettingsUpdate
+}
+
+export type SettingsUpdateAuditSettingsResponse = void
+
 export type SettingsGetAgentSettingsResponse = AgentSettingsRead
 
 export type SettingsUpdateAgentSettingsData = {
@@ -9002,6 +9028,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAppSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAuditSettingsData
       res: {
         /**
          * Successful Response
