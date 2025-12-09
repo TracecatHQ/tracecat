@@ -146,9 +146,11 @@ async def test_sync_actions_from_repository_creates_new_actions(
         RegistryRepositoryCreate(origin=DEFAULT_LOCAL_REGISTRY_ORIGIN)
     )
 
-    # Sync actions
+    # Sync actions (use_subprocess=False for testing with monkeypatched config)
     actions_service = RegistryActionsService(session, role=svc_role)
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Verify action was created
     result = await session.execute(
@@ -192,7 +194,9 @@ async def test_sync_actions_from_repository_updates_existing_actions(
     )
 
     actions_service = RegistryActionsService(session, role=svc_role)
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Get initial action
     result = await session.execute(
@@ -210,7 +214,7 @@ async def test_sync_actions_from_repository_updates_existing_actions(
 
     # Sync again (explicitly allow full deletion)
     await actions_service.sync_actions_from_repository(
-        db_repo, pull_remote=False, allow_delete_all=True
+        db_repo, pull_remote=False, allow_delete_all=True, use_subprocess=False
     )
 
     # Verify action was updated (same ID, different metadata)
@@ -251,7 +255,9 @@ async def test_sync_actions_from_repository_deletes_removed_actions(
     )
 
     actions_service = RegistryActionsService(session, role=svc_role)
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Verify action exists
     result = await session.execute(
@@ -284,7 +290,7 @@ async def test_sync_actions_from_repository_deletes_removed_actions(
 
     # Sync again (explicitly allow removal of all actions)
     await actions_service.sync_actions_from_repository(
-        db_repo, pull_remote=False, allow_delete_all=True
+        db_repo, pull_remote=False, allow_delete_all=True, use_subprocess=False
     )
 
     # Verify action was deleted
@@ -322,7 +328,9 @@ async def test_sync_actions_from_repository_empty_snapshot_rejected(
     actions_service = RegistryActionsService(session, role=svc_role)
 
     # Seed with one action
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Blank out the repo so the snapshot is empty
     actions_file = local_package_path / "test_package" / "udfs.py"
@@ -342,7 +350,9 @@ async def test_sync_actions_from_repository_empty_snapshot_rejected(
     await session.refresh(db_repo)
 
     with pytest.raises(RegistryError, match="produced no actions"):
-        await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+        await actions_service.sync_actions_from_repository(
+            db_repo, pull_remote=False, use_subprocess=False
+        )
 
     # Original action should remain
     result = await session.execute(
@@ -387,7 +397,9 @@ async def test_sync_actions_from_repository_consistency_check(
     actions_service = RegistryActionsService(session, role=svc_role)
 
     # First sync
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Get state after first sync
     result = await session.execute(
@@ -400,7 +412,9 @@ async def test_sync_actions_from_repository_consistency_check(
     }
 
     # Second sync (should be idempotent)
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     # Get state after second sync
     result = await session.execute(
@@ -418,7 +432,9 @@ async def test_sync_actions_from_repository_consistency_check(
     assert first_sync_count > 0  # Ensure we actually synced something
 
     # Third sync (verify still consistent)
-    await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+    await actions_service.sync_actions_from_repository(
+        db_repo, pull_remote=False, use_subprocess=False
+    )
 
     result = await session.execute(
         select(RegistryAction).where(RegistryAction.repository_id == db_repo.id)
@@ -491,7 +507,9 @@ async def test_sync_actions_from_repository_with_malformed_function(
 
     # Attempt to sync - this should fail due to import error
     with pytest.raises(ImportError, match="nonexistent_module"):
-        await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+        await actions_service.sync_actions_from_repository(
+            db_repo, pull_remote=False, use_subprocess=False
+        )
 
     # The test expects that if there were any partially synced actions,
     # they would remain in the database because there's no transaction rollback.
@@ -592,7 +610,9 @@ async def test_sync_actions_from_repository_mixed_valid_and_malformed(
 
     # Attempt to sync - this should fail
     with pytest.raises(ImportError):
-        await actions_service.sync_actions_from_repository(db_repo, pull_remote=False)
+        await actions_service.sync_actions_from_repository(
+            db_repo, pull_remote=False, use_subprocess=False
+        )
 
     # Check if any actions were created before the failure
     # This demonstrates the lack of transaction: if the valid file was processed
