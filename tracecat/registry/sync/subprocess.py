@@ -93,78 +93,23 @@ async def fetch_actions_from_subprocess(
     if config.TRACECAT__APP_ENV:
         subprocess_env["TRACECAT__APP_ENV"] = config.TRACECAT__APP_ENV
 
-    try:
-        # Start the subprocess
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=subprocess_env,
-        )
+    # Start the subprocess
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=subprocess_env,
+    )
 
-        # Wait for completion with timeout
+    # Wait for completion with timeout
+    try:
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             process.communicate(),
             timeout=timeout,
         )
-
-        # Decode outputs
-        stdout_str = stdout_bytes.decode("utf-8").strip()
-        stderr_str = stderr_bytes.decode("utf-8").strip()
-
-        # Log stderr (contains all logging from the subprocess)
-        if stderr_str:
-            for line in stderr_str.split("\n"):
-                logger.debug("sync subprocess", output=line)
-
-        # Check exit code
-        if process.returncode != 0:
-            logger.error(
-                "Sync subprocess failed",
-                exit_code=process.returncode,
-                stderr=stderr_str,
-            )
-            # Try to parse error from stdout
-            error_msg = f"Sync subprocess exited with code {process.returncode}"
-            if stdout_str:
-                try:
-                    result_data = json.loads(stdout_str)
-                    if "error" in result_data:
-                        error_msg = result_data["error"]
-                except json.JSONDecodeError:
-                    pass
-            raise RegistryError(error_msg)
-
-        # Parse JSON output
-        if not stdout_str:
-            raise RegistryError("Sync subprocess returned empty output")
-
-        try:
-            # Use the type adapter to parse the JSON into the correct type
-            result = SyncResultAdapter.validate_json(stdout_str)
-        except Exception as e:
-            logger.error(
-                "Failed to parse subprocess JSON output",
-                error=str(e),
-                stdout=stdout_str[:500],
-            )
-            raise RegistryError(f"Invalid JSON from sync subprocess: {e}") from e
-
-        # Check for error result
-        if isinstance(result, SyncResultError):
-            raise RegistryError(result.error)
-
-        logger.info(
-            "Sync subprocess completed",
-            origin=origin,
-            num_actions=len(result.actions),
-            commit_sha=result.commit_sha,
-            num_validation_errors=len(result.validation_errors),
-        )
-
-        return result
-
-    except TimeoutError as e:
+    except TimeoutError:
+        process.kill()
+        await process.wait()
         logger.error(
             "Sync subprocess timed out",
             origin=origin,
@@ -172,4 +117,60 @@ async def fetch_actions_from_subprocess(
         )
         raise RegistryError(
             f"Sync subprocess timed out after {timeout}s for {origin!r}"
-        ) from e
+        ) from None
+
+    # Decode outputs
+    stdout_str = stdout_bytes.decode("utf-8").strip()
+    stderr_str = stderr_bytes.decode("utf-8").strip()
+
+    # Log stderr (contains all logging from the subprocess)
+    if stderr_str:
+        for line in stderr_str.split("\n"):
+            logger.debug("sync subprocess", output=line)
+
+    # Check exit code
+    if process.returncode != 0:
+        logger.error(
+            "Sync subprocess failed",
+            exit_code=process.returncode,
+            stderr=stderr_str,
+        )
+        # Try to parse error from stdout
+        error_msg = f"Sync subprocess exited with code {process.returncode}"
+        if stdout_str:
+            try:
+                result_data = json.loads(stdout_str)
+                if "error" in result_data:
+                    error_msg = result_data["error"]
+            except json.JSONDecodeError:
+                pass
+        raise RegistryError(error_msg)
+
+    # Parse JSON output
+    if not stdout_str:
+        raise RegistryError("Sync subprocess returned empty output")
+
+    try:
+        # Use the type adapter to parse the JSON into the correct type
+        result = SyncResultAdapter.validate_json(stdout_str)
+    except Exception as e:
+        logger.error(
+            "Failed to parse subprocess JSON output",
+            error=str(e),
+            stdout=stdout_str[:500],
+        )
+        raise RegistryError(f"Invalid JSON from sync subprocess: {e}") from e
+
+    # Check for error result
+    if isinstance(result, SyncResultError):
+        raise RegistryError(result.error)
+
+    logger.info(
+        "Sync subprocess completed",
+        origin=origin,
+        num_actions=len(result.actions),
+        commit_sha=result.commit_sha,
+        num_validation_errors=len(result.validation_errors),
+    )
+
+    return result
