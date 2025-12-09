@@ -358,7 +358,7 @@ class DSLWorkflow:
         # Validate and apply defaults from input schema to trigger inputs
         if input_schema := self.dsl.entrypoint.expects:
             try:
-                trigger_inputs = await workflow.execute_activity(
+                trigger_inputs = await workflow.execute_local_activity(
                     normalize_trigger_inputs_activity,
                     arg=NormalizeTriggerInputsActivityInputs(
                         input_schema=input_schema, trigger_inputs=trigger_inputs
@@ -491,7 +491,7 @@ class DSLWorkflow:
             self.logger.info("Creating wait until timer", wait_until=task.wait_until)
 
             # Parse the delay until date
-            wait_until = await workflow.execute_activity(
+            wait_until = await workflow.execute_local_activity(
                 DSLActivities.parse_wait_until_activity,
                 task.wait_until,
                 start_to_close_timeout=timedelta(seconds=10),
@@ -1088,7 +1088,7 @@ class DSLWorkflow:
             stream_id=stream_id,
         )
 
-        return await workflow.execute_activity(
+        return await workflow.execute_local_activity(
             DSLActivities.noop_gather_action_activity,
             args=(arg, self.role),
             start_to_close_timeout=timedelta(
