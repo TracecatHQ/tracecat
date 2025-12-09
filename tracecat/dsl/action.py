@@ -185,7 +185,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def parse_wait_until_activity(
+    def parse_wait_until_activity(
         wait_until: str,
     ) -> str | None:
         """Parse the wait until datetime. We wrap this in an activity to avoid
