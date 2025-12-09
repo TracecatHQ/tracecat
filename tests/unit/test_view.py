@@ -34,13 +34,14 @@ def metadata():
 
 
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
+    # Use node ID as ref for testing purposes
     return [
         ActionStatement(
-            ref=node.ref,
+            ref=node.id,
             action=node.data.type,
             args=node.data.args,  # For testing convenience
             depends_on=sorted(
-                graph.node_map[nid].ref for nid in graph.dep_list[node.id]
+                graph.node_map[nid].id for nid in graph.dep_list[node.id]
             ),
         )
         for node in graph.action_nodes()
@@ -98,21 +99,21 @@ def test_parse_dag_simple_sequence(metadata):
 
     expected_wf_ir = [
         ActionStatement(
-            ref="action_a",
+            ref="a",
             action="udf",
             args={"test": 1},
         ),
         ActionStatement(
-            ref="action_b",
+            ref="b",
             action="udf",
             args={"test": 2},
-            depends_on=["action_a"],
+            depends_on=["a"],
         ),
         ActionStatement(
-            ref="action_c",
+            ref="c",
             action="udf",
             args={"test": 3},
-            depends_on=["action_b"],
+            depends_on=["b"],
         ),
     ]
     graph = RFGraph.model_validate(rf_obj)
@@ -187,18 +188,18 @@ def test_kite(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_d"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="e", action="udf", args={}, depends_on=["d"]),
         ActionStatement(
-            ref="action_f",
+            ref="f",
             action="udf",
             args={},
-            depends_on=["action_c", "action_e"],
+            depends_on=["c", "e"],
         ),
-        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
+        ActionStatement(ref="g", action="udf", args={}, depends_on=["f"]),
     ]
     graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
@@ -316,28 +317,28 @@ def test_double_kite(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_d"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="e", action="udf", args={}, depends_on=["d"]),
         ActionStatement(
-            ref="action_f",
+            ref="f",
             action="udf",
             args={},
-            depends_on=["action_c", "action_e"],
+            depends_on=["c", "e"],
         ),
-        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
-        ActionStatement(ref="action_h", action="udf", args={}, depends_on=["action_g"]),
-        ActionStatement(ref="action_i", action="udf", args={}, depends_on=["action_g"]),
-        ActionStatement(ref="action_j", action="udf", args={}, depends_on=["action_i"]),
-        ActionStatement(ref="action_k", action="udf", args={}, depends_on=["action_h"]),
-        ActionStatement(ref="action_l", action="udf", args={}, depends_on=["action_j"]),
+        ActionStatement(ref="g", action="udf", args={}, depends_on=["f"]),
+        ActionStatement(ref="h", action="udf", args={}, depends_on=["g"]),
+        ActionStatement(ref="i", action="udf", args={}, depends_on=["g"]),
+        ActionStatement(ref="j", action="udf", args={}, depends_on=["i"]),
+        ActionStatement(ref="k", action="udf", args={}, depends_on=["h"]),
+        ActionStatement(ref="l", action="udf", args={}, depends_on=["j"]),
         ActionStatement(
-            ref="action_m",
+            ref="m",
             action="udf",
             args={},
-            depends_on=["action_k", "action_l"],
+            depends_on=["k", "l"],
         ),
     ]
     graph = RFGraph.model_validate(rf_obj)
@@ -407,13 +408,13 @@ def test_tree_1(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
-        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_c"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="e", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="f", action="udf", args={}, depends_on=["c"]),
+        ActionStatement(ref="g", action="udf", args={}, depends_on=["c"]),
     ]
     graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
@@ -483,13 +484,13 @@ def test_tree_2(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_e"]),
-        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="e", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="f", action="udf", args={}, depends_on=["e"]),
+        ActionStatement(ref="g", action="udf", args={}, depends_on=["f"]),
     ]
     graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
@@ -564,22 +565,22 @@ def test_complex_dag_1(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["b"]),
         ActionStatement(
-            ref="action_e",
+            ref="e",
             action="udf",
             args={},
-            depends_on=["action_b", "action_c"],
+            depends_on=["b", "c"],
         ),
-        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
+        ActionStatement(ref="f", action="udf", args={}, depends_on=["c"]),
         ActionStatement(
-            ref="action_g",
+            ref="g",
             action="udf",
             args={},
-            depends_on=["action_d", "action_e", "action_f"],
+            depends_on=["d", "e", "f"],
         ),
     ]
     graph = RFGraph.model_validate(rf_obj)
@@ -669,34 +670,34 @@ def test_complex_dag_2(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["b"]),
         ActionStatement(
-            ref="action_e",
+            ref="e",
             action="udf",
             args={},
-            depends_on=["action_b", "action_c"],
+            depends_on=["b", "c"],
         ),
-        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
+        ActionStatement(ref="f", action="udf", args={}, depends_on=["c"]),
         ActionStatement(
-            ref="action_g",
+            ref="g",
             action="udf",
             args={},
-            depends_on=["action_d", "action_e"],
-        ),
-        ActionStatement(
-            ref="action_h",
-            action="udf",
-            args={},
-            depends_on=["action_e", "action_f"],
+            depends_on=["d", "e"],
         ),
         ActionStatement(
-            ref="action_i",
+            ref="h",
             action="udf",
             args={},
-            depends_on=["action_g", "action_h"],
+            depends_on=["e", "f"],
+        ),
+        ActionStatement(
+            ref="i",
+            action="udf",
+            args={},
+            depends_on=["g", "h"],
         ),
     ]
     graph = RFGraph.model_validate(rf_obj)
@@ -803,33 +804,33 @@ def test_complex_dag_3(metadata):
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="udf", args={}),
-        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
-        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_a"]),
-        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_e"]),
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["b"]),
+        ActionStatement(ref="e", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="f", action="udf", args={}, depends_on=["e"]),
         ActionStatement(
-            ref="action_g",
+            ref="g",
             action="udf",
             args={},
-            depends_on=["action_c", "action_d"],
+            depends_on=["c", "d"],
         ),
-        ActionStatement(ref="action_h", action="udf", args={}, depends_on=["action_e"]),
-        ActionStatement(ref="action_i", action="udf", args={}, depends_on=["action_e"]),
+        ActionStatement(ref="h", action="udf", args={}, depends_on=["e"]),
+        ActionStatement(ref="i", action="udf", args={}, depends_on=["e"]),
         ActionStatement(
-            ref="action_j",
+            ref="j",
             action="udf",
             args={},
-            depends_on=["action_f", "action_i"],
+            depends_on=["f", "i"],
         ),
         ActionStatement(
-            ref="action_k",
+            ref="k",
             action="udf",
             args={},
-            depends_on=["action_g", "action_h"],
+            depends_on=["g", "h"],
         ),
-        ActionStatement(ref="action_l", action="udf", args={}, depends_on=["action_j"]),
+        ActionStatement(ref="l", action="udf", args={}, depends_on=["j"]),
     ]
     graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
