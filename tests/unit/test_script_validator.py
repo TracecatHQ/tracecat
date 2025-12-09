@@ -91,7 +91,8 @@ class TestSafeStdlibModules:
             "fnmatch",
             "struct",
             "io",
-            "inspect",
+            # NOTE: "inspect" is intentionally NOT included - it enables sandbox escape
+            # via frame introspection (inspect.currentframe().f_back.f_globals)
         ],
     )
     def test_safe_stdlib_import_allowed(self, module):
