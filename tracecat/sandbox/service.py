@@ -1,7 +1,5 @@
 """High-level sandbox service for Python script execution."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os

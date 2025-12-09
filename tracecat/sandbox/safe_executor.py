@@ -10,8 +10,6 @@ This is the fallback executor used when nsjail is not available (e.g., when
 running without privileged Docker mode).
 """
 
-from __future__ import annotations
-
 import ast
 import asyncio
 import hashlib
