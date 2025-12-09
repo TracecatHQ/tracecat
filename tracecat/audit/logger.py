@@ -58,7 +58,7 @@ def audit_log(
             if role is None or role.user_id is None:
                 return await func(self, *args, **kwargs)
 
-            # Get exisitng session. Currently only BaseService has a session.
+            # Get existing session. Currently only BaseService has a session.
             session = self.session if isinstance(self, BaseService) else None
             resource_id: uuid.UUID | None = None
             try:
