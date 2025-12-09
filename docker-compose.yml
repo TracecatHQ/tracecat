@@ -157,6 +157,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # Sandbox
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
