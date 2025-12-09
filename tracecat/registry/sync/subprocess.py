@@ -54,7 +54,7 @@ async def fetch_actions_from_subprocess(
     cmd = [
         sys.executable,
         "-m",
-        "tracecat.registry.sync",
+        "tracecat.registry.sync.entrypoint",
         "--origin",
         origin,
         "--repository-id",
