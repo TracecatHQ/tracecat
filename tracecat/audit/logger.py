@@ -11,6 +11,7 @@ from tracecat.audit.types import AuditAction, AuditResourceType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.service import BaseService
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -57,26 +58,29 @@ def audit_log(
             if role is None or role.user_id is None:
                 return await func(self, *args, **kwargs)
 
-            audit_service = AuditService(session=self.session, role=role)
+            # Get exisitng session. Currently only BaseService has a session.
+            session = self.session if isinstance(self, BaseService) else None
+            resource_id: uuid.UUID | None = None
             try:
-                resource_id: uuid.UUID | None = _extract_resource_id(
+                resource_id = _extract_resource_id(
                     args, kwargs, None, resolved_resource_id_attr
                 )
             except Exception as exc:
                 logger.warning("Audit resource_id extraction failed", error=str(exc))
-                resource_id = None
 
-            # Log attempt
-            try:
-                await audit_service.create_event(
-                    resource_type=resource_type,
-                    action=action,
-                    resource_id=resource_id,
-                    status=AuditEventStatus.ATTEMPT,
-                )
-            except Exception as exc:
-                logger.warning("Audit attempt log failed", error=str(exc))
+            async with AuditService.with_session(role, session=session) as svc:
+                # Log attempt
+                try:
+                    await svc.create_event(
+                        resource_type=resource_type,
+                        action=action,
+                        resource_id=resource_id,
+                        status=AuditEventStatus.ATTEMPT,
+                    )
+                except Exception as exc:
+                    logger.warning("Audit attempt log failed", error=str(exc))
 
+            # NOTE: Do not execute the function while holding the audit service session open
             try:
                 # Execute the actual function
                 result = await func(self, *args, **kwargs)
@@ -86,24 +90,26 @@ def audit_log(
                     resource_id = _extract_resource_id(
                         args, kwargs, result, resolved_resource_id_attr
                     )
-                    await audit_service.create_event(
-                        resource_type=resource_type,
-                        action=action,
-                        resource_id=resource_id,
-                        status=AuditEventStatus.SUCCESS,
-                    )
+                    async with AuditService.with_session(role, session=session) as svc:
+                        await svc.create_event(
+                            resource_type=resource_type,
+                            action=action,
+                            resource_id=resource_id,
+                            status=AuditEventStatus.SUCCESS,
+                        )
                 except Exception as exc:
                     logger.warning("Audit success log failed", error=str(exc))
                 return result
             except Exception:
                 # Log failure
                 try:
-                    await audit_service.create_event(
-                        resource_type=resource_type,
-                        action=action,
-                        resource_id=resource_id,
-                        status=AuditEventStatus.FAILURE,
-                    )
+                    async with AuditService.with_session(role, session=session) as svc:
+                        await svc.create_event(
+                            resource_type=resource_type,
+                            action=action,
+                            resource_id=resource_id,
+                            status=AuditEventStatus.FAILURE,
+                        )
                 except Exception as exc:
                     logger.warning("Audit failure log failed", error=str(exc))
                 raise
