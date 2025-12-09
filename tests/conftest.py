@@ -315,7 +315,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
+    # Point API URL to host-exposed port for host-side tests.
+    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost:8000")
+    monkeysession.setenv("TRACECAT__API_URL", "http://localhost:8000")
     # Needed for local unit tests
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
