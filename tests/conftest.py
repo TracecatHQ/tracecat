@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import os
 import subprocess
 import time
@@ -279,6 +280,9 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
     load_dotenv()
     logger.info("Setting up environment variables")
+    # Ensure executor URL points to the host-exposed port before config is used.
+    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
     monkeysession.setattr(
         config,
@@ -313,7 +317,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
     # Needed for local unit tests
-    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://executor:8000")
+    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
