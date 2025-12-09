@@ -14,6 +14,8 @@ from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
+    AuditSettingsRead,
+    AuditSettingsUpdate,
     AuthSettingsRead,
     AuthSettingsUpdate,
     GitSettingsRead,
@@ -197,6 +199,30 @@ async def update_app_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_app_settings(params)
+
+
+@router.get("/audit", response_model=AuditSettingsRead)
+async def get_audit_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+) -> AuditSettingsRead:
+    service = SettingsService(session, role)
+    keys = AuditSettingsRead.keys()
+    settings = await service.list_org_settings(keys=keys)
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    return AuditSettingsRead(**settings_dict)
+
+
+@router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
+async def update_audit_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+    params: AuditSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    await service.update_audit_settings(params)
 
 
 @router.get("/agent", response_model=AgentSettingsRead)

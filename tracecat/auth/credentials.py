@@ -26,7 +26,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.auth.users import is_unprivileged, optional_current_active_user
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.service import MembershipService
+from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
@@ -62,6 +62,7 @@ USER_ROLE_TO_ACCESS_LEVEL = {
 
 def get_role_from_user(
     user: User,
+    organization_id: UUID4,
     workspace_id: UUID4 | None = None,
     workspace_role: WorkspaceRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
@@ -69,6 +70,7 @@ def get_role_from_user(
     return Role(
         type="user",
         workspace_id=workspace_id,
+        organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
         access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
@@ -149,7 +151,7 @@ async def _role_dependency(
             # Check if we have a cache available (from middleware)
             auth_cache = getattr(request.state, "auth_cache", None)
 
-            membership = None
+            membership_with_org: MembershipWithOrg | None = None
             if auth_cache:
                 # Try to get from cache first
                 cached_membership = auth_cache["memberships"].get(str(workspace_id))
@@ -158,7 +160,11 @@ async def _role_dependency(
                     cached_membership is not None
                     and cached_membership.user_id == user.id
                 ):
-                    membership = cached_membership
+                    # Convert cached Membership to MembershipWithOrg by fetching org_id
+                    svc = MembershipService(session)
+                    membership_with_org = await svc.get_membership(
+                        workspace_id=workspace_id, user_id=user.id
+                    )
                     logger.debug(
                         "Using cached membership",
                         user_id=user.id,
@@ -178,14 +184,9 @@ async def _role_dependency(
                             membership_count=len(all_memberships),
                             max_allowed=MAX_CACHED_MEMBERSHIPS,
                         )
-                        # Find membership without caching
-                        membership = next(
-                            (
-                                m
-                                for m in all_memberships
-                                if m.workspace_id == workspace_id
-                            ),
-                            None,
+                        # Find membership without caching - fetch with org_id
+                        membership_with_org = await svc.get_membership(
+                            workspace_id=workspace_id, user_id=user.id
                         )
                     else:
                         # Cache all memberships with user context
@@ -196,15 +197,17 @@ async def _role_dependency(
                         auth_cache["membership_checked"] = True
                         auth_cache["all_memberships"] = all_memberships
 
-                        # Get the specific membership
-                        membership = auth_cache["memberships"].get(str(workspace_id))
+                        # Get the specific membership with org_id
+                        membership_with_org = await svc.get_membership(
+                            workspace_id=workspace_id, user_id=user.id
+                        )
 
                         logger.debug(
                             "Loaded and cached all user memberships",
                             user_id=user.id,
                             workspace_count=len(all_memberships),
                             workspace_id=workspace_id,
-                            found=membership is not None,
+                            found=membership_with_org is not None,
                         )
                 elif auth_cache.get("user_id") != user.id:
                     # Cache belongs to different user - security fallback
@@ -214,13 +217,13 @@ async def _role_dependency(
                         request_user_id=user.id,
                     )
                     svc = MembershipService(session)
-                    membership = await svc.get_membership(
+                    membership_with_org = await svc.get_membership(
                         workspace_id=workspace_id, user_id=user.id
                     )
             else:
                 # No cache available (e.g., in tests), fall back to direct query
                 svc = MembershipService(session)
-                membership = await svc.get_membership(
+                membership_with_org = await svc.get_membership(
                     workspace_id=workspace_id, user_id=user.id
                 )
                 logger.debug(
@@ -229,7 +232,7 @@ async def _role_dependency(
                     workspace_id=workspace_id,
                 )
 
-            if membership is None:
+            if membership_with_org is None:
                 logger.debug(
                     "User is not a member of this workspace",
                     user=user,
@@ -243,7 +246,7 @@ async def _role_dependency(
                 require_workspace_roles = [require_workspace_roles]
             if (
                 require_workspace_roles
-                and membership.role not in require_workspace_roles
+                and membership_with_org.membership.role not in require_workspace_roles
             ):
                 logger.debug(
                     "User does not have the appropriate workspace role",
@@ -256,13 +259,19 @@ async def _role_dependency(
                     detail="You cannot perform this operation",
                 )
             # User has appropriate workspace role
-            workspace_role = membership.role
+            workspace_role = membership_with_org.membership.role
+            organization_id = membership_with_org.org_id
         else:
             # Privileged user doesn't need workspace role verification
             workspace_role = None
+            # For privileged users, get organization_id from default or user's first workspace
+            organization_id = config.TRACECAT__DEFAULT_ORG_ID
 
         role = get_role_from_user(
-            user, workspace_id=workspace_id, workspace_role=workspace_role
+            user,
+            workspace_id=workspace_id,
+            workspace_role=workspace_role,
+            organization_id=organization_id,
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)

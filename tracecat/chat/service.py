@@ -20,6 +20,7 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, ModelMessageTA
+from tracecat.audit.logger import audit_log
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity, MessageKind
@@ -45,6 +46,7 @@ from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 class ChatService(BaseWorkspaceService):
     service_name = "chat"
 
+    @audit_log(resource_type="chat", action="create")
     async def create_chat(
         self,
         *,
@@ -388,6 +390,7 @@ class ChatService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @audit_log(resource_type="chat", action="update")
     async def update_chat(
         self,
         chat: Chat,

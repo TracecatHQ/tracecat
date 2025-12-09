@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import load_only, noload
 
 from tracecat import config
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.authz.enums import OwnerType, WorkspaceRole
@@ -63,6 +64,7 @@ class WorkspaceService(BaseService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @audit_log(resource_type="workspace", action="create")
     @require_access_level(AccessLevel.ADMIN)
     async def create_workspace(
         self,
@@ -118,6 +120,7 @@ class WorkspaceService(BaseService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @audit_log(resource_type="workspace", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
         self, workspace: Workspace, params: WorkspaceUpdate
@@ -132,6 +135,7 @@ class WorkspaceService(BaseService):
         await self.session.refresh(workspace)
         return workspace
 
+    @audit_log(resource_type="workspace", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""

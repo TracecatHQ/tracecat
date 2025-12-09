@@ -1,19 +1,28 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import and_, select
 
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.db.models import Membership, User
-from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.db.models import Membership, User, Workspace
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipUpdate,
 )
+
+
+@dataclass
+class MembershipWithOrg:
+    """Membership with organization ID."""
+
+    membership: Membership
+    org_id: OrganizationID
 
 
 class MembershipService(BaseService):
@@ -52,13 +61,22 @@ class MembershipService(BaseService):
 
     async def get_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
-    ) -> Membership | None:
-        """Get a workspace membership."""
-        statement = select(Membership).where(
-            Membership.user_id == user_id, Membership.workspace_id == workspace_id
+    ) -> MembershipWithOrg | None:
+        """Get a workspace membership with organization ID."""
+        statement = (
+            select(Membership, Workspace.organization_id)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
+            .where(
+                Membership.user_id == user_id,
+                Membership.workspace_id == workspace_id,
+            )
         )
         result = await self.session.execute(statement)
-        return result.scalars().first()
+        row = result.first()
+        if row is None:
+            return None
+        membership, org_id = row
+        return MembershipWithOrg(membership=membership, org_id=org_id)
 
     async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
         """List all workspace memberships for a specific user.
@@ -111,6 +129,6 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        if membership := await self.get_membership(workspace_id, user_id):
-            await self.session.delete(membership)
+        if membership_with_org := await self.get_membership(workspace_id, user_id):
+            await self.session.delete(membership_with_org.membership)
             await self.session.commit()

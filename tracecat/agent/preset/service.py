@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     AgentPreset,
     OAuthIntegration,
@@ -42,6 +43,7 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @audit_log(resource_type="agent_preset", action="create")
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
 
@@ -90,6 +92,7 @@ class AgentPresetService(BaseWorkspaceService):
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
 
+    @audit_log(resource_type="agent_preset", action="update")
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
@@ -130,6 +133,7 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
+    @audit_log(resource_type="agent_preset", action="delete")
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
         await self.session.delete(preset)

@@ -74,6 +74,12 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/app"),
     },
     {
+      title: "Audit Logs",
+      url: "/organization/settings/audit",
+      icon: ShieldIcon,
+      isActive: pathname?.includes("/organization/settings/audit"),
+    },
+    {
       title: "Agent",
       url: "/organization/settings/agent",
       icon: BotIcon,

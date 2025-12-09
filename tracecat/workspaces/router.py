@@ -292,14 +292,14 @@ async def update_workspace_membership(
 ) -> None:
     """Update a workspace membership for a user."""
     service = MembershipService(session, role=role)
-    membership = await service.get_membership(workspace_id, user_id=user_id)
-    if not membership:
+    membership_with_org = await service.get_membership(workspace_id, user_id=user_id)
+    if not membership_with_org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
     try:
-        await service.update_membership(membership, params=params)
+        await service.update_membership(membership_with_org.membership, params=params)
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -323,12 +323,13 @@ async def get_workspace_membership(
 ) -> WorkspaceMembershipRead:
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
-    membership = await service.get_membership(workspace_id, user_id=user_id)
-    if not membership:
+    membership_with_org = await service.get_membership(workspace_id, user_id=user_id)
+    if not membership_with_org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
+    membership = membership_with_org.membership
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,

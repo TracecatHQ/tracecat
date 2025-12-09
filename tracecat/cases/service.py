@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
@@ -78,6 +79,7 @@ from tracecat.expressions.expectations import (
     create_expectation_model,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -630,7 +632,9 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
+        logger.info("Creating case", session=self.session, role=self.role)
         try:
             now = datetime.now(UTC)
             # Create the base case first
@@ -671,6 +675,7 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
+    @audit_log(resource_type="case", action="update")
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
         """Update a case and optionally its custom fields.
 
@@ -796,6 +801,7 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
+    @audit_log(resource_type="case", action="delete")
     async def delete_case(self, case: Case) -> None:
         """Delete a case and optionally its associated field data.
 
