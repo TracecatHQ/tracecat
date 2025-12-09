@@ -49,11 +49,11 @@ class GoogleDriveACProvider(AuthorizationCodeOAuthProvider):
         troubleshooting_url="https://developers.google.com/drive/api/guides/handle-errors",
     )
 
-    # Google OAuth endpoints
-    default_authorization_endpoint: ClassVar[str] = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-    )
-    default_token_endpoint: ClassVar[str] = "https://oauth2.googleapis.com/token"
+    # Google OAuth endpoints (keep optional to mirror BaseOAuthProvider defaults)
+    default_authorization_endpoint: ClassVar[str | None]
+    default_authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+    default_token_endpoint: ClassVar[str | None]
+    default_token_endpoint = "https://oauth2.googleapis.com/token"
 
     def _use_pkce(self) -> bool:
         """Enable PKCE for enhanced security (recommended by Google)."""

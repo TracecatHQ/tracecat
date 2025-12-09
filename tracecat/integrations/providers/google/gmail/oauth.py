@@ -50,10 +50,10 @@ class GoogleGmailACProvider(AuthorizationCodeOAuthProvider):
     )
 
     # Google OAuth endpoints
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str | None] = (
         "https://accounts.google.com/o/oauth2/v2/auth"
     )
-    default_token_endpoint: ClassVar[str] = "https://oauth2.googleapis.com/token"
+    default_token_endpoint: ClassVar[str | None] = "https://oauth2.googleapis.com/token"
 
     def _use_pkce(self) -> bool:
         """Enable PKCE for enhanced security (recommended by Google)."""

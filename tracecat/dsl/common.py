@@ -47,9 +47,9 @@ from tracecat.dsl.schemas import (
     TriggerInputs,
 )
 from tracecat.dsl.view import (
+    NodeVariant,
     RFEdge,
     RFGraph,
-    RFNode,
     TriggerNode,
     UDFNode,
     UDFNodeData,
@@ -392,7 +392,7 @@ class DSLInput(BaseModel):
         """
 
         # Create nodes and edges
-        nodes: list[RFNode] = [trigger_node]
+        nodes: list[NodeVariant] = [trigger_node]
         edges: list[RFEdge] = []
         try:
             for action in self.actions:

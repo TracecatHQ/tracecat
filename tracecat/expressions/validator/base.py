@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import inspect
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any, Literal, override
 
 import jsonpath_ng.exceptions
@@ -11,10 +13,10 @@ from tracecat.expressions import functions
 from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.validation.schemas import ExprValidationResult, ValidationDetail
+from tracecat.validation.schemas import ValidationDetail
 
 
-class BaseExprValidator(Visitor):
+class BaseExprValidator[ResultT](Visitor):
     """Base validator containing common validation logic.
 
     You should not use this class directly, but rather use one of the subclasses.
@@ -31,7 +33,7 @@ class BaseExprValidator(Visitor):
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         strict: bool = True,
     ) -> None:
-        self._results: list[ExprValidationResult] = []
+        self._results: list[ResultT] = []
         self._strict = strict
         self._loc: tuple[str | int, ...] = ("expression",)
         self._environment = environment
@@ -48,23 +50,18 @@ class BaseExprValidator(Visitor):
         ref: str | None = None,
         loc: tuple[str | int, ...] | None = None,
     ) -> None:
-        self._results.append(
-            ExprValidationResult(
-                status=status,
-                msg=msg,
-                expression_type=type,
-                ref=ref,
-                expression=".".join(map(str, loc or self._loc)),
-            )
-        )
+        """Record a validation result."""
+        raise NotImplementedError
 
-    def results(self) -> Iterator[ExprValidationResult]:
+    def results(self) -> Iterable[ResultT]:
         """Return all validation results."""
-        yield from self._results
+        return self._results
 
-    def errors(self) -> list[ExprValidationResult]:
+    def errors(self) -> Sequence[ResultT]:
         """Return all validation errors."""
-        return [res for res in self.results() if res.status == "error"]
+        return [
+            res for res in self.results() if getattr(res, "status", None) == "error"
+        ]
 
     def visit_with_locator(
         self,
@@ -111,28 +108,28 @@ class BaseExprValidator(Visitor):
         else:
             self.add(status="success", type=ExprType.TYPECAST)
 
-    def actions(self, node: Tree[Token]):
+    def actions(self, _node: Tree[Token]):
         self.add(
             status="error",
             type=ExprType.ACTION,
             msg=f"ACTIONS expressions are not supported in {self._expr_kind}",
         )
 
-    def trigger(self, node: Tree):
+    def trigger(self, _node: Tree):
         self.add(
             status="error",
             type=ExprType.TRIGGER,
             msg=f"TRIGGER expressions are not supported in {self._expr_kind}",
         )
 
-    def env(self, node: Tree):
+    def env(self, _node: Tree):
         self.add(
             status="error",
             type=ExprType.ENV,
             msg=f"ENV expressions are not supported in {self._expr_kind}",
         )
 
-    def local_vars(self, node: Tree):
+    def local_vars(self, _node: Tree):
         self.add(
             status="error",
             type=ExprType.LOCAL_VARS,
@@ -355,6 +352,7 @@ class BaseExprValidator(Visitor):
                 status="error",
                 msg="Couldn't combine jsonpath expression segments: " + str(e),
             )
+            return
         try:
             jsonpath_ng.ext.parse("$" + combined_segments)
         except jsonpath_ng.exceptions.JSONPathError as e:

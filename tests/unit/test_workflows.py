@@ -144,6 +144,45 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
     return {key: (value or {}) for key, value in data.items()}
 
 
+def _normalize_error_message(msg: str) -> str:
+    """Normalize an error message string for comparison."""
+    # Normalize line numbers
+    msg = re.sub(r"Line: \d+", "Line: <NUM>", msg)
+    # Normalize newlines (collapse multiple newlines, normalize line endings)
+    msg = re.sub(r"\r\n", "\n", msg)
+    msg = re.sub(r"\n{2,}", "\n\n", msg)
+    return msg
+
+
+def _normalize_url(url: str) -> str:
+    """Normalize URL by removing default ports."""
+    # Remove :80 for http and :443 for https
+    url = re.sub(r"(http://[^/:]+):80(/|$)", r"\1\2", url)
+    url = re.sub(r"(https://[^/:]+):443(/|$)", r"\1\2", url)
+    return url
+
+
+def normalize_error_line_numbers(obj: Any) -> Any:
+    """Recursively normalize error messages and URLs for comparison.
+
+    This prevents test flakiness when source code line numbers change,
+    newline formatting varies, or URLs include default ports.
+    """
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            if k == "message" and isinstance(v, str):
+                result[k] = _normalize_error_message(v)
+            elif k in ("orig_wf_exec_url",) and isinstance(v, str):
+                result[k] = _normalize_url(v)
+            else:
+                result[k] = normalize_error_line_numbers(v)
+        return result
+    elif isinstance(obj, list):
+        return [normalize_error_line_numbers(item) for item in obj]
+    return obj
+
+
 @pytest.fixture
 def runtime_config() -> DSLConfig:
     config = DSLConfig(environment="default")
@@ -2633,63 +2672,69 @@ def assert_error_handler_initiated_correctly(
     exec_id = match.group("execution_id")
     wf_exec_url = f"http://localhost/workspaces/{workspace_id}/workflows/{wf_id_short}/executions/{exec_id}"
 
-    assert group.action_input.trigger_inputs == {
-        "errors": [
-            {
-                "attempt": 1,
-                "expr_context": "ACTIONS",
-                "message": (
-                    "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
-                    "\n"
-                    "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
-                    "[evaluator] Evaluation failed at node:\n"
-                    "```\n"
-                    "div_op\n"
-                    "  literal\t1\n"
-                    "  literal\t0\n\n"
-                    "```\n"
-                    'Reason: Error trying to process rule "div_op":\n\n'
-                    "Cannot divide by zero\n\n"
-                    "\n"
-                    "------------------------------\n"
-                    "File: /app/tracecat/expressions/core.py\n"
-                    "Function: result\n"
-                    "Line: 77"
-                ),
-                "ref": "failing_action",
-                "type": "ExecutorClientError",
-                "stream_id": "<root>:0",
-                "children": None,
-            }
-        ],
-        "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
-        "message": (
-            "Workflow failed with 1 error(s)\n\n"
-            f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
-            "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
-            "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
-            "\n"
-            "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
-            "[evaluator] Evaluation failed at node:\n"
-            "```\n"
-            "div_op\n"
-            "  literal\t1\n"
-            "  literal\t0\n\n"
-            "```\n"
-            'Reason: Error trying to process rule "div_op":\n\n'
-            "Cannot divide by zero\n\n"
-            "\n"
-            "------------------------------\n"
-            "File: /app/tracecat/expressions/core.py\n"
-            "Function: result\n"
-            "Line: 77"
-        ),
-        "orig_wf_exec_id": failing_wf_exec_id,
-        "orig_wf_exec_url": wf_exec_url,
-        "orig_wf_title": "Division by zero",
-        "trigger_type": "manual",
-        "orig_wf_id": str(failing_wf_id),
-    }
+    # Use normalize_error_line_numbers on both sides to avoid flaky assertions when
+    # line numbers change, newline formatting varies, or URLs include default ports
+    assert normalize_error_line_numbers(
+        group.action_input.trigger_inputs
+    ) == normalize_error_line_numbers(
+        {
+            "errors": [
+                {
+                    "attempt": 1,
+                    "expr_context": "ACTIONS",
+                    "message": (
+                        "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
+                        "\n"
+                        "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
+                        "[evaluator] Evaluation failed at node:\n"
+                        "```\n"
+                        "div_op\n"
+                        "  literal\t1\n"
+                        "  literal\t0\n\n"
+                        "```\n"
+                        'Reason: Error trying to process rule "div_op":\n\n'
+                        "Cannot divide by zero\n\n"
+                        "\n"
+                        "------------------------------\n"
+                        "File: /app/tracecat/expressions/core.py\n"
+                        "Function: result\n"
+                        "Line: 77"
+                    ),
+                    "ref": "failing_action",
+                    "type": "ExecutorClientError",
+                    "stream_id": "<root>:0",
+                    "children": None,
+                }
+            ],
+            "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
+            "message": (
+                "Workflow failed with 1 error(s)\n\n"
+                f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
+                "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
+                "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
+                "\n"
+                "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
+                "[evaluator] Evaluation failed at node:\n"
+                "```\n"
+                "div_op\n"
+                "  literal\t1\n"
+                "  literal\t0\n\n"
+                "```\n"
+                'Reason: Error trying to process rule "div_op":\n\n'
+                "Cannot divide by zero\n\n"
+                "\n"
+                "------------------------------\n"
+                "File: /app/tracecat/expressions/core.py\n"
+                "Function: result\n"
+                "Line: 77"
+            ),
+            "orig_wf_exec_id": failing_wf_exec_id,
+            "orig_wf_exec_url": wf_exec_url,
+            "orig_wf_title": "Division by zero",
+            "trigger_type": "manual",
+            "orig_wf_id": str(failing_wf_id),
+        }
+    )
     return evt
 
 
@@ -4917,7 +4962,10 @@ async def test_workflow_scatter_gather(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        assert result == expected
+        # Use normalize_error_line_numbers to avoid flaky assertions when line numbers change
+        assert normalize_error_line_numbers(result) == normalize_error_line_numbers(
+            expected
+        )
 
 
 @pytest.mark.anyio
