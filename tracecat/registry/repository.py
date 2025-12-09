@@ -770,7 +770,17 @@ def import_and_reload(module_name: str) -> ModuleType:
                 loaded_module = importlib.import_module(module_name)
             else:
                 # Reload in-place to refresh definitions without dropping parent package
-                loaded_module = importlib.reload(module)
+                try:
+                    loaded_module = importlib.reload(module)
+                except (ImportError, ValueError) as e:
+                    logger.warning(
+                        "Reload failed, trying fresh import",
+                        module_name=module_name,
+                        error=e,
+                    )
+                    # If reload fails, remove from sys.modules and re-import
+                    sys.modules.pop(module_name, None)
+                    loaded_module = importlib.import_module(module_name)
         sys.modules[module_name] = loaded_module
         return loaded_module
 
