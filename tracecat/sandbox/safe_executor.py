@@ -162,6 +162,13 @@ SYSTEM_ACCESS_MODULES = frozenset(
     }
 )
 
+# Dangerous builtins that can bypass import validation or execute arbitrary code
+# These are blocked in ScriptValidator.visit_Call to prevent:
+# - __import__(): Direct import function calls bypassing AST import validation
+# - exec()/eval(): Can execute code with manipulated globals to bypass import hook
+# - compile(): Can compile code for later execution
+DANGEROUS_BUILTINS = frozenset({"exec", "eval", "compile", "__import__"})
+
 
 class ScriptValidator(ast.NodeVisitor):
     """AST validator for full Python scripts using deny-by-default approach.
@@ -305,24 +312,50 @@ class ScriptValidator(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        """Block calls to __import__ which bypass import statement validation.
+        """Block calls to dangerous builtins that bypass import validation.
 
         The AST validator only checks ast.Import and ast.ImportFrom nodes,
         but __import__('os') is an ast.Call node that would bypass validation.
-        This method blocks both direct __import__ calls and builtins.__import__.
+        Similarly, exec() and eval() can be used with manipulated globals to
+        bypass the import hook's origin checking (e.g., exec("import os",
+        {"__file__": "/fake/site-packages/x.py"}) would trick the hook into
+        thinking the import comes from a trusted package).
+
+        This method blocks:
+        - __import__() - direct import function calls
+        - exec() - can execute arbitrary code with custom globals
+        - eval() - can evaluate expressions with custom globals
+        - compile() - can compile code for later execution
         """
-        # Block __import__('module')
-        if isinstance(node.func, ast.Name) and node.func.id == "__import__":
-            self.errors.append(
-                "Direct calls to __import__ are not allowed. "
-                "Use regular import statements instead."
-            )
+        # Block dangerous_builtin('...')
+        if isinstance(node.func, ast.Name) and node.func.id in DANGEROUS_BUILTINS:
+            func_name = node.func.id
+            if func_name == "__import__":
+                self.errors.append(
+                    "Direct calls to __import__ are not allowed. "
+                    "Use regular import statements instead."
+                )
+            else:
+                self.errors.append(
+                    f"Calls to '{func_name}' are not allowed. "
+                    f"Dynamic code execution is blocked for security."
+                )
         # Block builtins.__import__('module') and similar attribute access
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "__import__":
-            self.errors.append(
-                "Direct calls to __import__ are not allowed. "
-                "Use regular import statements instead."
-            )
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in DANGEROUS_BUILTINS
+        ):
+            attr_name = node.func.attr
+            if attr_name == "__import__":
+                self.errors.append(
+                    "Direct calls to __import__ are not allowed. "
+                    "Use regular import statements instead."
+                )
+            else:
+                self.errors.append(
+                    f"Calls to '{attr_name}' are not allowed. "
+                    f"Dynamic code execution is blocked for security."
+                )
         self.generic_visit(node)
 
     def validate(self, script: str) -> list[str]:
@@ -744,6 +777,7 @@ class SafePythonExecutor:
             )
         except TimeoutError as e:
             process.kill()
+            await process.wait()
             raise PackageInstallError("Virtual environment creation timed out") from e
 
         if process.returncode != 0:
@@ -809,6 +843,7 @@ class SafePythonExecutor:
             )
         except TimeoutError as e:
             process.kill()
+            await process.wait()
             raise PackageInstallError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e

@@ -736,11 +736,85 @@ def main():
         assert "__import__" in str(exc_info.value)
 
     @pytest.mark.anyio
+    async def test_exec_blocked(self, executor):
+        """Test that exec() is blocked to prevent import hook bypass.
+
+        exec() with manipulated globals could be used to bypass the import hook's
+        origin checking by setting __file__ to a fake site-packages path.
+        """
+        script = """
+def main():
+    exec("x = 1 + 1")
+    return True
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "exec" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_eval_blocked(self, executor):
+        """Test that eval() is blocked to prevent import hook bypass.
+
+        eval() with manipulated globals could be used to bypass the import hook's
+        origin checking.
+        """
+        script = """
+def main():
+    return eval("1 + 1")
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "eval" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_compile_blocked(self, executor):
+        """Test that compile() is blocked to prevent code compilation attacks."""
+        script = """
+def main():
+    code = compile("import os", "<string>", "exec")
+    return code
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "compile" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_exec_with_manipulated_globals_blocked(self, executor):
+        """Test that exec() with manipulated globals is blocked.
+
+        This tests the specific attack vector where exec() is called with a
+        fake __file__ to bypass the import hook's origin checking.
+        """
+        script = """
+def main():
+    fake_globals = {"__file__": "/fake/site-packages/malicious.py"}
+    exec("import os", fake_globals)
+    return fake_globals.get("os")
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "exec" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_builtins_exec_blocked(self, executor):
+        """Test that builtins.exec() is also blocked."""
+        script = """
+import builtins
+
+def main():
+    builtins.exec("x = 1")
+    return True
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "exec" in str(exc_info.value)
+
+    @pytest.mark.anyio
     async def test_safe_stdlib_with_os_dependency_still_works(self, executor):
         """Test that safe stdlib modules that internally use os still work.
 
-        Modules like inspect and traceback depend on os internally, but they
-        import it during wrapper initialization before the hook is active.
+        Modules like traceback depend on os internally, but they import it
+        during wrapper initialization before the hook is active.
         User code should still be able to use these modules.
         """
         script = """
