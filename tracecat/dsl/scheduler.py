@@ -1211,7 +1211,7 @@ class DSLScheduler:
             "Resolving expression", expression=expression, context=context
         )
         try:
-            return await workflow.execute_activity(
+            return await workflow.execute_local_activity(
                 DSLActivities.evaluate_single_expression_activity,
                 args=(expression, context),
                 start_to_close_timeout=timedelta(seconds=10),
