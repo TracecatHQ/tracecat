@@ -34,7 +34,7 @@ class ExprValidationContext(BaseModel):
     trigger_context: Any = Field(default_factory=dict)
 
 
-class ExprValidator(BaseExprValidator):
+class ExprValidator(BaseExprValidator[ValidationDetail]):
     """Expression validator for workflow actions."""
 
     _visitor_name = "ExprValidator"
@@ -395,7 +395,9 @@ class TemplateActionValidationContext(BaseModel):
     step_refs: set[str]  # Valid step references
 
 
-class TemplateActionExprValidator(BaseExprValidator):
+class TemplateActionExprValidator(
+    BaseExprValidator[TemplateActionExprValidationResult]
+):
     """Validator for template action expressions."""
 
     _visitor_name = "TemplateActionExprValidator"
@@ -408,7 +410,7 @@ class TemplateActionExprValidator(BaseExprValidator):
     ) -> None:
         super().__init__(**kwargs)
         self._context = validation_context
-        self._results: list[TemplateActionExprValidationResult] = []  # Type override
+        self._results: list[TemplateActionExprValidationResult] = []
 
     @override
     def results(self) -> Iterator[TemplateActionExprValidationResult]:

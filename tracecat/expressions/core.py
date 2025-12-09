@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from lark import Token, Tree, Visitor
 
@@ -17,6 +17,9 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
+
+ExtractorResult = TypeVar("ExtractorResult", covariant=True)
+ValidatorResult = TypeVar("ValidatorResult")
 
 
 class Expression:
@@ -81,7 +84,7 @@ class Expression:
 
     def validate(
         self,
-        visitor: BaseExprValidator,
+        visitor: BaseExprValidator[ValidatorResult],
         *,
         loc: tuple[str | int, ...] | None = None,
         exclude: set[ExprType] | None = None,
@@ -114,7 +117,7 @@ class Expression:
                 loc=("validation", self._expr),
             )
 
-    def extract(self, visitor: ExprExtractor) -> Mapping[ExprContext, set[str]]:
+    def extract(self, visitor: ExprExtractor[ExtractorResult]) -> ExtractorResult:
         parse_tree = self._parser.parse(self._expr)
         if parse_tree is None:
             raise TracecatExpressionError(
@@ -163,17 +166,17 @@ class TemplateExpression:
         return self.expr.result()
 
 
-class ExprExtractor(Visitor, abc.ABC):
+class ExprExtractor[ExtractorResult](Visitor, abc.ABC):
     """Extract components from an expression."""
 
     _visitor_name = "ExprExtractor"
 
     @abc.abstractmethod
-    def results(self) -> Mapping[ExprContext, set[str]]:
+    def results(self) -> ExtractorResult:
         raise NotImplementedError
 
 
-class RegistryActionExtractor(ExprExtractor):
+class RegistryActionExtractor(ExprExtractor[Mapping[ExprContext, set[str]]]):
     def __init__(self) -> None:
         self._results = defaultdict[ExprContext, set[str]](set)
         self.logger = logger.bind(visitor=self._visitor_name)
@@ -218,7 +221,7 @@ def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str
     return extractor.results()
 
 
-class SecretPathExtractor(ExprExtractor):
+class SecretPathExtractor(ExprExtractor[Mapping[ExprContext, set[str]]]):
     """Extracts full secret paths including keys."""
 
     def __init__(self) -> None:
@@ -245,7 +248,7 @@ class CollectedExprs:
     variables: set[str] = field(default_factory=set)
 
 
-class ExprPathCollector(ExprExtractor):
+class ExprPathCollector(ExprExtractor[CollectedExprs]):
     """Collects secrets and variables from expressions."""
 
     def __init__(self) -> None:
