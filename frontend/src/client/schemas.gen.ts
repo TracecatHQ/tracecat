@@ -13520,6 +13520,7 @@ export const $TemplateActionValidationErrorType = {
     "ACTION_NAME_CONFLICT",
     "STEP_VALIDATION_ERROR",
     "EXPRESSION_VALIDATION_ERROR",
+    "SERIALIZATION_ERROR",
   ],
   title: "TemplateActionValidationErrorType",
 } as const

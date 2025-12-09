@@ -4370,6 +4370,7 @@ export type TemplateActionValidationErrorType =
   | "ACTION_NAME_CONFLICT"
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
+  | "SERIALIZATION_ERROR"
 
 export type Text = {
   component_id?: "text"
