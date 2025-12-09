@@ -15,7 +15,6 @@ from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.enums import EdgeType
 from tracecat.exceptions import TracecatValidationError
-from tracecat.identifiers import action
 
 if TYPE_CHECKING:
     from tracecat.db.models import Workflow
@@ -50,7 +49,6 @@ class UDFNodeData(TSObject):
     is_configured: bool = False
     number_of_events: int = 0
     status: Literal["online", "offline"] = Field(default="offline")
-    title: str = Field(description="Action title, used to generate the action ref")
     type: str = Field(description="UDF type")
     args: dict[str, Any] = Field(default_factory=dict, description="Action arguments")
 
@@ -72,10 +70,6 @@ class BaseRFNode[T: (UDFNodeData | TriggerNodeData)](TSObject):
     position: Position = Field(default_factory=Position)
     position_absolute: Position = Field(default_factory=Position)
     data: T
-
-    @property
-    def ref(self) -> str:
-        return action.ref(self.data.title)
 
 
 class TriggerNode(BaseRFNode[TriggerNodeData]):
