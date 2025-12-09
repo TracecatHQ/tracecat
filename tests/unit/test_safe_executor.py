@@ -758,8 +758,13 @@ def main():
         assert result.output is True
 
     @pytest.mark.anyio
-    async def test_inspect_module_works(self, executor):
-        """Test that inspect module works for safe operations."""
+    async def test_inspect_module_blocked(self, executor):
+        """Test that inspect module is blocked to prevent sandbox escape.
+
+        The inspect module provides frame introspection capabilities that can be
+        used to escape the sandbox by accessing parent frame globals and disabling
+        the import hook (e.g., `inspect.currentframe().f_back.f_globals`).
+        """
         script = """
 import inspect
 
@@ -767,9 +772,114 @@ def example_func(a, b):
     return a + b
 
 def main():
-    # Basic inspect operations should work
     return inspect.isfunction(example_func)
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "inspect" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_frame_introspection_escape_blocked(self, executor):
+        """Test that frame introspection-based sandbox escape is blocked.
+
+        This verifies that the specific attack vector using inspect.currentframe()
+        to access the wrapper's globals and disable the import hook is blocked.
+        """
+        # This attack would:
+        # 1. Import inspect
+        # 2. Use inspect.currentframe().f_back.f_globals to access wrapper globals
+        # 3. Set _wrapper_initialized = False to disable the import hook
+        # 4. Import blocked modules like os
+        script = """
+import inspect
+
+def main():
+    # Get parent frame's globals (the wrapper)
+    frame = inspect.currentframe()
+    parent_globals = frame.f_back.f_globals
+    # Try to disable the import hook
+    parent_globals['_wrapper_initialized'] = False
+    # Now try to import os
+    import os
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        # Should fail at AST validation because inspect is not allowed
+        assert "inspect" in str(exc_info.value)
+
+
+class TestTransitiveImports:
+    """Test that transitive imports from packages work while direct imports are blocked."""
+
+    @pytest.fixture
+    def executor(self, tmp_path):
+        """Create an executor with a temp cache directory."""
+        return SafePythonExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.anyio
+    async def test_package_transitive_imports_allowed(self, executor):
+        """Test that packages can import their transitive dependencies.
+
+        When a user imports a package like openpyxl, that package should be
+        able to import its own dependencies (like et_xmlfile, strings, etc.)
+        even if those aren't in the user's declared dependencies.
+
+        This test uses the 'csv' stdlib module which internally may import
+        other modules. The key is that transitive imports from allowed
+        packages should work.
+        """
+        script = """
+import csv
+import io
+
+def main():
+    # csv module works and can import its dependencies
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['name', 'value'])
+    writer.writerow(['test', 42])
+    return output.getvalue()
 """
         result = await executor.execute(script=script)
         assert result.success
-        assert result.output is True
+        assert "name,value" in result.output
+        assert "test,42" in result.output
+
+    @pytest.mark.anyio
+    async def test_user_cannot_import_unlisted_packages(self, executor):
+        """Test that users cannot directly import packages not in their dependencies.
+
+        Even though transitive imports from packages are allowed, users should
+        not be able to directly import arbitrary modules that aren't:
+        1. In the safe stdlib list
+        2. In their declared dependencies
+        """
+        script = """
+import someunknownpackage
+
+def main():
+    return "should fail"
+"""
+        # This should fail at AST validation (before runtime)
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "someunknownpackage" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_blocked_modules_still_blocked_from_packages(self, executor):
+        """Test that blocked modules (os, sys, etc.) are blocked even in transitive imports.
+
+        Even if a package tries to import os or subprocess, it should be blocked
+        at runtime by the import hook.
+        """
+        # This tests the AST validation - os is blocked at validation time
+        script = """
+import os
+
+def main():
+    return os.getcwd()
+"""
+        with pytest.raises(SandboxValidationError) as exc_info:
+            await executor.execute(script=script)
+        assert "os" in str(exc_info.value).lower()

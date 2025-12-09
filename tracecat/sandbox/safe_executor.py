@@ -270,7 +270,9 @@ SAFE_STDLIB_MODULES = frozenset(
         "fnmatch",
         "struct",
         "io",
-        "inspect",
+        # NOTE: 'inspect' is intentionally NOT included here due to security risks.
+        # inspect.currentframe().f_back.f_globals allows sandbox escape via frame
+        # introspection. It IS blocked in SafeEvaluator.RESTRICTED_SYMBOLS for lambdas.
     }
 )
 
@@ -795,10 +797,11 @@ def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
 
 # Template for the import hook that restricts module access at runtime
 # This provides defense-in-depth against dynamic imports not caught by AST validation
-# NOTE: We only block direct user imports, not transitive imports from stdlib modules
+# NOTE: We only block direct user imports, not transitive imports from allowed packages
 IMPORT_HOOK_TEMPLATE = '''
 import sys
 import builtins
+import os.path
 
 _ALLOWED_MODULES = {allowed_modules!r}
 _BLOCKED_MODULES = {blocked_modules!r}
@@ -826,12 +829,44 @@ _INTERNAL_MODULES = frozenset({{
 
 _original_import = builtins.__import__
 _wrapper_initialized = False
+_user_script_path = None  # Set by wrapper before executing user script
+
+def _is_import_from_user_script(globals_dict):
+    """Check if an import originates from the user script (not from a package).
+
+    Returns True if the import is from the user script or unknown origin,
+    meaning we should apply strict validation.
+    Returns False if the import is from site-packages (a package's internal import),
+    meaning we can be more permissive.
+    """
+    if globals_dict is None:
+        return True  # Be conservative if we can't determine origin
+
+    # Check __file__ to see where the import is coming from
+    caller_file = globals_dict.get("__file__")
+    if caller_file is None:
+        # No file info - could be interactive or dynamic, be conservative
+        return True
+
+    # If the import comes from site-packages, it's a package's internal import
+    # Allow these (except for blocked modules which are checked separately)
+    if "site-packages" in caller_file:
+        return False
+
+    # If the import comes from the user script, apply strict validation
+    if _user_script_path and os.path.samefile(caller_file, _user_script_path):
+        return True
+
+    # For any other location (e.g., stdlib), allow the import
+    # This handles cases where stdlib modules import other stdlib modules
+    return False
 
 def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     """Import hook that validates user imports.
 
-    This hook only blocks imports that appear to be direct user imports,
-    not transitive imports from allowed stdlib modules.
+    This hook distinguishes between:
+    1. Direct imports from user script -> strict validation (only declared deps + safe stdlib)
+    2. Transitive imports from packages -> permissive (allow anything except blocked modules)
     """
     global _wrapper_initialized
     base_module = name.split(".")[0]
@@ -840,22 +875,33 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     if not _wrapper_initialized:
         return _original_import(name, globals, locals, fromlist, level)
 
-    # Always allow Python internals (underscore-prefixed)
-    if name.startswith("_") or base_module.startswith("_"):
-        return _original_import(name, globals, locals, fromlist, level)
-
-    # CHECK BLOCKED MODULES FIRST - before any allowlists
-    # This ensures os, sys, etc. are blocked even if they appear in other sets
+    # CHECK BLOCKED MODULES FIRST - before any allowlists including underscore-prefixed
+    # This ensures os, sys, etc. are blocked even from packages or internal paths
     if name in _BLOCKED_MODULES or base_module in _BLOCKED_MODULES:
         raise ImportError(
             f"Import of module '{{name}}' is blocked for security reasons."
         )
 
+    # Allow Python internals (underscore-prefixed) - safe since blocked modules checked above
+    if name.startswith("_") or base_module.startswith("_"):
+        return _original_import(name, globals, locals, fromlist, level)
+
     # Allow internal modules (now safe since dangerous ones blocked above)
     if name in _INTERNAL_MODULES or base_module in _INTERNAL_MODULES:
         return _original_import(name, globals, locals, fromlist, level)
 
-    # Allow safe stdlib modules and their transitive dependencies
+    # Check if this import is from the user script or from a package
+    from_user_script = _is_import_from_user_script(globals)
+
+    if not from_user_script:
+        # Import is from an installed package (site-packages) - allow it
+        # since blocked modules were already checked above
+        return _original_import(name, globals, locals, fromlist, level)
+
+    # From here on, we're validating imports from the user script
+    # Apply strict allowlist validation
+
+    # Allow safe stdlib modules
     if name in _SAFE_STDLIB or base_module in _SAFE_STDLIB:
         return _original_import(name, globals, locals, fromlist, level)
 
@@ -868,7 +914,7 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name.startswith(f"{{allowed}}."):
             return _original_import(name, globals, locals, fromlist, level)
 
-    # Block unknown modules - anything not in allowlists is rejected
+    # Block unknown modules from user script
     raise ImportError(
         f"Import of module '{{name}}' is not allowed. "
         f"Only safe stdlib modules and declared dependencies are permitted."
@@ -917,11 +963,12 @@ def main():
         script_path = Path(work_dir) / "script.py"
         script_code = script_path.read_text()
 
-        # Enable import restrictions for user code
-        global _wrapper_initialized
+        # Set the user script path for the import hook to identify user imports
+        global _wrapper_initialized, _user_script_path
+        _user_script_path = str(script_path.resolve())
         _wrapper_initialized = True
 
-        script_globals = {{"__name__": "__main__"}}
+        script_globals = {{"__name__": "__main__", "__file__": _user_script_path}}
         exec(script_code, script_globals)
 
         # Find the callable function
