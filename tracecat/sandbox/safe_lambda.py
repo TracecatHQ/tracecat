@@ -7,10 +7,10 @@ from typing import Any
 from tracecat.expressions.common import eval_jsonpath
 
 
-class SafeEvaluator(ast.NodeVisitor):
-    """AST node visitor that ensures expressions are safe to evaluate."""
+class SafeLambdaValidator(ast.NodeVisitor):
+    """AST validator for lambda expressions using allow/deny lists."""
 
-    RESTRICTED_NODES = {
+    DENYLISTED_NODES = {
         ast.Import,
         ast.ImportFrom,
         ast.Global,
@@ -23,7 +23,7 @@ class SafeEvaluator(ast.NodeVisitor):
         ast.ClassDef,
         ast.FunctionDef,
     }
-    RESTRICTED_SYMBOLS = {
+    DENYLISTED_SYMBOLS = {
         # Core dangerous functions
         "eval",
         "exec",
@@ -97,68 +97,7 @@ class SafeEvaluator(ast.NodeVisitor):
         "memoryview",
         "bytearray",
     }
-    ALLOWED_FUNCTIONS = {"jsonpath"}
-
-    def visit(self, node):
-        if type(node) in self.RESTRICTED_NODES:
-            raise ValueError(
-                f"Restricted node {type(node).__name__} detected in expression"
-            )
-
-        # Check for restricted function calls
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                if (
-                    func_name in self.RESTRICTED_SYMBOLS
-                    and func_name not in self.ALLOWED_FUNCTIONS
-                ):
-                    raise ValueError(
-                        f"Calling restricted function '{func_name}' is not allowed"
-                    )
-
-            elif isinstance(node.func, ast.Attribute):
-                attr_name = node.func.attr
-                if (
-                    attr_name in self.RESTRICTED_SYMBOLS
-                    and attr_name not in self.ALLOWED_FUNCTIONS
-                ):
-                    raise ValueError(
-                        f"Calling restricted method '{attr_name}' is not allowed"
-                    )
-
-                if isinstance(node.func.value, ast.Name):
-                    obj_name = node.func.value.id
-                    if obj_name in self.RESTRICTED_SYMBOLS:
-                        raise ValueError(
-                            f"Accessing restricted module '{obj_name}' is not allowed"
-                        )
-
-        elif isinstance(node, ast.Name):
-            if (
-                node.id in self.RESTRICTED_SYMBOLS
-                and node.id not in self.ALLOWED_FUNCTIONS
-            ):
-                raise ValueError(
-                    f"Accessing restricted symbol '{node.id}' is not allowed"
-                )
-
-        elif isinstance(node, ast.Attribute):
-            if (
-                node.attr in self.RESTRICTED_SYMBOLS
-                and node.attr not in self.ALLOWED_FUNCTIONS
-            ):
-                raise ValueError(
-                    f"Accessing restricted attribute '{node.attr}' is not allowed"
-                )
-
-        self.generic_visit(node)
-
-
-class WhitelistValidator(ast.NodeVisitor):
-    """AST validator that uses a whitelist approach - only allows safe node types."""
-
-    ALLOWED_NODE_TYPES = {
+    ALLOWLISTED_NODE_TYPES = {
         # Basic nodes
         ast.Module,
         ast.Expression,
@@ -233,9 +172,15 @@ class WhitelistValidator(ast.NodeVisitor):
         ast.Call,
         ast.keyword,
     }
+    ALLOWED_FUNCTIONS = {"jsonpath"}
 
     def visit(self, node):
-        if type(node) not in self.ALLOWED_NODE_TYPES:
+        if type(node) in self.DENYLISTED_NODES:
+            raise ValueError(
+                f"Restricted node {type(node).__name__} detected in expression"
+            )
+
+        if type(node) not in self.ALLOWLISTED_NODE_TYPES:
             raise ValueError(
                 f"Node type {type(node).__name__} is not allowed in expressions. "
                 f"Only safe, simple expressions are permitted."
@@ -245,6 +190,53 @@ class WhitelistValidator(ast.NodeVisitor):
             if node.attr.startswith("__") and node.attr.endswith("__"):
                 raise ValueError(
                     f"Access to dunder attribute '{node.attr}' is not allowed"
+                )
+
+        # Check for denylisted function calls and symbols
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+                if (
+                    func_name in self.DENYLISTED_SYMBOLS
+                    and func_name not in self.ALLOWED_FUNCTIONS
+                ):
+                    raise ValueError(
+                        f"Calling restricted function '{func_name}' is not allowed"
+                    )
+
+            elif isinstance(node.func, ast.Attribute):
+                attr_name = node.func.attr
+                if (
+                    attr_name in self.DENYLISTED_SYMBOLS
+                    and attr_name not in self.ALLOWED_FUNCTIONS
+                ):
+                    raise ValueError(
+                        f"Calling restricted method '{attr_name}' is not allowed"
+                    )
+
+                if isinstance(node.func.value, ast.Name):
+                    obj_name = node.func.value.id
+                    if obj_name in self.DENYLISTED_SYMBOLS:
+                        raise ValueError(
+                            f"Accessing restricted module '{obj_name}' is not allowed"
+                        )
+
+        elif isinstance(node, ast.Name):
+            if (
+                node.id in self.DENYLISTED_SYMBOLS
+                and node.id not in self.ALLOWED_FUNCTIONS
+            ):
+                raise ValueError(
+                    f"Accessing restricted symbol '{node.id}' is not allowed"
+                )
+
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr in self.DENYLISTED_SYMBOLS
+                and node.attr not in self.ALLOWED_FUNCTIONS
+            ):
+                raise ValueError(
+                    f"Accessing restricted attribute '{node.attr}' is not allowed"
                 )
 
         self.generic_visit(node)
@@ -339,8 +331,7 @@ def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
     if not isinstance(expr_ast, ast.Lambda):
         raise ValueError("Expression must be a lambda function")
 
-    SafeEvaluator().visit(expr_ast)
-    WhitelistValidator().visit(expr_ast)
+    SafeLambdaValidator().visit(expr_ast)
 
     code = compile(ast.Expression(expr_ast), "<string>", "eval")
 

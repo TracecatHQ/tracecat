@@ -96,7 +96,7 @@ SAFE_STDLIB_MODULES = frozenset(
         "io",
         # NOTE: 'inspect' is intentionally NOT included here due to security risks.
         # inspect.currentframe().f_back.f_globals allows sandbox escape via frame
-        # introspection. It IS blocked in SafeEvaluator.RESTRICTED_SYMBOLS for lambdas.
+        # introspection. It IS blocked in SafeLambdaValidator.DENYLISTED_SYMBOLS for lambdas.
     }
 )
 
@@ -172,7 +172,7 @@ class ScriptValidator(ast.NodeVisitor):
     - Blocks all modules in NETWORK_MODULES unless allow_network=True
     - Blocks access to os.environ
 
-    Unlike SafeEvaluator which uses a blacklist, this uses a strict allowlist
+    Unlike SafeLambdaValidator which uses a symbol/function denylist, this uses a strict allowlist
     for imports while still allowing general Python code execution.
     """
 

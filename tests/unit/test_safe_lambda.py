@@ -1,8 +1,7 @@
 """Tests for build_safe_lambda and related security validators.
 
-These tests verify that the SafeEvaluator, WhitelistValidator, and related
-security functions correctly block dangerous expressions while allowing
-safe operations.
+These tests verify that the SafeLambdaValidator and related security functions
+correctly block dangerous expressions while allowing safe operations.
 """
 
 import sys

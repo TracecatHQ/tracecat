@@ -35,11 +35,7 @@ from tracecat.sandbox.safe_executor import (
     SafePythonExecutor,
     ScriptValidator,
 )
-from tracecat.sandbox.safe_lambda import (
-    SafeEvaluator,
-    WhitelistValidator,
-    build_safe_lambda,
-)
+from tracecat.sandbox.safe_lambda import SafeLambdaValidator, build_safe_lambda
 from tracecat.sandbox.service import SandboxService
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
@@ -58,8 +54,7 @@ __all__ = [
     "SandboxValidationError",
     "PackageInstallError",
     # Security validators and constants
-    "SafeEvaluator",
-    "WhitelistValidator",
+    "SafeLambdaValidator",
     "ScriptValidator",
     "build_safe_lambda",
     "SAFE_STDLIB_MODULES",
