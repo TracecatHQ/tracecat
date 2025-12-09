@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, status
+from pydantic import ValidationError
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import RegistryError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
+from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.workflow.actions.dependencies import AnyActionIDPath
@@ -102,14 +104,21 @@ async def get_action(
             ) from e
         # Extract required fields from the interface JSON schema stored in DB
         # The schema has: { "properties": {...}, "required": [...], ... }
-        interface = RegistryActionInterfaceValidator.validate_python(
-            reg_action.interface or {}
-        )
-        expects_schema = interface["expects"]
-        required_fields = expects_schema.get("required", [])
-        # Build prefilled YAML with required fields
-        prefilled_inputs = "\n".join(f"{field}: " for field in required_fields)
-        action.inputs = prefilled_inputs
+        try:
+            interface = RegistryActionInterfaceValidator.validate_python(
+                reg_action.interface or {}
+            )
+            expects_schema = interface["expects"]
+            required_fields = expects_schema.get("required", [])
+            # Build prefilled YAML with required fields
+            prefilled_inputs = "\n".join(f"{field}: " for field in required_fields)
+            action.inputs = prefilled_inputs
+        except ValidationError as e:
+            logger.warning(
+                "Failed to validate registry action interface",
+                action_name=action.type,
+                error=e,
+            )
 
     return ActionRead(
         id=action.id,
